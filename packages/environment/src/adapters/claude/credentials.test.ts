@@ -8,7 +8,7 @@ import { CLAUDE_CONFIG_DIR, CLAUDE_STRIPPED_VARIABLES, ambientConfigDirectory, c
  * ADR 0018): the directory variable, the stripped variables, the argv of the
  * bundled binary's auth commands, and the status parser. The status outputs
  * are what `claude auth status --json` prints: the signed-out one verbatim
- * from the bundled 2.1.281, the signed-in one in the fields Artemis reads.
+ * from the bundled 2.1.281, the signed-in one in the fields read here.
  */
 
 const SIGNED_OUT = `{

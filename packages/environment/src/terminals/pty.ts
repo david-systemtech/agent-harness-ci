@@ -69,8 +69,8 @@ interface NodePty {
  * Sets the execute bit on node-pty's `spawn-helper` when it lacks it. On
  * macOS node-pty starts every process through that helper, and its prebuilt
  * packages ship it without the bit, so the first spawn fails with
- * `posix_spawnp failed` (Artemis's `ensureHelperExecutable`, the same
- * repair). On Linux node-pty is compiled in place and has no helper; a
+ * `posix_spawnp failed` (the same repair). On Linux node-pty is compiled in
+ * place and has no helper; a
  * candidate that is not there is skipped.
  */
 const ensureHelperExecutable = (require: NodeJS.Require): void => {

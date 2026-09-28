@@ -8,8 +8,8 @@ import type { TaskLedger } from "./tasks.js";
 
 /**
  * One turn of a Claude process, which is one run (claude-adapter spec, "The
- * Claude adapter, ported after the audit's fixes": the turn is the run;
- * Artemis's `ClaudeTurn`). Thin on purpose: everything that does work lives
+ * Claude adapter, ported after the audit's fixes": the turn is the run).
+ * Thin on purpose: everything that does work lives
  * on the process (`process.ts`), and this is the contract's `AdapterRun`
  * around one turn of it, with the turn's own mapper state and its own
  * stream, so a host still reading turn one is untouched by turn two, and a

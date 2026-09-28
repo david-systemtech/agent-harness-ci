@@ -4,8 +4,8 @@ import { CLAUDE_EFFORTS } from "./options.js";
 
 /**
  * Claude's model catalogue (claude-adapter spec, "The adapter contract":
- * models with a family and an ordinal tier the adapter supplies; Artemis's
- * `CLAUDE_MODELS` and `claudeModelTier`). The live listing is the
+ * models with a family and an ordinal tier the adapter supplies). The live
+ * listing is the
  * authoritative one, asked of the binary on an unsampled query; this static
  * list, aliases rather than dated ids, is what answers when that fails.
  * The family is read off the wire id, since a tier has to survive ids this

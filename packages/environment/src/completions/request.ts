@@ -1,6 +1,5 @@
 import {
   COMPLETIONS_NAMESPACE,
-  COMPLETIONS_NAMESPACE_ALIAS,
   ChatCompletionRequest,
   CompletionsExtension as ExtensionSchema,
   IGNORED_PARAMETERS,
@@ -16,13 +15,13 @@ import { CompletionsRefusal, paramOf } from "./errors.js";
 
 /**
  * A completions request read into a turn (claude-adapter spec, "The
- * completions surface"): the schema checked, the two namespaces merged (the
- * harness's key wins a field both set), the parameters it cannot honour
- * refused or, under `ignoreUnsupported`, ignored and reported, and the
- * messages split into the turn (the trailing user message), the instructions
- * it appends (system and developer messages) and the conversation before it.
- * The caller's tools (#139) are read into the functions its run is served,
- * and trailing tool messages into the results that resume a parked turn.
+ * completions surface"): the schema checked, the extension namespace read,
+ * the parameters it cannot honour refused or, under `ignoreUnsupported`,
+ * ignored and reported, and the messages split into the turn (the trailing
+ * user message), the instructions it appends (system and developer messages)
+ * and the conversation before it. The caller's tools (#139) are read into the
+ * functions its run is served, and trailing tool messages into the results
+ * that resume a parked turn.
  */
 
 /** How many characters a token stands for when `max_tokens` bounds an answer: a chosen default, since no tokenizer runs here. */
@@ -92,13 +91,6 @@ const invalid = (message: string, param: string | null): CompletionsRefusal => n
 
 /** A field is set when it is present and not null. */
 const isSet = (value: unknown): boolean => value !== undefined && value !== null;
-
-/** The two namespaces as one: the alias's fields, then the harness's over them, a null standing for absent. */
-const merged = (request: ChatCompletionRequest): CompletionsExtension => {
-  const set = (extension: CompletionsExtension | null | undefined) =>
-    Object.fromEntries(Object.entries(extension ?? {}).filter(([, value]) => isSet(value))) as CompletionsExtension;
-  return { ...set(request[COMPLETIONS_NAMESPACE_ALIAS]), ...set(request[COMPLETIONS_NAMESPACE]) };
-};
 
 /**
  * A message's text: a string as it is, text parts joined with a newline.
@@ -180,7 +172,7 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
     throw invalid(`The request does not match the chat completion schema${param === null ? "" : ` at ${param}`}: ${issue?.message ?? "invalid"}.`, param);
   }
   const request = parsed.data;
-  const extension = merged(request);
+  const extension: CompletionsExtension = request[COMPLETIONS_NAMESPACE] ?? {};
   const tolerate = extension.ignoreUnsupported === true;
   const ignored: string[] = [];
 
@@ -194,12 +186,11 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   for (const name of IGNORED_PARAMETERS) if (isSet(request[name])) ignored.push(name);
   const tools = readTools(request, tolerate, ignored);
   if (extension.alwaysOnSkills !== undefined && extension.alwaysOnSkills !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills`);
-  // A field neither namespace knows (a browser field, a later version's) is dropped, and said so.
+  // A field the namespace does not know (a browser field, a later version's) is dropped, and said so.
   const known = new Set(Object.keys(ExtensionSchema.shape));
-  for (const namespace of [COMPLETIONS_NAMESPACE, COMPLETIONS_NAMESPACE_ALIAS]) {
-    const raw = (body as Record<string, unknown>)[namespace];
-    if (typeof raw !== "object" || raw === null) continue;
-    for (const key of Object.keys(raw)) if (!known.has(key)) ignored.push(`${namespace}.${key}`);
+  const raw = (body as Record<string, unknown>)[COMPLETIONS_NAMESPACE];
+  if (typeof raw === "object" && raw !== null) {
+    for (const key of Object.keys(raw)) if (!known.has(key)) ignored.push(`${COMPLETIONS_NAMESPACE}.${key}`);
   }
 
   const { messages } = request;
@@ -307,8 +298,8 @@ const toolCallsOf = (message: ChatMessage): string[] =>
 
 /**
  * The prompt of a fresh session's first turn: the earlier messages as an
- * "earlier in this conversation" preamble, then the turn (Artemis's rule).
- * With nothing earlier it is the turn alone.
+ * "earlier in this conversation" preamble, then the turn. With nothing
+ * earlier it is the turn alone.
  */
 export const withPreamble = (earlier: readonly ChatMessage[], text: string): string => {
   const lines = earlier.flatMap((message) => {

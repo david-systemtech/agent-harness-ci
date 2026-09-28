@@ -527,10 +527,10 @@ export type WithdrawDecision =
 /**
  * The session's draft once a withdrawn message's text is written into it:
  * the text in place of an empty draft, else after the draft on a paragraph
- * of its own, so nothing typed is lost (#228; Artemis takes a queued message
- * back only into an empty composer, which a draft every client shares cannot
- * promise). Null when the result would pass the draft's limit: nothing is
- * cut, and the withdraw is refused `draft_full`.
+ * of its own, so nothing typed is lost (#228: taking a queued message back
+ * only into an empty composer is not possible here, since the draft is
+ * shared by every client). Null when the result would pass the draft's
+ * limit: nothing is cut, and the withdraw is refused `draft_full`.
  */
 export const draftWithWithdrawn = (draft: string | null, text: string): string | null => {
   const written = draft === null ? text : `${draft}\n\n${text}`;

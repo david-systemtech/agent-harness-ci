@@ -12,7 +12,7 @@ import { globalWebSocket, inMemoryPlatform, manualClock } from "./testing/in-mem
 /**
  * The outbox against the in-process environment (docs/specs/client-runtime.md,
  * "Testing Decisions", the primary seam): real sockets, real receipts, a
- * real event log. The Artemis bug as tests: an edit made with the network
+ * real event log. Known regressions as tests: an edit made with the network
  * off shows pending and applies once when the environment is back; a
  * command whose answer the link lost is sent again with its command id and
  * applies once; a draft typed through one runtime is in another's.

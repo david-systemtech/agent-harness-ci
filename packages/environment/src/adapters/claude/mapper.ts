@@ -4,8 +4,8 @@ import type { TaskLedger } from "./tasks.js";
 
 /**
  * The mapper (claude-adapter spec, "The Claude adapter, ported after the
- * audit's fixes"; Artemis's `mapper.ts`, extended for the vocabulary): one
- * SDK message in, the transcript events it means out, for one turn. Pure
+ * audit's fixes"): one SDK message in, the transcript events it means out,
+ * for one turn. Pure
  * over its arguments: everything it remembers is on the turn's state, which
  * the process owns and hands in (the ledger is the process's, shared by its
  * turns). Deltas come out one per stream fragment; the delta batcher gathers
@@ -299,7 +299,7 @@ export const readRateLimit = (message: unknown): { window: string; status: "allo
   return {
     window,
     status,
-    // A percentage, as Artemis read it, carried as the vocabulary's fraction.
+    // A percentage, carried as the vocabulary's fraction.
     utilisation: typeof used === "number" && Number.isFinite(used) ? Math.max(0, used) / 100 : null,
     // Epoch seconds, or milliseconds from a producer that sends those.
     resetsAt: typeof resets === "number" && Number.isFinite(resets) && resets > 0 ? new Date(resets > 1e12 ? resets : resets * 1000).toISOString() : null,

@@ -26,8 +26,8 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * one `terminal.exited`; none of it is ever appended to the event log.
  *
  * Output is gathered for a few milliseconds before it becomes a chunk, so a
- * flood of small reads is a chunk a frame rather than thousands (Artemis
- * batches the same way); a chunk is cut at 64 KiB whatever the wait.
+ * flood of small reads is a chunk a frame rather than thousands; a chunk is
+ * cut at 64 KiB whatever the wait.
  *
  * An exited terminal keeps its scrollback ten minutes by the environment's
  * clock, then only its exit code, listed until it is closed: with at most

@@ -21,9 +21,6 @@ import { InterruptCause, RunEndReason, ToolStatus } from "./transcript.js";
 /** The extension namespace the harness's own fields travel in, on requests and on answers. */
 export const COMPLETIONS_NAMESPACE = "agent-harness";
 
-/** The namespace Artemis used, accepted on requests until the switch-over ends; the harness's own key wins a field both set. */
-export const COMPLETIONS_NAMESPACE_ALIAS = "artemis";
-
 /** Where the OpenAI-shaped routes live: every other path under it answers 501 with a sentence. */
 export const OPENAI_PATH_PREFIX = "/v1/";
 
@@ -36,7 +33,7 @@ export const MODELS_PATH = "/v1/models";
 /** The most characters `systemPrompt` carries, and the most a request appends to the composed instructions in all. */
 export const MAX_SYSTEM_PROMPT_CHARS = 200_000;
 
-/** How long a stream may be silent before an SSE comment goes out, so a quiet tool call never looks like a dead socket (Artemis's pacing). */
+/** How long a stream may be silent before an SSE comment goes out, so a quiet tool call never looks like a dead socket (a measured pacing). */
 export const COMPLETIONS_HEARTBEAT_MS = 15_000;
 
 /** OpenAI parameters the surface cannot honour: refused with 400 unless the request sets `ignoreUnsupported`, then ignored and reported. */
@@ -71,9 +68,9 @@ export const MAX_CLIENT_TOOLS = 128;
 export const CLIENT_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
- * The harness's fields on a request, under `agent-harness` (or `artemis`).
- * Every field may be absent or null; null is taken as absent. `forkSession`
- * and `rewindToMessageId` go through `sessions.fork` and `sessions.rewind`
+ * The harness's fields on a request, under `agent-harness`. Every field may
+ * be absent or null; null is taken as absent. `forkSession` and
+ * `rewindToMessageId` go through `sessions.fork` and `sessions.rewind`
  * (#137).
  */
 export const CompletionsExtension = z
@@ -107,7 +104,7 @@ export const CompletionsExtension = z
     after: Sequence.nullish().meta({ description: "On a session whose run is live, the log sequence to attach from: the events of the run after it are sent first." }),
     ignoreUnsupported: z.boolean().nullish().meta({ description: "Ignore, and report, the OpenAI parameters the surface would otherwise refuse with 400." }),
   })
-  .meta({ description: "The harness's fields on a completions request, under agent-harness (or its alias artemis)." });
+  .meta({ description: "The harness's fields on a completions request, under agent-harness." });
 export type CompletionsExtension = z.infer<typeof CompletionsExtension>;
 
 /** Who wrote a message of the conversation. */
@@ -202,7 +199,6 @@ export const ChatCompletionRequest = z
       .meta({ description: "The caller's own tools: served to the run, each call handed back as tool_calls and answered by a follow-up's tool messages." }),
     tool_choice: ChatToolChoice.nullish(),
     [COMPLETIONS_NAMESPACE]: CompletionsExtension.nullish(),
-    [COMPLETIONS_NAMESPACE_ALIAS]: CompletionsExtension.nullish(),
   })
   .meta({ description: "A chat completion request, OpenAI's shape with the harness's extension namespace." });
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequest>;

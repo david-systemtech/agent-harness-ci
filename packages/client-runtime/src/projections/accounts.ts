@@ -70,8 +70,8 @@ const later = (a: string, b: string): boolean => Date.parse(a) > Date.parse(b);
 /**
  * The readings of every environment pooled by account identity (ADR 0018):
  * the readings of one identity are one gauge, each window taken from the
- * reading that observed it last (`observedAt`, Artemis's `mergePlanUsage`
- * per window; a tie goes to the earlier environment in the list), so a run's
+ * reading that observed it last (`observedAt`, merged per window; a tie
+ * goes to the earlier environment in the list), so a run's
  * verdict folded in on one environment beats an older read on another. An
  * account with no identity yet is a gauge of its own.
  */

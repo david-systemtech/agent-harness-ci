@@ -1,36 +1,33 @@
 /**
- * Artemis's terminal keymap and slash commands at 443cf2e, as data: every row
- * of `KEYMAP`'s groups in `apps/tui/src/keymap.ts` but the slash group (which
- * Artemis builds from `COMMANDS`), and every entry of `COMMANDS` in
- * `apps/tui/src/commands.ts`, in their order, the text exactly as Artemis
- * wrote it. The shared action list is tested against this (ADR 0004, the tui
- * spec's "Shortcuts"); it is a transcription and is never re-derived. At
- * 443cf2e no row is `planned`.
+ * The reference terminal keymap and slash commands, as data: every row of
+ * the keymap's groups except the slash group (which the commands list
+ * captures instead), and every entry of the commands list, in their order,
+ * transcribed word for word. The shared action list is tested against this
+ * (ADR 0004, the tui spec's "Shortcuts"); it is a transcription and is never
+ * re-derived. No row here is `planned`.
  */
 
-/** A row of one of `KEYMAP`'s groups: its keys, alternatives, and what it does. */
-export interface ArtemisKeyRow {
+/** A row of one of the reference keymap's groups: its keys, alternatives, and what it does. */
+export interface ReferenceKeyRow {
   readonly keys: readonly string[];
   readonly does: string;
 }
 
-/** One of `KEYMAP`'s groups: its title, its context and its rows. */
-export interface ArtemisKeyGroup {
+/** One of the reference keymap's groups: its title, its context and its rows. */
+export interface ReferenceKeyGroup {
   readonly title: string;
   readonly context: string;
-  readonly rows: readonly ArtemisKeyRow[];
+  readonly rows: readonly ReferenceKeyRow[];
 }
 
-/** An entry of `COMMANDS`. */
-export interface ArtemisCommand {
+/** An entry of the reference commands list. */
+export interface ReferenceCommand {
   readonly name: string;
   readonly usage: string;
   readonly summary: string;
 }
 
-export const ARTEMIS_COMMIT = "443cf2e";
-
-export const ARTEMIS_KEYMAP: readonly ArtemisKeyGroup[] = [
+export const REFERENCE_KEYMAP: readonly ReferenceKeyGroup[] = [
   {
     title: "Anywhere",
     context: "anywhere",
@@ -197,7 +194,7 @@ export const ARTEMIS_KEYMAP: readonly ArtemisKeyGroup[] = [
   },
 ];
 
-export const ARTEMIS_COMMANDS: readonly ArtemisCommand[] = [
+export const REFERENCE_COMMANDS: readonly ReferenceCommand[] = [
   { name: "profile", usage: "/profile", summary: "Switch the account the next conversation runs as" },
   { name: "model", usage: "/model", summary: "Choose the model, and its effort where it has one" },
   { name: "mode", usage: "/mode", summary: "Set the permission mode for the next turn" },

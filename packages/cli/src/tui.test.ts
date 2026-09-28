@@ -121,7 +121,7 @@ describe("agent-harness tui", () => {
     expect(await cli.run("tui")).toBe(1);
   });
 
-  it("prints its usage and exits 2 on arguments it cannot parse, and carries neither Artemis's -p nor ls", async () => {
+  it("prints its usage and exits 2 on arguments it cannot parse, and carries neither -p nor ls", async () => {
     for (const args of [
       ["tui", "-p", "hello"],
       ["tui", "ls"],

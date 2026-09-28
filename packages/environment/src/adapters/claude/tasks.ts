@@ -2,8 +2,8 @@ import type { DelegatedWorkRow, DelegatedWorkStatus } from "@agent-harness/contr
 import type { Clock } from "../../serve/clock.js";
 
 /**
- * The delegated-work ledger (Artemis's `taskLedger.ts`, ported to the
- * contracts' `DelegatedWorkRow`): one row per task a run delegated (a
+ * The delegated-work ledger (ported to the contracts' `DelegatedWorkRow`):
+ * one row per task a run delegated (a
  * subagent, a background shell, a workflow), merged from five SDK messages.
  * `background_tasks_changed` is the level: the whole live set after each
  * change, and the only one that says a background task is gone when its

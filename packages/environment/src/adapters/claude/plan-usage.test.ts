@@ -11,8 +11,7 @@ import {
 } from "./plan-usage.js";
 
 /**
- * The plan-usage read (claude-adapter spec, "Plan usage"; Artemis's
- * `planUsage.ts` and the server's shared read, ported): a control-channel
+ * The plan-usage read (claude-adapter spec, "Plan usage"): a control-channel
  * read on an unsampled query, found by a tolerant name lookup that degrades
  * to unavailable on a rename; in-flight reads shared; readings aged out
  * after six minutes on the environment's clock; `plan.limit` verdicts folded

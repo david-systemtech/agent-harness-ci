@@ -5,9 +5,8 @@ import { readStoredSession, resolveForkPoint, resolveRewindPoint, type StoredMes
 /**
  * Where a fork from a message or a rewind re-enters the stored chain
  * (claude-adapter spec, "Queue, read-now, fork and rewind on the Claude
- * adapter"; Artemis's `resolveRewindPoint`, ported): the entry before the
- * user message, and the drop acknowledgement only when everything after it
- * is that one turn's.
+ * adapter"): the entry before the user message, and the drop acknowledgement
+ * only when everything after it is that one turn's.
  */
 
 const user = (uuid: string, content: unknown): StoredMessage => ({ type: "user", uuid, message: { role: "user", content } });

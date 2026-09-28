@@ -5,22 +5,22 @@ import { z } from "zod";
  * action list, the defaults, the keybindings file"; #144). Every key a client
  * answers is a named action here: its id, the context it is answered in, its
  * default keys, a one-line description, and whether the harness wires it or
- * keeps its keys absent with a reason. The defaults are Artemis's terminal map
- * at 443cf2e exactly (`KEYMAP` and `COMMANDS`, which a contract test holds as
- * a fixture), plus the actions the harness adds. The terminal UI's map is a
- * projection of this list and its keybindings file remaps it by id; the GUI's
- * defaults for the same ids are its own column, not written here.
+ * keeps its keys absent with a reason. The defaults are the reference
+ * terminal map exactly, which a contract test holds as a fixture, plus the
+ * actions the harness adds. The terminal UI's map is a projection of this
+ * list and its keybindings file remaps it by id; the GUI's defaults for the
+ * same ids are its own column, not written here.
  *
- * The list is data in groups, as Artemis wrote its map: the order is the
- * order the help overlay draws, each group one context. Sigils typed into the
+ * The list is data in groups: the order is the order the help overlay draws,
+ * each group one context. Sigils typed into the
  * composer (`/`, `@`, `;;`, `!`, `!!`) are syntax, not keys: only their menu
  * triggers are actions (`SIGILS`).
  */
 
 /**
- * The eleven places a key means what it means: Artemis's eight (`anywhere` is
- * the handful no component may take) plus the terminal pane, the parked-asks
- * card and the one-line yes or no offers.
+ * The eleven places a key means what it means: the reference keymap's eight
+ * (`anywhere` is the handful no component may take) plus the terminal pane,
+ * the parked-asks card and the one-line yes or no offers.
  */
 export const ACTION_CONTEXTS = [
   "anywhere",
@@ -105,7 +105,7 @@ const ActionFields = {
     description:
       "The default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed.",
   }),
-  description: z.string().min(1).meta({ description: "What the action does, in one line; Artemis's words for the rows it carries." }),
+  description: z.string().min(1).meta({ description: "What the action does, in one line; the reference fixture's words for the rows it carries." }),
   usage: z
     .string()
     .regex(/^\/[a-z]+( .*)?$/)
@@ -130,7 +130,7 @@ const AbsentAction = z
     status: z.literal("absent"),
     reason: z.string().min(1).meta({ description: "Why the harness answers it absent: the help overlay draws the row dim with this." }),
   })
-  .meta({ description: "An action the harness keeps the keys of but does not answer: drawn dim with its reason, as Artemis drew its planned rows." });
+  .meta({ description: "An action the harness keeps the keys of but does not answer: drawn dim with its reason." });
 
 /**
  * One entry of the shared action list. The rules that tie its fields
@@ -234,11 +234,11 @@ const PHASE_D = "Deferred to phase D, carried if Seth relies on it (docs/specs/t
 export const SLASH_COMMANDS_TITLE = "Slash commands";
 
 /**
- * The list, in groups. Artemis's rows come first in each of its groups, in its
- * order and with its words; the harness's additions follow them (ADR 0022's
- * fork, rewind, read-now and withdraw keys, the rail's organisation keys), then the
- * three contexts the harness adds, then the slash commands: Artemis's, in its
- * order, then the harness's.
+ * The list, in groups. The reference keymap's rows come first in each of its
+ * groups, in its order and with its words; the harness's additions follow
+ * them (ADR 0022's fork, rewind, read-now and withdraw keys, the rail's
+ * organisation keys), then the three contexts the harness adds, then the
+ * slash commands: the reference's, in its order, then the harness's.
  */
 export const ACTION_GROUPS = [
   group("Anywhere", "anywhere", [

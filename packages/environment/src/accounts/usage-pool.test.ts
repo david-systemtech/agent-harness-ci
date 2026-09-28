@@ -10,12 +10,9 @@ import { createUsagePool, foldVerdict, sameReading, type PlanVerdict } from "./u
 
 /**
  * The pool's fold and its notice rule as pure functions: a run's verdict
- * folded into a reading, ported from Artemis's `applyPlanLimit` cases
- * (`packages/protocol/src/usage.test.ts` at 443cf2e, "applyPlanLimit" and
- * "a window keeps the clock it was read on"), and what counts as a change.
- * The pool's own reads, sharing and notices are the wire's
- * (`usage.test.ts`); a fault around a read, which the wire cannot stage, is
- * the pool's own, below.
+ * folded into a reading, and what counts as a change. The pool's own reads,
+ * sharing and notices are the wire's (`usage.test.ts`); a fault around a
+ * read, which the wire cannot stage, is the pool's own, below.
  */
 
 const { onCleanup } = useCleanups();

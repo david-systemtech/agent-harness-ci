@@ -24,14 +24,12 @@ import {
 } from "./handoff.js";
 
 /**
- * The hand-off policy, ported from Artemis (`packages/protocol/src/handoff.ts`,
- * `planLoad.ts` and the recommendation of `usage.ts`, at 443cf2e) with their
- * tests: when an account is near enough its limit that the work should be
- * handed on, what the runs already on an account will spend, and which
- * account has the most room. Pure functions over readings built from
- * literals; whether a reading is fresh is the pool's question, asked here
- * only through `now`. Artemis's percentages are fractions here, as a reading
- * carries them.
+ * The hand-off policy: when an account is near enough its limit that the
+ * work should be handed on, what the runs already on an account will spend,
+ * and which account has the most room. Pure functions over readings built
+ * from literals; whether a reading is fresh is the pool's question, asked
+ * here only through `now`. Utilisation is a fraction here, as a reading
+ * carries it.
  */
 
 const NOW = Date.parse("2026-09-24T01:00:00.000Z");
@@ -118,7 +116,7 @@ describe("handoffTrigger", () => {
     expect(handoffTrigger(reading([w("five_hour", 0.906)]))?.utilisation).toBe(0.91);
   });
 
-  it("does not fire on a window that has rolled over since it was read, when told the time (a change from Artemis)", () => {
+  it("does not fire on a window that has rolled over since it was read, when told the time", () => {
     const lapsed = reading([w("five_hour", 0.97, { resetsAt: iso(NOW + 1_000) })]);
     expect(handoffTrigger(lapsed, DEFAULT_HANDOFF_THRESHOLDS, NOW)?.threshold.id).toBe("five_hour");
     expect(handoffTrigger(lapsed, DEFAULT_HANDOFF_THRESHOLDS, NOW + 2_000)).toBeNull();
@@ -300,7 +298,7 @@ describe("recommendAccount", () => {
     const stale = five(0.1, { readAt: iso(NOW - USAGE_MAX_AGE_MS - 1), windows: [w("five_hour", 0.1, { observedAt: iso(NOW - USAGE_MAX_AGE_MS - 1) })] });
     const result = recommendAccount([entry("stale", stale), entry("fresh", five(0.8)), entry("other", five(0.85))], { now: NOW });
     expect(result?.accountId).toBe("fresh");
-    // Nor counts it: the candidates are the accounts ranked, as Artemis's recommendProfile counts them.
+    // Nor counts it: the candidates are the accounts ranked.
     expect(result?.candidates).toBe(2);
   });
 
@@ -333,7 +331,7 @@ describe("recommendAccount", () => {
     expect(recommendAccount(tied, { now: NOW })?.accountId).toBe("first");
   });
 
-  it("never names an account with no room, even the least full of full ones (a change from Artemis), and answers null for no accounts", () => {
+  it("never names an account with no room, even the least full of full ones, and answers null for no accounts", () => {
     expect(rankAccounts([entry("a", five(1)), entry("b", five(1))], { now: NOW })).toEqual({ candidates: 2, best: null });
     expect(recommendAccount([entry("a", five(1.2)), entry("b", five(1))], { now: NOW })).toBeNull();
     expect(recommendAccount([], { now: NOW })).toBeNull();

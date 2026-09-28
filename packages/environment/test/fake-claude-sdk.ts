@@ -2,9 +2,9 @@ import type { CanUseTool, HookJSONOutput, Options, SDKUserMessage } from "@anthr
 
 /**
  * The Agent SDK's transport, scripted (claude-adapter spec, "Testing
- * Decisions", the adapter seam; Artemis's `FakeQuery` in `claude.test.ts`):
- * a test replaces the SDK module with `vi.hoisted` and `vi.mock` and routes
- * `query()` here. Each call is a `FakeQuery`: it records the options it was
+ * Decisions", the adapter seam): a test replaces the SDK module with
+ * `vi.hoisted` and `vi.mock` and routes `query()` here. Each call is a
+ * `FakeQuery`: it records the options it was
  * called with (the process's environment among them), reads the streaming
  * input as the CLI would, yields the SDK messages the test emits, and keeps
  * the control methods a test drives or inspects. Nothing is spawned and no

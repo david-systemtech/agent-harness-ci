@@ -54,7 +54,7 @@ import { currentWindow, isFresh, type LiveRunLoad } from "./handoff.js";
  *   host's account lookup, the store), answers that account unavailable too,
  *   reported and not held: one account's fault never fails the others'
  *   readings.
- * - **A run's `plan.limit` folds in** (Artemis's `applyPlanLimit`): the pool
+ * - **A run's `plan.limit` folds in**: the pool
  *   hears the log, maps the run to its account through the runs table, and
  *   folds the verdict into that account's window: the verdict, and the
  *   utilisation and reset it names, the rest kept unless the window has
@@ -167,10 +167,10 @@ export const sameReading = (a: AccountUsage, b: AccountUsage): boolean =>
   });
 
 /**
- * A run's verdict folded into a reading (Artemis's `applyPlanLimit`), or
- * null when it is not news: neither the verdict nor the utilisation moved,
- * or it is older than the reading, whose read the provider answered after it
- * (a failed read is dated when it was asked, so none heard during it is).
+ * A run's verdict folded into a reading, or null when it is not news:
+ * neither the verdict nor the utilisation moved, or it is older than the
+ * reading, whose read the provider answered after it (a failed read is
+ * dated when it was asked, so none heard during it is).
  * The folded window takes the verdict, and the utilisation and reset it
  * names; what it does not name is kept from the window, unless the window
  * rolled over before the verdict, whose numbers describe a period that is

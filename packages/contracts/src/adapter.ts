@@ -6,11 +6,10 @@ import { Timestamp } from "./primitives.js";
  * The adapter contract's transport-neutral half (claude-adapter spec, "The
  * adapter contract"; ADR 0015): what an adapter declares about itself (its
  * capabilities descriptor and credential spec), the ids a run and a message
- * go by, an account's identity, and the three types Artemis kept in its
- * desktop IPC file (the run suggestion, the send response and the
- * delegated-work row), as schemas any client can read. The live interface an
- * adapter implements is the environment's (`adapter/contract.ts`); it never
- * crosses the wire.
+ * go by, an account's identity, and three further types (the run suggestion,
+ * the send response and the delegated-work row), as schemas any client can
+ * read. The live interface an adapter implements is the environment's
+ * (`adapter/contract.ts`); it never crosses the wire.
  */
 
 /** A run's id: a version 4 UUID the environment mints when it starts or adopts the run. */
@@ -200,11 +199,10 @@ export const QueueHolder = z.enum(QUEUE_HOLDERS).meta({
 export type QueueHolder = z.infer<typeof QueueHolder>;
 
 /**
- * What `runs.send` answers (the send response Artemis kept in its IPC file,
- * reshaped by ADR 0022): the message's id, the run it went to or was sent
- * during, and whether it started that run or was queued, and by whom. Whether
- * a queued message is later steered or read is reported by
- * `message.delivered`, never here.
+ * What `runs.send` answers (the send response, reshaped by ADR 0022): the
+ * message's id, the run it went to or was sent during, and whether it
+ * started that run or was queued, and by whom. Whether a queued message is
+ * later steered or read is reported by `message.delivered`, never here.
  */
 export const SendResponse = z
   .object({
@@ -226,9 +224,9 @@ export const DelegatedWorkStatus = z.enum(DELEGATED_WORK_STATUSES).meta({
 export type DelegatedWorkStatus = z.infer<typeof DelegatedWorkStatus>;
 
 /**
- * One row of a run's delegated-work ledger (Artemis's background task): a
- * subagent, a background shell, a workflow. `tasks.changed` carries the whole
- * ledger after each change, settled rows included.
+ * One row of a run's delegated-work ledger: a subagent, a background shell,
+ * a workflow. `tasks.changed` carries the whole ledger after each change,
+ * settled rows included.
  */
 export const DelegatedWorkRow = z
   .object({
@@ -247,8 +245,7 @@ export type DelegatedWorkRow = z.infer<typeof DelegatedWorkRow>;
 
 /**
  * A provider's prediction of the user's next message after a run (the run
- * suggestion Artemis kept in its IPC file): editable text for the composer,
- * never sent on its own.
+ * suggestion): editable text for the composer, never sent on its own.
  */
 export const RunSuggestion = z
   .object({

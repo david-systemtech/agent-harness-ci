@@ -21,7 +21,7 @@ import type { MethodTable } from "../serve/methods.js";
 import { createDispatch, type Answer } from "./dispatch.js";
 import { createSubscriptions, type SocketSubscriptions, type SubscriptionHooks } from "./subscriptions.js";
 
-/** How often the environment pings each socket (env spec, "The wire"; Artemis's measured value). */
+/** How often the environment pings each socket (env spec, "The wire"; a measured value). */
 export const PING_INTERVAL_MS = 15_000;
 
 /** How long a new socket has to send `auth` once the environment is ready. A chosen default. */

@@ -135,7 +135,7 @@ describe("settings.update", () => {
       [{ "sessions.autoSettleAfterIdle": { amount: 0, unit: "days" } }, { path: ["values", "sessions.autoSettleAfterIdle", "amount"] }],
       [{ "sessions.autoSettleAfterIdle": { amount: 2, unit: "fortnights" } }, { path: ["values", "sessions.autoSettleAfterIdle", "unit"] }],
       [{ "sessions.autoSettleAfterIdle": 14 }, { path: ["values", "sessions.autoSettleAfterIdle"] }],
-      [{ theme: "artemis" }, { path: ["values"], keys: ["theme"] }],
+      [{ theme: "invalid-theme" }, { path: ["values"], keys: ["theme"] }],
     ];
     for (const [values, issue] of cases) {
       expect(await refusal(client.request("settings.update", { commandId: randomUUID(), values } as never)), JSON.stringify(values)).toMatchObject({
