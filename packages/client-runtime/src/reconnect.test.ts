@@ -755,7 +755,7 @@ describe("the local environment", () => {
     const startingService = runtime.connections.startService(wire.environmentId);
     await wire.server.accept();
     await startingService;
-    expect(shell.calls).toContainEqual(["service.start", undefined]);
+    expect(shell.calls).toContainEqual(["service.start"]);
     expect(record(runtime)).toMatchObject({ phase: "ready", action: null });
   });
 
@@ -814,7 +814,7 @@ describe("the local environment", () => {
     const startingService = runtime.connections.startService(LOCAL_PLACEHOLDER_ID);
     await wire.server.accept();
     await startingService;
-    expect(fake.calls).toContainEqual(["service.start", undefined]);
+    expect(fake.calls).toContainEqual(["service.start"]);
     // The same one entry, now the environment itself.
     expect(record(runtime)).toMatchObject({ environmentId: wire.environmentId, kind: "local", phase: "ready", action: null, descriptor: expect.objectContaining({ name: "desk" }) });
     expect(view(runtime)).toMatchObject({ environmentId: wire.environmentId, name: "desk", primary: true });
@@ -925,7 +925,7 @@ describe("the local environment", () => {
     expect(record(runtime).phase).toBe("service-down");
 
     await runtime.connections.startService(wire.environmentId);
-    expect(shell.calls).toContainEqual(["service.start", undefined]);
+    expect(shell.calls).toContainEqual(["service.start"]);
     const delay = untilRetry(runtime, clock.now());
     expect(delay).toBeGreaterThanOrEqual(1000);
     expect(delay).toBeLessThanOrEqual(1250);

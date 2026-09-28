@@ -88,6 +88,41 @@ describe("capability answers", () => {
   });
 });
 
+describe("the desktop's added shell members as capabilities", () => {
+  /** A shell with every member of `shell` but `member`'s own. */
+  const without = (shell: Shell, member: string): Shell => {
+    const [top, inner] = member.split(".").slice(1) as [keyof Shell, string | undefined];
+    const kept = Object.fromEntries(Object.entries(shell).filter(([key]) => key !== top)) as Shell;
+    if (inner === undefined) return kept;
+    return { ...kept, [top]: Object.fromEntries(Object.entries(shell[top] as object).filter(([key]) => key !== inner)) };
+  };
+
+  it.each(["shell.http", "shell.network", "shell.system", "shell.preview", "shell.notifications.onActivate"] as const)(
+    "answers %s present when the shell has it, and absent with reason no-shell when it lacks it or there is no shell",
+    (name) => {
+      const shell = fakeShell();
+      const whole = harness.runtime(inMemoryPlatform({ kind: "desktop", shell }));
+      const lacking = harness.runtime(inMemoryPlatform({ kind: "desktop", shell: without(shell, name) }));
+      const bare = harness.runtime(inMemoryPlatform());
+
+      expect(whole.capability("any", name)).toEqual({ status: "present" });
+      expect(lacking.capability("any", name)).toEqual(absent("no-shell"));
+      expect(lacking.capability("any", name)).toMatchObject({ message: expect.stringContaining(`its shell has no ${name}`) });
+      expect(bare.capability("any", name)).toEqual(absent("no-shell"));
+    },
+  );
+
+  it("keeps a notification's other member when one is missing: show without onActivate, and onActivate without show", () => {
+    const shell = fakeShell();
+    const showOnly = harness.runtime(inMemoryPlatform({ kind: "desktop", shell: without(shell, "shell.notifications.onActivate") }));
+    const activateOnly = harness.runtime(inMemoryPlatform({ kind: "desktop", shell: without(shell, "shell.notifications.show") }));
+
+    expect(showOnly.capability("any", "shell.notifications.show")).toEqual({ status: "present" });
+    expect(activateOnly.capability("any", "shell.notifications.show")).toEqual(absent("no-shell"));
+    expect(activateOnly.capability("any", "shell.notifications.onActivate")).toEqual({ status: "present" });
+  });
+});
+
 describe("the capability names a client may ask for (contract)", () => {
   it("is a type: every name is a flag on the contracts' flag list, a registered method, or a shell.* member", () => {
     expectTypeOf<CapabilityName>().toExtend<(typeof CAPABILITY_FLAG_LIST)[number] | MethodName | `shell.${string}`>();

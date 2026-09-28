@@ -1,6 +1,6 @@
+import type { ScriptedPrompt } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp } from "../test/harness.js";
-import type { ScriptedPrompt } from "../test/prompts.js";
 
 /**
  * The permission and question cards (docs/specs/tui.md, "Cards:
