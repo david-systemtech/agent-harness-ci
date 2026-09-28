@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { DATABASE_FILE } from "@agent-harness/contracts/launcher";
 import type { LauncherTimer } from "../src/launch/launcher.js";
 import { VERSION_SENTINEL, versionCommand, versionDirectory } from "../src/launch/versions.js";
 
@@ -77,6 +79,45 @@ export const childReport = (dataDir: string): ChildEvent[] => {
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line) as ChildEvent);
 };
+
+/** The database's files in the data directory: the main file, and the WAL and shm files SQLite keeps beside it in WAL mode. */
+export const DATABASE_FILES = [DATABASE_FILE, `${DATABASE_FILE}-wal`, `${DATABASE_FILE}-shm`] as const;
+
+/**
+ * Appends `values` to the database in `dataDir` (a real SQLite database in
+ * WAL mode, created if missing) from a process of its own. `leave` says how
+ * that process ends: `closed` closes the database, which checkpoints and
+ * removes its WAL and shm files; `open` exits without closing it, as a
+ * process that crashed or was killed does, leaving both beside the database.
+ */
+export const writeDatabase = (dataDir: string, values: readonly string[], leave: "closed" | "open"): void => {
+  const script = `
+    const { DatabaseSync } = require("node:sqlite");
+    const [path, values, leave] = process.argv.slice(1);
+    const db = new DatabaseSync(path);
+    db.exec("PRAGMA journal_mode = WAL; CREATE TABLE IF NOT EXISTS lines (value TEXT NOT NULL)");
+    const insert = db.prepare("INSERT INTO lines (value) VALUES (?)");
+    for (const value of JSON.parse(values)) insert.run(value);
+    if (leave === "closed") db.close();
+    process.exit(0);
+  `;
+  execFileSync(process.execPath, ["--no-warnings", "-e", script, join(dataDir, DATABASE_FILE), JSON.stringify(values), leave], { stdio: "pipe" });
+};
+
+/** The values the database in `dataDir` holds, read from a process of its own, which checkpoints the database as it closes it. */
+export const readDatabase = (dataDir: string): string[] => {
+  const script = `
+    const { DatabaseSync } = require("node:sqlite");
+    const db = new DatabaseSync(process.argv[1]);
+    process.stdout.write(JSON.stringify(db.prepare("SELECT value FROM lines ORDER BY rowid").all().map((row) => row.value)));
+    db.close();
+  `;
+  return JSON.parse(execFileSync(process.execPath, ["--no-warnings", "-e", script, join(dataDir, DATABASE_FILE)], { encoding: "utf8" })) as string[];
+};
+
+/** The database's files in `dir` (the data directory or a snapshot's folder), by name, those that are there. */
+export const databaseFilesIn = (dir: string): Record<string, Buffer> =>
+  Object.fromEntries(DATABASE_FILES.filter((name) => existsSync(join(dir, name))).map((name) => [name, readFileSync(join(dir, name))]));
 
 /** Waits until `check` holds, polling, and fails with `what` after fifteen seconds (a loaded runner spawns slowly). */
 export const until = async (what: string, check: () => boolean): Promise<void> => {

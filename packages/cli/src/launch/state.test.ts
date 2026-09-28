@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -63,6 +63,10 @@ const recordingFs = (dataDir: string): { readonly fs: DurableFs; readonly calls:
     renameSync: (from, to) => {
       calls.push(`rename ${name(from)} to ${name(to)}`);
       renameSync(from, to);
+    },
+    linkSync: (existing, path) => {
+      calls.push(`link ${name(existing)} as ${name(path)}`);
+      linkSync(existing, path);
     },
     rmSync: (path, options) => {
       calls.push(`remove ${name(path)}`);
