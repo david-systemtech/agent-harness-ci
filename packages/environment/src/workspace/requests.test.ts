@@ -36,15 +36,16 @@ describe("sessions.create's workspace request", () => {
     const t = await start();
     const client = await t.client();
     const root = tempDir();
-    mkdirSync(join(root, "code", "app"), { recursive: true });
-    symlinkSync(join(root, "code"), join(root, "link"));
+    mkdirSync(join(root, "code", "app", "src"), { recursive: true });
+    symlinkSync(join(root, "code", "app"), join(root, "link"));
     const { id, receipt, result } = await create(client, { workspace: { kind: "directory", path: join(root, "code") } });
     expect(receipt).toMatchObject({ status: "accepted", changed: true });
     expect(result?.summary).toMatchObject({ id, workspace: { kind: "directory", path: join(root, "code") }, repositoryIdentity: null, workspaceMissingSince: null });
     const recorded = async (path: string) => (await create(client, { workspace: { kind: "directory", path } })).result?.summary.workspace;
     expect(await recorded(`${root}/code/./app/../app/`)).toEqual({ kind: "directory", path: join(root, "code", "app") });
-    // A .. is taken as written, not after a link: link/.. is the root, not the link's target's parent.
-    expect(await recorded(`${root}/link/app`)).toEqual({ kind: "directory", path: join(root, "link", "app") });
+    // A link is kept as written, and a .. after it read as written too: link/.. is the root, where following the link
+    // would give its target's parent, code.
+    expect(await recorded(`${root}/link/src`)).toEqual({ kind: "directory", path: join(root, "link", "src") });
     expect(await recorded(`${root}/link/..`)).toEqual({ kind: "directory", path: root });
   });
 
