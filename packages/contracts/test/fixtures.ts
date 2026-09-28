@@ -15,6 +15,7 @@ import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtu
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
+import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
@@ -869,6 +870,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...runSchemaFixtures,
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
+  ...settingsRowSchemaFixtures,
   ...setupSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,

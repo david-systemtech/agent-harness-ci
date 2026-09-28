@@ -1,6 +1,6 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
 import { actionById, isCommandId } from "@agent-harness/contracts";
-import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
+import { PICKER_COMMANDS, TAKES_ARGUMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
 import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
 
 /**
@@ -115,7 +115,7 @@ export const parseCommand = (typed: string): Command => {
   const tail = text.slice(1 + word.length).trim();
   if (isPickerCommand(name)) {
     const command: Command = { kind: "picker", command: { name, argument: tail } };
-    return TAKES_ENVIRONMENT.has(name) ? command : bare(rest, command, `/${name}`);
+    return TAKES_ARGUMENT.has(name) ? command : bare(rest, command, `/${name}`);
   }
   // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words. None of
   // them is a name the switch below answers.

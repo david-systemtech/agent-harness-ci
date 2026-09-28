@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsRowScope",
+  "type": "string",
+  "enum": [
+    "environment",
+    "everywhere",
+    "client"
+  ],
+  "description": "What a row's pane edits: environment (one environment, chosen by the picker in its header, preset to the home environment), everywhere (every environment at once, grouped by environment, no picker) or client (this client alone, no picker)."
+}
