@@ -9,7 +9,7 @@ import {
   type Workspace,
 } from "@agent-harness/contracts";
 import type { AppendOptions, EventEnvelope, EventLog, Tx } from "../event-log/event-log.js";
-import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, MethodHandler, MethodHandlers } from "../serve/methods.js";
 import { appendDecided } from "./companions.js";
 import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze } from "./shelf-decider.js";
 import {
@@ -29,6 +29,7 @@ import {
   decideUnarchive,
   decideUnpin,
   decideUntag,
+  refuseCreate,
   sessionNotFound,
   stampedAt,
   type Decision,
@@ -41,6 +42,7 @@ import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type 
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
 import { sessionTranscript, storedTranscriptParts } from "../runs/transcript.js";
 import { sessionStream } from "./streams.js";
+import { createWorkspaceResolver, type Resolution, type WorkspaceResolver } from "../workspace/resolver.js";
 
 /**
  * The session-organisation handlers on the method table (session-state
@@ -71,6 +73,8 @@ export interface SessionMethodsOptions {
   readonly clock?: () => Date;
   /** The purge `sessions.purge` runs; preset: one over `log` whose adapter cannot delete a transcript. The environment shares its own with the sweep. */
   readonly deletion?: Deletion;
+  /** What `sessions.create` resolves its workspace request with (#321); preset: the environment's (`workspace/resolver.ts`). */
+  readonly resolver?: WorkspaceResolver;
 }
 
 /** The streams and event types the session list carries: the `list`-flagged events of every session and group stream. */
@@ -79,17 +83,22 @@ export const SESSION_LIST_SELECTOR = {
   types: listEventTypes([SESSION_STREAM_KIND, GROUP_STREAM_KIND]),
 } as const;
 
-/** A session to create, as `sessions.create` and the completions surface (#138) ask for one. */
+/** A session to create, as `sessions.create` and the completions surface (#138) ask for one, its workspace as the resolver gave it. */
 export interface SessionCreation {
   readonly id: string;
   readonly title?: string | null | undefined;
   readonly tags?: readonly string[] | undefined;
   readonly groupId?: string | null | undefined;
   readonly workspace: Workspace;
+  /** The repository identity the resolver found; none when absent. */
+  readonly repositoryIdentity?: string | null | undefined;
   readonly account?: string | null | undefined;
   readonly model?: string | null | undefined;
   readonly mode?: Mode | null | undefined;
 }
+
+/** A creation's refusal: the decider's, or an account that cannot run. */
+type CreationRefusal = Refusal | { readonly code: "conflict"; readonly message: string; readonly data: { reason: string; accountId: string } };
 
 /** The checks a creation runs: the account, model and mode against the host, and the mode's clamp to the caller's ceiling. */
 export interface SessionCreationChecks {
@@ -98,20 +107,14 @@ export interface SessionCreationChecks {
 }
 
 /**
- * Creates a session in the open transaction `tx`, as `sessions.create`
- * does: the run parameters checked (`invalid_params` thrown for one this
- * environment does not offer; an account that cannot run is the refusal
- * `conflict` `account_unavailable`), the mode clamped (#129), then the
- * decider over the session's state (an id in use, a purged one's included,
- * is `conflict` `exists`; a group not here is `not_found`), its events
- * appended under `attribution`. Answers the refusal, or nothing.
+ * A creation checked as far as it can be without its workspace: the run
+ * parameters (`invalid_params` thrown for one this environment does not
+ * offer; an account that cannot run is the refusal `conflict`
+ * `account_unavailable`), the mode clamped (#129), and what the decider
+ * needs besides the workspace: the session's state and whether its group
+ * is here.
  */
-export const createSessionIn = (
-  log: EventLog,
-  attribution: AppendOptions & { readonly tx: Tx },
-  creation: SessionCreation,
-  checks: SessionCreationChecks,
-): { readonly rejected: Refusal | { readonly code: "conflict"; readonly message: string; readonly data: { reason: string; accountId: string } } } | { readonly rejected?: undefined } => {
+const checkCreation = (log: EventLog, creation: Omit<SessionCreation, "workspace" | "repositoryIdentity">, checks: SessionCreationChecks) => {
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const id = creation.id.toLowerCase();
   const asked = { account: creation.account ?? null, model: creation.model ?? null, mode: creation.mode ?? null };
@@ -119,17 +122,53 @@ export const createSessionIn = (
   // An account that cannot run is the session's state, not a malformed request: refused with a receipt (#134).
   if (verdict.unavailable !== undefined) {
     const { accountId, message } = verdict.unavailable;
-    return { rejected: { code: "conflict", message, data: { reason: "account_unavailable", accountId } } };
+    const rejected: CreationRefusal = { code: "conflict", message, data: { reason: "account_unavailable", accountId } };
+    return { rejected };
   }
   if (verdict.issues.length > 0) throw new ContractError(invalidParams(verdict.issues, "The account, model or mode is not one this environment offers."));
   // The mode is stored as the caller's ceiling allows it (#129).
   const mode = asked.mode === null ? null : checks.clampMode(asked.mode, asked.account);
   const groupId = creation.groupId?.toLowerCase() ?? null;
   const state = readSessionState(reader, id) ?? (log.readStream(sessionStream(id), 0, 1).length > 0 ? PURGED_STATE : null);
-  const command = { id, title: creation.title ?? null, tags: [...(creation.tags ?? [])], groupId, workspace: creation.workspace, account: asked.account, model: asked.model, mode };
-  const decision = decideCreate(state, command, { groupExists: groupId !== null && groupExists(reader, groupId) });
+  const command = { id, title: creation.title ?? null, tags: [...(creation.tags ?? [])], groupId, account: asked.account, model: asked.model, mode };
+  return { state, command, context: { groupExists: groupId !== null && groupExists(reader, groupId) } };
+};
+
+/**
+ * What refuses a creation whatever its workspace, checked before the
+ * workspace is made (#321): the run parameters, as `checkCreation` reads
+ * them, then the decider's cheap refusals, an id in use and a group not
+ * here. Null when none does.
+ */
+export const refuseCreation = (
+  log: EventLog,
+  creation: Omit<SessionCreation, "workspace" | "repositoryIdentity">,
+  checks: SessionCreationChecks,
+): CreationRefusal | null => {
+  const checked = checkCreation(log, creation, checks);
+  if (checked.rejected !== undefined) return checked.rejected;
+  return refuseCreate(checked.state, checked.command, checked.context)?.rejected ?? null;
+};
+
+/**
+ * Creates a session in the open transaction `tx`, as `sessions.create`
+ * does, in the workspace the resolver gave: the checks of `checkCreation`,
+ * then the decider over the session's state (an id in use, a purged one's
+ * included, is `conflict` `exists`; a group not here is `not_found`), its
+ * events appended under `attribution`. Answers the refusal, or nothing.
+ */
+export const createSessionIn = (
+  log: EventLog,
+  attribution: AppendOptions & { readonly tx: Tx },
+  creation: SessionCreation,
+  checks: SessionCreationChecks,
+): { readonly rejected: CreationRefusal } | { readonly rejected?: undefined } => {
+  const checked = checkCreation(log, creation, checks);
+  if (checked.rejected !== undefined) return checked;
+  const { workspace, repositoryIdentity = null } = creation;
+  const decision = decideCreate(checked.state, { ...checked.command, workspace, repositoryIdentity }, checked.context);
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
-  appendDecided(log, sessionStream(id), decision, attribution);
+  appendDecided(log, sessionStream(checked.command.id), decision, attribution);
   return {};
 };
 
@@ -139,6 +178,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   const clampSessionMode = options.clampSessionMode ?? keepSessionMode;
   const clock = options.clock ?? (() => new Date());
   const deletion = options.deletion ?? createDeletion({ log });
+  const resolver = options.resolver ?? createWorkspaceResolver();
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -197,16 +237,37 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   };
 
   return {
-    "sessions.create": (params, context) => {
-      const id = params.id.toLowerCase();
-      const created = createSessionIn(
-        log,
-        { tx: context.tx, actor: context.actor, commandId: context.commandId },
-        { ...params, id },
-        { validateRunParameters, clampMode: (mode, account) => clampSessionMode(mode, account, context.clientSession) },
-      );
-      if (created.rejected !== undefined) return { aggregate: sessionStream(id), rejected: created.rejected };
-      return { aggregate: sessionStream(id), result: { summary: summaryAfter(id) } };
+    // A prepared command (#321): the request is resolved outside the transaction, once the cheap refusals have passed, so
+    // nothing is made for a create refused anyway; what the resolver made goes again if the transaction still refuses.
+    "sessions.create": {
+      prepare: (params, context) => {
+        const id = params.id.toLowerCase();
+        const aggregate = sessionStream(id);
+        const checks: SessionCreationChecks = {
+          validateRunParameters,
+          clampMode: (mode, account) => clampSessionMode(mode, account, context.clientSession),
+        };
+        const { workspace: request, ...creation } = { ...params, id };
+        const doomed = refuseCreation(log, creation, checks);
+        if (doomed !== null) return () => ({ aggregate, rejected: doomed });
+        const handlerFor = (resolved: Resolution): MethodHandler<"sessions.create"> => {
+          if (resolved.refused !== undefined) {
+            const { refused } = resolved;
+            return () => ({ aggregate, rejected: refused });
+          }
+          if (resolved.undo !== undefined) context.onUndo(resolved.undo);
+          const { workspace, repositoryIdentity } = resolved;
+          return (_params, command) => {
+            const attribution = { tx: command.tx, actor: command.actor, commandId: command.commandId };
+            const created = createSessionIn(log, attribution, { ...creation, workspace, repositoryIdentity }, checks);
+            if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };
+            return { aggregate, result: { summary: summaryAfter(id) } };
+          };
+        };
+        // A directory is resolved at once, so a phase-A create keeps its place among its socket's requests.
+        const resolved = resolver.resolve(request, id);
+        return resolved instanceof Promise ? resolved.then(handlerFor) : handlerFor(resolved);
+      },
     },
 
     "sessions.rename": (params, context) => {

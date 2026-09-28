@@ -211,28 +211,103 @@
             ]
           },
           "workspace": {
-            "oneOf": [
+            "anyOf": [
               {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "directory"
+                      },
+                      "path": {
+                        "type": "string",
+                        "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                        "description": "The directory on the environment's machine."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "description": "A directory the environment has; the harness never makes, moves or removes it outside a workspace root."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "worktree"
+                      },
+                      "path": {
+                        "type": "string",
+                        "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                        "description": "The worktree's directory, which the environment chose and made."
+                      },
+                      "repository": {
+                        "type": "string",
+                        "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                        "description": "The main checkout (or bare repository) the worktree was made from."
+                      },
+                      "branch": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The branch the worktree was made on; not read again when a run switches branch."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path",
+                      "repository",
+                      "branch"
+                    ],
+                    "description": "A git worktree the environment made from a repository it has."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "scratch"
+                      },
+                      "path": {
+                        "type": "string",
+                        "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                        "description": "The scratch directory, under the data directory's scratch root."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "description": "A scratch directory the environment made for the session that asked for it."
+                  }
+                ]
+              },
+              {
+                "description": "A workspace of a kind a later environment records: read as a directory at its path.",
                 "type": "object",
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "const": "directory"
+                    "minLength": 1,
+                    "pattern": "^(?!(?:directory|worktree|scratch)$)",
+                    "description": "A kind this version does not know."
                   },
                   "path": {
                     "type": "string",
-                    "minLength": 1,
-                    "description": "The directory on the environment's machine."
+                    "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                    "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
                   }
                 },
                 "required": [
                   "kind",
                   "path"
-                ],
-                "description": "A directory the environment has."
+                ]
               }
             ],
-            "description": "Where a session's code lives on its environment: its kind and path."
+            "description": "Where a session's code lives on its environment: a directory, a worktree or a scratch directory, each with an absolute path. A kind a client does not know reads as a directory at its path."
           },
           "repositoryIdentity": {
             "anyOf": [
@@ -245,6 +320,20 @@
               }
             ],
             "description": "The canonical remote URL of the repository the workspace belongs to; null outside a repository or until it is resolved."
+          },
+          "workspaceMissingSince": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "An instant as an ISO 8601 UTC timestamp."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the environment found the workspace gone; null while it is present. A missing session lists and opens as ever, and runs nothing until it is given a new workspace."
           },
           "activity": {
             "type": "object",
@@ -422,6 +511,7 @@
           "snoozedAt",
           "workspace",
           "repositoryIdentity",
+          "workspaceMissingSince",
           "activity",
           "parkedPromptCount",
           "accountId",

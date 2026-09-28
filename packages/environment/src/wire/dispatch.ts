@@ -9,8 +9,8 @@ import {
   type WireError,
 } from "@agent-harness/contracts";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
-import { formatActor, type CommandOutcome, type EventLog, type StoredError, type StoredReceipt } from "../event-log/event-log.js";
-import type { CommandAnswer, CommandRejection, MethodTable } from "../serve/methods.js";
+import { formatActor, type CommandOutcome, type CommandRun, type EventLog, type StoredError, type StoredReceipt } from "../event-log/event-log.js";
+import type { CommandAnswer, CommandHandler, CommandRejection, MethodTable, Undo } from "../serve/methods.js";
 import type { Opening } from "./subscriptions.js";
 
 /** A request's answer: its result, or its error. */
@@ -62,6 +62,21 @@ const toOutcome = (method: string, result: Parser, answer: CommandAnswer<unknown
 };
 
 /**
+ * Removes what a prepared command's `prepare` made, newest first. A removal
+ * that fails is logged and the rest still run: the command's answer stands
+ * whatever is left behind (the startup sweep's to find).
+ */
+const undoAll = async (method: string, undos: readonly Undo[]): Promise<void> => {
+  for (const undo of [...undos].reverse()) {
+    try {
+      await undo();
+    } catch (thrown) {
+      console.error(`Removing what ${method}'s prepare made failed:`, thrown);
+    }
+  }
+};
+
+/**
  * Answers requests from an authenticated socket with the methods of
  * `methods`. The scope check is here, once, before the params are read or a
  * handler is looked up, for queries, commands and streams alike; then the
@@ -76,7 +91,8 @@ const toOutcome = (method: string, result: Parser, answer: CommandAnswer<unknown
  * otherwise the handler runs inside the command's transaction and the
  * receipt is written with its events. A prepared command (#228) runs its
  * `prepare` first, outside the transaction and only when no receipt is
- * stored, and then the handler it answers. The answer is `{receipt, result}`, the
+ * stored, and then the handler it answers; what `prepare` made is removed
+ * when the command is not accepted (#321). The answer is `{receipt, result}`, the
  * result only when this request applied the command; a rejection is a
  * receipt too, not an error, since the receipt is what the client's outbox
  * retires a command on.
@@ -114,24 +130,36 @@ export const createDispatch =
         const commandId = (parsed.data as { commandId: string }).commandId.toLowerCase();
         const commandParams = { ...(parsed.data as object), commandId };
         const actor = formatActor({ kind: "client_session", id: clientSession.id });
-        // A prepared command hears from outside the log first, unless its receipt answers it (#228).
+        // A prepared command hears from outside the log first, unless its receipt answers it (#228); what it made is
+        // removed unless the command is accepted (#321).
         const registered = served.handler;
-        const handler =
-          typeof registered === "function"
-            ? registered
-            : log.receipt(actor, commandId) === null
-              ? await registered.prepare(commandParams, context)
-              : () => {
-                  throw new Error(`${method} was answered from its receipt; its handler does not run.`);
-                };
-        const run = log.command({ actor, commandId }, (tx) => {
-          const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });
-          if (answer instanceof Promise) {
-            answer.catch(() => undefined);
-            throw new Error(`The handler for ${method} answered later; a command's handler answers inside its transaction.`);
+        const undos: Undo[] = [];
+        let run: CommandRun<unknown>;
+        try {
+          let handler: CommandHandler;
+          if (typeof registered === "function") handler = registered;
+          else if (log.receipt(actor, commandId) !== null) {
+            handler = () => {
+              throw new Error(`${method} was answered from its receipt; its handler does not run.`);
+            };
+          } else {
+            const prepared = registered.prepare(commandParams, { ...context, onUndo: (undo) => void undos.push(undo) });
+            // Waited for only when it must be, so a prepare that answers at once keeps the command's place on its socket.
+            handler = prepared instanceof Promise ? await prepared : prepared;
           }
-          return toOutcome(method, entry.result as Parser, answer as CommandAnswer<unknown>);
-        });
+          run = log.command({ actor, commandId }, (tx) => {
+            const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });
+            if (answer instanceof Promise) {
+              answer.catch(() => undefined);
+              throw new Error(`The handler for ${method} answered later; a command's handler answers inside its transaction.`);
+            }
+            return toOutcome(method, entry.result as Parser, answer as CommandAnswer<unknown>);
+          });
+        } catch (thrown) {
+          await undoAll(method, undos);
+          throw thrown;
+        }
+        if (run.receipt.status !== "accepted") await undoAll(method, undos);
         const receipt = toWireReceipt(run.receipt);
         return respond({ result: run.replayed || run.result === undefined ? { receipt } : { receipt, result: run.result } });
       }

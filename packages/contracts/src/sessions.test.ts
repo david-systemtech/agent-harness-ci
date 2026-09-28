@@ -22,6 +22,9 @@ import {
   TRANSCRIPT_EVENT_TYPES,
   Tag,
   UserTitle,
+  WORKSPACE_KINDS,
+  Workspace,
+  WorkspaceRequest,
   isListEvent,
   listEventTypes,
   registry,
@@ -124,6 +127,16 @@ describe("the summary field table", () => {
       expect(registry[name], name).toMatchObject({ kind: "command", scope: "sessions:write" });
     }
     for (const type of ["session.settled", "session.unsettled", "session.snoozed", "session.unsnoozed"]) expect(isListEvent("session", type), type).toBe(true);
+  });
+
+  it("gives the place to sessions.create and the missing mark to session.workspace-status-changed, list-flagged, which no transcript fold drops", () => {
+    expect(SUMMARY_FIELD_OWNERS.workspace).toEqual({ command: "sessions.create" });
+    expect(SUMMARY_FIELD_OWNERS.repositoryIdentity).toEqual({ command: "sessions.create" });
+    expect(SUMMARY_FIELD_OWNERS.workspaceMissingSince).toEqual({ event: "session.workspace-status-changed" });
+    expect(isListEvent("session", "session.workspace-status-changed")).toBe(true);
+    expect(Object.hasOwn(TRANSCRIPT_EVENT_TYPES, "session.workspace-status-changed")).toBe(false);
+    expect(SESSION_EVENT_TYPES["session.workspace-status-changed"].payload.safeParse({ status: "missing" }).success).toBe(true);
+    expect(SESSION_EVENT_TYPES["session.workspace-status-changed"].payload.safeParse({ status: "moved" }).success).toBe(false);
   });
 
   it("fails when a summary field is missing from it", () => {
@@ -251,6 +264,7 @@ const fresh = {
   snoozedAt: null,
   workspace: { kind: "directory", path: "/work/repo" },
   repositoryIdentity: null,
+  workspaceMissingSince: null,
   activity: { state: "idle", since: "2026-09-24T01:02:03.456Z" },
   parkedPromptCount: 0,
   accountId: null,
@@ -259,6 +273,64 @@ const fresh = {
   pullRequests: [],
   draft: null,
 };
+
+describe("the workspace", () => {
+  /** One recorded workspace of every kind this version knows. */
+  const recorded = {
+    directory: { kind: "directory", path: "/work/agent-harness" },
+    worktree: { kind: "worktree", path: "/data/worktrees/agent-harness-3f2a/main", repository: "/work/agent-harness", branch: "main" },
+    scratch: { kind: "scratch", path: "/data/scratch/7c9e6679-7425-40de-944b-e07fc1f90ae7" },
+  } as const;
+
+  it("is a union on kind whose every member carries an absolute path, as the environment's operating system writes it", () => {
+    expect(Object.keys(recorded)).toEqual([...WORKSPACE_KINDS]);
+    for (const workspace of Object.values(recorded)) {
+      expect(Workspace.parse(workspace), workspace.kind).toEqual(workspace);
+      const pathless = Object.fromEntries(Object.entries(workspace).filter(([key]) => key !== "path"));
+      expect(Workspace.safeParse(pathless).success, `${workspace.kind} without a path`).toBe(false);
+      expect(Workspace.safeParse({ ...workspace, path: "relative/dir" }).success, `${workspace.kind} with a relative path`).toBe(false);
+    }
+    for (const path of ["C:\\Users\\david\\work", "D:/work", "\\\\nas\\work"]) expect(Workspace.parse({ kind: "directory", path }), path).toEqual({ kind: "directory", path });
+    expect(Workspace.safeParse({ kind: "worktree", path: "/data/worktrees/x", repository: "/work/agent-harness" }).success).toBe(false);
+  });
+
+  it("reads a kind this version does not know as a directory at its path, so a summary carrying one still reads", () => {
+    expect(Workspace.parse({ kind: "bank", path: "/data/banks/brandsolidate", bank: "brandsolidate" })).toEqual({ kind: "directory", path: "/data/banks/brandsolidate" });
+    const summary = SessionSummary.parse({ ...fresh, workspace: { kind: "bank", path: "/data/banks/brandsolidate" } });
+    expect(summary.workspace).toEqual({ kind: "directory", path: "/data/banks/brandsolidate" });
+    expect(SummaryPatch.parse({ op: "set", sessionId: fresh.id, fields: { workspace: { kind: "bank", path: "/b" } } })).toEqual({
+      op: "set",
+      sessionId: fresh.id,
+      fields: { workspace: { kind: "directory", path: "/b" } },
+    });
+    // Without a path there is nothing a client could show.
+    expect(Workspace.safeParse({ kind: "bank" }).success).toBe(false);
+  });
+
+  it("is asked for with a request: a directory as it is recorded or from the environment's home, a worktree, scratch or another session's", () => {
+    expect(registry["sessions.create"].params.shape.workspace).toBe(WorkspaceRequest);
+    expect(WorkspaceRequest.parse(recorded.directory)).toEqual(recorded.directory);
+    expect(WorkspaceRequest.parse({ kind: "worktree", repository: "/work/agent-harness", newBranch: { base: "main" } })).toEqual({
+      kind: "worktree",
+      repository: "/work/agent-harness",
+      newBranch: { base: "main" },
+    });
+    expect(WorkspaceRequest.parse({ kind: "scratch" })).toEqual({ kind: "scratch" });
+    expect(WorkspaceRequest.parse({ kind: "session", sessionId: fresh.id })).toEqual({ kind: "session", sessionId: fresh.id });
+    // A directory from the environment's home is asked for, never recorded: the environment expands it.
+    expect(WorkspaceRequest.parse({ kind: "directory", path: "~/code" })).toEqual({ kind: "directory", path: "~/code" });
+    expect(Workspace.safeParse({ kind: "directory", path: "~/code" }).success).toBe(false);
+    expect(WorkspaceRequest.safeParse({ kind: "directory", path: "~seth/code" }).success).toBe(false);
+    // No path of its own: a worktree's and a scratch directory's are the environment's to choose.
+    expect(WorkspaceRequest.parse({ kind: "scratch", path: "/tmp/mine" })).toEqual({ kind: "scratch" });
+  });
+
+  it("refuses a worktree request naming both an existing branch and a new one, at newBranch", () => {
+    const both = WorkspaceRequest.safeParse({ kind: "worktree", repository: "/work/agent-harness", branch: "main", newBranch: { name: "fix" } });
+    expect(both.success).toBe(false);
+    expect(both.error?.issues).toEqual([expect.objectContaining({ path: ["newBranch"] })]);
+  });
+});
 
 describe("the session summary", () => {
   it("holds identity, title, filing, shelf, place, activity and forge", () => {
@@ -283,6 +355,7 @@ describe("the session summary", () => {
       "snoozedAt",
       "workspace",
       "repositoryIdentity",
+      "workspaceMissingSince",
       "activity",
       "parkedPromptCount",
       "accountId",

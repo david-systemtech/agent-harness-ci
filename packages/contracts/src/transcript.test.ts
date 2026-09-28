@@ -160,6 +160,7 @@ describe("the per-session snapshot", () => {
     snoozedAt: null,
     workspace: { kind: "directory", path: "/work" },
     repositoryIdentity: null,
+    workspaceMissingSince: null,
     activity: { state: "idle", since: at },
     parkedPromptCount: 0,
     accountId: "claude-max",

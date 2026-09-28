@@ -75,6 +75,7 @@ const summary = (id: string, title: string, at: string): SessionSummary => ({
   snoozedAt: null,
   workspace: { kind: "directory", path: "/work/storage-contract" },
   repositoryIdentity: null,
+  workspaceMissingSince: null,
   activity: { state: "idle", since: at },
   parkedPromptCount: 0,
   accountId: null,

@@ -171,6 +171,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
           snoozedAt: null,
           workspace: params["workspace"],
           repositoryIdentity: null,
+          workspaceMissingSince: null,
           activity: { state: "idle", since: now },
           parkedPromptCount: 0,
           accountId: params["account"] ?? null,

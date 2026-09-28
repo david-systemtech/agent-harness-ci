@@ -85,6 +85,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
+import { createWorkspaceResolver, type WorkspaceResolver } from "../workspace/resolver.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { setupMethods } from "../setup/methods.js";
@@ -259,6 +260,12 @@ export interface EnvironmentOptions {
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
+  /**
+   * The resolver `sessions.create` and the completions surface give a new
+   * session its workspace through (#321). Preset: the environment's
+   * (`workspace/resolver.ts`); tests script it.
+   */
+  readonly workspaceResolver?: WorkspaceResolver;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -668,6 +675,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => terminalService.close());
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
+  // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
+  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver();
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -683,6 +692,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock: now,
       deletion,
+      resolver: workspaceResolver,
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
@@ -743,6 +753,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     methods: table,
     scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
     passthrough,
+    resolver: workspaceResolver,
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({

@@ -17,7 +17,7 @@ import {
   SessionSummary,
   Tag,
   UserTitle,
-  Workspace,
+  WorkspaceRequest,
 } from "../sessions.js";
 import { SessionSnapshot } from "../transcript.js";
 
@@ -41,7 +41,9 @@ const sessionCommand = <const N extends `sessions.${string}`>(name: N) =>
 
 /**
  * Create a session: its client-minted id, an optional title, tags and
- * group, and its workspace. The account, model and mode are recorded for
+ * group, and a request for its workspace, which the environment resolves
+ * into the workspace the summary records (workspace-picker spec, "The
+ * resolver"). The account, model and mode are recorded for
  * the adapter and permissions workstreams, which validate them: an account
  * the environment does not hold, or that is not signed in, is rejected
  * `conflict` (data reason `account_unavailable`), as `runs.start` rejects
@@ -50,7 +52,10 @@ const sessionCommand = <const N extends `sessions.${string}`>(name: N) =>
  * session has no repository identity yet and, with no title, shows "New
  * session". A group that is not on this environment is rejected
  * `not_found` (data kind `group`); an id already used is rejected `conflict`
- * (data reason `exists`).
+ * (data reason `exists`); both are checked before anything is made for the
+ * workspace. A workspace the environment cannot give is rejected in the
+ * receipt too (`conflict`, a `reason` in the data): a kind it does not
+ * serve yet is reason `kind_not_served`.
  */
 export const sessionsCreate = defineMethod({
   name: "sessions.create",
@@ -61,7 +66,7 @@ export const sessionsCreate = defineMethod({
     title: UserTitle.optional().meta({ description: "The user's title; the fallback when absent." }),
     tags: z.array(Tag).max(MAX_TAGS).optional().meta({ description: "Tags to start with; duplicates ignoring case keep the latest casing." }),
     groupId: GroupId.nullable().optional().meta({ description: "A group on this environment to put the session in; none when absent or null." }),
-    workspace: Workspace,
+    workspace: WorkspaceRequest,
     account: z.string().min(1).optional().meta({ description: "The account the session's runs use, one the environment holds and is signed in; the environment's default account at each run when absent." }),
     model: z.string().min(1).optional().meta({ description: "The model the session's runs use; the adapter workstream's to validate." }),
     mode: Mode.optional().meta({ description: "The mode the session's runs start in, clamped at each run; permissions.mode.set changes it." }),
