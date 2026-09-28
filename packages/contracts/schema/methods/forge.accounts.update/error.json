@@ -346,6 +346,38 @@
         "data"
       ],
       "description": "The new credential answered with another user id than the forge account's: nothing was changed. data names both identities."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "credential_source_unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "The key-manager connection the reference names."
+            }
+          },
+          "required": [
+            "connectionId"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The credential's key-manager reference could not be read: no key-manager connection holds it, the connection is not signed in, or it answered no value. Nothing was changed; the message says which, and data names the connection."
     }
   ]
 }

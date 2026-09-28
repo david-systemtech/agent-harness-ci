@@ -1,0 +1,99 @@
+import { z } from "zod";
+
+/**
+ * Key-manager references (key-managers spec, "References and resolution";
+ * ADR 0011, ADR 0020, ADR 0028): where a credential sits in a key manager,
+ * never the value. Each names the key-manager connection it is read through
+ * and the provider's own locator. The forge's credential sources need them
+ * first; the key-manager registry's tickets add the connection record, the
+ * display form and the rest beside them.
+ */
+
+/** The key managers an environment connects to: OpenBao, which also covers Vault, Doppler, 1Password and Bitwarden Secrets Manager. */
+export const KEY_MANAGER_PROVIDERS = ["openbao", "doppler", "onepassword", "bitwarden"] as const;
+export const KeyManagerProvider = z.enum(KEY_MANAGER_PROVIDERS).meta({
+  description: "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager).",
+});
+export type KeyManagerProvider = z.infer<typeof KeyManagerProvider>;
+
+/** A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase. */
+export const KeyManagerConnectionId = z.uuidv4().meta({
+  description: "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase.",
+});
+export type KeyManagerConnectionId = z.infer<typeof KeyManagerConnectionId>;
+
+/** One name in a locator: not empty, on one line. */
+const name = (description: string) =>
+  z
+    .string()
+    .min(1)
+    .max(256)
+    .regex(/^[^\p{Cc}]+$/u)
+    .meta({ description });
+
+/** A path of names joined by `/`, with no empty name and no slash at either end. */
+const path = (description: string) =>
+  z
+    .string()
+    .min(1)
+    .max(1024)
+    .regex(/^[^/\p{Cc}]+(?:\/[^/\p{Cc}]+)*$/u)
+    .meta({ description });
+
+const connectionId = KeyManagerConnectionId.meta({ description: "The key-manager connection the reference is read through." });
+
+export const OpenBaoReference = z
+  .object({
+    provider: z.literal("openbao"),
+    connectionId,
+    mount: path("The KV mount, as personal or secret/team: no slash at either end."),
+    path: path("The secret's path under the mount, as harness/forge-github."),
+    key: name("The key inside the secret whose value is read."),
+  })
+  .meta({ description: "A value in OpenBao or Vault: a key of the secret at a path under a KV mount." });
+export type OpenBaoReference = z.infer<typeof OpenBaoReference>;
+
+export const DopplerReference = z
+  .object({
+    provider: z.literal("doppler"),
+    connectionId,
+    name: z
+      .string()
+      .max(256)
+      .regex(/^[A-Z_][A-Z0-9_]*$/)
+      .meta({ description: "The secret's name: upper-case letters, digits and underscores, not starting with a digit." }),
+    project: name("The project, when the connection's token does not fix one.").optional(),
+    config: name("The config, when the connection's token does not fix one.").optional(),
+  })
+  .meta({ description: "A Doppler secret by name, with its project and config when the token does not fix them." });
+export type DopplerReference = z.infer<typeof DopplerReference>;
+
+export const OnePasswordReference = z
+  .object({
+    provider: z.literal("onepassword"),
+    connectionId,
+    vault: name("The vault, by name or id."),
+    item: name("The item, by name or id."),
+    field: name("The field whose value is read."),
+  })
+  .meta({ description: "A 1Password field, as an op:// reference names it: vault, item and field." });
+export type OnePasswordReference = z.infer<typeof OnePasswordReference>;
+
+export const BitwardenReference = z
+  .object({
+    provider: z.literal("bitwarden"),
+    connectionId,
+    secretId: z.uuid().meta({ description: "The secret's id, which is what is read." }),
+    key: name("The secret's key, for display only."),
+  })
+  .meta({ description: "A Bitwarden Secrets Manager secret by id, with its key for display." });
+export type BitwardenReference = z.infer<typeof BitwardenReference>;
+
+/** Where a credential sits in a key manager: the connection it is read through and the provider's locator, never the value. */
+export const KeyManagerReference = z
+  .discriminatedUnion("provider", [OpenBaoReference, DopplerReference, OnePasswordReference, BitwardenReference])
+  .meta({
+    description:
+      "Where a credential sits in a key manager, never its value: the provider, the connection it is read through, and the provider's locator (OpenBao mount, path and key; a Doppler name with its project and config; a 1Password vault, item and field; a Bitwarden secret id with its key).",
+  });
+export type KeyManagerReference = z.infer<typeof KeyManagerReference>;

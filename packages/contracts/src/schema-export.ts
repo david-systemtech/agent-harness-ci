@@ -41,11 +41,13 @@ import {
   WireError,
 } from "./errors.js";
 import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
-import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
+import { ForgeKind, ForgeOrigin, ForgeSlug, GhLogin } from "./forge.js";
+import { GhProbe, GhSignedInAccount } from "./forge-gh.js";
 import {
   FORGE_EVENT_PAYLOADS,
   ForgeAccountId,
   ForgeAccountRecord,
+  ForgeAddCredential,
   ForgeAlias,
   ForgeCapabilities,
   ForgeCapability,
@@ -54,6 +56,7 @@ import {
   ForgeCopiedFrom,
   ForgeCredentialInput,
   ForgeCredentialSource,
+  ForgeHandingClient,
   ForgeIdentity,
   ForgeProblem,
   ForgeProblemKind,
@@ -265,7 +268,8 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
-import { IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+import { CredentialSourceUnavailableError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
 import {
   ClampReason,
   ContainmentAvailability,
@@ -483,9 +487,14 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "forge/alias.json", title: "ForgeAlias", schema: ForgeAlias },
   { path: "forge/stored-token-provenance.json", title: "StoredTokenProvenance", schema: StoredTokenProvenance },
   { path: "forge/vault-entry.json", title: "ForgeVaultEntry", schema: ForgeVaultEntry },
+  { path: "forge/gh-login.json", title: "GhLogin", schema: GhLogin },
+  { path: "forge/handing-client.json", title: "ForgeHandingClient", schema: ForgeHandingClient },
   { path: "forge/credential-source.json", title: "ForgeCredentialSource", schema: ForgeCredentialSource },
   { path: "forge/token.json", title: "ForgeToken", schema: ForgeToken },
   { path: "forge/credential-input.json", title: "ForgeCredentialInput", schema: ForgeCredentialInput },
+  { path: "forge/add-credential.json", title: "ForgeAddCredential", schema: ForgeAddCredential },
+  { path: "forge/gh-signed-in-account.json", title: "GhSignedInAccount", schema: GhSignedInAccount },
+  { path: "forge/gh-probe.json", title: "GhProbe", schema: GhProbe },
   { path: "forge/capability-name.json", title: "ForgeCapabilityName", schema: ForgeCapabilityName },
   { path: "forge/capability-state.json", title: "ForgeCapabilityState", schema: ForgeCapabilityState },
   { path: "forge/capability.json", title: "ForgeCapability", schema: ForgeCapability },
@@ -502,6 +511,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
     title: `${pascal(type)}Payload`,
     schema: payload as z.ZodType,
   })),
+  { path: "key-managers/provider.json", title: "KeyManagerProvider", schema: KeyManagerProvider },
+  { path: "key-managers/connection-id.json", title: "KeyManagerConnectionId", schema: KeyManagerConnectionId },
+  { path: "key-managers/openbao-reference.json", title: "OpenBaoReference", schema: OpenBaoReference },
+  { path: "key-managers/doppler-reference.json", title: "DopplerReference", schema: DopplerReference },
+  { path: "key-managers/onepassword-reference.json", title: "OnePasswordReference", schema: OnePasswordReference },
+  { path: "key-managers/bitwarden-reference.json", title: "BitwardenReference", schema: BitwardenReference },
+  { path: "key-managers/reference.json", title: "KeyManagerReference", schema: KeyManagerReference },
   { path: "theme/theme.json", title: "Theme", schema: Theme },
   { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
   { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },
@@ -682,6 +698,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/containment_unavailable.json", title: "ContainmentUnavailableError", schema: ContainmentUnavailableError },
   { path: "errors/verification_failed.json", title: "VerificationFailedError", schema: VerificationFailedError },
   { path: "errors/identity_mismatch.json", title: "IdentityMismatchError", schema: IdentityMismatchError },
+  { path: "errors/credential_source_unavailable.json", title: "CredentialSourceUnavailableError", schema: CredentialSourceUnavailableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },

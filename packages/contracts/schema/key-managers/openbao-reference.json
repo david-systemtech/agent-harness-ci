@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenBaoReference",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "const": "openbao"
+    },
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The key-manager connection the reference is read through."
+    },
+    "mount": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+      "description": "The KV mount, as personal or secret/team: no slash at either end."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+      "description": "The secret's path under the mount, as harness/forge-github."
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$",
+      "description": "The key inside the secret whose value is read."
+    }
+  },
+  "required": [
+    "provider",
+    "connectionId",
+    "mount",
+    "path",
+    "key"
+  ],
+  "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GhLogin",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 100,
+  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+  "description": "A login gh is signed in as on a host: letters, digits, dashes and underscores, starting with a letter or digit."
+}

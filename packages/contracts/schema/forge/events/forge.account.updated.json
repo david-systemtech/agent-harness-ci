@@ -56,42 +56,104 @@
             "kind": {
               "type": "string",
               "const": "gh"
-            }
-          },
-          "required": [
-            "kind"
-          ],
-          "description": "The environment's own gh, signed in for the forge account's host and login, read on every operation so it follows gh's rotations."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "stored"
             },
-            "provenance": {
+            "login": {
               "type": "string",
-              "enum": [
-                "pasted",
-                "client-gh",
-                "imported",
-                "oauth"
-              ],
-              "description": "Where a stored token came from: pasted (a person pasted it), client-gh (the attending client handed over its own gh's token once, which does not follow gh's rotations), imported (the state import carried it over) or oauth (a device flow, milestone 3)."
-            },
-            "entry": {
-              "type": "string",
-              "pattern": "^forge:[0-9a-f-]+:[0-9a-f-]+$",
-              "description": "The environment's vault entry holding a stored token, one per credential it was given: forge:<forge account id>:<entry id>. Never the token itself."
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+              "description": "The account gh reads the token for on the forge account's host, as gh names it."
             }
           },
           "required": [
             "kind",
-            "provenance",
-            "entry"
+            "login"
           ],
-          "description": "A token the environment holds in its vault, never answered again: where it came from, and the vault entry that holds it."
+          "description": "The environment's own gh, signed in for the forge account's host and this login, read on every operation so it follows gh's rotations."
+        },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "stored"
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": [
+                    "pasted",
+                    "imported",
+                    "oauth"
+                  ],
+                  "description": "pasted (a person pasted it), imported (the state import carried it over) or oauth (a device flow, milestone 3)."
+                },
+                "entry": {
+                  "type": "string",
+                  "pattern": "^forge:[0-9a-f-]+:[0-9a-f-]+$",
+                  "description": "The environment's vault entry holding a stored token, one per credential it was given: forge:<forge account id>:<entry id>. Never the token itself."
+                }
+              },
+              "required": [
+                "kind",
+                "provenance",
+                "entry"
+              ],
+              "description": "A token the environment holds in its vault, never answered again: where it came from, and the vault entry that holds it."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "stored"
+                },
+                "provenance": {
+                  "type": "string",
+                  "const": "client-gh"
+                },
+                "entry": {
+                  "type": "string",
+                  "pattern": "^forge:[0-9a-f-]+:[0-9a-f-]+$",
+                  "description": "The environment's vault entry holding a stored token, one per credential it was given: forge:<forge account id>:<entry id>. Never the token itself."
+                },
+                "handedOverBy": {
+                  "type": "object",
+                  "properties": {
+                    "clientSessionId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "The client session's label when it handed the token over."
+                    }
+                  },
+                  "required": [
+                    "clientSessionId",
+                    "label"
+                  ],
+                  "description": "The client session that handed its own gh's token over, by id and label."
+                },
+                "followsGhRotations": {
+                  "type": "boolean",
+                  "const": false,
+                  "description": "Always false: the token is a copy of what the client's gh held when it was handed over, and gh's later rotations never reach it."
+                }
+              },
+              "required": [
+                "kind",
+                "provenance",
+                "entry",
+                "handedOverBy",
+                "followsGhRotations"
+              ],
+              "description": "A token a client's own gh handed over once, held in the vault: the client session that handed it over, and that it does not follow gh's rotations."
+            }
+          ],
+          "description": "A token the environment holds in its vault, by where it came from."
         },
         {
           "type": "object",
@@ -99,12 +161,182 @@
             "kind": {
               "type": "string",
               "const": "reference"
+            },
+            "reference": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "openbao"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "mount": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                      "description": "The KV mount, as personal or secret/team: no slash at either end."
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                      "description": "The secret's path under the mount, as harness/forge-github."
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The key inside the secret whose value is read."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "mount",
+                    "path",
+                    "key"
+                  ],
+                  "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "doppler"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^[A-Z_][A-Z0-9_]*$",
+                      "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
+                    },
+                    "project": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The project, when the connection's token does not fix one."
+                    },
+                    "config": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The config, when the connection's token does not fix one."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "name"
+                  ],
+                  "description": "A Doppler secret by name, with its project and config when the token does not fix them."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "onepassword"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "vault": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The vault, by name or id."
+                    },
+                    "item": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The item, by name or id."
+                    },
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The field whose value is read."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "vault",
+                    "item",
+                    "field"
+                  ],
+                  "description": "A 1Password field, as an op:// reference names it: vault, item and field."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "bitwarden"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "secretId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "The secret's id, which is what is read."
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The secret's key, for display only."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "secretId",
+                    "key"
+                  ],
+                  "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
+                }
+              ],
+              "description": "Where a credential sits in a key manager, never its value: the provider, the connection it is read through, and the provider's locator (OpenBao mount, path and key; a Doppler name with its project and config; a 1Password vault, item and field; a Bitwarden secret id with its key)."
             }
           },
           "required": [
-            "kind"
+            "kind",
+            "reference"
           ],
-          "description": "A key-manager reference, resolved per operation and never cached; its connection and locator arrive with the key-manager references."
+          "description": "A key-manager reference, resolved on every operation and never cached, so a rotation in the key manager is live at once."
         },
         {
           "type": "object",

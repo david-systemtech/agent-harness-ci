@@ -85,7 +85,9 @@ import { createDeletion } from "../sessions/deletion.js";
 import { createForgeService, type ForgeService } from "../forge/forge-service.js";
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { forgeMethods } from "../forge/methods.js";
+import type { ManagedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
+import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -301,6 +303,14 @@ export interface EnvironmentOptions {
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
   /**
+   * The environment's own `gh`, behind the Managed tools seam the registry
+   * (#91) replaces (#312). Preset: the `gh` on this process's PATH; tests
+   * put a fake one on a PATH of their own.
+   */
+  readonly gh?: ManagedGh;
+  /** The key-manager registry's resolve seam, which #91 fills (#312). Preset: no key-manager connection; tests script one. */
+  readonly keyManagers?: KeyManagerRegistry;
+  /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
    * called once, the first time it is asked for. Preset: the bundled
    * binary's `--version` (`adapters/claude/version.ts`); tests script it.
@@ -388,6 +398,12 @@ export interface EnvironmentHandle {
    * subscription to their stream. The environment opened it and closes it.
    */
   readonly log: EventLog;
+  /**
+   * The ForgeService (#310): the one way to a forge, which the banks,
+   * skills, routines, the launcher, Set up and the state import call in
+   * process, reading a forge account's credential per operation (#312).
+   */
+  readonly forge: ForgeService;
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -507,25 +523,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
-  // The forge accounts' store (#310) starts with it: each stored token is registered with its Basic-auth form, and the
-  // vault entries of forge accounts that are gone are deleted, before anything can read them.
+  // The forge accounts' store (#310) starts in this step too, after the client sessions whose labels a token handed over
+  // from a client's gh records (#312): each stored token is registered with its Basic-auth form, and the vault entries of
+  // forge accounts that are gone are deleted, before anything can read them.
   const { record, clientSessions, pairings, accessLog, forge } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
     const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
     const key = await ensureSigningKey(vault);
-    const forgeService: ForgeService = createForgeService({
-      log,
-      clock,
-      environmentId: loaded.id,
-      vault,
-      scrub,
-      ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
-    });
-    closers.push(() => forgeService.close());
-    await forgeService.start();
-    capabilities.push("forge");
     const access = createAccessLog(log, loaded.id);
     const loadedClientSessions: ClientSessions = createClientSessions({
       table: log.clientSessions,
@@ -545,6 +551,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
       defaultCeiling: () => permissionSettings()["permissions.defaultCeiling"],
     });
+    const forgeService: ForgeService = createForgeService({
+      log,
+      clock,
+      environmentId: loaded.id,
+      vault,
+      scrub,
+      clientSessionLabel: (id) => loadedClientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+      ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
+      ...(options.gh !== undefined && { gh: options.gh }),
+      ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+    });
+    closers.push(() => forgeService.close());
+    await forgeService.start();
+    capabilities.push("forge");
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access, forge: forgeService };
   });
 
@@ -979,6 +999,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),
     log,
+    forge,
     close,
   };
 };

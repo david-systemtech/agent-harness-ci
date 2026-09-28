@@ -823,6 +823,14 @@
       "title": "ForgeVaultEntry"
     },
     {
+      "path": "forge/gh-login.json",
+      "title": "GhLogin"
+    },
+    {
+      "path": "forge/handing-client.json",
+      "title": "ForgeHandingClient"
+    },
+    {
       "path": "forge/credential-source.json",
       "title": "ForgeCredentialSource"
     },
@@ -833,6 +841,18 @@
     {
       "path": "forge/credential-input.json",
       "title": "ForgeCredentialInput"
+    },
+    {
+      "path": "forge/add-credential.json",
+      "title": "ForgeAddCredential"
+    },
+    {
+      "path": "forge/gh-signed-in-account.json",
+      "title": "GhSignedInAccount"
+    },
+    {
+      "path": "forge/gh-probe.json",
+      "title": "GhProbe"
     },
     {
       "path": "forge/capability-name.json",
@@ -909,6 +929,34 @@
     {
       "path": "forge/events/forge.origin-missing.json",
       "title": "ForgeOriginMissingPayload"
+    },
+    {
+      "path": "key-managers/provider.json",
+      "title": "KeyManagerProvider"
+    },
+    {
+      "path": "key-managers/connection-id.json",
+      "title": "KeyManagerConnectionId"
+    },
+    {
+      "path": "key-managers/openbao-reference.json",
+      "title": "OpenBaoReference"
+    },
+    {
+      "path": "key-managers/doppler-reference.json",
+      "title": "DopplerReference"
+    },
+    {
+      "path": "key-managers/onepassword-reference.json",
+      "title": "OnePasswordReference"
+    },
+    {
+      "path": "key-managers/bitwarden-reference.json",
+      "title": "BitwardenReference"
+    },
+    {
+      "path": "key-managers/reference.json",
+      "title": "KeyManagerReference"
     },
     {
       "path": "theme/theme.json",
@@ -1613,6 +1661,10 @@
     {
       "path": "errors/identity_mismatch.json",
       "title": "IdentityMismatchError"
+    },
+    {
+      "path": "errors/credential_source_unavailable.json",
+      "title": "CredentialSourceUnavailableError"
     },
     {
       "path": "frames/frame.json",
@@ -2741,6 +2793,18 @@
     {
       "path": "methods/forge.accounts.setPrimary/error.json",
       "title": "forge.accounts.setPrimary error"
+    },
+    {
+      "path": "methods/forge.gh.probe/params.json",
+      "title": "forge.gh.probe params"
+    },
+    {
+      "path": "methods/forge.gh.probe/result.json",
+      "title": "forge.gh.probe result"
+    },
+    {
+      "path": "methods/forge.gh.probe/error.json",
+      "title": "forge.gh.probe error"
     },
     {
       "path": "methods/settings.get/params.json",
@@ -3895,6 +3959,15 @@
       "result": "methods/forge.accounts.setPrimary/result.json",
       "response": "methods/forge.accounts.setPrimary/response.json",
       "error": "methods/forge.accounts.setPrimary/error.json"
+    },
+    {
+      "name": "forge.gh.probe",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.gh.probe/params.json",
+      "result": "methods/forge.gh.probe/result.json",
+      "error": "methods/forge.gh.probe/error.json"
     },
     {
       "name": "settings.get",

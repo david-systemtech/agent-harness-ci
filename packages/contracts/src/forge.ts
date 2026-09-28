@@ -382,3 +382,18 @@ export const parsePullRequestUrl = (kind: ForgeKind, url: string): PullRequestRe
   const value = Number(number);
   return Number.isSafeInteger(value) ? { origin, owner, repository, number: value } : null;
 };
+
+// gh ------------------------------------------------------------------------------
+
+/**
+ * A login as `gh` names an account it is signed in as: a GitHub login, or an
+ * Enterprise one with underscores. It goes on `gh`'s command line, so it
+ * never starts with a dash.
+ */
+export const GhLogin = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+  .meta({ description: "A login gh is signed in as on a host: letters, digits, dashes and underscores, starting with a letter or digit." });
+export type GhLogin = z.infer<typeof GhLogin>;

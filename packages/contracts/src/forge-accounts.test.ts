@@ -7,9 +7,11 @@ import {
   FORGE_EVENT_PAYLOADS,
   ForgeAccountRecord,
   ForgeCredentialSource,
+  GH_MINIMUM_VERSION,
   UNKNOWN_FORGE_CAPABILITIES,
   ForgeCapabilities,
   eventTypeEntry,
+  forgeCopyCredential,
   methods,
   registry,
 } from "./index.js";
@@ -24,9 +26,12 @@ import {
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const forgeAccountId = "5b1c6f3e-2a4d-4e8f-9b0a-1c2d3e4f5a6b";
 const pasted = { kind: "stored", provenance: "pasted", token: "token-for-tests" } as const;
+const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
+const reference = { kind: "reference", reference: { provider: "openbao", connectionId, mount: "personal", path: "harness/forge-github", key: "token" } } as const;
+const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SYSTEM-SERVER" };
 
 describe("the forge account methods", () => {
-  it("have one scope each: the list at read, add, update, remove and setPrimary as admin commands", () => {
+  it("have one scope each: the list and the gh probe at read, add, update, remove and setPrimary as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("forge."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "forge.accounts.list": ["query", "read"],
@@ -34,10 +39,11 @@ describe("the forge account methods", () => {
       "forge.accounts.update": ["command", "admin"],
       "forge.accounts.remove": ["command", "admin"],
       "forge.accounts.setPrimary": ["command", "admin"],
+      "forge.gh.probe": ["query", "read"],
     });
   });
 
-  it("add takes an id, a URL in any form, a kind that may be left out, a slug under the slug rule, a primary flag and a pasted token", () => {
+  it("add takes an id, a URL in any form, a kind that may be left out, a slug under the slug rule, a primary flag and a credential", () => {
     const add = registry["forge.accounts.add"].params;
     const base = { commandId, forgeAccountId, url: "https://github.com", credential: pasted };
     expect(add.safeParse(base).success).toBe(true);
@@ -46,16 +52,35 @@ describe("the forge account methods", () => {
     // GitLab is milestone 2's (ADR 0033), and a slug outside 1 to 40 of a-z, digits and underscore is refused.
     expect(add.safeParse({ ...base, kind: "gitlab" }).success).toBe(false);
     for (const slug of ["", "Work", "git-systemtech", "x".repeat(41)]) expect(add.safeParse({ ...base, slug }).success, slug).toBe(false);
-    // The one credential this milestone's paste form sends; the environment's gh, a client's gh and references come later.
-    expect(add.safeParse({ ...base, credential: { ...pasted, provenance: "client-gh" } }).success).toBe(false);
     expect(add.safeParse({ ...base, credential: { ...pasted, token: "two words" } }).success).toBe(false);
     expect(add.safeParse({ ...base, credential: undefined }).success).toBe(false);
   });
 
-  it("errors with verification_failed on add and update, identity_mismatch on update alone", () => {
+  it("take every credential source a client can give: a paste, its own gh's token, the environment's gh for a login, a reference, and none for a copy", () => {
+    const add = registry["forge.accounts.add"].params;
+    const update = registry["forge.accounts.update"].params;
+    const base = { commandId, forgeAccountId, url: "https://github.com" };
+    for (const credential of [pasted, { ...pasted, provenance: "client-gh" }, { kind: "gh", login: "david" }, reference]) {
+      expect(add.safeParse({ ...base, credential }).success, credential.kind).toBe(true);
+      expect(update.safeParse({ commandId, forgeAccountId, credential }).success, credential.kind).toBe(true);
+    }
+    expect(add.safeParse({ ...base, credential: { kind: "none" }, copiedFrom }).success).toBe(true);
+    // None is only ever what a forge account starts with; a client never replaces a credential with it.
+    expect(update.safeParse({ commandId, forgeAccountId, credential: { kind: "none" } }).success).toBe(false);
+    // Imported is the state import's, in process; oauth is a device flow's, on the environment: no client sends either.
+    for (const provenance of ["imported", "oauth"]) expect(add.safeParse({ ...base, credential: { ...pasted, provenance } }).success, provenance).toBe(false);
+    // A login goes on gh's command line: one that reads as an option is refused.
+    expect(add.safeParse({ ...base, credential: { kind: "gh", login: "--hostname" } }).success).toBe(false);
+  });
+
+  it("errors with verification_failed and credential_source_unavailable on add and update, identity_mismatch on update alone", () => {
     const own = (name: "forge.accounts.add" | "forge.accounts.update") => registry[name].errors.map((member) => member.shape.code.value);
-    expect(own("forge.accounts.add")).toEqual(["verification_failed"]);
-    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch"]);
+    expect(own("forge.accounts.add")).toEqual(["verification_failed", "credential_source_unavailable"]);
+    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "credential_source_unavailable"]);
+  });
+
+  it("probe gh against the minimum 2.40, the first whose gh auth token takes a user", () => {
+    expect(GH_MINIMUM_VERSION).toBe("2.40.0");
   });
 });
 
@@ -85,8 +110,29 @@ describe("the forge account record", () => {
     expect(ForgeCredentialSource.safeParse(pasted).success).toBe(false);
   });
 
+  it("says a token a client's gh handed over came from that client session and does not follow gh's rotations", () => {
+    const entry = `forge:${forgeAccountId}:${commandId}`;
+    const handedOverBy = { clientSessionId: commandId, label: "David's laptop" };
+    expect(ForgeCredentialSource.safeParse({ kind: "stored", provenance: "client-gh", entry }).success).toBe(false);
+    expect(ForgeCredentialSource.safeParse({ kind: "stored", provenance: "client-gh", entry, handedOverBy, followsGhRotations: true }).success).toBe(false);
+    expect(ForgeCredentialSource.parse({ kind: "stored", provenance: "client-gh", entry, handedOverBy, followsGhRotations: false })).toMatchObject({ handedOverBy, followsGhRotations: false });
+  });
+
   it("starts every capability unknown, for a forge account nothing has probed or used", () => {
     expect(ForgeCapabilities.parse(UNKNOWN_FORGE_CAPABILITIES)).toEqual(Object.fromEntries(FORGE_CAPABILITIES.map((name) => [name, { state: "unknown", verifiedAt: null, status: null }])));
+  });
+});
+
+describe("a copy's credential", () => {
+  it("is a gh source as gh, a reference as it is, and none for a stored token or none, since no secret travels between environments", () => {
+    const entry = `forge:${forgeAccountId}:${commandId}`;
+    expect(forgeCopyCredential({ kind: "gh", login: "david" })).toEqual({ kind: "gh", login: "david" });
+    expect(forgeCopyCredential(reference)).toEqual(reference);
+    for (const provenance of ["pasted", "imported", "oauth"] as const) expect(forgeCopyCredential({ kind: "stored", provenance, entry })).toEqual({ kind: "none" });
+    expect(
+      forgeCopyCredential({ kind: "stored", provenance: "client-gh", entry, handedOverBy: { clientSessionId: commandId, label: "laptop" }, followsGhRotations: false }),
+    ).toEqual({ kind: "none" });
+    expect(forgeCopyCredential({ kind: "none" })).toEqual({ kind: "none" });
   });
 });
 
