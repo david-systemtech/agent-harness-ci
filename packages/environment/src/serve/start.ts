@@ -783,7 +783,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Closed before the wire and the listeners: an answer still open ends with a final chunk, never a bare close.
   closers.push(() => completions.close());
 
-  // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire answers nothing,
+  // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire serves no request,
   // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
   await step("prepared", () => launcher.prepared(HARNESS_VERSION));
   readiness = "ready";
