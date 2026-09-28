@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import type { ManualClock } from "@agent-harness/client-runtime/testing";
-import type { FakeAnswer, FakeWire } from "@agent-harness/client-runtime/testing/fake-wire";
 import {
   DEFAULT_TITLE,
   GROUP_STREAM_KIND,
@@ -16,14 +13,17 @@ import {
   type WorkspaceProblem,
   type WorkspaceRequest,
 } from "@agent-harness/contracts";
+import { uuidv4 } from "../ids.js";
+import type { FakeAnswer, FakeWire } from "./fake-wire.js";
+import type { ManualClock } from "./in-memory-platform.js";
 
 /**
- * The scripted environment's session list (docs/specs/tui.md, "Testing
- * Decisions"): `sessions.subscribe` answered with a snapshot of the
- * script's sessions and groups and `synchronized`, and every organisation
- * command the rail issues applied as the environment's deciders apply it,
- * in short: the event carrying its summary patch and the command's id on
- * the list, then the accepted receipt. A command the script rejects
+ * The scripted environment's session list (`scripted-environment.ts`):
+ * `sessions.subscribe` answered with a snapshot of the script's sessions
+ * and groups and `synchronized`, and every organisation command a client
+ * issues applied as the environment's deciders apply it, in short: the
+ * event carrying its summary patch and the command's id on the list, then
+ * the accepted receipt. A command the script rejects
  * changes nothing. A test holds a method's answers to see a command wait
  * for its receipt, and changes a session as another client or a run would.
  * The sessions are the script's own (`store`), which its session streams
@@ -113,7 +113,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
   };
   const envelope = (streamKind: string, streamId: string, type: string, patch: SummaryPatch | GroupPatch, commandId: string | null): EventEnvelope => ({
     sequence: next(),
-    eventId: randomUUID(),
+    eventId: uuidv4(),
     streamKind,
     streamId,
     streamVersion: 1,

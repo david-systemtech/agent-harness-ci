@@ -1,6 +1,3 @@
-import type { GrantReader, HttpFetch, WebSocketFactory } from "@agent-harness/client-runtime";
-import type { ManualClock } from "@agent-harness/client-runtime/testing";
-import { fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "@agent-harness/client-runtime/testing/fake-wire";
 import {
   AdapterCapabilities,
   Ceiling,
@@ -60,18 +57,24 @@ import {
   type TerminalInfo,
   type WorkspaceProblem,
 } from "@agent-harness/contracts";
-import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./list-server.js";
-import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
+import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
+import { fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
+import type { ManualClock } from "./in-memory-platform.js";
+import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./scripted-list.js";
+import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
 
 /**
- * The scripted fake environment (docs/specs/tui.md, "Testing Decisions"):
- * the #126 fake wire extended with a script, one or two environments, each
- * with its sessions and groups, its client sessions, the receipts its
- * commands answer, how its pairing exchange refuses a code, and what its
- * discovery answers. A test drives it further through its handle: `bye`
- * reasons, a dropped socket, discovery answering `starting` or nothing, a
- * notice on the environment's stream, and prompts parked and answered
- * (`prompts.ts`).
+ * The scripted fake environment every renderer's tests drive
+ * (docs/specs/tui.md and docs/specs/gui.md, "Testing Decisions"): the #126
+ * fake wire extended with a script, one or two environments, each with its
+ * sessions and groups, its client sessions, the receipts its commands
+ * answer, how its pairing exchange refuses a code, and what its discovery
+ * answers. A test drives it further through its handle: runs streaming
+ * events, `bye` reasons, a dropped socket, discovery answering `starting` or
+ * nothing, a notice on the environment's stream, and prompts parked and
+ * answered (`scripted-prompts.ts`). It imports no Node built-in and no
+ * renderer, so it runs wherever the runtime does: under Node for the
+ * terminal UI's tests, in jsdom for the GUI's.
  */
 
 /** How a command is answered: accepted, or rejected with a reason (an error code), a message and the error's data. */
@@ -421,6 +424,9 @@ const PAIRING_REFUSALS: Readonly<Record<ScriptedPairingRefusal, { readonly statu
 
 const later = (step: () => void) => void Promise.resolve().then(step);
 
+/** A text's size in UTF-8 bytes, as `files.read` reports a file's; `TextEncoder` is a global wherever the runtime runs. */
+const utf8Size = (text: string): number => new (globalThis as unknown as { TextEncoder: new () => { encode(text: string): Uint8Array } }).TextEncoder().encode(text).length;
+
 const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) => {
   const host = `${slug(spec.name)}.test`;
   const wire = fakeWire({
@@ -449,7 +455,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const groups = (spec.groups ?? []).map((g, i) => groupOf(clock, g, i));
   let sequence = 100;
 
-  // The streams: the session list (`test/list-server.ts`) and each session, answered `subscribed`, then the list as it
+  // The streams: the session list (`scripted-list.ts`) and each session, answered `subscribed`, then the list as it
   // stands or the session's whole log (a snapshot at its creation and every event since), then `synchronized` at the
   // head. What is emitted later goes to the subscriptions of the latest socket.
   const logs = new Map<string, { readonly base: number; readonly events: EventEnvelope[] }>(sessions.map((s) => [s.id, { base: sequence, events: [] }]));
@@ -593,7 +599,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   let runs = 0;
   const minted = (prefix: string) => `${prefix}-0000-4000-8000-${String(++runs).padStart(12, "0")}`;
   // The account each session forked here runs on, as `sessions.fork` names it: a summary names it only once a run has used it (a created one's carries
-  // the account `sessions.create` named, `test/list-server.ts`).
+  // the account `sessions.create` named, `scripted-list.ts`).
   const sessionAccounts = new Map<string, string>();
   const ceiling = (): Mode => (hello.ceiling as Mode | undefined) ?? "bypassPermissions";
   // The model and effort of each session's latest run: a run of the queue reads it on those, as the environment's does (ADR 0022).
@@ -681,7 +687,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued, lastChoice.get(sessionId)).runId;
   };
 
-  // Parked prompts and their answers (`test/prompts.ts`).
+  // Parked prompts and their answers (`scripted-prompts.ts`).
   const { prompts, answer: answerPrompt } = scriptedPrompts({
     clock,
     wire,
@@ -940,7 +946,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       }
       return { error: { code: "not_found", message: `No file ${path} in the workspace.`, data: { kind: "file" } } };
     }
-    if (typeof file === "string") return { result: { path, size: Buffer.byteLength(file), binary: false, truncated: false, text: file } };
+    if (typeof file === "string") return { result: { path, size: utf8Size(file), binary: false, truncated: false, text: file } };
     if ("binary" in file) return { result: { path, size: file.size, binary: true, truncated: false, text: null } };
     return { result: { path, size: file.size, binary: false, truncated: true, text: file.text } };
   });
@@ -1692,3 +1698,5 @@ export const scriptedWorld = (clock: ManualClock, script: Script): ScriptedWorld
 
 /** The discovery path, for a test that reads it through the world's `fetch`. */
 export { DISCOVERY_PATH };
+export { SCRIPTED_HOME, type ScriptedList } from "./scripted-list.js";
+export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scripted-prompts.js";
