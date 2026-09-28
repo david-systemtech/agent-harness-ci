@@ -1,4 +1,11 @@
-import { forgeAccountOnHost, type ForgeAccountRecord, type ForgeAccountUpdatedPayload, type ForgeAccountVerifiedPayload, type ForgeKind } from "@agent-harness/contracts";
+import {
+  forgeAccountOnHost,
+  type ForgeAccountRecord,
+  type ForgeAccountUpdatedPayload,
+  type ForgeAccountVerifiedPayload,
+  type ForgeCapabilityName,
+  type ForgeKind,
+} from "@agent-harness/contracts";
 import type { ForgeOrigin } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
@@ -26,16 +33,19 @@ import { NOTHING_KNOWN, reconcile, verifyCredential, type Found, type Reconciled
  * - **Within the budget.** Ten seconds (ADR 0031's) from reading the
  *   credential to the last answer, past which the forge account is
  *   `unreachable` and nothing else it found is taken.
- * - **Rate limits** a forge asks for pause the forge account's scheduled
- *   verifications until then; a request that is asked for still runs, and
- *   a credential given ends the pause its predecessor drew.
+ * - **Rate limits** a forge asks for, of a verification or of any other
+ *   operation with the forge account's credential, pause the forge
+ *   account's scheduled verifications until then; a request that is asked
+ *   for still runs, and a credential given ends the pause its predecessor
+ *   drew.
  * - **Recorded only on a change.** `forge.account.verified`, as
  *   `system:forge` with no command id, when the identity, a capability, the
  *   token information or the problem's kind changed; `forge.account.updated`
  *   with the aliases when one became verified or stopped being. The times
  *   each read and alias was last found verified are kept beside the record,
  *   in memory, so a verification that finds nothing new appends nothing and
- *   never moves when the status last changed.
+ *   never moves when the status last changed; so is when an operation last
+ *   found a write capability verified (#316).
  */
 
 /** The longest a forge account goes without a verification (ADR 0020). */
@@ -73,6 +83,10 @@ export interface Verifier {
   removed(forgeAccountId: string): void;
   /** `record` with the verified-at times kept beside it. */
   seen(record: ForgeAccountRecord): ForgeAccountRecord;
+  /** Holds the forge account's scheduled verifications until `until`, as the forge asked of `account`'s credential; a credential replaced since draws none. */
+  pause(account: ForgeAccountRecord, until: Date): void;
+  /** An operation found `capability` verified at `at`: the record answers that time from now on. */
+  used(forgeAccountId: string, capability: ForgeCapabilityName, at: string): void;
   /** One verification of a token no forge account holds, within the budget, recording nothing: what it makes of nothing known. */
   probe(request: ProbeRequest): Promise<Reconciled>;
   /** Stops the schedule; a verification still running records nothing. */
@@ -111,6 +125,12 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
 
   /** What names a forge account's credential: a replacement is another credential, whose findings are its own. */
   const credentialOf = (account: ForgeAccountRecord): string => JSON.stringify(account.credential);
+
+  const timesOf = (forgeAccountId: string): Seen => {
+    const times = seenTimes.get(forgeAccountId) ?? { capabilities: new Map(), aliases: new Map() };
+    seenTimes.set(forgeAccountId, times);
+    return times;
+  };
 
   const seen = (record: ForgeAccountRecord): ForgeAccountRecord => {
     const times = seenTimes.get(record.id);
@@ -203,10 +223,9 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     });
     if (recorded === null) return;
     const { before, after } = recorded;
-    const times: Seen = seenTimes.get(forgeAccountId) ?? { capabilities: new Map(), aliases: new Map() };
+    const times = timesOf(forgeAccountId);
     for (const [name, capability] of Object.entries(after.capabilities)) if (capability.state === "verified" && capability.verifiedAt !== null) times.capabilities.set(name, capability.verifiedAt);
     for (const alias of after.aliases) if (alias.verifiedAt !== null) times.aliases.set(alias.origin, alias.verifiedAt);
-    seenTimes.set(forgeAccountId, times);
     if (after.identity !== null && before.identity !== null && after.identity.login !== before.identity.login) {
       const account = liveForgeAccount(reader, forgeAccountId);
       if (account !== null) options.loginChanged(account);
@@ -277,6 +296,10 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       seenTimes.delete(forgeAccountId);
     },
     seen,
+    pause,
+    used(forgeAccountId, capability, at) {
+      if (liveForgeAccount(reader, forgeAccountId) !== null) timesOf(forgeAccountId).capabilities.set(capability, at);
+    },
     async probe({ origin, kind, token, repository }) {
       const found = await withinBudget(origin, (signal) =>
         verifyCredential(options.provider(kind), { origin, token, expected: null, repository, aliases: [] }, { signal }),

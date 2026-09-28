@@ -1,22 +1,32 @@
 import { createHash } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { rm } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 /**
  * How the providers call a forge's REST API (forge spec, "Providers"): one
- * GET with the token in a header and nowhere else, bounded by a timeout and
- * by the caller's signal, and three things every call gets alike:
+ * request with the token in a header and nowhere else, or none for an
+ * anonymous read, a JSON body for a write, bounded by a timeout and by the
+ * caller's signal, and three things every call gets alike:
  *
  * - **Rate limits.** `Retry-After` (seconds or a date) and GitHub's spent
  *   limit (`X-RateLimit-Remaining: 0` with its `X-RateLimit-Reset`) are told
  *   to the caller as a pause, which holds a forge account's background work
  *   until then; an answer they come with that is no answer (429, or GitHub's
  *   403) is a forge that cannot answer now, never a refusal of the token.
- * - **Entity tags.** A read that came with an `ETag` is kept, and read again
- *   with `If-None-Match`: a 304 answers what the forge answered before, and
- *   costs GitHub's limit nothing. Kept by the token's hash and the URL, so
- *   one token's answers are never another's.
+ * - **Entity tags.** A read (a GET) that came with an `ETag` is kept, and
+ *   read again with `If-None-Match`: a 304 answers what the forge answered
+ *   before, and costs GitHub's limit nothing. Kept by the token's hash and
+ *   the URL, so one token's answers are never another's, nor an anonymous
+ *   read's.
  * - **Paging.** A list follows `Link: rel="next"` until it has what was
  *   asked for, and only on the origin it began on, so the token never goes
  *   where a header points.
+ *
+ * A download streams its bytes to a file, following redirects itself: the
+ * token goes with a redirect on the origin it began on and never to
+ * another (GitHub sends an asset's bytes from its storage).
  */
 
 /** How a provider reaches a forge: `fetch`'s shape, so a test can route github.com's API to its fake forge. */
@@ -114,40 +124,73 @@ const pauseOf = (headers: Headers, now: Date): Date | null => {
   return Number.isFinite(until) && until > now.getTime() ? new Date(until) : null;
 };
 
-/** The key a read is kept under: the token's hash, never the token, and the URL. */
-const tagKey = (token: string, url: string): string => `${createHash("sha256").update(token).digest("hex")} ${url}`;
+/** The key a read is kept under: the token's hash, never the token, and the URL; an anonymous read's apart from every token's. */
+const tagKey = (token: string | null, url: string): string => `${token === null ? "anonymous" : createHash("sha256").update(token).digest("hex")} ${url}`;
+
+/** A call to a forge's REST API. */
+export interface ForgeRequest {
+  readonly method: "GET" | "POST" | "PUT";
+  readonly url: string;
+  /** The token the headers carry, which a read is kept under; null for an anonymous call. */
+  readonly token: string | null;
+  /** The headers, the token's among them. */
+  readonly headers: Record<string, string>;
+  /** A write's body, sent as JSON. */
+  readonly body?: unknown;
+}
 
 /**
- * GETs `url` with `headers` (the token's among them, `token` for the key a
- * read is kept under). A rate limit is told to `onPause`; a spent limit's
- * 403 or 429 is unanswered, as is a timeout, a lost connection or a server
- * error.
+ * When the forge asks for no call before: told to `onPause`. A spent
+ * limit's 403 or 429 is unanswered, as is a server error; null for every
+ * other status, which the caller reads.
  */
-export const forgeGet = async (http: ForgeHttpOptions, url: string, token: string, headers: Record<string, string>, call: CallOptions = {}): Promise<Reply> => {
-  const key = tagKey(token, url);
-  const kept = http.entityTags.get(key);
+const unansweredStatus = (response: Response, http: ForgeHttpOptions, call: CallOptions): Extract<Reply, { outcome: "unanswered" }> | null => {
+  const { status } = response;
+  const pause = pauseOf(response.headers, http.now());
+  if (pause !== null) call.onPause?.(pause);
+  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `is rate-limiting this token until ${pause.toISOString()}` };
+  return isTransient(status) ? { outcome: "unanswered", message: `answered HTTP ${status}` } : null;
+};
+
+/**
+ * Sends `request`. A rate limit is told to `onPause`; a spent limit's 403
+ * or 429 is unanswered, as is a timeout, a lost connection or a server
+ * error. A GET is kept for a conditional re-read.
+ */
+export const forgeCall = async (http: ForgeHttpOptions, request: ForgeRequest, call: CallOptions = {}): Promise<Reply> => {
+  const { method, url } = request;
+  const key = tagKey(request.token, url);
+  const kept = method === "GET" ? http.entityTags.get(key) : undefined;
   const timeout = AbortSignal.timeout(http.timeoutMs);
   let response: Response;
   let text: string;
   try {
     response = await http.fetch(url, {
-      headers: { ...headers, ...(kept !== undefined && { "if-none-match": kept.etag }) },
+      method,
+      headers: {
+        ...request.headers,
+        ...(kept !== undefined && { "if-none-match": kept.etag }),
+        ...(request.body !== undefined && { "content-type": "application/json" }),
+      },
+      ...(request.body !== undefined && { body: JSON.stringify(request.body) }),
       signal: call.signal === undefined ? timeout : AbortSignal.any([call.signal, timeout]),
     });
     text = await response.text();
   } catch (error) {
     return { outcome: "unanswered", message: `could not be reached: ${whyUnanswered(error, http.timeoutMs)}` };
   }
+  const unanswered = unansweredStatus(response, http, call);
+  if (unanswered !== null) return unanswered;
   const { status } = response;
-  const pause = pauseOf(response.headers, http.now());
-  if (pause !== null) call.onPause?.(pause);
-  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `is rate-limiting this token until ${pause.toISOString()}` };
-  if (isTransient(status)) return { outcome: "unanswered", message: `answered HTTP ${status}` };
   if (status === 304 && kept !== undefined) return { outcome: "answered", status: kept.status, headers: kept.headers, body: parseJson(kept.text) };
   const etag = response.headers.get("etag");
-  if (response.ok && etag !== null) http.entityTags.set(key, { etag, status, headers: response.headers, text });
+  if (method === "GET" && response.ok && etag !== null) http.entityTags.set(key, { etag, status, headers: response.headers, text });
   return { outcome: "answered", status, headers: response.headers, body: parseJson(text) };
 };
+
+/** GETs `url` with `headers` (the token's among them, `token` for the key a read is kept under; null for none): `forgeCall`'s read. */
+export const forgeGet = (http: ForgeHttpOptions, url: string, token: string | null, headers: Record<string, string>, call: CallOptions = {}): Promise<Reply> =>
+  forgeCall(http, { method: "GET", url, token, headers }, call);
 
 /** The `rel="next"` target of a `Link` header; null without one. */
 const nextLink = (headers: Headers): string | null => {
@@ -171,21 +214,115 @@ export type Paged =
   | { readonly outcome: "failed"; readonly status: number }
   | { readonly outcome: "unanswered"; readonly message: string };
 
+/** How much of a list to read. */
+export interface PageOptions {
+  /** How many items to gather. */
+  readonly limit: number;
+  /** Which items are gathered; preset every one. */
+  readonly keep?: (item: unknown) => boolean;
+  /** The most pages read, however few items they held; preset no bound. */
+  readonly maxPages?: number;
+}
+
 /**
  * Reads a list from `url` page by page, following `Link: rel="next"` on the
- * same origin, until it holds `limit` items or the pages end. A page that
- * answers something other than 2xx and a list ends it: its status, or why
- * it was unanswered.
+ * same origin, until it holds `limit` items it keeps, the pages end or it
+ * has read `maxPages`. A page that answers something other than 2xx and a
+ * list ends it: its status, or why it was unanswered.
  */
-export const forgePages = async (http: ForgeHttpOptions, url: string, token: string, headers: Record<string, string>, limit: number, call: CallOptions = {}): Promise<Paged> => {
+export const forgePages = async (
+  http: ForgeHttpOptions,
+  url: string,
+  token: string | null,
+  headers: Record<string, string>,
+  { limit, keep = () => true, maxPages = Number.POSITIVE_INFINITY }: PageOptions,
+  call: CallOptions = {},
+): Promise<Paged> => {
   const items: unknown[] = [];
-  for (let next: string | null = url; next !== null && items.length < limit; ) {
+  let read = 0;
+  for (let next: string | null = url; next !== null && items.length < limit && read < maxPages; read++) {
     const reply = await forgeGet(http, next, token, headers, call);
     if (reply.outcome === "unanswered") return reply;
     if (reply.status < 200 || reply.status >= 300 || !Array.isArray(reply.body)) return { outcome: "failed", status: reply.status };
-    items.push(...(reply.body as unknown[]));
+    items.push(...(reply.body as unknown[]).filter(keep));
     const link = nextLink(reply.headers);
     next = link !== null && sameOrigin(link, url) ? link : null;
   }
   return { outcome: "listed", items: items.slice(0, limit) };
+};
+
+/** How long a download may take once the forge has begun answering (a chosen default): a release's artefact is large. */
+export const FORGE_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
+
+/** The most redirects a download follows. */
+const MAX_REDIRECTS = 5;
+
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/** What a download came to: the file written, with its size and SHA-256, or why none was. */
+export type Downloaded =
+  | { readonly outcome: "downloaded"; readonly status: number; readonly size: number; readonly sha256: string }
+  /** The forge answered with no bytes: its status and body. */
+  | { readonly outcome: "failed"; readonly status: number; readonly body: unknown }
+  | { readonly outcome: "unanswered"; readonly message: string };
+
+/** `headers` without the token, for a request to another origin than the one the download began on. */
+const withoutAuthorization = (headers: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== "authorization"));
+
+/**
+ * GETs `url` with `headers` and streams what it answers into
+ * `destination`, answering its size and SHA-256. Redirects are followed,
+ * the token going only to `url`'s origin. The forge has the call's timeout
+ * to begin answering and `FORGE_DOWNLOAD_TIMEOUT_MS` more to finish; a
+ * download cut short leaves no file.
+ */
+export const forgeDownload = async (
+  http: ForgeHttpOptions,
+  url: string,
+  headers: Record<string, string>,
+  destination: string,
+  call: CallOptions = {},
+  downloadTimeoutMs = FORGE_DOWNLOAD_TIMEOUT_MS,
+): Promise<Downloaded> => {
+  const controller = new AbortController();
+  const signal = call.signal === undefined ? controller.signal : AbortSignal.any([call.signal, controller.signal]);
+  let finishing = false;
+  let timer = setTimeout(() => controller.abort(new DOMException("The forge did not answer in time.", "TimeoutError")), http.timeoutMs);
+  try {
+    let target = url;
+    let response = await http.fetch(target, { headers, redirect: "manual", signal });
+    for (let hops = 0; REDIRECT_STATUSES.has(response.status) && response.headers.has("location"); hops++) {
+      await response.body?.cancel();
+      if (hops === MAX_REDIRECTS) return { outcome: "unanswered", message: `redirected a download more than ${MAX_REDIRECTS} times` };
+      target = new URL(response.headers.get("location") ?? "", target).href;
+      response = await http.fetch(target, { headers: sameOrigin(target, url) ? headers : withoutAuthorization(headers), redirect: "manual", signal });
+    }
+    const unanswered = unansweredStatus(response, http, call);
+    if (unanswered !== null || !response.ok || response.body === null) {
+      const text = await response.text();
+      return unanswered ?? { outcome: "failed", status: response.status, body: parseJson(text) };
+    }
+    clearTimeout(timer);
+    finishing = true;
+    timer = setTimeout(() => controller.abort(new DOMException("The download did not finish in time.", "TimeoutError")), downloadTimeoutMs);
+    const hash = createHash("sha256");
+    let size = 0;
+    const measure = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        hash.update(chunk);
+        size += chunk.length;
+        done(null, chunk);
+      },
+    });
+    await pipeline(Readable.fromWeb(response.body), measure, createWriteStream(destination));
+    return { outcome: "downloaded", status: response.status, size, sha256: hash.digest("hex") };
+  } catch (error) {
+    // What was written of it goes; a file there before the forge began answering is left as it was.
+    if (finishing) await rm(destination, { force: true });
+    const why = finishing ? `did not finish the download: ${whyUnanswered(error, downloadTimeoutMs)}` : `could not be reached: ${whyUnanswered(error, http.timeoutMs)}`;
+    return { outcome: "unanswered", message: why };
+  } finally {
+    clearTimeout(timer);
+  }
 };

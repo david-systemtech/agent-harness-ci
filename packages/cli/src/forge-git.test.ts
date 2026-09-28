@@ -6,17 +6,17 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { startFakeForge } from "../../environment/test/fake-forge.js";
-import { DAVID, TOKEN, added } from "../../environment/test/forge.js";
+import { DAVID, TOKEN, added, list } from "../../environment/test/forge.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { hostileMachineGit } from "../../environment/test/hostile-git.js";
 
 /**
  * The harness's git through the real helper, end to end (forge spec,
- * "Testing Decisions"; #314): an in-process environment whose git names
- * this CLI, run from source, as its credential helper; the fake forge
- * serving git's smart HTTP behind basic auth; a real git; and the machine's
- * global configuration naming a hostile helper and askpass that hang, as
- * on 2026-09-18.
+ * "Testing Decisions"; #314, #316): an in-process environment whose git
+ * names this CLI, run from source, as its credential helper; the fake forge
+ * serving its API and git's smart HTTP behind basic auth; a real git; and
+ * the machine's global configuration naming a hostile helper and askpass
+ * that hang, as on 2026-09-18.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -80,6 +80,48 @@ describe("the harness's git through agent-harness git-credential", () => {
     const authenticated = forge.gitRequests.filter((request) => request.status === 200);
     expect(authenticated.length).toBeGreaterThan(0);
     expect(authenticated.every((request) => request.username === DAVID.login)).toBe(true);
+    expect(hostile.asked()).toEqual([]);
+  });
+
+  it("creates a private repository on the primary forge and pushes its first commit through the harness's git, as the Memory bank step does", async () => {
+    const hostile = hostileMachineGit(tempDir, onCleanup);
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    forge.gitCredential(DAVID.login, TOKEN);
+    // The forge makes the repository it is asked for, empty, as a new one is.
+    let bare = "";
+    forge.answer(TOKEN, "POST /api/v1/user/repos", (request) => {
+      const { name, private: isPrivate } = request.body as { name: string; private: boolean };
+      bare = forge.gitRepository(`david/${name}`, { private: isPrivate, empty: true });
+      return { status: 201, body: { full_name: `david/${name}`, private: isPrivate, default_branch: "main", html_url: `${forge.origin}/david/${name}` } };
+    });
+    const t = await startTestEnvironment({ forgeFetch: forge.fetch, harnessCommand: cliCommand });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    await added(client, { url: forge.origin, kind: "forgejo" });
+
+    const created = await t.env.forge.repositories.create({ name: "bank", private: true, purpose: "create a memory bank" });
+    expect(created).toMatchObject({ outcome: "done", value: { origin: forge.origin, fullName: "david/bank", private: true, defaultBranch: "main" } });
+    if (created.outcome !== "done") return;
+
+    const checkout = tempDir();
+    git(checkout, "init", "--quiet", `--initial-branch=${created.value.defaultBranch}`);
+    writeFileSync(join(checkout, "BANK.md"), "# bank\n");
+    git(checkout, "add", "BANK.md");
+    git(checkout, "commit", "--quiet", "-m", "a bank");
+    const pushed = await t.env.forge.git({
+      operation: "push",
+      repository: `${created.value.origin}/${created.value.fullName}`,
+      cwd: checkout,
+      refspecs: [created.value.defaultBranch],
+      purpose: "push a new bank's first commit",
+    });
+    expect(pushed.outcome === "ran" && pushed.git.ok, JSON.stringify(pushed)).toBe(true);
+
+    expect(git(bare, "log", "--format=%s", "main").trim()).toBe("a bank");
+    expect(forge.gitRequests.filter((request) => request.status === 200).every((request) => request.username === DAVID.login)).toBe(true);
+    expect((await list(client))[0]?.capabilities.createRepository.state).toBe("verified");
     expect(hostile.asked()).toEqual([]);
   });
 });

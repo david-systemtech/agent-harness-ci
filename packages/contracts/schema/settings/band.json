@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsBand",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": [
+        "setup",
+        "accounts",
+        "knowledge",
+        "access",
+        "routines",
+        "environments",
+        "appearance",
+        "about"
+      ],
+      "description": "A band of Settings, in the rail's order: setup, accounts, knowledge, access, routines (Routines and bots), environments, appearance, about."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The band's heading on the rail."
+    }
+  },
+  "required": [
+    "id",
+    "label"
+  ],
+  "description": "One of the eight bands of Settings: its id and the heading the rail draws."
+}

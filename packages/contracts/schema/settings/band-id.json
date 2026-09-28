@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsBandId",
+  "type": "string",
+  "enum": [
+    "setup",
+    "accounts",
+    "knowledge",
+    "access",
+    "routines",
+    "environments",
+    "appearance",
+    "about"
+  ],
+  "description": "A band of Settings, in the rail's order: setup, accounts, knowledge, access, routines (Routines and bots), environments, appearance, about."
+}

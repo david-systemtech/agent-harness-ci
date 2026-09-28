@@ -45,17 +45,23 @@ describe("the JSON Schema export", () => {
     for (const [name, schema] of packageSchemas) expect(exported.has(schema as z.ZodType), name).toBe(true);
   });
 
-  it("indexes every schema file, every case table and every method with its scope", () => {
+  it("indexes every schema file, every case table, every data table and every method with its scope", () => {
     const index = readJson("index.json") as {
       protocolVersion: number;
       schemas: { path: string; title: string }[];
       cases: { path: string; title: string }[];
+      data: { path: string; title: string; schema: string }[];
       methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; response?: string; error: string }[];
     };
     expect(index.protocolVersion).toBe(contracts.PROTOCOL_VERSION);
     expect(index.cases).toEqual([{ path: "cases/repository-identity.json", title: "Repository identity" }]);
-    const casePaths = new Set(index.cases.map((c) => c.path));
-    expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !casePaths.has(p)));
+    expect(index.data).toEqual([
+      { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
+      { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
+      { path: "data/settings-addresses.json", title: "Settings addresses", schema: "settings/address-row.json" },
+    ]);
+    const tablePaths = new Set([...index.cases, ...index.data].map((c) => c.path));
+    expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !tablePaths.has(p)));
     expect(index.methods).toEqual(
       methods.map((m) => ({
         name: m.name,
@@ -92,6 +98,35 @@ describe("the JSON Schema export", () => {
       identity: "https://git.systemtech.dev/david/agent-harness",
     });
     for (const entry of published.cases) expect(contracts.repositoryIdentityOf(entry.remote, entry.forgeAccounts), entry.note).toBe(entry.identity);
+  });
+
+  it("publishes the bands, the row registry and the address table as data, each entry valid against the schema the file names", () => {
+    const ajv = validator();
+    for (const path of filesOnDisk().filter((p) => p !== "index.json" && !p.startsWith("data/"))) ajv.addSchema(readJson(path), path);
+    const tables = Object.fromEntries(
+      ["data/settings-bands.json", "data/settings-rows.json", "data/settings-addresses.json"].map((path) => {
+        const table = readJson(path) as { title: string; description: string; schema: string; entries: unknown[] };
+        const validate = ajv.getSchema(table.schema);
+        if (validate === undefined) throw new Error(`${path} names ${table.schema}, which is not published`);
+        for (const entry of table.entries) expect(validate(entry), `${path}: ${JSON.stringify(entry)}`).toBe(true);
+        expect(table.description, path).not.toBe("");
+        return [path, table.entries];
+      }),
+    );
+    expect(tables["data/settings-bands.json"]).toEqual(contracts.SETTINGS_BANDS);
+    expect(tables["data/settings-rows.json"]).toEqual(contracts.SETTINGS_ROWS);
+    expect(tables["data/settings-rows.json"]).toContainEqual(expect.objectContaining({ id: "access.key-managers", scope: "environment", homeOf: ["key-manager"] }));
+    expect(tables["data/settings-addresses.json"]).toHaveLength(16);
+    expect(tables["data/settings-addresses.json"]).toContainEqual({ address: "secrets", row: "access.key-managers" });
+    expect(tables["data/settings-addresses.json"]).toEqual(contracts.SETTINGS_ADDRESSES.map((address) => ({ address, row: contracts.rowOfAddress(address) })));
+  });
+
+  it("publishes the row, scope and address shapes", () => {
+    for (const path of ["settings/band.json", "settings/row-id.json", "settings/row-scope.json", "settings/row.json", "settings/address.json", "settings/address-row.json", "setup/step-id.json"]) {
+      expect(filesOnDisk(), path).toContain(path);
+    }
+    expect(readJson("settings/row-scope.json")).toMatchObject({ enum: ["environment", "everywhere", "client"] });
+    expect((readJson("settings/address.json") as { enum: string[] }).enum).toHaveLength(16);
   });
 
   it("describes every enum, so a client developer knows what each set of values is", () => {

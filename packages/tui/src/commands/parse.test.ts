@@ -57,13 +57,15 @@ describe("parseCommand", () => {
   it("reads the accounts, models, permissions, settings and Set up commands, /profile as the hidden alias of /account (#147)", () => {
     expect(parseCommand("/profile")).toEqual({ kind: "picker", command: { name: "account", argument: "" } });
     expect(parseCommand("/model")).toEqual({ kind: "picker", command: { name: "model", argument: "" } });
-    for (const name of ["account", "model", "mode", "containment", "usage", "review", "settings"]) {
+    for (const name of ["account", "model", "mode", "containment", "usage", "review"]) {
       expect(parseCommand(`/${name}`)).toEqual({ kind: "picker", command: { name, argument: "" } });
       expect(parseCommand(`/${name} extra`)).toEqual({ kind: "usage", line: `Usage: /${name}` });
     }
     expect(parseCommand("/handoff")).toEqual({ kind: "picker", command: { name: "handoff", argument: "" } });
     expect(parseCommand("/handoff My Laptop")).toEqual({ kind: "picker", command: { name: "handoff", argument: "My Laptop" } });
     expect(parseCommand("/setup desk")).toEqual({ kind: "picker", command: { name: "setup", argument: "desk" } });
+    expect(parseCommand("/settings")).toEqual({ kind: "picker", command: { name: "settings", argument: "" } });
+    expect(parseCommand("/settings access.permissions")).toEqual({ kind: "picker", command: { name: "settings", argument: "access.permissions" } });
   });
 
   it("answers every command the shared list wires, so none says it is not in this build yet", () => {

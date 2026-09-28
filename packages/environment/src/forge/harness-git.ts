@@ -4,7 +4,6 @@ import {
   RUN_SECRET_VARIABLE,
   formatHostPort,
   invalidParams,
-  matchForgeAccount,
   normaliseRemote,
   type ForgeAccountMissingError,
   type ForgeAccountRecord,
@@ -12,7 +11,8 @@ import {
 } from "@agent-harness/contracts";
 import type { Address } from "../serve/http.js";
 import { UNTRANSLATED, runGit, type GitAnswer } from "../workspace/git.js";
-import { credentialHelper, gitConfigVariables, helperChain, servedOrigins } from "./git-helper.js";
+import { credentialHelper, gitConfigVariables, helperChain, servedOrigins, servingAccount } from "./git-helper.js";
+import { forgeAccountMissing } from "./missing-origins.js";
 import type { RunSecrets } from "./run-secrets.js";
 
 /**
@@ -79,12 +79,6 @@ const PROMPT_REFUSED = /terminal prompts disabled/;
 const argumentsOf = (command: ForgeGitCommand, url: string): string[] =>
   command.operation === "clone" ? ["clone", "--", url, command.directory] : [command.operation, "--", url, ...command.refspecs];
 
-const forgeAccountMissing = (origin: ForgeOrigin): ForgeAccountMissingError => ({
-  code: "forge_account_missing",
-  message: `No forge account on this environment covers ${origin}, and it asked for a credential: add one in Set up, Forges.`,
-  data: { origin, step: "forges" },
-});
-
 /** The harness's git operation on a forge, as the ForgeService offers it. */
 export const createHarnessGit =
   (options: HarnessGitOptions) =>
@@ -94,8 +88,7 @@ export const createHarnessGit =
       const message = "The repository names no repository on a forge: give its https, http, ssh or scp-like URL.";
       throw new ContractError(invalidParams([{ code: "custom", path: ["repository"], message }], message));
     }
-    const served = options.accounts().map((account) => ({ account, origin: account.origin, aliases: servedOrigins(account).slice(1) }));
-    const account = matchForgeAccount(remote, served)?.account ?? null;
+    const account = servingAccount(remote, options.accounts());
     const origin = account?.origin ?? remote.origin;
     const url = `${origin}/${remote.path}.git`;
 
@@ -123,7 +116,7 @@ export const createHarnessGit =
     }
     if (account === null && !git.ok && PROMPT_REFUSED.test(git.stderr)) {
       options.originMissing(origin, request.purpose);
-      return { outcome: "refused", error: forgeAccountMissing(origin) };
+      return { outcome: "refused", error: forgeAccountMissing(origin, "it asked for a credential") };
     }
     return { outcome: "ran", git };
   };
