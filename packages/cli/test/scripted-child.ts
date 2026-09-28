@@ -7,7 +7,7 @@
  * child report there, one JSON line each. Its version is its package's, as
  * `serve` reports its own.
  */
-import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseLauncherMessage, type EnvironmentMessage } from "@agent-harness/contracts/launcher";
 import { SERVICE_STATE_FILE } from "../src/launch/state.js";
@@ -23,7 +23,7 @@ const start = readLines(reportPath).filter((line) => (JSON.parse(line) as ChildE
 const scriptPath = join(dataDir, CHILD_SCRIPT_FILE);
 const script = existsSync(scriptPath) ? (JSON.parse(readFileSync(scriptPath, "utf8")) as ChildStart[]) : [];
 const scripted = script[start] ?? "serve";
-const { behaviour = "serve", writes, preparedAs, switchTo }: ScriptedStart = typeof scripted === "string" ? { behaviour: scripted } : scripted;
+const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo }: ScriptedStart = typeof scripted === "string" ? { behaviour: scripted } : scripted;
 
 const report = (event: string, detail: Record<string, unknown> = {}) =>
   appendFileSync(reportPath, `${JSON.stringify({ start, pid: process.pid, version, event, ...detail })}\n`);
@@ -40,8 +40,8 @@ const leave = (code: number) => {
   if (process.connected) process.disconnect();
 };
 
-report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort() });
 if (writes !== undefined) writeDatabase(dataDir, writes, "open");
+report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort() });
 
 if (behaviour === "crash") process.exit(1);
 if (behaviour === "exit-0") process.exit(0);
@@ -89,4 +89,8 @@ process.on("message", (raw) => {
   }
 });
 
+if (spoilsState) {
+  rmSync(join(dataDir, SERVICE_STATE_FILE));
+  mkdirSync(join(dataDir, SERVICE_STATE_FILE, "in-the-way"), { recursive: true });
+}
 if (behaviour !== "silent") send({ type: "prepared", version: preparedAs ?? version });

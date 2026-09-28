@@ -37,10 +37,12 @@ export type ChildBehaviour = "serve" | "drain" | "crash-after-commit" | "deaf-on
 /** A start that does more than its behaviour (preset `serve`) says. */
 export interface ScriptedStart {
   readonly behaviour?: ChildBehaviour;
-  /** Written to the database before anything else, which is then left open, as a version's migrations write and a crash leaves them. */
+  /** Written to the database before anything else, even the `started` report, and the database left open, as a version's migrations write and a crash leaves them. */
   readonly writes?: readonly string[];
   /** The version it says `prepared` for, in place of its own. */
   readonly preparedAs?: string;
+  /** Puts a folder in the service state's place before it says `prepared`, so the launcher can no longer write the state. */
+  readonly spoilsState?: true;
   /**
    * Once committed, asks `switch?` for this update in place of `versions?`,
    * as an environment does once its drain has ended. It reports `switching`

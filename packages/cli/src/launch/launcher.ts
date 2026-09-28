@@ -291,12 +291,19 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
       } else {
         writeOutcomeRecord(dataDir, record);
         clearPending(update);
-        discardSnapshot(dataDir, update.updateId);
         log(`${update.toVersion} never ran, so there was nothing to restore`);
       }
     } catch (error) {
       log(`starts nothing: update ${update.updateId} could not be rolled back: ${messageOf(error)}`);
       return;
+    }
+    if (!targetRan) {
+      // What a snapshot cut short left is of no use now; failing to remove it costs only the room it takes.
+      try {
+        discardSnapshot(dataDir, update.updateId);
+      } catch (error) {
+        log(`the snapshot of update ${update.updateId} could not be removed: ${messageOf(error)}`);
+      }
     }
     exitsInARow = 0;
     runActive();
