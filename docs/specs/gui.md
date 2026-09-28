@@ -123,6 +123,7 @@ The window keeps its layout: a sidebar of every environment's sessions, a grid o
 | composer.navigate | ↑, ↓ (from the start of the box) |
 | composer.withdrawLast | ↑ (empty composer) |
 | composer.complete, composer.command.menu, composer.file.mention, composer.paste | Tab, /, @, Mod+V |
+| composer.shell | ! (as in the terminal UI; added by #388) |
 | composer.readNow | none (wired) |
 | permission.allow (added), permission.deny | Mod+Enter, Esc |
 | picker.move, picker.choose, picker.leave | ↑ ↓, Enter, Esc |
@@ -258,8 +259,17 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 
 **Owed by this workstream's build**:
 
-- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own; drive its tests from the script's new home; leave GUI-only actions out of `/help`; whether to list `projections.documents` is David's.
+- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own; drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
 - With 88: this build turns the step registry's pane links into home row ids and each settings key's band into a row, since the rail reads them first; 88 then serves the `setup` subscription and fills this frame with the step cards.
 - To 93: the browser dock as a driver and the relay's handler registration on the runtime. To 91: Managed tools rows in About.
+
+- Verified in the GUI column's build (#388): the fixture transcribed from the GUI map the surfaces port audit pins (`packages/contracts/test/reference-gui-keymap.ts`, the reference renderer at 443cf2e: the window's hotkey map, the composer's handlers, the three cards, the find bar and the palette) matches the table row for row: its 26 rows are the table's keys in the same places, Esc's stop the one row changed (`off`). The table's other rows are additions the reference lacks: `app.session.newInPane` (story 28), `composer.file.mention` (`@`, the composer section), `composer.withdrawLast` and `composer.readNow` (ADR 0022). The reference recalls on ↑ only from an empty box or one holding a recalled prompt; the table's "from the start of the box" is wider, and `composer.withdrawLast` now takes the empty box first. Not keys of the five places, and left out: the composer's Esc (the window's again), the slash menu's own keys, the sidebar context menu's letters.
+- Chosen defaults not decided on a ticket, from the GUI column's build (#388):
+  - **The column** is `gui` on each action: `wired` with `keys` (possibly none), an optional `when` and `off: true`, or `absent` with a `reason`. An action only the GUI answers has an empty terminal column: no keys, `absent` with one shared reason, no condition; `isGuiOnly` names it, the help overlay leaves it out, and the terminal UI's keybindings file reports its id and ignores it. The GUI-only actions sit at the end of the group of their context.
+  - **Conditions**: `composer.atStart` ("from the start of the box"), `picker.queryEmpty` ("empty query") and `transcript.finding` ("find bar") join `composer.empty`. The find bar's and the palette's parenthesised places are conditions like the composer's, so a later transcript or picker key can share Enter, Esc or Backspace.
+  - **Nested conditions**: `composer.navigate` (from the start of the box) and `composer.withdrawLast` (empty composer) both hold ↑ in the GUI, which the terminal's rule (one conditioned holder beside one unconditioned) refuses. A condition now names the wider one it lies `within` (`composer.empty` within `composer.atStart`), and `keyClashes` admits holders of one key whose conditions nest, the narrowest asked first; two under one condition, or under conditions neither within the other, still clash. The terminal column's rulings are unchanged.
+  - **`composer.shell`** is wired on `!`, which the table left out: the composer section and #409 give the GUI `!` and `!!`. `composer.snippet.expand` and `composer.slot.back` are absent: snippets are the terminal UI's own.
+  - **Slash commands** absent in the GUI beside `/quit` and `/reload`: `/timeline` (the transcript's cost lines and run info carry it) and `/snip` (snippets), neither a session verb nor a GUI surface; `/undo` and `/check` stay deferred to phase D as in the terminal.
+  - **Stopping a run**: the actions no Ctrl+C or Mod+C may be are `app.interrupt`, `app.interruptOrQuit` and `composer.readNow` (it interrupts the run to read the queue); `row.stop` and `delegated.stop` stop a call or a task, not the run. `reservedGuiKey(id, key)` is the check a client calls before saving a remap; it reads `Mod` as the platform's command key, so a client writes Ctrl only for macOS's Control key.
 
 **For domain-modeling**: session pane, side column, pane grid, home environment, row, row registry and band are used here and are not glossary terms; "Esc stops the run" is a switch, not a mode, and "mode" stays the permission mode (the light or dark choice is called a preference here to keep it so).

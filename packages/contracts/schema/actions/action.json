@@ -33,7 +33,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "The default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed."
+          "description": "The terminal's default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed, and for an action only the GUI answers (its terminal column is empty: absent, and left out of the terminal UI's help)."
         },
         "description": {
           "type": "string",
@@ -51,11 +51,75 @@
           "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
         },
         "when": {
-          "description": "For a key answered only under a condition of its own context: the condition. Such an action may share a default key with one unconditioned action of its context, and is asked first; absent, the key is the action's whenever its context has the keys.",
+          "description": "For a terminal key answered only under a condition of its own context: the condition. Such an action may share a default key with an action of its context under a wider condition or none, and is asked first; absent, the key is the action's whenever its context has the keys.",
           "type": "string",
           "enum": [
-            "composer.empty"
+            "composer.empty",
+            "composer.atStart",
+            "picker.queryEmpty",
+            "transcript.finding"
           ]
+        },
+        "gui": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "wired"
+                },
+                "keys": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": "The GUI's default keys, each an alternative, written as the terminal column writes them with `Mod` for ⌘ on macOS and Ctrl elsewhere (`Mod+K`, `Shift+Enter`, `↑`), so Ctrl is written only for macOS's Control key; empty for a slash command, which is typed, and for an action the GUI answers with no default key (it is in the command palette and bindable)."
+                },
+                "when": {
+                  "description": "For keys the GUI answers only under a condition of the action's context: the condition, ruled as in the terminal column. Absent, the keys are the action's whenever its context has the keys.",
+                  "type": "string",
+                  "enum": [
+                    "composer.empty",
+                    "composer.atStart",
+                    "picker.queryEmpty",
+                    "transcript.finding"
+                  ]
+                },
+                "off": {
+                  "description": "The keys are written but unbound until turned on: app.interrupt's Esc, under the switch \"Esc stops the run\" (ADR 0022).",
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "status",
+                "keys"
+              ],
+              "description": "An action the GUI answers."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "absent"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why the GUI has no key for it: a text field's own key, a surface the GUI reaches it from otherwise (named), or a decision (ADR 0022 for Ctrl+C). The Keyboard shortcuts pane draws the row dim with this."
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "description": "An action the GUI answers another way, or not at all: absent with the reason."
+            }
+          ],
+          "description": "The GUI's column beside the terminal's (the GUI spec's \"Keyboard: the GUI column\"): its default keys, wired or absent with a reason, a condition of its own, and off for keys written but unbound until turned on."
         },
         "status": {
           "type": "string",
@@ -67,9 +131,10 @@
         "context",
         "keys",
         "description",
+        "gui",
         "status"
       ],
-      "description": "An action the harness answers."
+      "description": "An action the terminal answers."
     },
     {
       "type": "object",
@@ -102,7 +167,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "The default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed."
+          "description": "The terminal's default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed, and for an action only the GUI answers (its terminal column is empty: absent, and left out of the terminal UI's help)."
         },
         "description": {
           "type": "string",
@@ -120,11 +185,75 @@
           "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
         },
         "when": {
-          "description": "For a key answered only under a condition of its own context: the condition. Such an action may share a default key with one unconditioned action of its context, and is asked first; absent, the key is the action's whenever its context has the keys.",
+          "description": "For a terminal key answered only under a condition of its own context: the condition. Such an action may share a default key with an action of its context under a wider condition or none, and is asked first; absent, the key is the action's whenever its context has the keys.",
           "type": "string",
           "enum": [
-            "composer.empty"
+            "composer.empty",
+            "composer.atStart",
+            "picker.queryEmpty",
+            "transcript.finding"
           ]
+        },
+        "gui": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "wired"
+                },
+                "keys": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": "The GUI's default keys, each an alternative, written as the terminal column writes them with `Mod` for ⌘ on macOS and Ctrl elsewhere (`Mod+K`, `Shift+Enter`, `↑`), so Ctrl is written only for macOS's Control key; empty for a slash command, which is typed, and for an action the GUI answers with no default key (it is in the command palette and bindable)."
+                },
+                "when": {
+                  "description": "For keys the GUI answers only under a condition of the action's context: the condition, ruled as in the terminal column. Absent, the keys are the action's whenever its context has the keys.",
+                  "type": "string",
+                  "enum": [
+                    "composer.empty",
+                    "composer.atStart",
+                    "picker.queryEmpty",
+                    "transcript.finding"
+                  ]
+                },
+                "off": {
+                  "description": "The keys are written but unbound until turned on: app.interrupt's Esc, under the switch \"Esc stops the run\" (ADR 0022).",
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "status",
+                "keys"
+              ],
+              "description": "An action the GUI answers."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "const": "absent"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why the GUI has no key for it: a text field's own key, a surface the GUI reaches it from otherwise (named), or a decision (ADR 0022 for Ctrl+C). The Keyboard shortcuts pane draws the row dim with this."
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "description": "An action the GUI answers another way, or not at all: absent with the reason."
+            }
+          ],
+          "description": "The GUI's column beside the terminal's (the GUI spec's \"Keyboard: the GUI column\"): its default keys, wired or absent with a reason, a condition of its own, and off for keys written but unbound until turned on."
         },
         "status": {
           "type": "string",
@@ -133,7 +262,7 @@
         "reason": {
           "type": "string",
           "minLength": 1,
-          "description": "Why the harness answers it absent: the help overlay draws the row dim with this."
+          "description": "Why the terminal answers it absent: the help overlay draws the row dim with this."
         }
       },
       "required": [
@@ -141,11 +270,12 @@
         "context",
         "keys",
         "description",
+        "gui",
         "status",
         "reason"
       ],
-      "description": "An action the harness keeps the keys of but does not answer: drawn dim with its reason."
+      "description": "An action the terminal keeps the keys of but does not answer, drawn dim with its reason; or, with no keys, one only the GUI answers."
     }
   ],
-  "description": "One named action of the shared list: its id, context, default keys and description, a condition its keys are answered under where it has one, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys or condition, any other action keys and no usage line, a condition is one of the action's own context, and only a slash command is an alias: rules the decoder keeps and this schema cannot state."
+  "description": "One named action of the shared list: its id, context and description; the terminal's column (default keys, a condition they are answered under where it has one, wired or absent with a reason); and the GUI's column beside it. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys or condition in either column, any other action no usage line; a pressed action has a terminal key unless only the GUI answers it (absent in the terminal with no keys or condition, wired in the GUI), while a GUI action wired with no key is valid; a condition is one of the action's own context; keys written off are keys; and only a slash command is an alias: rules the decoder keeps and this schema cannot state."
 }

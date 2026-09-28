@@ -1,4 +1,4 @@
-import { ACTION_CONDITIONS, ACTION_GROUPS, isCommandId, type ActionId, type KeyActionId, type ListedAction } from "@agent-harness/contracts";
+import { ACTION_CONDITIONS, ACTION_GROUPS, isCommandId, isGuiOnly, type ActionId, type KeyActionId, type ListedAction } from "@agent-harness/contracts";
 import type { Keymap } from "./keys.js";
 
 /**
@@ -11,7 +11,8 @@ import type { Keymap } from "./keys.js";
  * `soon`, dim. A row the list declares a
  * condition for carries the condition's words, drawn after its keys as the
  * tui spec's table writes them (`↑ (empty composer)`), remapped or not. A
- * hidden alias is left out.
+ * hidden alias is left out, and so is an action only the GUI answers, whose
+ * terminal column is empty (#388).
  * One line per line drawn, so the overlay scrolls by what is on screen.
  */
 export type HelpLine =
@@ -52,7 +53,7 @@ export const helpLines = (keymap: Keymap, answered: ReadonlySet<ActionId>, words
   ACTION_GROUPS.flatMap((g): HelpLine[] => [
     { kind: "heading", text: g.title },
     ...(g.actions as readonly ListedAction[]).flatMap((action): HelpLine[] =>
-      action.aliasOf !== undefined
+      action.aliasOf !== undefined || isGuiOnly(action)
         ? []
         : [rowOf(action, keymap, answered, words), ...(action.status === "absent" ? [{ kind: "reason" as const, id: action.id, text: action.reason }] : [])],
     ),
