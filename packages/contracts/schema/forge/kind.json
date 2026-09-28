@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeKind",
+  "type": "string",
+  "enum": [
+    "github",
+    "forgejo",
+    "gitea",
+    "gitlab"
+  ],
+  "description": "The kind of forge a forge account is on: github (github.com or an Enterprise origin), forgejo or gitea; gitlab is reserved for milestone 2 and produced by nothing before it."
+}
