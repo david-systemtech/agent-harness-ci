@@ -4,6 +4,8 @@ import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
+import type { SettingsRowId } from "./settings-rows.js";
+import type { StepId } from "./steps.js";
 import { UPDATE_SETTINGS } from "./update-settings.js";
 
 /**
@@ -67,13 +69,17 @@ export const TranscriptCompactAfterDays = z
     description: `How many whole days a session goes with no run, command or event before its transcript events are folded into a snapshot that replaces them for replay; ${TRANSCRIPT_COMPACT_DAYS.min} to ${TRANSCRIPT_COMPACT_DAYS.max}. Organisation events are never compacted.`,
   });
 
-/** Where a key sits in Set up: the step whose registry entry writes it, and the band of that step's settings pane it shows in. */
+/**
+ * Where a key sits: the step whose registry entry writes it, and the row of
+ * Settings it shows on (ADR 0027), which is the step's home row or a row the
+ * step links to (`settings-rows.test.ts`).
+ */
 export interface SettingPlace {
-  readonly id: string;
-  readonly band: string;
+  readonly id: StepId;
+  readonly row: SettingsRowId;
 }
 
-/** One key of the table: its schema, the value it holds until it is set, and the step that writes it. */
+/** One key of the table: its schema, the value it holds until it is set, and the step that writes it with the row it sits on. */
 export interface SettingDefinition<S extends z.ZodType = z.ZodType> {
   readonly schema: S;
   readonly preset: z.infer<S>;
@@ -92,53 +98,58 @@ export interface SettingDefinition<S extends z.ZodType = z.ZodType> {
 const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): SettingDefinition<S> => definition;
 
 /**
- * Every settings key. The two auto-settle keys sit under the Appearance
- * step's entry, in a Sessions band of its pane (session-state spec), and the
- * transcript compaction window (#123) beside them; the Set up workstream
- * (#88) may re-home them. The Account step's own keys (ADR 0018: the default
- * account, model family and effort, #134) and `providers.processIdleMinutes`
- * (#120) sit under the Account step's entry, in the Default account and
- * model band of the Accounts pane (ADR 0027's `accounts.default-model` row,
- * which folds together what were separate Models and Runs panes).
- * The permission keys (#129) are the Permissions step's, written through
+ * Every settings key. The two auto-settle keys and the transcript compaction
+ * window (#123) are the Appearance step's to write (session-state spec), and
+ * sit on `environments.service`: ADR 0027 closed the Appearance band at Theme
+ * and Keyboard shortcuts, and they are the environment's policy on its log
+ * (GUI spec); the Set up workstream (#88) may move them to Your machines'
+ * entry. The Account step's own keys (ADR 0018: the default account, model
+ * family and effort, #134) and `providers.processIdleMinutes` (#120) are the
+ * Account step's, on `accounts.default-model` (which folds together what
+ * were separate Models and Runs panes). The permission keys (#129) are the
+ * Permissions step's, on `access.permissions`, written through
  * `permissions.settings.set` only, and the update keys (#335) the Your
- * machines step's, written through `updates.settings.set` only.
+ * machines step's, on `environments.machines`, written through
+ * `updates.settings.set` only.
  */
+const SESSIONS_PLACE = { id: "appearance", row: "environments.service" } as const;
+const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
+
 export const SETTINGS = {
   "sessions.autoSettleAfterIdle": setting({
     schema: AutoSettleAfterIdle,
     preset: { amount: 14, unit: "days" },
-    step: { id: "appearance", band: "sessions" },
+    step: SESSIONS_PLACE,
   }),
   "sessions.autoSettleOnMerge": setting({
     schema: AutoSettleOnMerge,
     preset: false,
-    step: { id: "appearance", band: "sessions" },
+    step: SESSIONS_PLACE,
   }),
   "sessions.transcriptCompactAfterDays": setting({
     schema: TranscriptCompactAfterDays,
     preset: 90,
-    step: { id: "appearance", band: "sessions" },
+    step: SESSIONS_PLACE,
   }),
   "accounts.defaultAccount": setting({
     schema: DefaultAccount,
     preset: null,
-    step: { id: "account", band: "default-model" },
+    step: DEFAULT_MODEL_PLACE,
   }),
   "accounts.defaultModelFamily": setting({
     schema: DefaultModelFamily,
     preset: null,
-    step: { id: "account", band: "default-model" },
+    step: DEFAULT_MODEL_PLACE,
   }),
   "accounts.defaultEffort": setting({
     schema: DefaultEffort,
     preset: null,
-    step: { id: "account", band: "default-model" },
+    step: DEFAULT_MODEL_PLACE,
   }),
   "providers.processIdleMinutes": setting({
     schema: ProcessIdleMinutes,
     preset: PROCESS_IDLE_MINUTES_PRESET,
-    step: { id: "account", band: "default-model" },
+    step: DEFAULT_MODEL_PLACE,
   }),
   ...PERMISSION_SETTINGS,
   ...UPDATE_SETTINGS,

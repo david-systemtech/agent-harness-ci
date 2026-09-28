@@ -53,8 +53,8 @@ export const DeferralCapHours = z
 /** A key's definition, its preset checked against its schema by the compiler. */
 const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): SettingDefinition<S> => definition;
 
-/** Every update key sits under the Your machines step, in the Environments band, whose Your machines row is `environments.machines` (ADR 0027). */
-const YOUR_MACHINES_STEP = { id: "your-machines", band: "environments" } as const;
+/** Every update key sits under the Your machines step, on its home row `environments.machines` (ADR 0027). */
+const YOUR_MACHINES_STEP = { id: "your-machines", row: "environments.machines" } as const;
 
 /** The one method that writes an update key: the generic `settings.update` refuses them. */
 const WRITTEN_BY = "updates.settings.set";

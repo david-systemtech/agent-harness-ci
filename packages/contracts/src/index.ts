@@ -82,6 +82,7 @@ export * from "./schema-export.js";
 export * from "./scopes.js";
 export * from "./sessions.js";
 export * from "./settings.js";
+export * from "./settings-rows.js";
 export * from "./setup.js";
 export * from "./steps.js";
 export * from "./summary-fields.js";
