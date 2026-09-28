@@ -116,7 +116,7 @@ const probed = (before: ForgeCapability, answer: ReadAnswer, at: string): ForgeC
 const sameCapability = (one: ForgeCapability, other: ForgeCapability): boolean => one.state === other.state && one.status === other.status;
 
 /** `found`, since when a problem of its kind began: `before`'s since-time when it is of the same kind. */
-const keepSince = (before: ForgeProblem | null, found: ForgeProblem | null): ForgeProblem | null =>
+export const keepSince = (before: ForgeProblem | null, found: ForgeProblem | null): ForgeProblem | null =>
   found !== null && before !== null && before.kind === found.kind ? { ...found, since: before.since } : found;
 
 const describeIdentity = (identity: ForgeIdentity): string => `${identity.login} (user ${identity.userId})`;

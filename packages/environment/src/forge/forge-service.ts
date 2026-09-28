@@ -34,6 +34,7 @@ import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
+import { keepSince } from "./verification.js";
 import { createVerifier } from "./verifier.js";
 import { createEntityTags } from "./forge-http.js";
 import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
@@ -697,7 +698,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         const changes: Partial<ForgeAccountUpdatedPayload> = {
           ...(params.slug !== undefined && params.slug !== current.slug && { slug: params.slug }),
           ...(!sameAliases(aliases, current.aliases) && { aliases }),
-          ...(replacing !== null && { credential: replacing.source, ...(found !== null && { identity: found }), problem: replacing.problem }),
+          // A problem of the kind it had holds since it began, as a verification keeps it.
+          ...(replacing !== null && { credential: replacing.source, ...(found !== null && { identity: found }), problem: keepSince(current.problem, replacing.problem) }),
         };
         if (Object.keys(changes).length === 0) return { aggregate: stream, result: { account: current } };
         log.append(stream, [{ type: "forge.account.updated", payload: { ...payload, ...changes } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
