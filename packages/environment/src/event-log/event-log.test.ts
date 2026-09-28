@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createScrubRegistry } from "../scrub/registry.js";
 import type { EventInput, JsonObject, StreamRef } from "./envelope.js";
 import { openEventLog, REPLAY_BOUND, type EventLog, type Projector } from "./event-log.js";
 import { MIGRATIONS } from "./migrations.js";
@@ -310,6 +311,75 @@ describe("appending", () => {
       /cannot hold/,
     );
     expect(log.readStream(s1)).toEqual([]);
+  });
+});
+
+describe("the scrub at the append", () => {
+  const HELD = "a-value-the-log-hides";
+
+  it("writes every string of the payload, at any depth and keys included, as the scrub answers it, and leaves other values and the metadata as they are", () => {
+    const scrub = createScrubRegistry();
+    scrub.register(HELD, { owner: "test:secret" });
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text) });
+    const payload = {
+      text: `token ${HELD}`,
+      nested: { list: [HELD, 1, true, null, { deeper: `x${HELD}x` }] },
+      [HELD]: "a key that was the secret",
+      count: 3,
+    };
+    const [appended] = log.append(s1, [{ type: "note.added", payload, metadata: { note: HELD } }], { actor: "system:test" }).events;
+
+    const scrubbed = {
+      text: "token [redacted]",
+      nested: { list: ["[redacted]", 1, true, null, { deeper: "x[redacted]x" }] },
+      "[redacted]": "a key that was the secret",
+      count: 3,
+    };
+    expect(appended?.payload).toEqual(scrubbed);
+    expect(log.readStream(s1).map((event) => [event.payload, event.metadata])).toEqual([[scrubbed, { note: HELD }]]);
+  });
+
+  it("hands projectors and subscribers the payload as it was written", () => {
+    const scrub = createScrubRegistry();
+    scrub.register(HELD, { owner: "test:secret" });
+    const projected: unknown[] = [];
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text), projectors: [{ name: "seen", tables: {}, apply: (event) => void projected.push(event.payload) }] });
+    const published: unknown[] = [];
+    log.subscribe((event) => published.push(event.payload));
+    log.append(s1, [note(`said ${HELD}`)], { actor: "system:test" });
+    expect(projected).toEqual([{ text: "said [redacted]" }]);
+    expect(published).toEqual([{ text: "said [redacted]" }]);
+  });
+
+  it("refuses a payload whose cycle runs through a key the scrub changes, as it refuses any cycle, and writes nothing", () => {
+    const scrub = createScrubRegistry();
+    scrub.register(HELD, { owner: "test:held" });
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text) });
+    const cyclic: Record<string, unknown> = {};
+    cyclic[`under ${HELD}`] = cyclic;
+    expect(() => log.append(s1, [{ type: "bad", payload: cyclic }], { actor: "system:test" })).toThrow(/circular/);
+    const nested: Record<string, unknown> = { list: [] };
+    (nested["list"] as unknown[]).push({ [HELD]: nested });
+    expect(() => log.append(s1, [{ type: "bad", payload: nested }], { actor: "system:test" })).toThrow(/circular/);
+    expect(log.readStream(s1)).toEqual([]);
+  });
+
+  it("writes an object the payload holds twice, with a key the scrub changes, both times", () => {
+    const scrub = createScrubRegistry();
+    scrub.register(HELD, { owner: "test:held" });
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text) });
+    const shared = { [HELD]: "twice" };
+    const [appended] = log.append(s1, [{ type: "note.added", payload: { first: shared, second: shared } }], { actor: "system:test" }).events;
+    expect(appended?.payload).toEqual({ first: { "[redacted]": "twice" }, second: { "[redacted]": "twice" } });
+  });
+
+  it("never rewrites an event appended before its value was registered", () => {
+    const scrub = createScrubRegistry();
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text) });
+    log.append(s1, [note(`before ${HELD}`)], { actor: "system:test" });
+    scrub.register(HELD, { owner: "test:secret" });
+    log.append(s1, [note(`after ${HELD}`)], { actor: "system:test" });
+    expect(log.readStream(s1).map((event) => event.payload["text"])).toEqual([`before ${HELD}`, "after [redacted]"]);
   });
 });
 
