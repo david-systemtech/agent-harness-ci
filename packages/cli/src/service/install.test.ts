@@ -138,6 +138,16 @@ describe("agent-harness service install, a first install", () => {
     expect(cli.out()).not.toContain("Copied");
   });
 
+  it("clears the staging folders a copy cut short by a crash left in the versions directory", async () => {
+    const home = tempHome();
+    const dataDir = linuxDataDir(home);
+    installVersion(dataDir, "0.4.0");
+    mkdirSync(join(dataDir, "versions", ".0.5.0.0b6f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f.partial", "node"), { recursive: true });
+    const cli = harness("linux", { home });
+    expect(await cli.run("service", "install")).toBe(0);
+    expect(readdirSync(join(dataDir, "versions")).sort()).toEqual(["0.4.0", "0.5.0"]);
+  });
+
   it("replaces a folder of the version that has no sentinel, which a copy cut short left, with a whole copy", async () => {
     const home = tempHome();
     const dataDir = linuxDataDir(home);

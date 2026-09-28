@@ -64,6 +64,10 @@ const runningCliEntry = (): string | undefined => {
 /** The shim is run by name from a PATH, so it is written executable. */
 const writeExecutable = (path: string, content: string): void => writeFileSync(path, content, { mode: 0o755 });
 
+/** `items` as a sentence lists them: `a`, `a and b`, `a, b and c`. */
+const listed = (items: readonly string[]): string =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
 /** Runs each put-back, newest first, past any that fails: the error that started them is the one reported. */
 const putBack = (steps: readonly (() => void)[]): void => {
   for (const step of [...steps].reverse()) {
@@ -181,16 +185,19 @@ const uninstall = async (args: readonly string[], context: ServiceContext): Prom
   const installed = await platform.isInstalled();
   if (installed) await platform.uninstall();
   const kind = scriptKind(installContext.platform);
-  const scripts = [record?.launcherEntry ?? join(dataDir, LAUNCHER_ENTRY_FILES[kind]), join(dataDir, SHIM_DIRECTORY, SHIM_FILES[kind])];
-  const leftBehind = scripts.some((path) => existsSync(path));
-  for (const path of scripts) rmSync(path, { force: true });
+  const scripts = [
+    { path: record?.launcherEntry ?? join(dataDir, LAUNCHER_ENTRY_FILES[kind]), name: "the launcher entry" },
+    { path: join(dataDir, SHIM_DIRECTORY, SHIM_FILES[kind]), name: "the shim" },
+  ].filter(({ path }) => existsSync(path));
+  for (const { path } of scripts) rmSync(path, { force: true });
+  const scriptNames = scripts.map(({ name }) => name);
   removeServiceRecord(dataDir);
   removeEmptyDirectories(record?.createdDirectories ?? []);
   if (recordProblem) context.stderr(`${recordProblem} The folders that install created could not be removed.\n`);
   context.stdout(
     installed
-      ? `Removed ${platform.definitionPath()}, the launcher entry and the shim. The data directory keeps the versions and what the environment wrote.\n`
-      : `No service is installed.${leftBehind ? " Removed the launcher entry and the shim an install left." : ""}\n`,
+      ? `Removed ${listed([platform.definitionPath(), ...scriptNames])}. The data directory keeps the versions and what the environment wrote.\n`
+      : `No service is installed.${scriptNames.length > 0 ? ` Removed ${listed(scriptNames)}, which an install left.` : ""}\n`,
   );
   return 0;
 };

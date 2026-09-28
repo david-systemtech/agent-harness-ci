@@ -86,14 +86,29 @@ export interface PlacedVersion {
 
 const nothingToUndo = () => undefined;
 
+/** A staging folder `placeVersion` copies a version into: dot-led, so no version is ever named by it. */
+const partialFolder = (version: string): string => `.${version}.${randomUUID()}.partial`;
+const PARTIAL = /^\..+\.partial$/;
+
+/** Removes the staging folders a copy cut short by a crash or a kill left in `versions`, which install alone writes while no launcher runs. */
+const clearPartials = (versions: string): void => {
+  let entries;
+  try {
+    entries = readdirSync(versions, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) if (entry.isDirectory() && PARTIAL.test(entry.name)) rmSync(join(versions, entry.name), { recursive: true, force: true });
+};
+
 /**
  * Makes `unpacked` a version in `dataDir`'s versions directory and names it.
  * One already in the versions directory (the install script unpacks there)
  * is named by its folder, and must be complete. One outside it (a desktop's
  * bundled artefact) is copied in beside the others, put on disk, renamed into
  * place and completed with its sentinel, written last, unless a complete copy
- * is already there; a folder of it without the sentinel is what a copy cut
- * short left, and is replaced.
+ * is already there; a folder of it without the sentinel, or a staging
+ * folder, is what a copy cut short left, and is replaced or removed.
  */
 export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): PlacedVersion => {
   const versions = join(dataDir, VERSIONS_DIRECTORY);
@@ -110,7 +125,7 @@ export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): Placed
   if (isComplete(dataDir, version)) return { version, undo: nothingToUndo };
   const created = missingDirectories(versions);
   const target = versionDirectory(dataDir, version);
-  const partial = join(versions, `.${version}.${randomUUID()}.partial`);
+  const partial = join(versions, partialFolder(version));
   const undo = () => {
     rmSync(partial, { recursive: true, force: true });
     rmSync(target, { recursive: true, force: true });
@@ -118,6 +133,7 @@ export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): Placed
   };
   try {
     mkdirSync(versions, { recursive: true });
+    clearPartials(versions);
     cpSync(root, partial, { recursive: true, verbatimSymlinks: true, filter: (source) => source !== join(root, VERSION_SENTINEL) });
     syncTree(partial);
     rmSync(target, { recursive: true, force: true });

@@ -386,6 +386,17 @@ describe("agent-harness service status", () => {
     expect(cli.err()).toMatch(/could not be removed/);
   });
 
+  it("uninstall of a service from before the launcher names only the definition it removed", async () => {
+    const cli = harness("linux");
+    const dataDir = join(cli.home, ".local", "state", "agent-harness");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(dirname(unitPath(cli.home)), { recursive: true });
+    writeFileSync(unitPath(cli.home), "[Service]\nExecStart=/usr/bin/node /opt/agent-harness/dist/main.js serve\n");
+    writeFileSync(join(dataDir, "service.json"), JSON.stringify({ platform: "systemd", definitionPath: unitPath(cli.home), port: 7433, createdDirectories: [] }));
+    expect(await cli.run("service", "uninstall")).toBe(0);
+    expect(cli.out()).toBe(`Removed ${unitPath(cli.home)}. The data directory keeps the versions and what the environment wrote.\n`);
+  });
+
   it("says in a sentence, and exits 1, when the service record cannot be read", async () => {
     const cli = harness("linux", { answer: active });
     await cli.run("service", "install");
