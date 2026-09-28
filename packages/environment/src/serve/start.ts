@@ -435,7 +435,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const now = () => clock.now();
   const scrub = options.scrub ?? createScrubRegistry();
   const launcher = options.launcher ?? processLauncherChannel();
-  const capabilities: CapabilityFlags = [];
+  // Under a launcher the environment can update itself to a client's version (ADR 0007); under a foreground `serve` it
+  // cannot, and `updates.status` says why. Managed outside, the flag waits for the host-side updater's poll (#348).
+  const capabilities: CapabilityFlags = launcher.present() ? ["self-update"] : [];
   // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
   let authPolicy: AuthPolicy = "local-only";
   // The name the Host check admits: set only once the tailnet address is bound.

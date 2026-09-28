@@ -250,3 +250,19 @@ describe("settings.update", () => {
     expect(t.env.log.head()).toBe(head);
   });
 });
+
+describe("the self-update flag", () => {
+  it("is on discovery and in hello under a launcher", async () => {
+    const t = await start({ launcher: testLauncher({ present: true }) });
+    expect((await getJson(t.address, DISCOVERY_PATH))["capabilities"]).toContain("self-update");
+    expect((await t.client()).hello.capabilities).toContain("self-update");
+  });
+
+  it("is absent under a foreground serve, and in a container with no launcher before any host-side updater's poll", async () => {
+    for (const inContainer of [false, true]) {
+      const t = await start({ containerDetector: { inContainer: () => inContainer } });
+      expect((await getJson(t.address, DISCOVERY_PATH))["capabilities"], String(inContainer)).not.toContain("self-update");
+      expect((await t.client()).hello.capabilities, String(inContainer)).not.toContain("self-update");
+    }
+  });
+});
