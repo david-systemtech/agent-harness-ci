@@ -1311,6 +1311,50 @@
       "title": "UpdateCancelledPayload"
     },
     {
+      "path": "updates/manager.json",
+      "title": "UpdateManager"
+    },
+    {
+      "path": "updates/check-failure.json",
+      "title": "UpdateCheckFailure"
+    },
+    {
+      "path": "updates/check.json",
+      "title": "UpdateCheck"
+    },
+    {
+      "path": "updates/update-state.json",
+      "title": "UpdateState"
+    },
+    {
+      "path": "updates/blocked-reason.json",
+      "title": "UpdateBlockedReason"
+    },
+    {
+      "path": "updates/waits-on.json",
+      "title": "UpdateWaitsOn"
+    },
+    {
+      "path": "updates/pending-update.json",
+      "title": "PendingUpdate"
+    },
+    {
+      "path": "updates/outcome.json",
+      "title": "UpdateOutcome"
+    },
+    {
+      "path": "updates/status.json",
+      "title": "UpdatesStatus"
+    },
+    {
+      "path": "updates/when.json",
+      "title": "UpdateWhen"
+    },
+    {
+      "path": "updates/conflict-reason.json",
+      "title": "UpdateConflictReason"
+    },
+    {
       "path": "updates/settings-values.json",
       "title": "UpdateSettingsValues"
     },
@@ -2809,6 +2853,106 @@
     {
       "path": "methods/diffs.session/error.json",
       "title": "diffs.session error"
+    },
+    {
+      "path": "methods/updates.status/params.json",
+      "title": "updates.status params"
+    },
+    {
+      "path": "methods/updates.status/result.json",
+      "title": "updates.status result"
+    },
+    {
+      "path": "methods/updates.status/error.json",
+      "title": "updates.status error"
+    },
+    {
+      "path": "methods/updates.check/params.json",
+      "title": "updates.check params"
+    },
+    {
+      "path": "methods/updates.check/result.json",
+      "title": "updates.check result"
+    },
+    {
+      "path": "methods/updates.check/error.json",
+      "title": "updates.check error"
+    },
+    {
+      "path": "methods/updates.apply/params.json",
+      "title": "updates.apply params"
+    },
+    {
+      "path": "methods/updates.apply/result.json",
+      "title": "updates.apply result"
+    },
+    {
+      "path": "methods/updates.apply/response.json",
+      "title": "updates.apply response"
+    },
+    {
+      "path": "methods/updates.apply/error.json",
+      "title": "updates.apply error"
+    },
+    {
+      "path": "methods/updates.cancel/params.json",
+      "title": "updates.cancel params"
+    },
+    {
+      "path": "methods/updates.cancel/result.json",
+      "title": "updates.cancel result"
+    },
+    {
+      "path": "methods/updates.cancel/response.json",
+      "title": "updates.cancel response"
+    },
+    {
+      "path": "methods/updates.cancel/error.json",
+      "title": "updates.cancel error"
+    },
+    {
+      "path": "methods/updates.settings.set/params.json",
+      "title": "updates.settings.set params"
+    },
+    {
+      "path": "methods/updates.settings.set/result.json",
+      "title": "updates.settings.set result"
+    },
+    {
+      "path": "methods/updates.settings.set/response.json",
+      "title": "updates.settings.set response"
+    },
+    {
+      "path": "methods/updates.settings.set/error.json",
+      "title": "updates.settings.set error"
+    },
+    {
+      "path": "methods/updates.begin/params.json",
+      "title": "updates.begin params"
+    },
+    {
+      "path": "methods/updates.begin/result.json",
+      "title": "updates.begin result"
+    },
+    {
+      "path": "methods/updates.begin/response.json",
+      "title": "updates.begin response"
+    },
+    {
+      "path": "methods/updates.begin/error.json",
+      "title": "updates.begin error"
+    },
+    {
+      "path": "methods/updates.desktop.stage/params.json",
+      "title": "updates.desktop.stage params"
+    },
+    {
+      "path": "methods/updates.desktop.stage/result.json",
+      "title": "updates.desktop.stage result"
+    },
+    {
+      "path": "methods/updates.desktop.stage/error.json",
+      "title": "updates.desktop.stage error"
     }
   ],
   "methods": [
@@ -3697,6 +3841,73 @@
       "params": "methods/diffs.session/params.json",
       "result": "methods/diffs.session/result.json",
       "error": "methods/diffs.session/error.json"
+    },
+    {
+      "name": "updates.status",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/updates.status/params.json",
+      "result": "methods/updates.status/result.json",
+      "error": "methods/updates.status/error.json"
+    },
+    {
+      "name": "updates.check",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/updates.check/params.json",
+      "result": "methods/updates.check/result.json",
+      "error": "methods/updates.check/error.json"
+    },
+    {
+      "name": "updates.apply",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/updates.apply/params.json",
+      "result": "methods/updates.apply/result.json",
+      "response": "methods/updates.apply/response.json",
+      "error": "methods/updates.apply/error.json"
+    },
+    {
+      "name": "updates.cancel",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/updates.cancel/params.json",
+      "result": "methods/updates.cancel/result.json",
+      "response": "methods/updates.cancel/response.json",
+      "error": "methods/updates.cancel/error.json"
+    },
+    {
+      "name": "updates.settings.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/updates.settings.set/params.json",
+      "result": "methods/updates.settings.set/result.json",
+      "response": "methods/updates.settings.set/response.json",
+      "error": "methods/updates.settings.set/error.json"
+    },
+    {
+      "name": "updates.begin",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/updates.begin/params.json",
+      "result": "methods/updates.begin/result.json",
+      "response": "methods/updates.begin/response.json",
+      "error": "methods/updates.begin/error.json"
+    },
+    {
+      "name": "updates.desktop.stage",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/updates.desktop.stage/params.json",
+      "result": "methods/updates.desktop.stage/result.json",
+      "error": "methods/updates.desktop.stage/error.json"
     }
   ]
 }

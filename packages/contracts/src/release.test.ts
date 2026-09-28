@@ -55,7 +55,7 @@ describe("the release manifest", () => {
       const { [field]: _left, ...without } = manifest as Record<string, unknown>;
       expect(ReleaseManifest.safeParse(without).success, field).toBe(false);
     }
-    const [artefact] = manifest.assets as [Record<string, unknown>];
+    const [artefact] = manifest.assets as readonly Record<string, unknown>[] as [Record<string, unknown>];
     for (const field of ["name", "kind", "platform", "format", "size", "sha256"]) {
       const { [field]: _left, ...without } = artefact;
       expect(ReleaseManifest.safeParse({ ...manifest, assets: [without] }).success, field).toBe(false);

@@ -17,7 +17,7 @@ import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
-import { updateSchemaFixtures } from "./update-fixtures.js";
+import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -331,6 +331,8 @@ const methodErrorFixtures: Fixtures = {
     ...Object.values(sharedErrors),
     // #180: the scope is held, but the call would grant a ceiling above the caller's own.
     { code: "forbidden", message: "A pairing at bypassPermissions is above this client session's own ceiling.", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+    // #335: the scope is held, but only a local client session may ask this.
+    { code: "forbidden", message: "Only a local client session may name an artefact path.", data: { scope: "admin", reason: "local" } },
   ],
   invalid: [
     { code: "no_such_error", message: "m", data: {} },
@@ -498,6 +500,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...accountMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
+  ...updateMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
