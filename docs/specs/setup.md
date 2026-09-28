@@ -1,0 +1,232 @@
+# Spec: Set up: the step registry and the eleven milestone-1 steps
+
+Milestone 1 (Switch-over), phase B (daily use), with the steps whose features land in phases C and D filling their entries as they are built. Written 2026-09-28 from map ticket 88 of `david/agent-harness`. Implements ADR 0016 (a client surface with per-environment health; every feature registers its step), ADR 0019 (the LLM step and minted sessions), ADR 0031 (one check method, budgets, cadence, three states, named actions, re-run) and the step decisions: ADR 0018 (Account), 0021 and 0036 (Carry over and the state import), 0025 (Your machines), 0020, 0032 and 0033 (Forges), 0028 (Key manager), 0034, 0035 and 0037 (Memory bank), 0029 (Skills), 0030 (Instructions), 0024 (Browser), 0006 (Permissions), 0023 (Appearance) and 0027 (the Set up pane). Read: this ticket's comments, the Resolutions of #30, #38, #39, #40, #41, #42, #43, #44, #45, #46, #47, #48, #51, #52, #53 and #56; the code on `main` at b086580 (`contracts/src/steps.ts`, `setup.ts`, `methods/setup.ts`, `environment/src/setup/`); every spec in `docs/specs/`, re-deciding none. Two questions were put to David on 2026-09-28 and are marked (David). The product name is the placeholder `agent-harness`.
+
+## Problem Statement
+
+Setting up a machine today is a desktop-only dialog of fifteen panes whose health nobody checks: a key-manager token expires, a skill source stops syncing or a Chrome runs an old extension, and the first sign is a run that fails. A headless server is set up by hand and never checked at all. The step registry on `main` is a stub: four of eleven steps, health checks written as functions over setting values that only a client could run, no budget, no cadence, no cache, no subscription, and "skipped" defined as something a person does although four feature specs already derive it from state. Seven steps have no card anywhere: Account, Carry over, Your machines, Memory bank, Skills, Instructions and Appearance each had their behaviour decided on a ticket, and none has the command, the copy or the check a build session needs. The terminal UI's `/setup` answers "cannot be read from here yet".
+
+## Solution
+
+Set up is a checklist of eleven steps that every client renders from the same environment state. Each feature registers one step: the settings and state it writes, the checks that say it holds, the budget and cadence of those checks, the events that re-run them, the row it lives on, whether it may be skipped and when. The environment runs every check itself, on start, when a client opens Set up or a step's pane, on Check now and re-run, when the feature's own event fires, and otherwise hourly (fifteen minutes for the three steps the orientation block reports on). It keeps the latest result per step across restarts and publishes each change on the environment stream, so the desktop's Set up pane, the terminal's `/setup` line and a headless machine's health all read the same answer. A result is done, needs attention with one line and the actions that fix it, or skipped, which a step with nothing set up reports on its own. On first launch Set up is the whole window; afterwards it is the first row of Settings, and every step links to the pane that owns it. Steps whose artefact has to be written, a bank's `BANK.md` and orientation, mint a normal session that the card embeds and whose result the step's own check detects. A headless machine is installed by one script, paired from any client, and checked from there.
+
+## User Stories
+
+1. As David, I want the desktop's first launch to walk me through the eleven steps in order, so that a new machine is ready in one sitting.
+2. As David, I want Set up to stay the first row of Settings, each step with a dot and one line, so that I see at a glance what needs attention.
+3. As David, I want every check to run on the environment it checks, so that a headless server is checked while nobody is looking at it.
+4. As David, I want a step I have not set up to show skipped rather than a warning, so that an unused key manager or browser never nags me (David).
+5. As David, I want a failed check to say in one line what failed and offer the button that fixes it, so that I never hunt for the cause.
+6. As David, I want Re-run to check everything afresh and take me to the first step that needs attention, so that a green checklist is not walked for nothing.
+7. As David, I want a check that cannot finish to say it timed out and keep the last good result beneath it, dated, so that a sleeping machine never leaves a step spinning.
+8. As David, I want to pick which environment the checklist checks, and to jump into a new machine's checklist after pairing it, so that every machine gets set up the same way.
+9. As Seth, I want `/setup` in the terminal to list each step's health and point at the desktop for the rest, so that I know what is wrong without a GUI.
+10. As David, I want the Account step to adopt my Claude Code directory or sign in a new account from any client, and to preset the default model family to the highest tier at high effort, so that a new session just works.
+11. As David, I want Carry over to import every session in my adopted directories in one click, archived ones staying archived, so that switching loses nothing.
+12. As David, I want the state import to appear on the Carry over card when a source data folder is on the machine, with a dry run and a report of what carried, what I must re-enter and what never carries, so that I switch over knowingly.
+13. As David, I want a card per machine with its name, icon, colour, reachability, version, channel and auto-update, and a way to add another by link, QR, code or install script, so that my machines are one list.
+14. As David, I want a code I mint for my own client to grant every scope and the top ceiling, a program code to default to acceptEdits with a picker, and a custom code with ticks, so that each pairing gets what it should (David).
+15. As David, I want the Forges, Key manager, Skills, Browser and Permissions cards to drive the methods their specs define, with the copy those decisions fixed, so that each step's rules live in one place.
+16. As David, I want the Memory bank card to create a personal or team bank or join one from a link with a preview, and to embed the describe conversation, so that a bank is ready without leaving Set up.
+17. As David, I want an authoring session's result detected by the step's check, never by a timeout, with Try again, Write it myself, Start over and Revise, so that a long conversation is a feature and a failure is explained.
+18. As David, I want the Instructions step to preview the orientation block as rendered and seed an "About my setup" note I own, so that the model's facts and my prose stay apart.
+19. As David, I want the Appearance step to hold the theme with the default palette and need attention only when a custom theme misses the contrast rules, so that preference steps never nag.
+20. As a feature spec, I want to register a step with its writes, checks, budget, cadence, triggers, home row and skip rule, and have a contract test refuse anything missing, so that no setting exists without a step.
+21. As a client in any language, I want the latest results in the environment stream's snapshot and each change as a notice, so that I render health without polling.
+22. As a program pairing such as Hermes, I want to read health with `read` scope and nothing more, so that monitoring needs no admin token.
+23. As a build session, I want an in-process environment with scripted checks, a clock and fake feature events, so that cadence, budgets, triggers, the cache and re-run are fast tests.
+24. As David, I want a machine I install by script to print its pairing link and code, so that adding a headless machine ends in a pairing.
+25. As David, I want unreachable machines shown as unreachable on their card, from the client's own connection, so that a dead machine never shows green.
+
+## Implementation Decisions
+
+Every rule cites its decision; a rule marked chosen default was left open by the tickets and is listed again under Further Notes.
+
+### Modules
+
+- **Contracts**: the registry's phase-B shape and entries (`steps.ts`), the result and action vocabulary (`setup.ts`), the methods below (`methods/setup.ts`, `methods/carry-over.ts`, `methods/state-import.ts`), the step prompts (`setup-prompts.ts`), the notices, the new settings keys, the contract tests.
+- **Environment**: the **SetupService** (`environment/src/setup/`): the check runner (budgets, awaited state checks, the last good result), the **result cache**, the **scheduler** (start, cadence, triggers), the notice publisher, `setup.mint`; the **CarryOverService** (the session import and memory copy of ADR 0021); the **StateImport** orchestrator (ADR 0036), whose source reader alone may name the source's folders.
+- **Client runtime**: `projections.setup(environmentId)` from the snapshot and notices; `setup.check` through the request path; the first-launch mark (client-local).
+- **GUI** and **terminal UI**: rendering, per the sections below.
+
+### The registry entry
+
+The stub's shape is replaced, never its entries (the stub's own rule). A **step** is:
+
+- `id`, from `STEP_ORDER` (unchanged: account, carry-over, your-machines, forges, key-manager, memory-bank, skills, instructions, browser, permissions, appearance).
+- `home`: the row id it lives on (ADR 0027; the GUI spec's table), replacing `{pane, band}`. `links`: further row ids and step links, replacing the mixed `PaneLink` pairs, whose two existing entries disagreed on which field held the band.
+- `writes` (settings keys), `writesState` (method and parts), `confirms`, `checks` (a value check per key written), `stateChecks` (id `<step>.<what>`, the sentence that holds, actions): as the stub.
+- `budget`: `local` (5 s), `network` (10 s) or `git` (30 s) (ADR 0031).
+- `cadence`: minutes, 60 unless a `reason` is given (ADR 0031: David set the hour).
+- `triggers`: the event and notice types whose arrival re-runs the step's check at once (ADR 0031).
+- `skip`: for a skippable step, the one state check whose failure means "nothing is set up here", answered as skipped (below); absent on a step that is never skipped.
+- `llm`: for a step with an authoring conversation, its prompt id (ADR 0019).
+- A state check answers synchronously or with a promise; the runner awaits it within the step's budget (the forge spec's owed awaited answer).
+
+### Results, the cache and the subscription
+
+- **`StepResult`** keeps its fields (step, state, reason, failing, actions, checkedAt) and gains `lastGood`, present only on a result that timed out or could not check: the previous done result's reason and checked-at, which the client shows beneath, dated (ADR 0031).
+- **The cache** is a table beside the event log, one row per step, holding the latest result; it survives a restart with its checked-at (ADR 0031's chosen default). It is not the state a check checks, so writing it breaks no rule.
+- **Publishing**: a result whose state, reason, failing or actions differ from the cached one is a notice `setup.result-changed` (the result) on the environment stream; a result that only refreshes checked-at updates the cache and publishes nothing, so an hourly pass that finds nothing new is silent (the key-managers spec's rule for its verifications). `environment.subscribe`'s snapshot gains `setup`, every registered step's cached result in order, as it gained the environment's name, icon and colour (workspace-picker spec). This is ADR 0031's `setup` subscription: no new stream method, since the env spec allows two named subscriptions and `environment.subscribe` (chosen default).
+- **`setup.check`** stays a `read` query (one step or all): it runs the checks now and answers once each is done or its budget ends. A check that has to verify something (a forge account, a key-manager token) runs the feature's own verification as `system:setup`, which records what it finds as those queries already do; the caller's scope never rises (chosen default). Program pairings can read health; no check writes the state it checks.
+- **Pending** is the client's: a client that has waited half a second on its own `setup.check` shows the step pending (ADR 0031's half second; where it shows is a chosen default). Checks the environment starts itself show nothing until their result.
+
+### Skipped (David)
+
+- **Derived from state, never recorded.** A skippable step declares `skip`, a state check meaning "something is set up here": when it fails, the step answers skipped with the check's line and runs nothing else; when it holds, the other checks run and the step is done or needs attention. Nothing a person does records a skip.
+- The skip checks: Carry over, `carry-over.present` (an adopted account with something to carry, or a source data folder or terminal-client state folder found); Forges, `forges.present` (at least one forge account); Key manager, `key-manager.present` (a connection); Memory bank, `memory-bank.present` (a registered bank); Skills, `skills.present` (a tracked source or a skill in the own directory); Browser, `browser.present` (a paired Chrome). Account, Your machines, Instructions, Permissions and Appearance are never skipped (ADR 0018, ADR 0025, ADR 0030, ADR 0031).
+- **"Skip for now"** on a first-launch card moves the rail to the next step and records nothing (ADR 0019's words, kept for its meaning).
+- The stub's `check.ts` comment and `StepState`'s description ("a person skipped") change to this rule.
+
+### Running checks
+
+- **When**: on environment start (after the launcher's settle, before the scheduler arms routines), for every step; on `setup.check`, which a client calls when Set up or a step's pane opens, on Check now and on Re-run; within a second of a trigger arriving (repeated triggers inside that second run one check); and when a step's cadence elapses since its last result (ADR 0031).
+- **Budget**: a check past its budget answers needs attention, "could not check: timed out after N s", action `check-again`, with `lastGood`; an answer that throws answers "could not check <id>: <error>" the same way (the stub's rule).
+- **Re-run**: `setup.check` of every step on the picked environment, then the client jumps to the first needing attention with its actions; done and skipped pass (ADR 0031).
+- **Unreachable** is the client's to see: a check cannot run on an environment the client cannot reach, so the card and the rows show "unreachable since <time>" from the client runtime's connection state, the cached results beneath marked stale (ADR 0025; chosen default, since ADR 0031's rule assumes a reachable environment).
+
+### Actions
+
+The vocabulary (`SETUP_ACTIONS`) gains the verbs the decisions name that it lacked: `start-service` (the local environment down, ADR 0025), `import-again` (a Carry over or state import that failed part way, ADR 0021), `try-again`, `write-it-myself`, `start-over` and `revise` (ADR 0019). A client maps each action to a command or a row: `sign-in-again` opens the item's sign-in, `pull-now` calls `skills.sources.pull`, `check-again` calls `setup.check`, `unpair` and `pair-another` the browser's methods, `install` and `update` `tools.run`, `reload` shows the Chrome line, `set-up-this-machine` switches the picker, `restore` the step's restore method, `move` opens the Move card, `start-service` `connections.startService`, `import-again` the step's import with `dryRun: false` again.
+
+### The LLM step and minted sessions
+
+- **`setup.mint`** (`admin`, prepared command): step, subject (a bank id for Memory bank), variant `first` or `revise`, optional account, model and effort. It creates a session through `sessions.create` in process: the workspace the step names (the bank's checkout as a `directory` workspace; `scratch` otherwise, workspace-picker spec), tags `setup` and the step id, title "Set up: <step> (<subject>)" (both chosen defaults; ADR 0019 asks only for a tag naming the step), the account, model family and effort from the call, else the environment's defaults (ADR 0018); then `runs.start` with the step's prompt, or the prompt as the session's draft when no account or model resolves (ADR 0019). It answers the session id. The picker's change is remembered by the client for the rest of this checklist run.
+- **Prompts** live in `contracts/src/setup-prompts.ts`, one per LLM step and variant, rendered by the environment from live facts (the bank's name, kind, entities, the scope folders, the orientation caps) and versioned with the bank validator they must satisfy (ADR 0019, ADR 0013).
+- **Detection is the step's check.** A session tagged `setup` and a step id is a trigger for that step at every run end (`run.ended`), so the check runs when the conversation stops; a clean end with the check still failing names what is missing.
+- **The card** embeds the session's transcript and composer from the client runtime under a status line (running, waiting for you, landed, landed and awaiting review) with Open in the main window; a parked prompt is answerable on the card. No timeout (ADR 0019).
+- **Failure**: an errored or interrupted run leaves the step needing attention with `try-again` (`runs.send` "Continue where you stopped." on the same session), `write-it-myself` (opens the artefact: the bank's checkout folder in the file pane, or the Instructions editor), `start-over` (`setup.mint` again; the old session stays). A done step offers `revise` (`setup.mint` with `revise`).
+- In milestone 1 the only LLM steps are the bank's describe conversations (ADR 0035, ADR 0037). Tailoring an instruction with the model (ADR 0019's second example) was not taken up by ADR 0030 and is out of scope.
+
+### The checklist in the GUI
+
+- **First launch** (GUI spec): once the home environment is ready and the client-local first-launch mark is unset, Set up takes the whole window: the rail of eleven steps with dots, the card beside it, the environment picker. Continue past Account is disabled until one account is signed in (ADR 0018); every other step has Continue and, when skippable, Skip for now. Finishing the last step or closing sets the mark; "Open the full checklist" brings it back.
+- **The Set up pane** (row `setup.checklist`, ADR 0027): every step with its dot and one-line reason linking to its home row, counts (ADR 0027; the wording "8 done, 1 needs attention, 2 skipped" is a chosen default), Re-run, Open the full checklist, the environment checked with its picker, and "Set up another machine", which opens Your machines' Add a machine. Results come from `projections.setup`; the age shows once a result is older than its cadence ("checked 3 h ago").
+- **The rail's dots** show on home rows only, the worst state of the steps homed there; the Set up row shows the worst of all, for the environment last picked (GUI spec). The header's Set up line shows while a step on the home environment needs attention.
+- **Cards** are this spec's; a card may reuse its home pane's components (GUI spec).
+
+### The terminal UI
+
+`/setup [environment]` draws one line per step from `projections.setup`: the step's name, its state as the rail's glyph and word, and the reason when it needs attention; skipped steps dim. While any step on the session's environment needs attention the header carries "Set up on <environment>: N of 11 done, K need attention (<step names>). Run it in the desktop window." After the receipt of a write the terminal issues itself (`/pair`, `/mode`, `/containment`, a sign-in) it calls `setup.check` for that step. Actions whose command needs no card (`check-again`, `pull-now`, `restore`, `update`, `start-service`) run from the line with Enter; the rest point at the desktop (ADR 0016; tui spec's owed lines).
+
+### The steps
+
+| # | Step | Home row | Budget | Cadence | Skipped when |
+| --- | --- | --- | --- | --- | --- |
+| 1 | account | accounts.accounts | local | 15 min: the orientation block reports sign-in status (ADR 0018) | never |
+| 2 | carry-over | accounts.accounts | local | 60 min | nothing to carry and no source or terminal-client folder |
+| 3 | your-machines | environments.machines | network | 60 min | never |
+| 4 | forges | access.forges | network | 15 min (forge spec) | no forge account |
+| 5 | key-manager | access.key-managers | network | 15 min (key-managers spec) | no connection |
+| 6 | memory-bank | knowledge.banks | git | 60 min | no bank |
+| 7 | skills | knowledge.skills | local | 60 min | nothing tracked, own directory empty |
+| 8 | instructions | knowledge.instructions | local | 60 min | never |
+| 9 | browser | access.browser | local | 60 min | no paired Chrome |
+| 10 | permissions | access.permissions | local | 60 min | never |
+| 11 | appearance | appearance.theme | local | 60 min | never |
+
+#### 1. Account (ADR 0018)
+
+- **Entry**: writes the four keys it holds today; links `accounts.default-model`; state checks `account.present` (at least one account, no action: the card's Sign in is the fix) and `account.signed-in` (every account signed in; the line names each signed out, expired or unreadable, `sign-in-again`); triggers `account.updated`, `signin.updated`.
+- **Card**: `accounts.probe` first. When the machine's own directory is signed in, its card comes first: "Use the Claude Code sign-in on this machine (<email>)", Adopt (`accounts.adopt`). Then "Sign in another account": a label, then `accounts.add` and the sign-in director's URL, code field and fallback command (claude-adapter spec, #135), one sign-in at a time with its ten-minute countdown and Cancel. Each account is a row with label, identity, status and Sign in again. Under the list, the default account and default model family with effort. When the first account signs in and the family and effort are both null, the card writes the highest tier the account's catalogue offers and `high` (claude-adapter spec owed this preset here). Codex and local-model parts are hidden until milestone 2 (ADR 0016).
+
+#### 2. Carry over (ADR 0021, ADR 0036)
+
+- **Entry**: writes no key; state through `carryOver.run`, `skills.carryOver` and `stateImport.run`; links `knowledge.skills` and `knowledge.banks`; state checks `carry-over.present` (skip), `carry-over.readable` (every adopted directory readable, `check-again`), `carry-over.last-import` (the last import finished, naming what failed, `import-again`); triggers `account.updated`, `carry-over.imported`, `state-import.finished`.
+- **`carryOver.inventory {accountId}`** (`read`, query): counts for the card: sessions (archived, missing directory), memory (repositories found, unmappable folders), skills and commands (with checkouts offered as sources), agents and plugins (not carried), hooks, personal MCP servers and permission rules (does not carry), and what is new since the last import.
+- **`carryOver.run {accountId, dryRun, skills}`** (`admin`, prepared command): imports the sessions (`session.created` with origin `import` and the imported fields, `session.archived` for the tag or a scheduler marker, `session.workspace-status-changed` for a gone directory), copies memory by ADR 0021's `carried/` rule, and calls `skills.carryOver` when `skills` is ticked; deduplicated by provider session id; appends `carry-over.imported` with the counts, and the notice of the same name. An unmappable memory folder is assigned with `carryOver.assignMemory {accountId, folder, repositoryIdentity}`.
+- **Card**: one per adopted account: the inventory with counts, the skills tick (on when any are found), Import (one click), then the result, the agreed does-not-carry text of ADR 0021 verbatim, and on a re-run "Import N new sessions" (ADR 0021).
+- **The state-import section** (ADR 0036), shown only when `stateImport.detect` (`read`, query) finds a source data folder or a terminal-client state folder on the environment's machine: what it found (profiles, banks, routines, instructions, skill sources, connections), Dry run, Import. `stateImport.run {dryRun}` (`admin`, prepared) adopts the listed Claude directories first (so their Carry over cards appear), then writes through the owning services with origin `import`, deduplicated by source ids. Its **report** has four groups: carried (with counts per kind), re-enter (encrypted tokens, each with a link to Forges or Key manager), arriving in milestone 2 (other providers), not carried (server connections, browser pairings, per-session models and the rest ADR 0036 names). The answer carries the client-local values, which the client applies only when it runs on the environment's machine and otherwise lists as not applied (ADR 0036). The state import's rules per kind are ADR 0036's and each service's add with `importedFrom`; its method exists once the switch-over build lands (#94), behind the capability flag `stateImport`, and the section is absent without it.
+
+#### 3. Your machines (ADR 0025)
+
+- **Entry**: writes `updates.*` (launcher-update spec), the three session keys the GUI placed on `environments.service` (moved here from Appearance; the session-state spec allowed the move), and two new keys, `network.bindTailnet` (preset on when a tailnet address is found) and `network.bindLan` (preset off), each applied at the next start (env spec's binding rule; chosen default); `writesState` `environment.rename`, `setIcon`, `setColour`; links `environments.service`, `environments.access` and the Permissions step; state checks as registered (`not-root`, `named`, `updates`, `release-channel`, `host-updater`) plus `your-machines.ready` (discovery answers `ready`, not draining past its cap, `check-again`); triggers the `environment.update-*` notices, `environment.renamed`, `environment.icon-set`, `environment.colour-set`, `settings.updated` for its keys.
+- **Card per environment**, This machine first: name, icon and colour; reachability (tailnet name or address; loopback only with the Tailscale warning "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.", Check again, and the LAN switch naming the address it would bind with "Anyone on this network could try to reach it; it still needs a paired client."); version, channel and auto-update with the idle window, deferral cap and pin under Advanced; Update now when behind or when this client is newer; containment availability with a link to Permissions; Manage access (`environments.access`). Unreachable: "unreachable since <time>"; the local environment down: "service down" with `start-service`. No tailnet address is a standing notice on the card, never a failure (ADR 0025).
+- **Add a machine**: Paste a link or code (and scan a QR on platforms with a camera), then the exchange; or **Install on another machine**: the one-line script per platform (launcher-update spec's `install.sh` and `install.ps1`, and the container compose snippet with its link to the host-side updater's documentation), parameterised with this environment's channel and an optional name, ending by printing the link, ASCII QR and code (ADR 0025).
+- **Pairing codes** from this machine for another client: **My own client** (preset): every scope and the ceiling `bypassPermissions` (David; ADR 0025's top ceiling); **A program**: `read`, `sessions:write`, `runs:drive`, a ceiling picker preset `acceptEdits`, label preset to the program's name; **Custom**: scope ticks and a ceiling. The card calls `access.pairings.create` with scopes and ceiling explicit, shows what the code grants beside it and its ten-minute countdown.
+- **Set up this machine** on a new card switches the checklist's picker to it and jumps to its first step needing attention; **Forget** revokes this client's session when reachable, else forgets locally and says the session stays until revoked there; the local environment cannot be forgotten (ADR 0025).
+
+#### 4. Forges (ADR 0020, 0032, 0033)
+
+- **Entry** as the forge spec registers it, with `forges.present` as its skip check and triggers `forge.account.*`.
+- **Card**: each forge account as a row (origin and aliases, kind, login, primary star, capabilities with their dots, problem line with its action). **Add a forge**: paste an origin or a repository URL (`forge.detect` names the kind), then a token form with the deep link to the forge's token page and the scopes named; on a remote environment, "Use the gh signed in on this computer" beside it, which hands this client's `gh` token over once (ADR 0032); on an environment with `gh`, "Use this machine's gh" (`forge.gh.probe`). Aliases: a field under an account, verified before use (ADR 0020). "Make primary". Stored tokens show "Move to your key manager" linking the Key manager step's Move card (ADR 0028). The GitLab walkthrough and the thirty-day expiry warning arrive in milestone 2 (ADR 0033).
+
+#### 5. Key manager (ADR 0028)
+
+- **Entry** as the key-managers spec registers it, with `key-manager.present` as its skip check.
+- **Card**: four provider tiles (OpenBao or Vault, Doppler, 1Password, Bitwarden Secrets Manager); a sign-in form each (OpenBao: address, optional CA with the certificate preview, AppRole, userpass or token); after sign-in the policy ticks with the write warning, the injection switch with "Every run on this environment receives this key manager's variables unless an account, routine or bot turns it off.", the CLI's Managed tools row with Install or Update, and the **Move stored tokens** card (base path, each item's target, Move, Move all, Copy the value when the token cannot write). Health lines tell sealed, expired, unreachable and missing CLI apart, in the key-managers spec's words.
+
+#### 6. Memory bank (ADR 0010, 0013, 0034, 0035, 0037)
+
+- **Entry**: writes no key; state through the banks spec's methods (#90), which this card names and #90 must provide: `banks.create`, `banks.join.preview`, `banks.join`, `banks.publish`, `banks.registry.update`; links the Key manager and Forges steps; state checks `memory-bank.present` (skip), `memory-bank.reachable` (each enabled bank's remote answers, or its local repository exists; `check-again`), `memory-bank.manifest` (`BANK.md` on main passes the validator, naming the rule; an open pull request holding it on a reviewed bank counts as landed and awaiting review; `revise`), `memory-bank.orientation` (every orientation name exists), `memory-bank.owners` (a team bank's owners resolve on its forge), `memory-bank.landing` (no failed landing, `check-again`); triggers `bank.*`, and run ends of sessions tagged `setup` and `memory-bank`.
+- **Card, personal** (ADR 0035): the name proposed as `<login>-memory`, editable; the two seed questions ("What do you call your own work?", preset `personal`; "Your first project", preset the primary repository's name); Create, or "Keep it on this machine for now" with "This bank lives on this machine only until you publish it."; then the describe conversation embedded (the LLM step).
+- **Card, team** (ADR 0037): a forge picker (verified accounts, the primary preset), an owner picker (the login and the organisations it can create repositories in, read live), the repository name from the team's name, "Every teammate needs an account on <forge>.", the team's name (the first org) and its first projects; Create; the describe conversation; then "Invite teammates on <forge>" (the collaborator or member page) and a copyable join link.
+- **Join** (ADR 0037): paste a link; the preview (bank line, orgs, projects and entities, orientation names, owners, merge rule, "Shared with the team: no personal facts, no secrets.", and whether this forge account can read or push); account chips with none preset (David, #46); Join.
+
+#### 7. Skills (ADR 0029)
+
+- **Entry** as the skills-instructions spec registers it, with `skills.present` as its skip check and triggers `skills.updated`.
+- **Card**: the catalogue cards (title, pitch, skill count, the licence line by where it was declared, the always-on hint with its size, "changes often" where it does, the twenty-source limit), nothing ticked; expanding lists each skill with its invocation kind; a ticked entry becomes a source row with branch or pin, last synced, commit and Pull now; always-on switches per account with the size; **Add by URL** with the folder probe; the trusted repositories with Revoke and the note that trust admits the repository's settings and hooks.
+
+#### 8. Instructions (ADR 0030)
+
+- **Entry** as the skills-instructions spec registers it; triggers the `instructions.*` events and the registry events the block renders from (`account.updated`, `key-manager.*`, `forge.account.*`, `bank.*`, `environment.renamed`; the block reports sign-in status, ADR 0018).
+- **Card**: the read-only Orientation row previewed as rendered (`instructions.preview`), with its off switch and warning; the seeded "About my setup", created the first time the step opens when neither it nor its dismissal exists (`instructions.create` with the catalogue's Setup origin); the catalogue groups as tick lists with account chips on for all; Custom (title and Markdown body). Done once the block renders.
+
+#### 9. Browser (ADR 0024)
+
+- **Entry** as the browser spec registers it, with `browser.present` as its skip check and triggers `chrome.updated`, `extension.seen`; it names no denylist part in `writesState`, since its card edits no denylist and the browser section is edited on the Permissions card (settled here).
+- **Card**: four sub-steps that tick themselves. **Load the extension**: the folder path with Copy and "Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder."; ticks on `extension.seen`. **Pair**: the code (`browser.pairing.code`), minted when the card opens and renewed on expiry with its countdown, "Type this code on the extension's options page.", the listening line and the port-in-use error; ticks on `chrome.updated` (paired) with the Chrome's name. **Sites you are developing**: one host per line, "Loopback and private addresses count without being listed."; optional. **Done**: writes `browser.reach` to My Chrome for each account still at the preset, saying so in a line, then the usage text. Health lines are ADR 0024's verbatim. A browser tab on a machine with no environment shows "Install agent-harness on this machine to pair your Chrome."
+
+#### 10. Permissions (ADR 0006)
+
+- **Entry** as registered (permissions spec, #141), gaining its budget, cadence and triggers (`settings.updated` for its keys, the denylist's events).
+- **Card**: the permissions spec's form: default ceiling, unattended mode with the bypass sentence, parked-prompt TTL, the containment default with each level's availability, the denylist's four sections with Test and Restore.
+
+#### 11. Appearance (ADR 0023)
+
+- **Entry**: writes `appearance.theme` (GUI spec) and, having handed the session keys to Your machines, nothing else; state check `appearance.contrast` (`restore`); triggers `settings.updated` for the key.
+- **Card**: the client's light, dark or system preference (client-local, not a registry key), the home environment's theme name and swatches with its clamps; the picker arrives in phase D (ADR 0023). Done once set or preset.
+
+### The headless path
+
+A headless machine is installed by the script from Your machines' Add a machine, which ends by printing the pairing link, QR and code (or, in a container, prints them to the log until the first exchange). Any client pairs with it as My own client, the new card offers Set up this machine, and the checklist runs against it; its checks run on it hourly whether or not a client is connected, and `/setup` in the terminal reads the same results (ADR 0016, ADR 0025).
+
+### Wire methods, events and notices
+
+- `setup.check` (`read`, query; unchanged but for awaited checks, budgets and `lastGood`). `setup.mint` (`admin`, prepared command). `carryOver.inventory` (`read`, query), `carryOver.run` (`admin`, prepared), `carryOver.assignMemory` (`admin`, command). `stateImport.detect` (`read`, query), `stateImport.run` (`admin`, prepared; #94's build).
+- **Notices** on the environment stream (`ENVIRONMENT_NOTICE_TYPES`): `setup.result-changed`, `carry-over.imported`, `state-import.finished`; the client runtime's request cache refreshes `carryOver.inventory` on the second and `stateImport.detect` on the third.
+- **Events**: `carry-over.imported` on the environment stream (`system:setup` for none; the caller's client session for the command); session events of an import use the session-state spec's types with origin `import`.
+- **Snapshot**: `environment.subscribe` gains `setup`.
+- **Settings**: `network.bindTailnet`, `network.bindLan`.
+- **Errors**: `setup.mint`: `not_found` (subject), `conflict` reasons `no_llm_step`, `bank_missing`; `carryOver.run`: `conflict` reasons `not_adopted`, `import_in_progress`; `stateImport.run`: `conflict` reasons `no_source`, `import_in_progress`.
+- **Capability flags**: `setup` (the cache, the snapshot and the notice; a client without it calls `setup.check` on open, as the GUI does before this lands), `stateImport`.
+
+### What this workstream does not decide
+
+78 env: the wire, the stream and snapshot mechanics, pairing codes, binding. 79 session-state: the session events an import appends. 80 client-runtime: the request cache and outbox. 81 tui and 84 gui: drawing. 82 claude-adapter: accounts, the sign-in director, the history module's lazy read. 83 permissions: its entry and form. 85 workspace-picker: workspace kinds, the missing flag, name, icon and colour. 86 launcher-update: the install scripts, update checks and keys. 87 forge: forge accounts, `forge.detect`, `gh`. 89 skills-instructions: `skills.carryOver`, sources, trust, instructions, the preview. 90 banks: the bank methods the Memory bank card calls, the validator, the templates, the migration. 91 key-managers: connections, Move, tools. 92 routines: nothing (no step). 93 browser: its entry, pairing and events. 94 switch-over: the state import's build and its per-kind rules through each service.
+
+## Testing Decisions
+
+A good test is behaviour seen through the wire: what `setup.check` answers, what the snapshot and notices carry, what a card's command appended; never the cache table or the scheduler's timers except at the lower seam.
+
+- **Primary seam: the in-process environment** (env spec's helper: temporary data directory, loopback port 0, the typed client over a real WebSocket, the injectable clock) with a test registry of scripted steps: a check that holds, fails, throws, hangs past its budget, and answers late; through it, the three states, `lastGood`, the budget per class, the cadence on the clock, triggers (and one check for a burst inside a second), the run on start, the cache across a restart, silence when only checked-at changes, and `setup.result-changed` otherwise; the skip rule for each skippable real entry against fixture state.
+- **Real entries**: each of the eleven against fixture state as its feature is built, through its home row's data: Account against the scripted sign-in; Carry over against a fixture adopted directory (sessions archived and not, a gone workspace, memory with an unmappable folder, skills with a checkout), including the dry run, deduplication on re-run and nothing written in the directory; the state import against a fixture source data folder with the four report groups; Memory bank against a fixture bank repository (valid, invalid, awaiting review) and a minted session's run end; Your machines against a draining and a behind environment.
+- **`setup.mint`**: a scripted provider run ending with and without the artefact; the draft when no account resolves; `try-again`, `start-over`, `revise`.
+- **Contract tests** in contracts: every `STEP_ORDER` id registered before the switch-over's done checklist passes (#94 runs it; until then, only registered ids are checked); every entry names exactly one home row, and the row registry lists that row as home to that step (a row may home several, as `accounts.accounts` homes Account and Carry over), a budget, a cadence of 60 or a reason, triggers that are known event or notice types, a skip check iff skippable, actions from the vocabulary; `writesState` parts disjoint across steps (the denylist's four sections are the Permissions step's alone); every settings key on exactly one step (existing rule); the prompts render for every LLM step.
+- **Client runtime**: `projections.setup` from a snapshot and notices; the first-launch mark.
+- **Not tested here**: a real Chrome, a real forge or key manager, the install scripts on each platform (a manual checklist item, as the service install).
+
+## Out of Scope
+
+- The what's-new checklist after an update (ADR 0016's fog); checks on a user-set schedule (ADR 0031's fog); a Bots step (ADR 0027's fog).
+- Tailoring an instruction with the model (ADR 0019's example, not taken up by ADR 0030).
+- Codex and local-model parts of Account and Carry over, GitLab on Forges, the device flow (milestones 2 and 3).
+- The state import's per-kind rules (ADR 0036, #94), the bank methods (#90).
+
+## Further Notes
+
+- **Decided with David on 2026-09-28**: skipped is derived from state and never recorded; the My own client preset grants every scope and the `bypassPermissions` ceiling.
+- **Chosen defaults for review**: ADR 0031's subscription as a snapshot field and a notice on `environment.subscribe`; `setup.check` runs feature verifications as `system:setup`; pending shown only for a client's own calls; unreachable judged by the client; the session keys moved from Appearance to Your machines; `network.bindTailnet` and `network.bindLan` applied at the next start; the six new actions; the minted session's tags `setup` and the step id and its title; the Account card writing the family and effort presets once; "About my setup" seeded on the step's first open; the counts line; the terminal running needless-of-a-card actions from its line.
+- **Conflicts found and settled here**: the stub's two `PaneLink` orders (now row ids); the stub's "a person skips" (now derived); the terminal spec's assumed `setup.steps.list` (the snapshot and `setup.check` instead); the stale "ninth" and "7 of 10" (eleven steps); the browser spec's entry naming the denylist's browser section, which the Permissions step already writes (now the Permissions step's alone). **Left to their owners**: the pairing link's scheme (`http` in the env spec and the contract, `https` in the client-runtime spec), and `settings.changed` named both an access-log event and a new notice (GUI and permissions specs).
+- **Owed**: to #90, the five bank methods the Memory bank card names; to #94, `stateImport.run` behind the `stateImport` flag and the all-eleven registry check in the done checklist; to each feature build, its entry's budget, cadence, triggers and skip check as tabled here.
