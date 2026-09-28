@@ -111,6 +111,8 @@ export interface TestEnvironmentOptions {
   readonly workspaceResolver?: EnvironmentOptions["workspaceResolver"];
   /** The scrub registry the environment holds; preset: a fresh one. */
   readonly scrub?: ScrubRegistry;
+  /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
+  readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
 }
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
@@ -265,6 +267,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.usageReadTimeoutMs !== undefined && { usageReadTimeoutMs: options.usageReadTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
     ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
+    ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;

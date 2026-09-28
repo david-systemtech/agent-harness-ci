@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdentityMismatchError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "identity_mismatch"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "forgeAccountId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+        },
+        "expected": {
+          "type": "object",
+          "properties": {
+            "login": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The login the forge's user endpoint answered, which may change while the user id stays."
+            },
+            "userId": {
+              "type": "string",
+              "pattern": "^[0-9]+$",
+              "description": "The forge's numeric user id as decimal digits, a string so that no JSON reader rounds it: what makes a credential the same identity."
+            }
+          },
+          "required": [
+            "login",
+            "userId"
+          ],
+          "description": "The identity the forge account holds."
+        },
+        "found": {
+          "type": "object",
+          "properties": {
+            "login": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The login the forge's user endpoint answered, which may change while the user id stays."
+            },
+            "userId": {
+              "type": "string",
+              "pattern": "^[0-9]+$",
+              "description": "The forge's numeric user id as decimal digits, a string so that no JSON reader rounds it: what makes a credential the same identity."
+            }
+          },
+          "required": [
+            "login",
+            "userId"
+          ],
+          "description": "The identity the new credential answered as."
+        }
+      },
+      "required": [
+        "forgeAccountId",
+        "expected",
+        "found"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The new credential answered with another user id than the forge account's: nothing was changed. data names both identities."
+}

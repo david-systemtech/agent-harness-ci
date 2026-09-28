@@ -13,7 +13,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), and an account's usage updated (#136), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), and the forge's events (#310), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -28,6 +28,14 @@ describe("environment notices", () => {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "forge.account.added",
+      "forge.account.updated",
+      "forge.account.primary-set",
+      "forge.account.verified",
+      "forge.account.capability-learned",
+      "forge.account.git-rejected",
+      "forge.account.removed",
+      "forge.origin-missing",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });

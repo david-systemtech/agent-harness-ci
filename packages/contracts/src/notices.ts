@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import { ProtocolVersion } from "./flags.js";
+import {
+  ForgeAccountAddedPayload,
+  ForgeAccountCapabilityLearnedPayload,
+  ForgeAccountGitRejectedPayload,
+  ForgeAccountPrimarySetPayload,
+  ForgeAccountRemovedPayload,
+  ForgeAccountUpdatedPayload,
+  ForgeAccountVerifiedPayload,
+  ForgeOriginMissingPayload,
+} from "./forge-accounts.js";
 import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
@@ -29,7 +39,10 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * #135); the executable sign-ins run was chosen, once per environment and
  * bundled binary (#135); a prompt parked, waiting for a person, and a parked
  * prompt was resolved (#130); an account's plan-usage reading changed
- * (#136); so every connected client learns of it whatever else it is
+ * (#136); a forge account was added, updated, made primary, verified,
+ * taught a capability, refused by git or removed, or an origin had no forge
+ * account (#310: the ForgeService's own events, which its store is kept
+ * from); so every connected client learns of it whatever else it is
  * subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
@@ -46,10 +59,18 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "prompt.parked",
   "prompt.resolved",
   "usage.updated",
+  "forge.account.added",
+  "forge.account.updated",
+  "forge.account.primary-set",
+  "forge.account.verified",
+  "forge.account.capability-learned",
+  "forge.account.git-rejected",
+  "forge.account.removed",
+  "forge.origin-missing",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -153,6 +174,23 @@ const UsageUpdated = z
   })
   .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
 
+/** A forge event as a notice: its type and its payload, described. */
+const forgeNotice = <const T extends string, P extends z.ZodObject>(type: T, payload: P, description: string) =>
+  z.object({ type: z.literal(type), payload }).meta({ description });
+
+const ForgeAccountAdded = forgeNotice("forge.account.added", ForgeAccountAddedPayload, "A forge account was added: its origin, kind, slug, identity, credential source, primary flag and problem.");
+const ForgeAccountUpdated = forgeNotice("forge.account.updated", ForgeAccountUpdatedPayload, "A forge account's slug, aliases or credential changed.");
+const ForgeAccountPrimarySet = forgeNotice("forge.account.primary-set", ForgeAccountPrimarySetPayload, "A forge account became the primary forge, and the one that was is cleared.");
+const ForgeAccountVerified = forgeNotice("forge.account.verified", ForgeAccountVerifiedPayload, "A verification of a forge account found something changed.");
+const ForgeAccountCapabilityLearned = forgeNotice(
+  "forge.account.capability-learned",
+  ForgeAccountCapabilityLearnedPayload,
+  "An operation showed whether a forge account can do something.",
+);
+const ForgeAccountGitRejected = forgeNotice("forge.account.git-rejected", ForgeAccountGitRejectedPayload, "git refused a forge account's credential.");
+const ForgeAccountRemoved = forgeNotice("forge.account.removed", ForgeAccountRemovedPayload, "A forge account was removed.");
+const ForgeOriginMissing = forgeNotice("forge.origin-missing", ForgeOriginMissingPayload, "A harness operation was refused on an origin no forge account covers.");
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
@@ -173,6 +211,14 @@ export const EnvironmentNotice = z
     PromptParked,
     PromptResolved,
     UsageUpdated,
+    ForgeAccountAdded,
+    ForgeAccountUpdated,
+    ForgeAccountPrimarySet,
+    ForgeAccountVerified,
+    ForgeAccountCapabilityLearned,
+    ForgeAccountGitRejected,
+    ForgeAccountRemoved,
+    ForgeOriginMissing,
   ])
   .meta({
     description:

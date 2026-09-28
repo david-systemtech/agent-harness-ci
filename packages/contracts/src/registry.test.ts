@@ -219,6 +219,10 @@ describe("the method registry", () => {
       "accounts.signin.start",
       "accounts.signin.code",
       "accounts.signin.cancel",
+      "forge.accounts.add",
+      "forge.accounts.update",
+      "forge.accounts.remove",
+      "forge.accounts.setPrimary",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -376,6 +380,11 @@ describe("the method registry", () => {
       | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
+      | "forge.accounts.list"
+      | "forge.accounts.add"
+      | "forge.accounts.update"
+      | "forge.accounts.remove"
+      | "forge.accounts.setPrimary"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

@@ -80,6 +80,10 @@ import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
+import { createForgeService, type ForgeService } from "../forge/forge-service.js";
+import { forgeAccountsProjector } from "../forge/forge-store.js";
+import { forgeMethods } from "../forge/methods.js";
+import type { ForgeFetch } from "../forge/providers.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -276,6 +280,8 @@ export interface EnvironmentOptions {
    * (`workspace/resolver.ts`); tests script it.
    */
   readonly workspaceResolver?: WorkspaceResolver;
+  /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
+  readonly forgeFetch?: ForgeFetch;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -451,7 +457,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, accountsProjector, ...(options.projectors ?? [])]) {
+    for (const projector of [
+      sessionListProjector,
+      runsProjector,
+      settingsProjector,
+      permissionsProjector,
+      accountsProjector,
+      forgeAccountsProjector,
+      ...(options.projectors ?? []),
+    ]) {
       log.registerProjector(projector);
     }
   });
@@ -466,12 +480,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
-  const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
+  // The forge accounts' store (#310) starts with it: each stored token is registered with its Basic-auth form, and the
+  // vault entries of forge accounts that are gone are deleted, before anything can read them.
+  const { record, clientSessions, pairings, accessLog, forge } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
     const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
     const key = await ensureSigningKey(vault);
+    const forgeService: ForgeService = createForgeService({
+      log,
+      clock,
+      environmentId: loaded.id,
+      vault,
+      scrub,
+      ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
+    });
+    closers.push(() => forgeService.close());
+    await forgeService.start();
+    capabilities.push("forge");
     const access = createAccessLog(log, loaded.id);
     const loadedClientSessions: ClientSessions = createClientSessions({
       table: log.clientSessions,
@@ -491,7 +518,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
       defaultCeiling: () => permissionSettings()["permissions.defaultCeiling"],
     });
-    return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
+    return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access, forge: forgeService };
   });
 
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
@@ -732,6 +759,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...setupMethods({ log, clock, presets: settingsPresets(), stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir }) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...forgeMethods(forge),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
