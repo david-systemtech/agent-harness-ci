@@ -249,6 +249,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
 
     const target = join(dataDir, "versions", "0.1.0");
     expect(existsSync(join(target, "bin", "agent-harness"))).toBe(true);
+    expect(existsSync(join(target, ".complete"))).toBe(true);
     expect(f.calls()).toEqual([
       `curl ${API}/latest`,
       `curl ${FORGE}/david/agent-harness/releases/download/v0.1.0/agent-harness-linux-x64.tar.gz`,
@@ -319,14 +320,17 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(again.stdout).toContain("already unpacked");
   });
 
-  it("replaces a stale version folder that holds no binary instead of moving into it", async () => {
+  it("replaces a version folder without its sentinel, which an interrupted install left, instead of reusing it", async () => {
     const f = await fixture();
     const target = join(f.home, ".local", "state", "agent-harness", "versions", "0.1.0");
     mkdirSync(join(target, "bin"), { recursive: true });
+    writeFileSync(join(target, "bin", "agent-harness"), "#!/bin/sh\n", { mode: 0o755 });
     writeFileSync(join(target, "stale"), "left by an interrupted install\n");
 
-    expect((await install(f)).code).toBe(0);
-    expect(readdirSync(target).sort()).toEqual(["bin"]);
+    const result = await install(f);
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("already unpacked");
+    expect(readdirSync(target).sort()).toEqual([".complete", "bin"]);
     expect(existsSync(join(target, "bin", "agent-harness"))).toBe(true);
   });
 
