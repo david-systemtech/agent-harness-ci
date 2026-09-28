@@ -317,5 +317,3 @@ export const FORGE_EVENT_PAYLOADS = {
   "forge.origin-missing": ForgeOriginMissingPayload,
 } as const;
 export type ForgeEventType = keyof typeof FORGE_EVENT_PAYLOADS;
-export const FORGE_EVENT_TYPES = Object.keys(FORGE_EVENT_PAYLOADS) as ForgeEventType[];
-export type ForgeEventPayload<T extends ForgeEventType> = z.infer<(typeof FORGE_EVENT_PAYLOADS)[T]>;

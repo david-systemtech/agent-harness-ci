@@ -8,14 +8,15 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
-import { forgeAccountsProjector, listForgeAccounts } from "./forge-store.js";
+import { forgeAccountsProjector, listForgeAccounts, originHolder } from "./forge-store.js";
 
 /**
- * The forge account store's projector at the lower seam, for the events no
- * wire method appends yet: a verification's findings (#311) and a
- * capability an operation showed (#316) change the record, and a git
- * rejection and a missing origin change none. The events are appended as
- * the ForgeService will append them, as `system:forge`.
+ * The forge account store's projector at the lower seam, for what no wire
+ * method appends yet: an alias holds its origin as the canonical origin
+ * does, a verification's findings (#311) and a capability an operation
+ * showed (#316) change the record, and a git rejection and a missing origin
+ * change none. The events are appended as the ForgeService will append
+ * them, as `system:forge`.
  */
 
 let logs: EventLog[] = [];
@@ -48,11 +49,37 @@ const storeWithOne = () => {
   const log = openEventLog({ path: ":memory:", projectors: [forgeAccountsProjector], clock: () => clock.now() });
   logs.push(log);
   log.append(environment, [{ type: "forge.account.added", payload: addedPayload }], { actor });
-  const read = () => listForgeAccounts({ all: (sql, ...params) => log.read(sql, ...params) });
-  return { log, clock, read };
+  const reader = { all: <Row>(sql: string, ...params: readonly (string | number | null)[]) => log.read<Row>(sql, ...params) };
+  return { log, clock, reader, read: () => listForgeAccounts(reader) };
 };
 
 describe("the forge account store's projector", () => {
+  it("holds an alias's origin for its forge account as it holds the canonical origin, until the forge account is removed", () => {
+    const { log, reader } = storeWithOne();
+    const alias = "http://100.101.102.103:3000";
+    log.append(environment, [{ type: "forge.account.updated", payload: { forgeAccountId, aliases: [{ origin: alias, verifiedAt: null }] } }], { actor });
+    expect([originHolder(reader, origin), originHolder(reader, alias)]).toEqual([forgeAccountId, forgeAccountId]);
+    log.append(environment, [{ type: "forge.account.removed", payload: { forgeAccountId } }], { actor });
+    expect([originHolder(reader, origin), originHolder(reader, alias)]).toEqual([null, null]);
+  });
+
+  it("injects nothing for a forge account whose problem is identity-changed, until a verification clears it", () => {
+    const { log, read } = storeWithOne();
+    const verified = (problem: ForgeAccountVerifiedPayload["problem"]): ForgeAccountVerifiedPayload => ({
+      forgeAccountId,
+      identity: { login: "david", userId: "42" },
+      capabilities: UNKNOWN_FORGE_CAPABILITIES,
+      tokenInformation: null,
+      problem,
+    });
+    log.append(environment, [{ type: "forge.account.verified", payload: verified({ kind: "identity-changed", since: "2026-09-24T00:00:00.000Z", message: "Another user answered." }) }], {
+      actor,
+    });
+    expect(read()[0]?.variables).toEqual({ url: [], token: [], kind: [] });
+    log.append(environment, [{ type: "forge.account.verified", payload: verified(null) }], { actor });
+    expect(read()[0]?.variables.token).toEqual(["FORGE_GIT_SYSTEMTECH_DEV_TOKEN", "FORGE_TOKEN"]);
+  });
+
   it("takes a verification's findings whole: identity, capabilities, token information and problem", () => {
     const { log, read } = storeWithOne();
     const verified: ForgeAccountVerifiedPayload = {

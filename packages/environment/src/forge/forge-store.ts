@@ -143,8 +143,8 @@ const removed = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountRe
 /**
  * Keeps the read model from the environment stream's forge events. A git
  * rejection and a missing origin change no record: the verification that
- * follows a rejection records what it finds, and the Forges step counts
- * missing origins from the log.
+ * follows a rejection records what it finds, and a missing origin is one no
+ * forge account covers.
  */
 export const forgeAccountsProjector: Projector = {
   name: FORGE_ACCOUNTS_PROJECTOR,
