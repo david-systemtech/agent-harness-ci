@@ -17,6 +17,7 @@ import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
@@ -834,6 +835,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
   ...forgeSchemaFixtures,
+  ...themeSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...completionsSchemaFixtures,

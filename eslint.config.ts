@@ -58,6 +58,14 @@ export default defineConfig([
     ),
   },
   {
+    files: ["packages/theme/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: forbidImports(
+      "^(?!@agent-harness/contracts(/|$)|\\.)",
+      "The theme package depends on contracts and nothing else: pure maths, no UI and no session state, so every client and the environment can use it (ADR 0023).",
+    ),
+  },
+  {
     files: ["packages/environment/**/*.ts"],
     rules: {
       ...forbidImports(`^(@agent-harness/(${anyClient})|agent-harness)(/|$)`, environmentOnly),

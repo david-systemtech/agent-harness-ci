@@ -64,6 +64,8 @@ import {
   ForgeVaultEntry,
   StoredTokenProvenance,
 } from "./forge-accounts.js";
+import { EnvironmentColour } from "./environment-colours.js";
+import { Theme, ThemeName, ThemeSeed } from "./theme.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import {
   ClientKind,
@@ -500,6 +502,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
     title: `${pascal(type)}Payload`,
     schema: payload as z.ZodType,
   })),
+  { path: "theme/theme.json", title: "Theme", schema: Theme },
+  { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
+  { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },
+  { path: "environment-colour.json", title: "EnvironmentColour", schema: EnvironmentColour },
   { path: "usage/verdict.json", title: "UsageVerdict", schema: UsageVerdict },
   { path: "usage/window.json", title: "UsageWindow", schema: UsageWindow },
   { path: "usage/account-usage.json", title: "AccountUsage", schema: AccountUsage },
