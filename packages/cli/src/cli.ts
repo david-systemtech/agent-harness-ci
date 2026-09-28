@@ -12,6 +12,8 @@ import {
   type EnvironmentOptions,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { launch, LAUNCH_USAGE } from "./launch/verb.js";
+import { processContext, type ProcessContext } from "./process-context.js";
 import { service, type ServiceSeams } from "./service/verbs.js";
 import { status } from "./status.js";
 import { PairFailure, mintPairing, renderPairing, type Net, type PairArgs } from "./pair.js";
@@ -20,6 +22,7 @@ import { TUI_USAGE, tui, type RunTui } from "./tui.js";
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
+  `       ${PRODUCT_NAME} ${LAUNCH_USAGE}`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>]`,
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
@@ -30,11 +33,7 @@ const USAGE = [
   "",
 ].join("\n");
 
-export interface CliContext {
-  readonly stdout: (text: string) => void;
-  readonly stderr: (text: string) => void;
-  /** Resolves when the process is asked to stop: `serve` then drains. */
-  readonly stopRequested: () => Promise<unknown>;
+export interface CliContext extends ProcessContext {
   /**
    * Seams into the environment for tests. `main.ts` passes none, and no flag
    * or environment variable reaches them, so nothing a user can type lifts
@@ -50,28 +49,6 @@ export interface CliContext {
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
 }
-
-/**
- * SIGINT or SIGTERM, whichever comes first; either starts the drain. The
- * listeners go with the first, so a second signal during a drain stops the
- * process at once, as the signal's default does.
- */
-const signalled = (): Promise<NodeJS.Signals> =>
-  new Promise((resolve) => {
-    const on = (signal: NodeJS.Signals) => {
-      process.off("SIGINT", on);
-      process.off("SIGTERM", on);
-      resolve(signal);
-    };
-    process.on("SIGINT", on);
-    process.on("SIGTERM", on);
-  });
-
-const processContext: CliContext = {
-  stdout: (text) => void process.stdout.write(text),
-  stderr: (text) => void process.stderr.write(text),
-  stopRequested: signalled,
-};
 
 const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
@@ -178,6 +155,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       return 0;
     }
     if (args[0] === "serve") return await serve(args.slice(1), context);
+    if (args[0] === "launch") return await launch(args.slice(1), context);
     if (args[0] === "status") return await status(args.slice(1), { stdout: context.stdout, fetch: context.fetch ?? fetch });
     if (args[0] === "service") {
       return await service(args.slice(1), {
