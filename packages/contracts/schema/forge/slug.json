@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeSlug",
+  "type": "string",
+  "pattern": "^[a-z0-9_]{1,40}$",
+  "description": "A forge account's slug, unique on its environment: 1 to 40 of a-z, digits and underscore. Its variables use it upper-cased (FORGE_<SLUG>_TOKEN), and forge-<slug> names its key-manager entry."
+}
