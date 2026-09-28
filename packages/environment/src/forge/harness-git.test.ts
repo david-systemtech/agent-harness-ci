@@ -123,7 +123,7 @@ describe("the harness's git on an origin a forge account covers", () => {
     const command = join(dir, "helper with a space");
     writeFileSync(
       command,
-      `#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' "$*" "$AGENT_HARNESS_ADDRESS" "$AGENT_HARNESS_RUN_SECRET" "$GIT_TERMINAL_PROMPT" > '${record}'\necho quit=1\n`,
+      `#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' "$*" "$AGENT_HARNESS_ADDRESS" "$AGENT_HARNESS_RUN_SECRET" "$GIT_TERMINAL_PROMPT" > '${record}'\nenv | grep -E '^GIT_CONFIG_(COUNT|KEY_|VALUE_)' | sort >> '${record}'\necho quit=1\n`,
     );
     chmodSync(command, 0o755);
     return { command, record };
@@ -148,16 +148,44 @@ describe("the harness's git on an origin a forge account covers", () => {
     expect(answer.git.ok).toBe(false);
     expect(answer.git.stderr).toContain("told us to quit");
 
-    const [argv, address, secret = "", prompt] = readFileSync(helper.record, "utf8").split("\n");
+    const [argv, address, secret = "", prompt, ...config] = readFileSync(helper.record, "utf8").trim().split("\n");
     expect(argv).toBe(`git-credential ${account.slug} get`);
     expect(address).toBe(formatHostPort(t.address.host, t.address.port));
     expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(prompt).toBe("0");
+    expect(config).toEqual([
+      "GIT_CONFIG_COUNT=2",
+      `GIT_CONFIG_KEY_0=credential.${forge.origin}.helper`,
+      `GIT_CONFIG_KEY_1=credential.${forge.origin}.helper`,
+      "GIT_CONFIG_VALUE_0=",
+      `GIT_CONFIG_VALUE_1=!'${helper.command}' git-credential ${account.slug}`,
+    ]);
     expect(hostile.asked()).toEqual([]);
     expect(forge.gitRequests.map((request) => [request.path, request.username])).toEqual([["/david/bank.git/info/refs", null]]);
 
     // The operation's secret ended with it.
     const refused = await askCredentialRoute(t.address, secret, { action: "get", slug: account.slug, protocol: "http", host: gitHost(account.origin) });
     expect(refused.status).toBe(401);
+  });
+
+  it("gives git the canonical origin's URL for a remote on an alias, and resets the chain on every origin the forge account is served on", async () => {
+    hostileMachineGit(tempDir, onCleanup);
+    const forge = await fakeForge();
+    const tailnet = await fakeForge();
+    forge.gitRepository("david/bank", { private: true });
+    tailnet.gitRepository("david/bank", { private: true });
+    for (const origin of [forge, tailnet]) origin.user(TOKEN, DAVID);
+    const helper = standIn();
+    const t = await start({ harnessCommand: [helper.command] });
+    const account = await added(await t.client(), { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin] });
+
+    const answer = await t.env.forge.git({ operation: "clone", repository: `${tailnet.origin}/david/bank.git`, cwd: tempDir(), directory: "bank", purpose: "clone a bank" });
+    expect(answer.outcome).toBe("ran");
+    expect(tailnet.gitRequests).toEqual([]);
+    expect(forge.gitRequests.map((request) => request.path)).toEqual(["/david/bank.git/info/refs"]);
+    const config = readFileSync(helper.record, "utf8").trim().split("\n").slice(4);
+    const keys = config.filter((entry) => entry.startsWith("GIT_CONFIG_KEY_")).map((entry) => entry.slice(entry.indexOf("=") + 1));
+    expect(keys).toEqual([`credential.${forge.origin}.helper`, `credential.${forge.origin}.helper`, `credential.${tailnet.origin}.helper`, `credential.${tailnet.origin}.helper`]);
+    expect(config).toContain(`GIT_CONFIG_VALUE_3=!'${helper.command}' git-credential ${account.slug}`);
   });
 });

@@ -74,6 +74,26 @@ describe("the credential route", () => {
     expect(GitCredentialAnswer.parse(asked.body)).toEqual({ username: "x-access-token", password: TOKEN });
   });
 
+  it("serves a verified alias, and not an alias still unverified", async () => {
+    const { t, forge } = await withForge();
+    const tailnet = await fakeForge();
+    tailnet.user(TOKEN, DAVID);
+    const quiet = await fakeForge();
+    quiet.answer(TOKEN, "GET /api/v1/user", { status: 503 });
+    const client = await t.client();
+    const account = await added(client, { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin, quiet.origin] });
+    expect(account.aliases.map((alias) => [alias.origin, alias.verifiedAt !== null])).toEqual([
+      [tailnet.origin, true],
+      [quiet.origin, false],
+    ]);
+    const secret = t.env.forge.secrets.mint([account.id], "a test's git");
+    onCleanup(secret.release);
+
+    const onAlias = await ask(t.address, secret.value, { ...getFor(account), host: gitHost(tailnet.origin) });
+    expect(GitCredentialAnswer.parse(onAlias.body)).toEqual({ username: "david", password: TOKEN });
+    expect((await ask(t.address, secret.value, { ...getFor(account), host: gitHost(quiet.origin) })).status).toBe(401);
+  });
+
   it("serves a replaced token at once, and stops serving a removed forge account at once", async () => {
     const { t, forge } = await withForge();
     forge.user(OTHER_TOKEN, DAVID);
