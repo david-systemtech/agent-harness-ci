@@ -162,6 +162,8 @@ describe("the service state", () => {
       [{ ...state, launcherVersion: 4 }, "launcherVersion is not a version"],
       [{ ...state, pendingUpdate: undefined }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, pendingUpdate: { updateId: "", fromVersion: "0.5.0", toVersion: "0.6.0" } }, "pendingUpdate is neither a pending-update record nor null"],
+      // The launcher names the update's snapshot folder by its id, so nothing but an update id is one.
+      [{ ...state, pendingUpdate: { updateId: "../versions", fromVersion: "0.5.0", toVersion: "0.6.0" } }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, pendingUpdate: { updateId: "u", fromVersion: "0.5.0" } }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, watchDeadline: "soon" }, "watchDeadline is neither a time nor null"],
       [{ ...state, watchDeadline: undefined }, "watchDeadline is neither a time nor null"],

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
+import { RELEASE_VERSION_PATTERN, UPDATE_ID_PATTERN } from "@agent-harness/contracts/launcher";
 import { writeFileDurably, type DurableFs } from "./durable.js";
 
 /**
@@ -46,7 +46,7 @@ const isTime = (value: unknown): value is string => typeof value === "string" &&
 const isPendingUpdate = (value: unknown): value is PendingUpdate =>
   isFields(value) &&
   typeof value["updateId"] === "string" &&
-  value["updateId"] !== "" &&
+  UPDATE_ID_PATTERN.test(value["updateId"]) &&
   isVersion(value["fromVersion"]) &&
   isVersion(value["toVersion"]);
 
