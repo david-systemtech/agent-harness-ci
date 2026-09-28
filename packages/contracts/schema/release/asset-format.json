@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AssetFormat",
+  "type": "string",
+  "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+  "description": "How an asset is packed: tar.gz or zip for the environment's artefacts, zip (a macOS bundle), nsis (a Windows setup) or pacman (an Arch package) for the desktop's, as its shell reports the format it installs."
+}

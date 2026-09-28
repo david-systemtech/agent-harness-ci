@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PendingUpdate",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "current"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "description": "Nothing to do: the environment runs its target, or has none."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "staging"
+        },
+        "updateId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version being staged."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "channel",
+            "pin",
+            "request",
+            "desktop"
+          ],
+          "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+        }
+      },
+      "required": [
+        "state",
+        "updateId",
+        "toVersion",
+        "source"
+      ],
+      "description": "The target is being downloaded, checked and installed; staging ignores idle."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "waiting"
+        },
+        "updateId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update goes to."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "channel",
+            "pin",
+            "request",
+            "desktop"
+          ],
+          "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When an update first became pending, kept across a replaced target and restarts."
+        },
+        "deferUntil": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image's reference, tagged with the exact version: git.systemtech.dev:5526/david/agent-harness:0.5.0."
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "The image's digest, sha256: then 64 lowercase hexadecimal digits: a pull is checked against it."
+                }
+              },
+              "required": [
+                "reference",
+                "digest"
+              ],
+              "description": "The release's container image: its exact version reference and its digest."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Managed outside, the target's image the host-side updater pulls and checks; null for a native environment."
+        },
+        "waitsOn": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "run-starting",
+                    "run-running",
+                    "parked-prompt",
+                    "recent-activity"
+                  ],
+                  "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), parked-prompt (a run parked on a prompt in the last ten minutes), recent-activity (a run started or ended in the last ten minutes)."
+                },
+                "until": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "An instant as an ISO 8601 UTC timestamp."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the reason stops counting if nothing else happens; null while a run is starting or running."
+                }
+              },
+              "required": [
+                "reason",
+                "until"
+              ],
+              "description": "What a waiting update waits on: the reason the environment is busy, and until when."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it waits on; null when nothing holds it and it drains at the next tick."
+        }
+      },
+      "required": [
+        "state",
+        "updateId",
+        "toVersion",
+        "source",
+        "since",
+        "deferUntil",
+        "image",
+        "waitsOn"
+      ],
+      "description": "Installed, the update waits for idle, the deferral cap or a request: on what."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "ready"
+        },
+        "updateId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update goes to."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "channel",
+            "pin",
+            "request",
+            "desktop"
+          ],
+          "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When an update first became pending, kept across a replaced target and restarts."
+        },
+        "deferUntil": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image's reference, tagged with the exact version: git.systemtech.dev:5526/david/agent-harness:0.5.0."
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "The image's digest, sha256: then 64 lowercase hexadecimal digits: a pull is checked against it."
+                }
+              },
+              "required": [
+                "reference",
+                "digest"
+              ],
+              "description": "The release's container image: its exact version reference and its digest."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Managed outside, the target's image the host-side updater pulls and checks; null for a native environment."
+        }
+      },
+      "required": [
+        "state",
+        "updateId",
+        "toVersion",
+        "source",
+        "since",
+        "deferUntil",
+        "image"
+      ],
+      "description": "Managed outside, the update is ready: it waits for the host-side updater's updates.begin."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "draining"
+        },
+        "updateId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update goes to."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "channel",
+            "pin",
+            "request",
+            "desktop"
+          ],
+          "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When an update first became pending, kept across a replaced target and restarts."
+        },
+        "deferUntil": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image's reference, tagged with the exact version: git.systemtech.dev:5526/david/agent-harness:0.5.0."
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "The image's digest, sha256: then 64 lowercase hexadecimal digits: a pull is checked against it."
+                }
+              },
+              "required": [
+                "reference",
+                "digest"
+              ],
+              "description": "The release's container image: its exact version reference and its digest."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Managed outside, the target's image the host-side updater pulls and checks; null for a native environment."
+        },
+        "cause": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "cap",
+            "requested"
+          ],
+          "description": "What made a pending update drain: idle (nothing started or ended within the idle window), cap (the deferral cap passed while busy) or requested (updates.apply with when now). Managed outside, the cause that made the update ready is the one updates.begin records."
+        }
+      },
+      "required": [
+        "state",
+        "updateId",
+        "toVersion",
+        "source",
+        "since",
+        "deferUntil",
+        "image",
+        "cause"
+      ],
+      "description": "The environment drains for the update: new runs are refused, running ones are let finish up to the cap."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "switching"
+        },
+        "updateId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update goes to."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "channel",
+            "pin",
+            "request",
+            "desktop"
+          ],
+          "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When an update first became pending, kept across a replaced target and restarts."
+        },
+        "deferUntil": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The image's reference, tagged with the exact version: git.systemtech.dev:5526/david/agent-harness:0.5.0."
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "The image's digest, sha256: then 64 lowercase hexadecimal digits: a pull is checked against it."
+                }
+              },
+              "required": [
+                "reference",
+                "digest"
+              ],
+              "description": "The release's container image: its exact version reference and its digest."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Managed outside, the target's image the host-side updater pulls and checks; null for a native environment."
+        },
+        "cause": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "cap",
+            "requested"
+          ],
+          "description": "What made a pending update drain: idle (nothing started or ended within the idle window), cap (the deferral cap passed while busy) or requested (updates.apply with when now). Managed outside, the cause that made the update ready is the one updates.begin records."
+        }
+      },
+      "required": [
+        "state",
+        "updateId",
+        "toVersion",
+        "source",
+        "since",
+        "deferUntil",
+        "image",
+        "cause"
+      ],
+      "description": "The drain is done and the launcher is switching to the target."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "blocked"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "launcher"
+          ],
+          "description": "Why an update cannot go on by itself: launcher (the target needs a newer launcher than the running one and no stepping stone leads there; run service install from the target's release)."
+        },
+        "toVersion": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+          "description": "The target that cannot be reached: service install from its release unblocks it."
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "toVersion"
+      ],
+      "description": "The update cannot go on by itself: why, and its target."
+    }
+  ],
+  "description": "The pending update with its state: current, staging, waiting on what, ready, draining, switching, or blocked with why."
+}

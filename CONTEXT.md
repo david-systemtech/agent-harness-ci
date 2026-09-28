@@ -173,7 +173,7 @@ A permission prompt or question a run is waiting on with nobody having answered 
 _Avoid_: pending approval, ask (already a UI word for permission prompts; fine for the "Parked asks" view name)
 
 **Idle**:
-The state of an environment with no run starting or running and no run started or ended in the last ten minutes; a run parked on a prompt counts as busy for ten minutes only.
+The state of an environment with no run starting or running and no run started or ended within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only.
 _Avoid_: quiet, inactive, free
 
 **Drain**:
@@ -182,11 +182,47 @@ _Avoid_: graceful shutdown, quiesce
 
 **Channel**:
 Which releases an environment follows for updates: stable (releases only) or beta (prereleases too); a pinned version follows none.
-_Avoid_: track, ring, branch
+_Avoid_: track, ring, branch, the launcher channel (the launcher's IPC connection, defined below)
+
+**Release manifest**:
+`release.json`, the asset every release publishes that says what the release is: its version, protocol version, launcher protocol, database schema version and bundled Claude Code version, each asset with its platform, kind, size and SHA-256, and the image's reference and digest; read before anything of the release is downloaded, and only ever added to.
+_Avoid_: release notes, feed, update index
 
 **Launcher**:
 The stable process the service runs, which owns the installed versions, the pending-update record and the database snapshot, and starts the chosen server version as its child.
 _Avoid_: supervisor, wrapper, bootstrap
+
+**Launcher channel**:
+The IPC connection a launcher spawns its environment with, over which each asks the other and is answered once (`idle?`, `drain?`, `prepared` and `committed`, `install?`, `switch?`, `versions?`); always named in full.
+_Avoid_: channel alone (which releases an environment follows), pipe, socket
+
+**Launcher entry**:
+The stable script the service definition runs, which starts the launcher of the version its launcher version file names, and names the previous version again after three unconfirmed starts of a handed-over launcher.
+_Avoid_: wrapper, bootstrap, the launcher (the process it starts)
+
+**Launcher version file**:
+The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by the launcher at a handover and by the entry when it falls back.
+_Avoid_: pointer (a place in a bank), current link
+
+**Update coordinator**:
+The environment's module that holds the update policy: it reads the channel, stages the target, waits for idle or the deferral cap, drains, asks the launcher to switch and settles the outcome after the restart; it knows runs, which the launcher never does.
+_Avoid_: updater (the host-side updater or the desktop's), update manager, the launcher
+
+**Update id**:
+The id an environment mints when it takes an update's target, named by every notice of that update, the launcher's switch, the database snapshot and the outcome record; a newer release replacing the target gets a new one, while the time the update first became pending carries over.
+_Avoid_: job id, update number, version (what the update goes to)
+
+**Stepping stone**:
+The newest release the running launcher can host, taken on the way to a target that needs a newer launcher, so the launcher hands over before the environment goes on to the target.
+_Avoid_: intermediate version, hop, bridge release
+
+**Outcome record**:
+The file whoever rolled an update back leaves in the data directory (the launcher after a failed trial or a crash loop, a container's `update restore`), naming the update, its versions, the stage and the reason; the environment reads it as it settles that update, then deletes it.
+_Avoid_: rollback log, result file, the outcome (the notice it becomes)
+
+**Host-side updater**:
+The published script that carries out the update coordinator's plan for a container, which cannot replace itself: it polls the environment, pulls the target image by its digest, stops, snapshots, recreates, checks health and rolls back on failure.
+_Avoid_: Watchtower, container updater, sidecar
 
 **Routine**:
 An environment-owned definition of unattended work: instructions run on a schedule or trigger with a chosen account, model, mode, workspace, skills, pre-check and delivery targets. Fires with no client connected.

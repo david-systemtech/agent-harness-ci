@@ -40,7 +40,7 @@ import {
   SharedError,
   WireError,
 } from "./errors.js";
-import { CapabilityFlag, CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
+import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
 import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
 import { EnvironmentColour } from "./environment-colours.js";
 import { Theme, ThemeName, ThemeSeed } from "./theme.js";
@@ -81,6 +81,48 @@ import {
   TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
+import {
+  AssetFormat,
+  ReleaseAsset,
+  ReleaseAssetKind,
+  ReleaseImage,
+  ReleaseManifest,
+  ReleasePlatform,
+  ReleaseVersion,
+  Sha256,
+} from "./release.js";
+import { UpdateAnswer, UpdateError, UpdateRequest } from "./update-route.js";
+import {
+  AutoUpdate,
+  DeferralCapHours,
+  IdleWindowMinutes,
+  PinnedVersion,
+  ReleaseChannel,
+  UpdateSettingsPatch,
+  UpdateSettingsValues,
+} from "./update-settings.js";
+import {
+  PendingUpdate,
+  UpdateBlockedReason,
+  UpdateCancelCause,
+  UpdateCancelledPayload,
+  UpdateCause,
+  UpdateCheck,
+  UpdateCheckFailure,
+  UpdateConflictReason,
+  UpdateFailedPayload,
+  UpdateFailureStage,
+  UpdateId,
+  UpdateManager,
+  UpdateOutcome,
+  UpdatePendingPayload,
+  UpdateSource,
+  UpdateStartedPayload,
+  UpdateState,
+  UpdateWaitsOn,
+  UpdateWhen,
+  UpdatesStatus,
+} from "./updates.js";
 import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -176,6 +218,8 @@ import {
   TRANSCRIPT_EVENT_TYPES,
   ToolStatus,
   TranscriptItem,
+  UpdateInterruptOutcome,
+  UpdateInterruptReason,
 } from "./transcript.js";
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
@@ -233,6 +277,7 @@ import {
   PromptQuestionOption,
 } from "./prompts.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
+import { REPOSITORY_IDENTITY_CASES } from "./repository-identity.js";
 
 /**
  * The JSON Schema export: every schema in the package as a draft 2020-12
@@ -294,6 +339,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
   { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
   { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
+  { path: "launcher-protocol.json", title: "LauncherProtocol", schema: LauncherProtocol },
+  { path: "release/release-version.json", title: "ReleaseVersion", schema: ReleaseVersion },
+  { path: "release/sha256.json", title: "Sha256", schema: Sha256 },
+  { path: "release/asset-kind.json", title: "ReleaseAssetKind", schema: ReleaseAssetKind },
+  { path: "release/platform.json", title: "ReleasePlatform", schema: ReleasePlatform },
+  { path: "release/asset-format.json", title: "AssetFormat", schema: AssetFormat },
+  { path: "release/asset.json", title: "ReleaseAsset", schema: ReleaseAsset },
+  { path: "release/image.json", title: "ReleaseImage", schema: ReleaseImage },
+  { path: "release/manifest.json", title: "ReleaseManifest", schema: ReleaseManifest },
   { path: "lifecycle/busy-reason.json", title: "BusyReason", schema: BusyReason },
   { path: "lifecycle/drain-trigger.json", title: "DrainTrigger", schema: DrainTrigger },
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
@@ -306,6 +360,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
   { path: "pair/request.json", title: "PairRequest", schema: PairRequest },
   { path: "pair/error.json", title: "PairError", schema: PairError },
+  { path: "update/request.json", title: "UpdateRequest", schema: UpdateRequest },
+  { path: "update/answer.json", title: "UpdateAnswer", schema: UpdateAnswer },
+  { path: "update/error.json", title: "UpdateError", schema: UpdateError },
   { path: "access/event-type.json", title: "AccessEventType", schema: AccessEventType },
   { path: "access/client-session-origin.json", title: "ClientSessionOrigin", schema: ClientSessionOrigin },
   { path: "access/revocation-reason.json", title: "RevocationReason", schema: RevocationReason },
@@ -411,6 +468,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
+  { path: "transcript/update-interrupt-outcome.json", title: "UpdateInterruptOutcome", schema: UpdateInterruptOutcome },
+  { path: "transcript/update-interrupt-reason.json", title: "UpdateInterruptReason", schema: UpdateInterruptReason },
   { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
   { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
   { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },
@@ -519,9 +578,36 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/accounts.defaultModelFamily.json", title: "DefaultModelFamily", schema: DefaultModelFamily },
   { path: "settings/keys/accounts.defaultEffort.json", title: "DefaultEffort", schema: DefaultEffort },
   { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
+  { path: "settings/keys/updates.autoUpdate.json", title: "AutoUpdate", schema: AutoUpdate },
+  { path: "settings/keys/updates.channel.json", title: "ReleaseChannel", schema: ReleaseChannel },
+  { path: "settings/keys/updates.pinnedVersion.json", title: "PinnedVersion", schema: PinnedVersion },
+  { path: "settings/keys/updates.idleWindowMinutes.json", title: "IdleWindowMinutes", schema: IdleWindowMinutes },
+  { path: "settings/keys/updates.deferralCapHours.json", title: "DeferralCapHours", schema: DeferralCapHours },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "updates/update-id.json", title: "UpdateId", schema: UpdateId },
+  { path: "updates/update-source.json", title: "UpdateSource", schema: UpdateSource },
+  { path: "updates/update-cause.json", title: "UpdateCause", schema: UpdateCause },
+  { path: "updates/update-failure-stage.json", title: "UpdateFailureStage", schema: UpdateFailureStage },
+  { path: "updates/update-cancel-cause.json", title: "UpdateCancelCause", schema: UpdateCancelCause },
+  { path: "updates/events/environment.update-pending.json", title: "UpdatePendingPayload", schema: UpdatePendingPayload },
+  { path: "updates/events/environment.update-started.json", title: "UpdateStartedPayload", schema: UpdateStartedPayload },
+  { path: "updates/events/environment.update-failed.json", title: "UpdateFailedPayload", schema: UpdateFailedPayload },
+  { path: "updates/events/environment.update-cancelled.json", title: "UpdateCancelledPayload", schema: UpdateCancelledPayload },
+  { path: "updates/manager.json", title: "UpdateManager", schema: UpdateManager },
+  { path: "updates/check-failure.json", title: "UpdateCheckFailure", schema: UpdateCheckFailure },
+  { path: "updates/check.json", title: "UpdateCheck", schema: UpdateCheck },
+  { path: "updates/update-state.json", title: "UpdateState", schema: UpdateState },
+  { path: "updates/blocked-reason.json", title: "UpdateBlockedReason", schema: UpdateBlockedReason },
+  { path: "updates/waits-on.json", title: "UpdateWaitsOn", schema: UpdateWaitsOn },
+  { path: "updates/pending-update.json", title: "PendingUpdate", schema: PendingUpdate },
+  { path: "updates/outcome.json", title: "UpdateOutcome", schema: UpdateOutcome },
+  { path: "updates/status.json", title: "UpdatesStatus", schema: UpdatesStatus },
+  { path: "updates/when.json", title: "UpdateWhen", schema: UpdateWhen },
+  { path: "updates/conflict-reason.json", title: "UpdateConflictReason", schema: UpdateConflictReason },
+  { path: "updates/settings-values.json", title: "UpdateSettingsValues", schema: UpdateSettingsValues },
+  { path: "updates/settings-patch.json", title: "UpdateSettingsPatch", schema: UpdateSettingsPatch },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
@@ -558,21 +644,55 @@ export const exportedSchemas = (): ExportedSchema[] => [
 ];
 
 
+/**
+ * A table of cases published beside the schemas: a pure rule's inputs and
+ * the answers the contracts give, for a client in another language to run
+ * its own implementation of the rule against.
+ */
+export interface PublishedCaseTable {
+  readonly path: string;
+  readonly title: string;
+  /** The rule, step by step, and what each case holds. */
+  readonly description: string;
+  readonly cases: readonly unknown[];
+}
+
+/** Every case table the export writes, in a stable order. */
+export const publishedCaseTables = (): PublishedCaseTable[] => [
+  {
+    path: "cases/repository-identity.json",
+    title: "Repository identity",
+    description: [
+      "The repository identity rule, repositoryIdentityOf in the contracts package (workspace-picker spec, \"Repository identity\").",
+      "Each case gives a remote as git expands it, the environment's forge accounts (each its canonical origin and verified aliases) and the identity the rule answers, or null for none.",
+      "The rule: parse https:// and http:// (userinfo dropped), ssh://[user@]host[:port]/path (and git+ssh://, ssh+git://), scp [user@]host:path whose host has a dot, is localhost or is a bracketed IPv6 literal, a bare host:port/path as https, and git://, reading ssh.github.com as github.com; anything else, a local path and file:// among them, is none.",
+      "The host is lower-cased and its port dropped; a host that is no forge account's canonical host and a verified alias of exactly one account becomes that account's canonical host.",
+      "The path drops a query, a fragment, empty segments and one trailing .git, and is lower-cased; under two segments it is none.",
+      "The identity is https:// + host + / + path.",
+    ].join(" "),
+    cases: REPOSITORY_IDENTITY_CASES.map(({ note, remote, forgeAccounts = [], identity }) => ({ note, remote, forgeAccounts, identity })),
+  },
+];
+
 /** The document for one exported schema: the schema as zod's decoder reads it, titled. */
 const document = (entry: ExportedSchema): Record<string, unknown> => {
   const { $schema, ...rest } = z.toJSONSchema(entry.schema, { target: "draft-2020-12", io: "input" });
   return { $schema, title: entry.title, ...rest };
 };
 
+const GENERATED = "Generated by `pnpm --filter @agent-harness/contracts export-schemas`. Do not edit.";
+
 /**
  * The manifest a client starts from: the protocol version, every document by
- * path and title, and every method with its scope, kind, stream flag and
- * documents; a command's include its response, the receipt beside the result.
+ * path and title, every case table by path and title, and every method with
+ * its scope, kind, stream flag and documents; a command's include its
+ * response, the receipt beside the result.
  */
-const index = (entries: readonly ExportedSchema[]) => ({
-  $comment: "Generated by `pnpm --filter @agent-harness/contracts export-schemas`. Do not edit.",
+const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCaseTable[]) => ({
+  $comment: GENERATED,
   protocolVersion: PROTOCOL_VERSION,
   schemas: entries.map(({ path, title }) => ({ path, title })),
+  cases: tables.map(({ path, title }) => ({ path, title })),
   methods: methods.map((m) => ({
     name: m.name,
     scope: m.scope,
@@ -589,14 +709,18 @@ const index = (entries: readonly ExportedSchema[]) => ({
 
 const serialise = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
-/** Every file of the export, by path under `schema/`: one per schema, and `index.json`. */
+/** Every file of the export, by path under `schema/`: one per schema, one per case table, and `index.json`. */
 export const jsonSchemaFiles = (): Map<string, string> => {
   const entries = exportedSchemas();
+  const tables = publishedCaseTables();
   const files = new Map<string, string>();
-  for (const entry of entries) {
-    if (files.has(entry.path)) throw new Error(`Two schemas export to ${entry.path}.`);
-    files.set(entry.path, serialise(document(entry)));
+  for (const { path, content } of [
+    ...entries.map((entry) => ({ path: entry.path, content: document(entry) })),
+    ...tables.map(({ path, ...table }) => ({ path, content: { $comment: GENERATED, ...table } })),
+  ]) {
+    if (files.has(path)) throw new Error(`Two documents export to ${path}.`);
+    files.set(path, serialise(content));
   }
-  files.set("index.json", serialise(index(entries)));
+  files.set("index.json", serialise(index(entries, tables)));
   return files;
 };

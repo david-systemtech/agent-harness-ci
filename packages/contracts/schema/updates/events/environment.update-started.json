@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateStartedPayload",
+  "type": "object",
+  "properties": {
+    "updateId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+    },
+    "fromVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version running when the update began."
+    },
+    "toVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version the update goes to."
+    },
+    "cause": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "cap",
+        "requested"
+      ],
+      "description": "What made a pending update drain: idle (nothing started or ended within the idle window), cap (the deferral cap passed while busy) or requested (updates.apply with when now). Managed outside, the cause that made the update ready is the one updates.begin records."
+    }
+  },
+  "required": [
+    "updateId",
+    "fromVersion",
+    "toVersion",
+    "cause"
+  ],
+  "description": "An update began: the environment drains before the switch; from and to which version, and what made it go."
+}

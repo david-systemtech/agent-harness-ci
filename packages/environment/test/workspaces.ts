@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import type { Workspace, WorkspaceRequest } from "@agent-harness/contracts";
 import type { Resolution, WorkspaceResolver } from "../src/workspace/resolver.js";
@@ -44,3 +45,11 @@ export const makeDirectory = (path: string, workspace: Workspace): Resolution =>
   mkdirSync(path, { recursive: true });
   return { workspace, repositoryIdentity: null, undo: () => rmSync(path, { recursive: true, force: true }) };
 };
+
+/** Runs git in `cwd` as a test user, with no global or system configuration; answers what it printed. */
+export const git = (cwd: string, ...args: string[]): string =>
+  execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+  });

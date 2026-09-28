@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReleaseAsset",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The asset's file name on the release: agent-harness-linux-x64.tar.gz."
+    },
+    "kind": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "What an asset is: environment, desktop, install-script, compose, host-updater, schema (environment being the environment's self-contained artefact for one platform); a kind the reader does not know is a later release's, and is passed over."
+    },
+    "platform": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z0-9]+-[a-z0-9]+$",
+          "description": "A platform, <os>-<arch> as Node names them: linux-x64, darwin-arm64, win32-x64; a later release may add others."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The platform it is built for; null for one any platform takes, such as a script."
+    },
+    "format": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+          "description": "How an asset is packed: tar.gz or zip for the environment's artefacts, zip (a macOS bundle), nsis (a Windows setup) or pacman (an Arch package) for the desktop's, as its shell reports the format it installs."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How it is packed; null for a plain file."
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Its size in bytes, checked with its SHA-256 before it is unpacked."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "A SHA-256 digest: 64 lowercase hexadecimal digits."
+    }
+  },
+  "required": [
+    "name",
+    "kind",
+    "platform",
+    "format",
+    "size",
+    "sha256"
+  ],
+  "description": "One asset of a release: its name, kind, platform, format, size and SHA-256."
+}

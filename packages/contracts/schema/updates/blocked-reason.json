@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateBlockedReason",
+  "type": "string",
+  "enum": [
+    "launcher"
+  ],
+  "description": "Why an update cannot go on by itself: launcher (the target needs a newer launcher than the running one and no stepping stone leads there; run service install from the target's release)."
+}

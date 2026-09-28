@@ -101,7 +101,7 @@ const fullSummary = {
   snoozedUntil: later,
   snoozedAt: at,
   workspace: worktree,
-  repositoryIdentity: "https://git.systemtech.dev:5526/david/agent-harness",
+  repositoryIdentity: "https://git.systemtech.dev/david/agent-harness",
   workspaceMissingSince: later,
   activity: { state: "parked", since: later },
   parkedPromptCount: 2,

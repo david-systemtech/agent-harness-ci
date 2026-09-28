@@ -264,7 +264,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
             return { aggregate, result: { summary: summaryAfter(id) } };
           };
         };
-        // A directory is resolved at once, so a phase-A create keeps its place among its socket's requests.
+        // A resolver's answer given at once, a refusal of a kind not served, keeps the create's place among its socket's requests.
         const resolved = resolver.resolve(request, id);
         return resolved instanceof Promise ? resolved.then(handlerFor) : handlerFor(resolved);
       },

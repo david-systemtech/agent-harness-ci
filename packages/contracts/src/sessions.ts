@@ -332,7 +332,8 @@ export const SessionSummary = z
     // Place (ADR 0005).
     workspace: Workspace,
     repositoryIdentity: z.string().min(1).nullable().meta({
-      description: "The canonical remote URL of the repository the workspace belongs to; null outside a repository or until it is resolved.",
+      description:
+        "The repository identity: the remote of the repository the workspace belongs to, in the one form every spelling of it comes down to (https://, the host without its port, then the path; repositoryIdentityOf and its published cases). An identity, not a link; null outside a repository or when its remote gives none.",
     }),
     workspaceMissingSince: Timestamp.nullable().meta({
       description:

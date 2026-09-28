@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateInterruptOutcome",
+  "type": "string",
+  "enum": [
+    "continued",
+    "waiting-on-prompt",
+    "next-message"
+  ],
+  "description": "What became of a run an update cut: continued (one run, origin update, resumed it), waiting-on-prompt (a prompt of the session is still parked, and answering it resumes the session) or next-message (it goes on when the session is next sent a message, for the reason given)."
+}

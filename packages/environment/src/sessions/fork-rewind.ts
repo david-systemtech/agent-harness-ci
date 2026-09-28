@@ -398,8 +398,8 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
 
       const created = decideCreate(
         stateOf(id),
-        // The source's workspace, shared whatever its kind; its identity is carried from #324 on.
-        { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: null, account, model, mode },
+        // The source's workspace, shared whatever its kind, with its repository identity as recorded (#324): nothing is read again.
+        { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode },
         { groupExists: source.groupId !== null && groupExists(reader, source.groupId) },
       );
       if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };

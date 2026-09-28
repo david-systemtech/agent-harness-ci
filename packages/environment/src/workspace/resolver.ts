@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Workspace, WorkspaceRequest } from "@agent-harness/contracts";
 import type { Undo } from "../serve/methods.js";
 import type { Refusal } from "../sessions/decider.js";
+import { readRepositoryIdentity } from "./identity.js";
 
 /**
  * The resolver (workspace-picker spec, "The resolver"; #321): the one
@@ -18,9 +19,9 @@ import type { Refusal } from "../sessions/decider.js";
  * that was there before it: the caller runs it when the command is not
  * accepted. As built it serves `directory` as phase A did, any full path
  * recorded as sent (a `~` read from the environment's home, so the record
- * is absolute) with no identity, and answers every other kind as not served
- * yet; the workstream's later tickets add the checks, the kinds and the
- * identity.
+ * is absolute), with the repository identity git finds there
+ * (`identity.ts`, #324), and answers every other kind as not served yet;
+ * the workstream's later tickets add the checks and the kinds.
  */
 
 /** What the resolver answers: the workspace and identity to record, with how to remove what it made; or a refusal. */
@@ -56,6 +57,8 @@ const notServed = (kind: WorkspaceRequest["kind"]): Resolution => ({
 export interface WorkspaceResolverOptions {
   /** The environment's home, which a directory request's `~` stands for. Preset: the running user's. */
   readonly home?: string;
+  /** How long each git call finding a repository identity gets; preset: the hardened runner's 15 seconds. */
+  readonly gitTimeoutMs?: number;
 }
 
 /** The environment's resolver. */
@@ -68,11 +71,20 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions = {}):
    * taken for a home.
    */
   const recorded = (path: string): string => (path === "~" ? home : /^~[\\/]/.test(path) ? join(home, path.slice(2)) : path);
+  /**
+   * The identity of the repository holding `path`; none when git gives none,
+   * the create going on without one. No forge accounts yet, so no alias is
+   * mapped: the forge service (#87) and the identity passes (#329) give the
+   * rule this environment's verified aliases.
+   */
+  const identityAt = (path: string): Promise<string | null> =>
+    readRepositoryIdentity(path, { forgeAccounts: [], ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }) });
   return {
     resolve: (request) => {
+      if (request.kind !== "directory") return notServed(request.kind);
       // Phase A's rule: any full path, recorded as it came; whether it is there is the workspace workstream's check (#325).
-      if (request.kind === "directory") return { workspace: { kind: "directory", path: recorded(request.path) }, repositoryIdentity: null };
-      return notServed(request.kind);
+      const path = recorded(request.path);
+      return identityAt(path).then((repositoryIdentity) => ({ workspace: { kind: "directory", path }, repositoryIdentity }));
     },
   };
 };

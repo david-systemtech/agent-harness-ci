@@ -48,6 +48,22 @@ describe("the notices from the environment's stream", () => {
     ]);
   });
 
+  it("say an update took, whether its event names its update id or is of the older shape, and raise nothing for an update pending, started or cancelled (#335)", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const updateId = randomUUID();
+    const since = "2026-09-24T00:00:01.000Z";
+    desk.notices.event(noticeEvent(1, env, "environment.update-pending", { updateId, toVersion: "0.2.0", source: "channel", since, deferUntil: "2026-09-25T00:00:01.000Z" }));
+    desk.notices.event(noticeEvent(2, env, "environment.update-started", { updateId, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "idle" }));
+    desk.notices.event(noticeEvent(3, env, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0", updateId }));
+    desk.notices.event(noticeEvent(4, env, "environment.update-cancelled", { updateId: randomUUID(), toVersion: "0.3.0", cause: "settings" }));
+    desk.notices.event(noticeEvent(5, env, "environment.updated", { fromVersion: "0.2.0", toVersion: "0.2.1" }));
+    await flush();
+    expect(runtime.projections.notices.read().map(({ kind, message }) => ({ kind, message }))).toEqual([
+      { kind: "updated", message: "desk was updated from 0.1.0 to 0.2.0." },
+      { kind: "updated", message: "desk was updated from 0.2.0 to 0.2.1." },
+    ]);
+  });
+
   it("take a parked prompt's notice back once it is resolved, and say so when nobody answered it", async () => {
     const { runtime, desk, env } = await oneEnvironment();
     const parked = (promptId: string, sequence: number) =>
