@@ -55,11 +55,13 @@ describe("the shim", () => {
     expect(renderShim("cmd", "C:\\Users\\david\\AppData\\Local\\agent-harness")).toBe(fixture("agent-harness.cmd"));
   });
 
-  it("gives the line that puts the shim's folder on the path: an export for a shell profile, a user Path change for PowerShell", () => {
+  it("gives the line that puts the shim's folder on the path: an export for a shell profile, a user Path change in PowerShell", () => {
     expect(pathLine("sh", "/home/david/.local/state/agent-harness/bin")).toBe('export PATH="/home/david/.local/state/agent-harness/bin:$PATH"');
     expect(pathLine("sh", '/Users/d "q" $x`y`\\/bin')).toBe('export PATH="/Users/d \\"q\\" \\$x\\`y\\`\\\\/bin:$PATH"');
+    // Through the registry, so the user Path keeps its type (REG_EXPAND_SZ) and the variables its entries name.
     expect(pathLine("cmd", "C:\\Users\\O'Neil\\AppData\\Local\\agent-harness\\bin")).toBe(
-      "[Environment]::SetEnvironmentVariable('Path', 'C:\\Users\\O''Neil\\AppData\\Local\\agent-harness\\bin;' + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')",
+      "$k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true); " +
+        "$k.SetValue('Path', 'C:\\Users\\O''Neil\\AppData\\Local\\agent-harness\\bin;' + $k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'), 'ExpandString')",
     );
   });
 });

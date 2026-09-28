@@ -80,9 +80,14 @@ export const renderShim = (kind: ScriptKind, dataDir: string): string => {
 /**
  * The line a person runs to put `binDirectory` on their PATH, since install
  * edits no profile: for `sh`, an export for their shell's profile; for `cmd`,
- * a PowerShell line that puts it first on their user Path.
+ * a PowerShell line that puts it first on their user Path in the registry,
+ * read unexpanded and written back as an expandable string, so the entries
+ * that name a variable (`%USERPROFILE%`) keep it. .NET's
+ * `SetEnvironmentVariable` would write the expanded Path back as a plain
+ * string. Windows reads the new Path at the next sign-in.
  */
 export const pathLine = (kind: ScriptKind, binDirectory: string): string =>
   kind === "sh"
     ? `export PATH="${shellDoubleQuoted(binDirectory)}:$PATH"`
-    : `[Environment]::SetEnvironmentVariable('Path', '${binDirectory.replaceAll("'", "''")};' + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')`;
+    : "$k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true); " +
+      `$k.SetValue('Path', '${binDirectory.replaceAll("'", "''")};' + $k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'), 'ExpandString')`;

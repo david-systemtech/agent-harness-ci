@@ -193,6 +193,18 @@ describe("agent-harness service install, a first install", () => {
     expect(snapshot(cli.home)).toEqual(before);
   });
 
+  it("takes back the version it copied when the service state cannot be written", async () => {
+    const home = tempHome();
+    const dataDir = linuxDataDir(home);
+    // A folder where the service state goes: it can be neither read nor replaced.
+    mkdirSync(join(dataDir, "service-state.json", "in-the-way"), { recursive: true });
+    const cli = harness("linux", { home });
+    const before = snapshot(home);
+    expect(await cli.run("service", "install")).toBe(1);
+    expect(cli.err()).toContain("service-state.json");
+    expect(snapshot(home)).toEqual(before);
+  });
+
   it("puts back the state and the launcher version file it replaced when the service manager refuses", async () => {
     const home = tempHome();
     const dataDir = linuxDataDir(home);
@@ -259,7 +271,7 @@ describe("agent-harness service install over a running launcher", () => {
     expect(execStart(home)).toBe(`ExecStart=/bin/sh ${join(dataDir, "launcher-entry.sh")}`);
     expect(cli.calls.filter((call) => !call.includes(" is-"))).toEqual(["systemctl --user daemon-reload", "systemctl --user enable agent-harness.service"]);
     expect(cli.out()).toContain("The service is running its launcher");
-    expect(cli.out()).toContain("rewrote only the definition, the launcher entry and the shim");
+    expect(cli.out()).toContain("rewrote only its own files: the definition, the launcher entry, the shim and the record");
     expect(cli.out()).not.toContain("Copied");
   });
 
@@ -349,6 +361,6 @@ describe("agent-harness service install on Windows", () => {
     expect(readFileSync(join(dataDir, "bin", "agent-harness.cmd"), "utf8")).toBe(renderShim("cmd", dataDir));
     expect(stateOf(dataDir)).toEqual(fresh("0.5.0"));
     expect(task).toContain(`<Arguments>--headless cmd.exe /d /c call ${join(dataDir, "launcher-entry.cmd")}</Arguments>`);
-    expect(cli.out()).toContain(`[Environment]::SetEnvironmentVariable('Path', '${join(dataDir, "bin")};'`);
+    expect(cli.out()).toContain(`$k.SetValue('Path', '${join(dataDir, "bin")};' + $k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'), 'ExpandString')`);
   });
 });

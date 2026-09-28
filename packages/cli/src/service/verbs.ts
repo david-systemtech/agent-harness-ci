@@ -114,7 +114,8 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
   try {
     if (unpacked !== undefined) {
       placed = placeVersion(dataDir, unpacked);
-      undo.push(placed.undo, nameVersion(dataDir, placed.version));
+      undo.push(placed.undo);
+      undo.push(nameVersion(dataDir, placed.version));
     }
     const entry = writeDefinition(spec.entry, renderLauncherEntry(kind, { dataDir, port, name }));
     undo.push(entry.restore);
@@ -146,12 +147,12 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
       `Installed ${platform.definitionPath()}: the launcher${placed === undefined ? "" : ` of ${placed.version}`} on port ${port}, data directory ${dataDir}.`,
       launcherRuns
         ? "The service is running its launcher, which alone writes the versions, the service state and the launcher version file while it runs, " +
-          "so install rewrote only the definition, the launcher entry and the shim; they take effect at its next start."
+          "so install rewrote only its own files: the definition, the launcher entry, the shim and the record; they take effect at its next start."
         : running
           ? "The service was running without the launcher, so it was restarted onto the launcher."
           : `It starts at your next logon; \`${PRODUCT_NAME} service start\` starts it now.`,
       `The shim ${shimPath} runs the active version. Install edits no shell profile: to put the shim on your PATH, ${
-        kind === "sh" ? "add this line to your shell's profile" : "run this line in PowerShell, then open a new terminal"
+        kind === "sh" ? "add this line to your shell's profile" : "run this line in PowerShell, then sign out and back in"
       }:`,
       `  ${pathLine(kind, shimFolder)}`,
       "",
