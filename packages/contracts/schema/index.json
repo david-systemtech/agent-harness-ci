@@ -907,6 +907,22 @@
       "title": "ForgeOriginMissingPayload"
     },
     {
+      "path": "theme/theme.json",
+      "title": "Theme"
+    },
+    {
+      "path": "theme/name.json",
+      "title": "ThemeName"
+    },
+    {
+      "path": "theme/seed.json",
+      "title": "ThemeSeed"
+    },
+    {
+      "path": "environment-colour.json",
+      "title": "EnvironmentColour"
+    },
+    {
       "path": "usage/verdict.json",
       "title": "UsageVerdict"
     },
