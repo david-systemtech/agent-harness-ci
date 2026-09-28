@@ -13,14 +13,16 @@ import type { LauncherChannel } from "../serve/launcher.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { readSettings } from "../settings/settings-store.js";
+import type { UpdateCoordinator } from "./coordinator.js";
 
 /**
  * The update methods this environment serves (launcher-update spec,
  * "Settings, methods, notices and flags"): `updates.status`, what runs here,
- * who manages its updates and the versions installed, and
- * `updates.settings.set`, the one way to write the five update settings.
- * The status's channel, pending update and outcome stay empty until the
- * update coordinator fills them.
+ * who manages its updates, the pending update as the update coordinator
+ * holds it and the versions installed; `updates.settings.set`, the one way
+ * to write the five update settings; and the coordinator's `updates.apply`
+ * and `updates.cancel` (#343). The status's channel and outcome stay empty
+ * until the tickets that read the channel and settle an update fill them.
  */
 
 /** Why nothing manages the updates of an environment `serve` runs in the foreground, for people. */
@@ -41,6 +43,8 @@ export interface UpdateMethodsOptions {
   readonly managedOutside: boolean;
   /** Reads the bundled Claude Code's version; called once, the first time it is asked for. */
   readonly claudeCodeVersion: () => Promise<string | null>;
+  /** The update coordinator: the pending update, and `updates.apply` and `updates.cancel`. */
+  readonly coordinator: Pick<UpdateCoordinator, "pending" | "handlers">;
 }
 
 /** The update settings as they are now, each key never set at its preset. */
@@ -68,6 +72,8 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
   };
 
   return {
+    ...options.coordinator.handlers,
+
     "updates.status": async (): Promise<UpdatesStatus> => {
       // A reader that fails reads as unknown, and is not asked again.
       claudeCodeVersion ??= options.claudeCodeVersion().catch(() => null);
@@ -79,7 +85,7 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
         manager,
         newest: null,
         lastCheck: null,
-        pending: { state: "current" },
+        pending: options.coordinator.pending(),
         lastOutcome: null,
         failedVersions: [],
         installed,
