@@ -1,0 +1,234 @@
+import { randomUUID } from "node:crypto";
+import { UNKNOWN_FORGE_CAPABILITIES, type ForgeCapability } from "@agent-harness/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
+import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted, saidBack, update, verify } from "../../test/forge.js";
+import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { create, refusal } from "../../test/sessions.js";
+import { scriptedResolver } from "../../test/workspaces.js";
+
+/**
+ * Verification (#311; forge spec, "Verification"; ADR 0020) through the
+ * primary seam: an in-process environment and a real client over a real
+ * WebSocket beside the scripted fake forge, on the manual clock. What a
+ * verification found is seen in `forge.accounts.verify`'s answer, in
+ * `forge.accounts.list`, in the forge events a client reads, and in what the
+ * fake forge was asked.
+ */
+
+const { onCleanup } = useCleanups();
+
+const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
+  const t = await startTestEnvironment(options);
+  onCleanup(() => t.close());
+  return t;
+};
+
+const fakeForge = async (): Promise<FakeForge> => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  return forge;
+};
+
+/** An environment with a fake forge that answers the test's token as David. */
+const withForge = async (options: TestEnvironmentOptions = {}) => {
+  const t = await start(options);
+  const forge = await fakeForge();
+  forge.user(TOKEN, DAVID);
+  return { t, forge, client: await t.client() };
+};
+
+const verifiedAt = (at: string): ForgeCapability => ({ state: "verified", verifiedAt: at, status: null });
+
+const MINUTE = 60_000;
+
+/** The manual clock's start, moved on by `ms`, as a timestamp. */
+const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
+
+describe("forge.accounts.verify", () => {
+  it("calls the identity endpoint, reads the token's information and probes both reads, records what changed as system:forge with no command id, and answers the records", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    const from = t.env.log.head();
+
+    const accounts = await verify(client, account.id);
+
+    const found = {
+      ...account,
+      capabilities: { ...UNKNOWN_FORGE_CAPABILITIES, readRepository: verifiedAt(MANUAL_CLOCK_START), readReleases: verifiedAt(MANUAL_CLOCK_START) },
+      tokenInformation: { kind: "unknown", scopes: null, expiresAt: null },
+    };
+    expect(accounts).toEqual([found]);
+    expect(await list(client)).toEqual([found]);
+    // With no repository known on the origin, the listing is probed, and release reads follow it.
+    expect(forge.requests.slice(1)).toEqual([
+      { method: "GET", path: "/api/v1/user", scheme: "token" },
+      { method: "GET", path: "/api/v1/user/repos", query: "limit=1", scheme: "token" },
+    ]);
+    expect(await forgeEvents(client, from)).toEqual([
+      expect.objectContaining({
+        type: "forge.account.verified",
+        actor: { kind: "system", id: "forge" },
+        commandId: null,
+        payload: { forgeAccountId: account.id, identity: account.identity, capabilities: found.capabilities, tokenInformation: found.tokenInformation, problem: null },
+      }),
+    ]);
+  });
+
+  it("appends nothing when it finds nothing new, keeping the verified-at times beside the record and never moving when the status last changed", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    await verify(client, account.id);
+    t.clock.advance(5 * MINUTE);
+    const from = t.env.log.head();
+
+    const [again] = await verify(client);
+
+    expect(again).toMatchObject({ statusSince: MANUAL_CLOCK_START, capabilities: { readRepository: verifiedAt(after(5 * MINUTE)), readReleases: verifiedAt(after(5 * MINUTE)) } });
+    expect(await list(client)).toEqual([again]);
+    expect(await forgeEvents(client, from)).toEqual([]);
+  });
+
+  it("probes both reads on a repository this environment knows on the origin, and a 404 there is failed", async () => {
+    const workspaceResolver = scriptedResolver(({ sessionId }) => ({
+      workspace: { kind: "scratch", path: `/tmp/${sessionId}` },
+      repositoryIdentity: sessionId.startsWith("0") ? "https://127.0.0.1/david/gone" : "https://127.0.0.1/david/bank",
+    }));
+    const { t, forge, client } = await withForge({ workspaceResolver });
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repository(TOKEN, "david/bank");
+    forge.answer(TOKEN, "GET /api/v1/repos/david/gone", { status: 404, body: { message: "Not Found" } });
+    forge.answer(TOKEN, "GET /api/v1/repos/david/gone/releases", { status: 404, body: { message: "Not Found" } });
+
+    await create(client, { id: `1${randomUUID().slice(1)}` });
+    const [known] = await verify(client, account.id);
+    expect(known?.capabilities).toMatchObject({ readRepository: verifiedAt(MANUAL_CLOCK_START), readReleases: verifiedAt(MANUAL_CLOCK_START) });
+    expect(forge.requests.slice(-2).map((request) => request.path)).toEqual(["/api/v1/repos/david/bank", "/api/v1/repos/david/bank/releases"]);
+
+    // The most recently used repository is the one probed: this one is gone, or hidden from the token.
+    t.clock.advance(MINUTE);
+    await create(client, { id: `0${randomUUID().slice(1)}` });
+    const [gone] = await verify(client, account.id);
+    expect(gone?.capabilities).toMatchObject({
+      readRepository: { state: "failed", verifiedAt: MANUAL_CLOCK_START, status: 404 },
+      readReleases: { state: "failed", verifiedAt: MANUAL_CLOCK_START, status: 404 },
+      writeIssues: { state: "unknown" },
+      pullRequests: { state: "unknown" },
+      createRepository: { state: "unknown" },
+    });
+  });
+
+  it("answers not_found for a forge account the environment does not hold, and is refused below admin", async () => {
+    const { t, client } = await withForge();
+    expect(await refusal(verify(client, randomUUID()))).toMatchObject({ code: "not_found", data: { kind: "forge_account" } });
+    const reader = await t.client({ token: (await t.pair({ scopes: ["read"] })).token });
+    expect(await refusal(verify(reader))).toMatchObject({ code: "forbidden" });
+  });
+});
+
+describe("what a verification finds", () => {
+  it("takes a 401 on identity as credential-rejected, and a server error or no connection as unreachable, each since when it began, with one line", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    const [fine] = await verify(client, account.id);
+
+    t.clock.advance(MINUTE);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 401, body: { message: "token is required" } });
+    const [rejected] = await verify(client, account.id);
+    expect(rejected).toEqual({ ...fine, problem: { kind: "credential-rejected", since: after(MINUTE), message: expect.stringMatching(/^[^\n]+$/) }, statusSince: after(MINUTE) });
+    expect(rejected?.problem?.message).toContain("HTTP 401");
+
+    t.clock.advance(MINUTE);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 503 });
+    const [busy] = await verify(client, account.id);
+    expect(busy?.problem).toEqual({ kind: "unreachable", since: after(2 * MINUTE), message: `The forge at ${forge.origin} answered HTTP 503; it could not say who the token is now.` });
+
+    // Still unreachable, now for want of a connection: the same problem, since it began, and nothing appended.
+    t.clock.advance(MINUTE);
+    const from = t.env.log.head();
+    await forge.close();
+    const [gone] = await verify(client, account.id);
+    expect(gone).toMatchObject({ problem: { kind: "unreachable", since: after(2 * MINUTE) }, statusSince: after(2 * MINUTE), capabilities: fine?.capabilities });
+    expect(await forgeEvents(client, from)).toEqual([]);
+  });
+
+  it("updates a changed login with the same user id, and holds a stored token's Basic-auth form for the login it has now", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    forge.user(TOKEN, { login: "david-renamed", id: DAVID.id });
+    const from = t.env.log.head();
+
+    const [renamed] = await verify(client, account.id);
+
+    expect(renamed).toMatchObject({ identity: { login: "david-renamed", userId: "42" }, problem: null, statusSince: MANUAL_CLOCK_START });
+    expect((await forgeEvents(client, from)).map((event) => event.payload["identity"])).toEqual([{ login: "david-renamed", userId: "42" }]);
+    await vi.waitFor(async () => expect(await saidBack(t, [basicAuth("david-renamed", TOKEN)])).toEqual(["[redacted]"]));
+  });
+
+  it("takes another user id as identity-changed, keeping the identity and injecting nothing until the credential is replaced", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    const [fine] = await verify(client, account.id);
+    forge.user(TOKEN, { login: "someone", id: 7 });
+
+    t.clock.advance(MINUTE);
+    const [changed] = await verify(client, account.id);
+    expect(changed).toEqual({
+      ...fine,
+      problem: { kind: "identity-changed", since: after(MINUTE), message: "The credential now answers as someone (user 7), not david (user 42): replace it in Set up, Forges." },
+      statusSince: after(MINUTE),
+      variables: { url: [], token: [], kind: [] },
+    });
+
+    // Answering as David again does not clear it: it is kept until the credential is replaced, and not even asked.
+    forge.user(TOKEN, DAVID);
+    const asked = forge.requests.length;
+    expect(await verify(client, account.id)).toEqual([changed]);
+    expect(forge.requests).toHaveLength(asked);
+
+    forge.user(OTHER_TOKEN, DAVID);
+    forge.repositories(OTHER_TOKEN, []);
+    t.clock.advance(MINUTE);
+    const replaced = await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    expect(replaced.result?.account).toMatchObject({ problem: null, statusSince: after(2 * MINUTE), variables: { token: ["FORGE_127_0_0_1_TOKEN", "FORGE_TOKEN"] } });
+  });
+
+  it("reads a GitHub token's kind, scopes and expiry, and an expiry within thirty days is expiring", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch });
+    const client = await t.client();
+    const token = "ghp_classic-for-tests";
+    const answerAs = (expiration: string) =>
+      forge.answer(token, "GET /api/v3/user", {
+        status: 200,
+        body: { ...DAVID, full_name: "", email: "" },
+        headers: { "x-oauth-scopes": "repo, read:org", "github-authentication-token-expiration": expiration },
+      });
+    answerAs("2026-12-24 00:00:00 UTC");
+    forge.repositories(token, ["david/bank"]);
+    const account = await added(client, { url: "https://github.com", credential: pasted(token) });
+
+    const [lasting] = await verify(client, account.id);
+    expect(lasting).toMatchObject({ tokenInformation: { kind: "classic", scopes: ["repo", "read:org"], expiresAt: "2026-12-24T00:00:00.000Z" }, problem: null });
+
+    answerAs("2026-10-20 12:00:00 UTC");
+    t.clock.advance(MINUTE);
+    const [expiring] = await verify(client, account.id);
+    expect(expiring).toMatchObject({
+      tokenInformation: { expiresAt: "2026-10-20T12:00:00.000Z" },
+      problem: { kind: "expiring", since: after(MINUTE), message: "The token expires at 2026-10-20 12:00 UTC: replace it in Set up, Forges before then." },
+      statusSince: after(MINUTE),
+    });
+    expect(forge.requests.slice(-2).map((request) => [request.path, request.query ?? null])).toEqual([
+      ["/api/v3/user", null],
+      ["/api/v3/user/repos", "per_page=1"],
+    ]);
+  });
+});

@@ -130,6 +130,8 @@ export const startFakeForge = async (): Promise<FakeForge> => {
     fetch: (url, init) => fetch(url.startsWith(`${GITHUB_API}/`) ? `${origin}/api/v3${url.slice(GITHUB_API.length)}` : url, init),
     close: () =>
       new Promise<void>((resolve, reject) => {
+        // Closing twice is closing once: a test may close it to have the forge stop answering, before its cleanup does.
+        if (!server.listening) return resolve();
         server.closeAllConnections();
         server.close((error) => (error ? reject(error) : resolve()));
       }),

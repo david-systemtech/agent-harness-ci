@@ -94,6 +94,7 @@ import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
@@ -304,6 +305,8 @@ export interface EnvironmentOptions {
   readonly workspaces?: WorkspaceSettings;
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
+  /** How long one call to a forge, and one verification of a forge account, may take (#311). Preset: `FORGE_CALL_TIMEOUT_MS`, ADR 0031's ten seconds. */
+  readonly forgeTimeoutMs?: number;
   /**
    * The environment's own `gh`, behind the Managed tools seam the registry
    * (#91) replaces (#312). Preset: the `gh` on this process's PATH; tests
@@ -561,6 +564,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       clientSessionLabel: (id) => loadedClientSessions.list({ live: false }).find((session) => session.id === id)?.label,
       ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
+      ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
+      knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
       ...(options.gh !== undefined && { gh: options.gh }),
       ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     });
@@ -968,6 +973,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
+  forge.startVerifying();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and

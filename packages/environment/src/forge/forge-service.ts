@@ -31,6 +31,7 @@ import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
+import { createVerifier } from "./verifier.js";
 import { FORGE_CALL_TIMEOUT_MS, createEntityTags, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
 
 /**
@@ -94,6 +95,11 @@ export interface ForgeServiceOptions {
   readonly keyManagers?: KeyManagerRegistry;
   /** A client session's label, which a token its client's `gh` handed over records beside its id. */
   readonly clientSessionLabel: (clientSessionId: string) => string | undefined;
+  /**
+   * The repository identities this environment knows (`https://<host>/<owner>/<name>`), most recently used first,
+   * which a verification probes its reads on: a session's now, banks and skill sources when they exist. Preset: none.
+   */
+  readonly knownRepositories?: () => readonly string[];
 }
 
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
@@ -142,11 +148,15 @@ export interface ForgeService {
   resolveCredential(forgeAccountId: string, purpose: string): Promise<ForgeCredential | null>;
   /** What the environment's own `gh` is: installed, its version against the minimum, and who it is signed in as. */
   probeGh(): Promise<GhProbe>;
+  /** After startup's gate: verifies every forge account now, then every fifteen minutes. */
+  startVerifying(): void;
+  /** Verifies one forge account now, or every one (`forge.accounts.verify`), and answers every record after; `not_found` for one the environment does not hold. */
+  verify(forgeAccountId?: string): Promise<ForgeAccountRecord[]>;
   readonly add: ForgeAdd;
   readonly update: PreparedCommand<"forge.accounts.update">;
   readonly remove: MethodHandler<"forge.accounts.remove">;
   readonly setPrimary: MethodHandler<"forge.accounts.setPrimary">;
-  /** Lets go of every token's registration. */
+  /** Stops the verifications and lets go of every token's registration. */
   close(): void;
 }
 
@@ -255,10 +265,37 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     }
   };
 
+  const verifier = createVerifier({
+    log,
+    clock,
+    stream,
+    reader,
+    provider: (kind) => forgeProvider(kind, providerOptions),
+    readCredential: (account, purpose) => readCredential({ ...account, login: account.identity?.login ?? null }, purpose),
+    knownRepositories: options.knownRepositories ?? (() => []),
+    budgetMs: providerOptions.timeoutMs,
+    loginChanged: (account) => void holdStored(account),
+  });
+
+  /** Holds a stored token's registration again with its forms for the forge account as it is now: a changed login names another Basic-auth form. */
+  const holdStored = async (account: ForgeAccountRecord): Promise<void> => {
+    if (account.credential.kind !== "stored") return;
+    const { entry } = account.credential;
+    try {
+      const token = await vault.get(entry);
+      if (token !== undefined) hold(account.id, register(account.id, token, account.kind, account.identity?.login ?? null));
+    } catch (error) {
+      console.error(`Reading the vault entry ${entry} of the forge account ${account.slug} failed:`, error);
+    }
+  };
+
+  /** The forge accounts, each with the verified-at times kept beside its record. */
+  const listSeen = (): ForgeAccountRecord[] => listForgeAccounts(reader).map(verifier.seen);
+
   const recordOf = (forgeAccountId: string): ForgeAccountRecord => {
     const record = liveForgeAccount(reader, forgeAccountId);
     if (record === null) throw new Error(`The forge account ${forgeAccountId} is not in the store after a command applied to it.`);
-    return record;
+    return verifier.seen(record);
   };
 
   const notFound = (forgeAccountId: string) =>
@@ -445,7 +482,10 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
           copiedFrom: params.copiedFrom ?? null,
         };
         log.append(stream, [{ type: "forge.account.added", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-        command.tx.afterCommit(() => hold(forgeAccountId, checked.held));
+        command.tx.afterCommit(() => {
+          hold(forgeAccountId, checked.held);
+          if (checked.source.kind !== "none") verifier.credentialGiven(forgeAccountId);
+        });
         return { aggregate: stream, result: { account: recordOf(forgeAccountId) } };
       };
     },
@@ -508,6 +548,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         if (replacing !== null) {
           command.tx.afterCommit(() => {
             hold(forgeAccountId, replacing.held);
+            verifier.credentialGiven(forgeAccountId);
             if (current.credential.kind === "stored") deleteEntry(current.credential.entry);
           });
         }
@@ -521,14 +562,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const entries = new Set<string>();
       for (const account of listForgeAccounts(reader)) {
         if (account.credential.kind !== "stored") continue;
-        const { entry } = account.credential;
-        entries.add(entry);
-        try {
-          const token = await vault.get(entry);
-          if (token !== undefined) hold(account.id, register(account.id, token, account.kind, account.identity?.login ?? null));
-        } catch (error) {
-          console.error(`Reading the vault entry ${entry} of the forge account ${account.slug} failed:`, error);
-        }
+        entries.add(account.credential.entry);
+        await holdStored(account);
       }
       try {
         for (const key of await vault.keys()) if (key.startsWith(VAULT_PREFIX) && !entries.has(key)) await vault.delete(key);
@@ -537,7 +572,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       }
     },
 
-    list: () => listForgeAccounts(reader),
+    list: listSeen,
 
     async resolveCredential(forgeAccountId, purpose) {
       const account = liveForgeAccount(reader, forgeAccountId.toLowerCase());
@@ -546,6 +581,15 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     },
 
     probeGh: () => gh.probe(),
+
+    startVerifying: () => verifier.start(),
+
+    async verify(forgeAccountId) {
+      const id = forgeAccountId?.toLowerCase();
+      if (id !== undefined && liveForgeAccount(reader, id) === null) throw new ContractError(notFound(id));
+      await Promise.all((id === undefined ? listForgeAccounts(reader).map((account) => account.id) : [id]).map(verifier.verify));
+      return listSeen();
+    },
 
     add,
 
@@ -558,6 +602,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       log.append(stream, [{ type: "forge.account.removed", payload: { forgeAccountId } }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       context.tx.afterCommit(() => {
         hold(forgeAccountId, null);
+        verifier.removed(forgeAccountId);
         if (current.credential.kind === "stored") deleteEntry(current.credential.entry);
       });
       return { aggregate: stream, result: { forgeAccountId } };
@@ -567,13 +612,14 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const forgeAccountId = params.forgeAccountId.toLowerCase();
       const current = liveForgeAccount(reader, forgeAccountId);
       if (current === null) return { aggregate: stream, rejected: notFound(forgeAccountId) };
-      if (current.primary) return { aggregate: stream, result: { account: current } };
+      if (current.primary) return { aggregate: stream, result: { account: verifier.seen(current) } };
       const cleared = primaryForgeAccount(reader);
       log.append(stream, [{ type: "forge.account.primary-set", payload: { forgeAccountId, cleared } }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       return { aggregate: stream, result: { account: recordOf(forgeAccountId) } };
     },
 
     close() {
+      verifier.close();
       for (const release of held.values()) release();
       held.clear();
     },
