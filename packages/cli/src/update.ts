@@ -68,6 +68,9 @@ const SETTING_FLAGS = {
 type SettingFlag = keyof typeof SETTING_FLAGS;
 const SETTING_FLAG_NAMES = Object.keys(SETTING_FLAGS) as SettingFlag[];
 
+/** The setting flags as the option parser takes them: each a string, read against its key after. */
+const SETTING_OPTIONS = Object.fromEntries(SETTING_FLAG_NAMES.map((flag) => [flag, { type: "string" }])) as { readonly [F in SettingFlag]: { readonly type: "string" } };
+
 /** The update settings the flags name, each checked against its key's schema; a usage error for a value its key does not take, or for no flag at all. */
 const settingsPatch = (values: Partial<Record<SettingFlag, string>>): UpdateSettingsPatch => {
   const patch: Record<string, unknown> = {};
@@ -162,8 +165,8 @@ const status = async (args: readonly string[], context: UpdateContext): Promise<
 
 /** `update settings`: the settings its flags name, through `updates.settings.set`; prints all five after. */
 const settings = async (args: readonly string[], context: UpdateContext): Promise<number> => {
-  const values = parseOptions(args, { ...TARGET_OPTIONS, ...Object.fromEntries(SETTING_FLAG_NAMES.map((flag) => [flag, { type: "string" }])) } as const);
-  const patch = settingsPatch(values as Partial<Record<SettingFlag, string>>);
+  const values = parseOptions(args, { ...TARGET_OPTIONS, ...SETTING_OPTIONS });
+  const patch = settingsPatch(values);
   const answer = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update settings`, (call) =>
     call("updates.settings.set", { commandId: randomUUID(), values: patch }),
   );
