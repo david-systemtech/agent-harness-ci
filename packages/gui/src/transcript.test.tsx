@@ -64,6 +64,22 @@ describe("streaming", () => {
     expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found it. ");
   });
 
+  it("keeps whitespace that arrives on its own, a paragraph's break included, while the fade is on", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    // Each delta drawn before the next arrives, as a provider streams them.
+    for (const [text, shown] of [
+      ["First line. ", "First line. "],
+      ["\n\n", "First line. \n\n"],
+      ["Second ", "First line. \n\nSecond "],
+      [" ", "First line. \n\nSecond  "],
+      ["line. ", "First line. \n\nSecond  line. "],
+    ]) {
+      env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text }] });
+      await waitFor(() => expect(lastReply(transcript)?.textContent).toBe(shown));
+    }
+  });
+
   it("renders settled text as markdown, its fenced code highlighted", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Plan it");
