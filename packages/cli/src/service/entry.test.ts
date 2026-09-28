@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { installVersion } from "../../test/launcher-fixtures.js";
 import { makeTempDir } from "../../test/service-helpers.js";
@@ -16,7 +17,7 @@ import { LAUNCHER_ENTRY_FILES, renderLauncherEntry } from "./entry.js";
  */
 
 const fixture = (name: string): string => readFileSync(new URL(`../../test/fixtures/service/${name}`, import.meta.url), "utf8");
-const ECHO_CHILD = new URL("../../test/echo-child.ts", import.meta.url).pathname;
+const ECHO_CHILD = fileURLToPath(new URL("../../test/echo-child.ts", import.meta.url));
 const posix = process.platform !== "win32";
 
 let cleanups: (() => void)[] = [];
