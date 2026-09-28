@@ -1,9 +1,9 @@
-import { writable, type CommandParams, type DispatchAnswer, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
-import { groupNameKey, shelfOf, type CommandMethodName, type DeletedSessionSummary } from "@agent-harness/contracts";
+import { writable, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow, type Writable } from "@agent-harness/client-runtime";
+import { WorkspaceProblem, groupNameKey, shelfOf, type CommandMethodName, type DeletedSessionSummary } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import type { Badge } from "./badge.js";
 import { isReachable, rowKey } from "./model.js";
-import { pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
+import { STAYS, pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { WHEN_EXAMPLES, parseWhen, presetTimes, whenWords } from "./when.js";
 
 /**
@@ -15,7 +15,8 @@ import { WHEN_EXAMPLES, parseWhen, presetTimes, whenWords } from "./when.js";
  * each environment can still restore), and the steps of starting a session
  * on an environment: its account, its model, then its workspace, a
  * `directory` from the paths that environment's sessions already carry, or
- * typed. Each is a function of the runtime's projections, read as drawn.
+ * typed, which the environment checks (#325). Each is a function of the
+ * runtime's projections, read as drawn.
  */
 
 /** What a picker does through the rail: commands, lines, and where the cursor goes. */
@@ -29,14 +30,24 @@ export interface RailActs {
   /**
    * Sends `method` through the outbox; says `said` at once, and why when it
    * is refused before it is kept. A rejection after is the runtime's one
-   * notice. The row it is about shows pending from the runtime's
-   * `awaitingReceipt` until its receipt.
+   * notice. `refused`, when given, hears either refusal instead of the line.
+   * The row it is about shows pending from the runtime's `awaitingReceipt`
+   * until its receipt.
    */
-  send<N extends CommandMethodName>(environmentId: string, method: N, params: CommandParams<N>, said: string, done?: (answer: Extract<DispatchAnswer<N>, { readonly ok: true }>) => void): void;
+  send<N extends CommandMethodName>(
+    environmentId: string,
+    method: N,
+    params: CommandParams<N>,
+    said: string,
+    done?: (answer: Extract<DispatchAnswer<N>, { readonly ok: true }>) => void,
+    refused?: (failure: DispatchFailure) => void,
+  ): void;
   /** `commands.moveToGroup`. */
   move(row: SessionRow, name: string | null, said: string): void;
   /** Puts the rail's cursor on the line `key` names, opening its heading, and gives the rail the keys. */
   reveal(key: string): void;
+  /** Closes the card when it still shows `picker`, as typed at since; leaves any other card. */
+  close(picker: Picker): void;
   /**
    * Puts the rail's cursor on the line `key` names, for what lands later (a
    * new session accepted): the focus and a filter being typed are left as
@@ -257,7 +268,7 @@ const chipsOf = (acts: RailActs, view: EnvironmentView, account?: Choice, model?
   ];
 };
 
-/** A full path on the environment's machine: a workspace is never relative to a client. */
+/** Whether the terminal's own directory is a full path, which the local environment's step offers as it is. */
 const isFullPath = (path: string) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
 
 /** The paths the environment's sessions carry, the most recently used first, each with how many sessions use it. */
@@ -273,30 +284,102 @@ const pathsOn = (acts: RailActs, environmentId: string): { readonly path: string
   return [...used].sort(([, a], [, b]) => b.last - a.last).map(([path, { count }]) => ({ path, count }));
 };
 
-const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, path: string) => {
+/** What the workspace step says under its rows once a path is chosen: that it waits for the environment's answer, or its refusal. */
+type StepNote = { readonly waiting: string } | { readonly refused: string; readonly query: string };
+
+/** How the environment's refusal of a directory reads on the step, by its problem (#325). */
+const PROBLEM_LINES: Readonly<Record<WorkspaceProblem, (path: string, where: string) => string>> = {
+  does_not_exist: (path, where) => `${path} does not exist on ${where}.`,
+  not_a_directory: (path, where) => `${path} is not a directory on ${where}.`,
+  not_readable: (path, where) => `${where} cannot list or enter ${path}.`,
+  reserved: (path, where) => `${path} is inside ${where}'s data directory.`,
+};
+
+/**
+ * A refusal of a new session's directory in one line: a path that is not
+ * full (the contracts' own check, refused before it is sent), a problem the
+ * environment names, or else what the environment says.
+ */
+const refusalLine = (failure: DispatchFailure, path: string, view: EnvironmentView): string => {
+  const where = nameOf(view);
+  if (failure.code === "invalid_params") return `A workspace is a full path on ${where}, or one from its home (~).`;
+  const problem = WorkspaceProblem.safeParse(failure.data?.["problem"]);
+  const at = failure.data?.["path"];
+  if (problem.success) return PROBLEM_LINES[problem.data](typeof at === "string" ? at : path, where);
+  return `No session was started: ${failure.message}`;
+};
+
+/** The workspace step a choice is made on: the picker, its note, and the query it was chosen at. */
+interface StepAt {
+  readonly step: Picker;
+  readonly note: Writable<StepNote | null>;
+  readonly query: string;
+}
+
+/**
+ * Asks the environment for a session in `path`, as typed; the environment
+ * checks it, not the step (#325). While the environment can answer, the step
+ * stays open until it does: made, the step closes and the cursor goes to the
+ * session; refused, the step says why in one line and waits for another
+ * path. An environment that cannot be reached applies it when it is back:
+ * the step closes at once, and a refusal then is the runtime's notice.
+ */
+const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, path: string, at: StepAt): typeof STAYS | void => {
+  const now = at.note.read();
+  if (now !== null && "waiting" in now) return STAYS;
   const id = acts.newId();
   const key = `${view.environmentId}/${id}`;
+  const later = whenBack(acts, view.environmentId);
+  const params: CommandParams<"sessions.create"> = {
+    id,
+    workspace: { kind: "directory", path },
+    ...(account.id !== null && { account: account.id }),
+    ...(model.id !== null && { model: model.id }),
+  };
+  const said = `Starting a session on ${nameOf(view)} in ${path}${later}.`;
+  // Accepted later, maybe once the keys are elsewhere: the cursor goes to it, the focus and a filter stay.
+  if (later !== "") return acts.send(view.environmentId, "sessions.create", params, said, () => acts.land(key));
+  at.note.set({ waiting: `Waiting for ${nameOf(view)}'s answer…` });
   acts.send(
     view.environmentId,
     "sessions.create",
-    { id, workspace: { kind: "directory", path }, ...(account.id !== null && { account: account.id }), ...(model.id !== null && { model: model.id }) },
-    `Starting a session on ${nameOf(view)} in ${path}${whenBack(acts, view.environmentId)}.`,
-    // Accepted later, maybe once the keys are elsewhere: the cursor goes to it, the focus and a filter stay.
-    () => acts.land(key),
+    params,
+    said,
+    () => {
+      at.note.set(null);
+      acts.close(at.step);
+      acts.land(key);
+    },
+    (failure) => at.note.set({ refused: refusalLine(failure, path, view), query: at.query }),
   );
+  return STAYS;
 };
 
-/** The last step: the workspace, a `directory` path on the environment, from the paths its sessions carry, or typed (`/cwd` opens it). */
-export const workspacePicker = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, back?: Picker, query = ""): Picker =>
-  pickerOf({
+/**
+ * The last step: the workspace, a `directory` path on the environment, from
+ * the paths its sessions carry, or typed as it is, `~` for the environment's
+ * home (`/cwd` opens it). The environment's refusal of the path chosen is its
+ * note while that query stands.
+ */
+export const workspacePicker = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, back?: Picker, query = ""): Picker => {
+  const note = writable<StepNote | null>(null);
+  const step: Picker = pickerOf({
     title: `New session on ${nameOf(view)}: where it works`,
     chips: chipsOf(acts, view, account, model),
     typed: true,
-    placeholder: `a path on ${nameOf(view)}, or pick one its sessions use`,
+    placeholder: `a path on ${nameOf(view)} (~ for its home), or pick one its sessions use`,
     query,
     ...(back && { back }),
+    follows: [note],
+    note: (typed) => {
+      const now = note.read();
+      if (now === null) return undefined;
+      // A refusal is of the path chosen at its query: typing another leaves it behind.
+      return "waiting" in now ? now.waiting : typed === now.query ? now.refused : undefined;
+    },
     rows: (typed) => {
       const needle = typed.trim();
+      const chosen = (path: string) => () => createOn(acts, view, account, model, path, { step, note, query: typed });
       const listed = pathsOn(acts, view.environmentId);
       const here = view.kind === "local" && isFullPath(acts.workspace) && !listed.some((p) => p.path === acts.workspace) ? [{ path: acts.workspace, count: 0 }] : [];
       const paths = [...here, ...listed]
@@ -306,19 +389,16 @@ export const workspacePicker = (acts: RailActs, view: EnvironmentView, account: 
             key: `path:${path}`,
             text: path,
             detail: count === 0 ? "this directory" : `${count} ${count === 1 ? "session" : "sessions"}`,
-            choose: () => createOn(acts, view, account, model, path),
+            choose: chosen(path),
           }),
         );
       const exact = paths.some((row) => row.text === needle);
-      const typedRow: PickerRow[] =
-        needle === "" || exact
-          ? []
-          : isFullPath(needle)
-            ? [{ key: "typed", text: needle, detail: "typed", choose: () => createOn(acts, view, account, model, needle) }]
-            : [{ key: "typed", text: needle, absent: `a workspace is a full path on ${nameOf(view)}` }];
+      const typedRow: PickerRow[] = needle === "" || exact ? [] : [{ key: "typed", text: needle, detail: "typed", choose: chosen(needle) }];
       return [...typedRow, ...paths];
     },
   });
+  return step;
+};
 
 /** The second step: the model, from the account's catalogue (every account's for the default). */
 const modelPicker = (acts: RailActs, view: EnvironmentView, account: Choice, back: Picker): Picker => {

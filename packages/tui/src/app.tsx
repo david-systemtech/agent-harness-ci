@@ -59,7 +59,7 @@ import {
 } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
 import { inMemoryPresentation, type Presentation } from "./presentation.js";
-import { PickerCard, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
+import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
 import type { RuntimeHost } from "./runtime-host.js";
@@ -1268,6 +1268,8 @@ export const App = (props: AppProps) => {
     ask: (asked) => update({ question: asked }),
     asked: screen.question !== undefined,
     open: (picker) => update({ card: { kind: "picker", picker } }),
+    // The card is closed only while it still shows that picker, as typed at and moved since: its rows name it.
+    close: (picker) => setScreen((s) => (s.card.kind === "picker" && s.card.picker.rows === picker.rows ? { ...s, card: { kind: "none" } } : s)),
     openSession: (target) => open(target),
     focus: () => setFocus("sidebar"),
     leave: () => setFocus("composer"),
@@ -1319,8 +1321,9 @@ export const App = (props: AppProps) => {
       if (!row) return;
       if (row.absent !== undefined) return say(`${row.text}: ${row.absent}.`);
       // A step on opens the next picker, which goes back to this one as it stands, the choice highlighted; a row
-      // that is done closes the card.
+      // that is done closes the card; one that waits on an answer leaves it as it is.
       const next = row.choose?.();
+      if (next === STAYS) return;
       const stepped = next && next.back !== undefined ? { ...next, back: card.picker } : next;
       return setScreen((s) => (s.card === card ? { ...s, card: stepped ? { kind: "picker", picker: stepped } : { kind: "none" } } : s));
     }
