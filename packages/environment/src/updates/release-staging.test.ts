@@ -148,6 +148,29 @@ describe("staging the target a check finds", () => {
     expect(switches(t)).toEqual([{ updateId: (pending?.payload as { updateId: string }).updateId, version: "0.5.0" }]);
   });
 
+  it("stages an idle environment's target too, which then drains at once", async () => {
+    const { fake, t, client } = await withReleases();
+    fake.publish(release("0.5.0"));
+    // Idle a minute in, before the first scheduled check at two.
+    await setUpdates(client, { "updates.idleWindowMinutes": 1 });
+    t.clock.advance(MINUTE);
+    expect((await client.request("environment.status", {})).activity).toEqual({ state: "idle" });
+
+    // The check's own answer goes with the environment, which drains for the update the check staged.
+    void check(client);
+    await vi.waitFor(() => expect(updateNotices(t)).toHaveLength(2));
+    const notices = updateNotices(t);
+    expect(notices.map((notice) => [notice.type, (notice.payload as { cause?: string }).cause])).toEqual([
+      ["environment.update-pending", undefined],
+      ["environment.update-started", "idle"],
+    ]);
+    expect(installs(t)).toEqual([{ version: "0.5.0", staged: join(t.dataDir, STAGING_DIRECTORY, "0.5.0") }]);
+    t.clock.advance(0);
+    await t.env.drained;
+    expect((await client.closed).bye).toMatchObject({ reason: "updating" });
+    expect(switches(t)).toEqual([{ updateId: idOf(notices[0]), version: "0.5.0" }]);
+  });
+
   it("leaves nothing pending when the artefact does not match the SHA-256 or the size its manifest lists, does not download, or the launcher refuses it, says why on updates.status, and tries again at the next check", async () => {
     const download = `GET /david/agent-harness/releases/download/v0.5.0/${ARTEFACT}`;
     const cases: readonly { name: string; publish: (fake: FakeReleaseSource, good: FakeRelease, bytes: Uint8Array) => void; reason: string; message: RegExp }[] = [

@@ -18,6 +18,7 @@ import {
   type UpdateCheckFailure,
   type UpdatePassOverReason,
   type UpdatePassedOver,
+  type UpdateSettingsValues,
   type UpdateTarget,
 } from "@agent-harness/contracts";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -81,6 +82,13 @@ export interface ChannelSettings {
   readonly channel: ReleaseChannel;
   readonly pinnedVersion: string | null;
 }
+
+/** The settings a reading follows, of the update settings `values`. */
+export const channelSettingsOf = (values: Pick<UpdateSettingsValues, "updates.autoUpdate" | "updates.channel" | "updates.pinnedVersion">): ChannelSettings => ({
+  autoUpdate: values["updates.autoUpdate"],
+  channel: values["updates.channel"],
+  pinnedVersion: values["updates.pinnedVersion"],
+});
 
 /** What the channel is read with beside the settings: the running launcher's protocol, and the versions whose update failed. */
 export interface ChannelContext {
@@ -259,17 +267,22 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     }
   };
 
-  /** This platform's artefact of the release, as its manifest lists it and the release publishes it; null for none. */
-  const artefactOf = (manifest: ReleaseManifest, release: ForgeRelease): ReleaseAsset | null =>
-    manifest.assets.find((asset) => asset.kind === "environment" && asset.platform === platform && release.assets.some((published) => published.name === asset.name)) ?? null;
+  /** This platform's artefact of the release, as its manifest lists it and as the release publishes it; null for none. */
+  const artefactOf = (manifest: ReleaseManifest, release: ForgeRelease): Pick<StageableRelease, "artefact" | "asset"> | null => {
+    for (const artefact of manifest.assets) {
+      if (artefact.kind !== "environment" || artefact.platform !== platform) continue;
+      const asset = release.assets.find((published) => published.name === artefact.name);
+      if (asset !== undefined) return { artefact, asset };
+    }
+    return null;
+  };
 
   /** Whether `version`'s release may be the target: its manifest read, this platform's artefact in it, its schema not below the database's. */
   const examine = async ({ version, release }: Versioned): Promise<Examined> => {
     const manifest = await manifestOf(version, release);
     if ("outcome" in manifest) return manifest;
     const artefact = artefactOf(manifest, release);
-    const asset = artefact === null ? undefined : release.assets.find((published) => published.name === artefact.name);
-    if (artefact === null || asset === undefined) return { outcome: "passed-over", reason: "artefact", message: `The release ${version} has no artefact for ${platform}.` };
+    if (artefact === null) return { outcome: "passed-over", reason: "artefact", message: `The release ${version} has no artefact for ${platform}.` };
     const database = options.databaseSchemaVersion();
     if (manifest.databaseSchemaVersion < database) {
       return {
@@ -278,10 +291,10 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
         message: `The release ${version}'s database schema, ${manifest.databaseSchemaVersion}, is below this database's, ${database}: it cannot open the database.`,
       };
     }
-    return { outcome: "target", release: { version, asset, artefact, launcherProtocol: manifest.launcherProtocol } };
+    return { outcome: "target", release: { version, ...artefact, launcherProtocol: manifest.launcherProtocol } };
   };
 
-  /** The pinned `version`'s release: among those listed, else read by its tag; null when there is none that is not a draft. */
+  /** The pinned or requested `version`'s release: among those listed, else read by its tag; null when there is none that is not a draft. */
   const pinnedRelease = async (version: string, listed: readonly Versioned[]): Promise<Versioned | null | ChannelFailure> => {
     const found = listed.find((candidate) => candidate.version === version);
     if (found !== undefined) return found;

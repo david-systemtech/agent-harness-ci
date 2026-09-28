@@ -15,7 +15,7 @@ import type { LauncherChannel } from "../serve/launcher.js";
 import type { MethodHandler, MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { readSettings } from "../settings/settings-store.js";
-import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
+import { channelSettingsOf, type ReleaseChannelReader } from "./channel.js";
 import type { ChannelChecks } from "./checks.js";
 import type { UpdateCoordinator } from "./coordinator.js";
 
@@ -61,13 +61,6 @@ export interface UpdateMethodsOptions {
 
 /** The settings the target follows: a change to any of them has the channel checked again. */
 const TARGET_KEYS: ReadonlySet<UpdateSettingsKey> = new Set(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion"]);
-
-/** The settings the target follows, of `values`. */
-const channelSettingsOf = (values: UpdateSettingsValues): ChannelSettings => ({
-  autoUpdate: values["updates.autoUpdate"],
-  channel: values["updates.channel"],
-  pinnedVersion: values["updates.pinnedVersion"],
-});
 
 /** The update settings as they are now, each key never set at its preset. */
 const readUpdateSettings = (reader: Reader): UpdateSettingsValues => {

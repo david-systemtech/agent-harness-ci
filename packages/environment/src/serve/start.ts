@@ -79,7 +79,7 @@ import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
-import { RELEASE_SOURCE, createReleaseChannel, type ChannelSettings } from "../updates/channel.js";
+import { RELEASE_SOURCE, channelSettingsOf, createReleaseChannel, type ChannelSettings } from "../updates/channel.js";
 import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { updateMethods } from "../updates/methods.js";
@@ -828,10 +828,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     databaseSchemaVersion: () => Number(log.read<{ user_version: number }>("PRAGMA user_version")[0]?.user_version ?? 0),
     ...(options.launcherProtocol !== undefined && { ownLauncherProtocol: options.launcherProtocol }),
   });
-  const channelSettings = (): ChannelSettings => {
-    const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
-    return { autoUpdate: values["updates.autoUpdate"], channel: values["updates.channel"], pinnedVersion: values["updates.pinnedVersion"] };
-  };
+  const channelSettings = (): ChannelSettings => channelSettingsOf(readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
   // The update coordinator (#343, #347): what a check found staged, the pending update, read back from the log, its wait,
   // its drain and the switch.
   const updates = createUpdateCoordinator({

@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import {
   ContractError,
+  DRAIN_CAP_MS,
   ENVIRONMENT_STREAM_KIND,
   ReleaseVersion,
-  compareReleaseVersions,
   UpdateCancelledPayload,
   UpdatePendingPayload,
   UpdateStartedPayload,
+  compareReleaseVersions,
   invalidParams,
-  DRAIN_CAP_MS,
   type EnvironmentActivity,
   type InstallRefusal,
   type ParamsOf,
@@ -55,12 +55,12 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  * channel, the pin, a request or the desktop. A newer release replacing it
  * takes a new update id and keeps its `since`; a channel's update is
  * withdrawn (`environment.update-cancelled`, cause `settings`) once the
- * settings stop calling for it. On every run-registry change, every minute and at its `deferUntil`, the
- * coordinator reads the activity, and in that same tick, when the
- * environment is idle or the deferral cap has passed (or at once, asked
- * with `when: now`), appends `environment.update-started` and starts the
- * drain with the trigger `update`, which refuses new runs from then on. The
- * drain waits for running runs up to its cap, not for parked ones; then
+ * settings stop calling for it. On every run-registry change, every minute
+ * and at its `deferUntil`, the coordinator reads the activity, and in that
+ * same tick, when the environment is idle or the deferral cap has passed
+ * (or at once, asked with `when: now`), appends `environment.update-started`
+ * and starts the drain with the trigger `update`, which refuses new runs
+ * from then on. The drain waits for running runs up to its cap, not for parked ones; then
  * every client hears `bye: updating` and the launcher is asked `switch?`
  * (`switchOver`); a refused switch is `environment.update-failed` at stage
  * `switch`, appended before the environment closes, and the launcher starts
