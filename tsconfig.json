@@ -6,6 +6,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/environment" },
     { "path": "packages/client-runtime" },
+    { "path": "packages/theme" },
     { "path": "packages/tui" },
     { "path": "packages/cli" },
     { "path": "tsconfig.tooling.json" }
