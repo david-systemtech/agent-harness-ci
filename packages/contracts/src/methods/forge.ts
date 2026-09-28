@@ -117,17 +117,22 @@ export const forgeAccountsList = defineMethod({
  * account with problem `unreachable`; a `gh` that is missing, older than
  * 2.40 or not signed in to the host as the login keeps it with problem
  * `credential-unavailable`; a reference that cannot be read is rejected
- * `credential_source_unavailable`. None asks nothing and keeps it with
+ * `credential_source_unavailable`. Each alias is asked on its own origin
+ * with the credential and accepted only when it answers as the same login
+ * and user id, else `alias_identity_mismatch`; one that does not answer, or
+ * any on a forge account that has no identity yet, waits unverified until a
+ * verification accepts it. None asks nothing and keeps it with
  * problem `needs-credential`: a copy from another environment, which
  * `copiedFrom` names, awaiting a credential here. `gh` and a client's `gh`
  * are for GitHub forge accounts alone. The first
  * forge account becomes primary; `primary` makes another one primary,
  * clearing the one that was. The slug is derived from the host unless one
  * is given. An id already used is `conflict` (reason `exists`); an origin
- * another forge account holds as its origin or an alias is `conflict`
- * (reason `origin_held`); a slug in use is `conflict` (reason
- * `slug_taken`). A URL that is no remote, or no kind for an origin other
- * than github.com, is `invalid_params`.
+ * or an alias another forge account holds as its origin or an alias is
+ * `conflict` (reason `origin_held`); a slug in use is `conflict` (reason
+ * `slug_taken`). A URL or an alias that is no remote, an alias that is the
+ * forge account's own origin, or no kind for an origin other than
+ * github.com, is `invalid_params`.
  */
 export const forgeAccountsAdd = defineMethod({
   name: "forge.accounts.add",
@@ -148,8 +153,13 @@ export const forgeAccountsAdd = defineMethod({
 });
 
 /**
- * Changes a forge account's slug or credential; what it has already
- * changes nothing. A new credential is checked on the forge's identity
+ * Changes a forge account's slug, aliases or credential; what it has
+ * already changes nothing. The aliases given replace its list: one it has
+ * verified keeps its verification, and any other is asked on its own
+ * origin with the credential (the new one when one is given), refused
+ * `alias_identity_mismatch` when it answers as someone else, and waiting
+ * unverified when it does not answer. An alias another forge account holds
+ * is `conflict` (reason `origin_held`). A new credential is checked on the forge's identity
  * endpoint first: a refusal is `verification_failed`, another user id than
  * the forge account's is `identity_mismatch`, a reference that cannot be
  * read is `credential_source_unavailable`, and each changes nothing; a

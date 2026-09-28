@@ -349,7 +349,7 @@ describe("when a verification runs", () => {
     const [slow] = await verify(client, account.id);
 
     expect(slow).toMatchObject({ identity: account.identity, capabilities: UNKNOWN_FORGE_CAPABILITIES, tokenInformation: null, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
-    expect(slow?.problem?.message).toBe(`The forge at ${forge.origin} did not finish answering within 0.3 s; it is verified again later.`);
+    expect(slow?.problem?.message).toBe(`The forge at ${forge.origin} did not finish answering within 0.3 s.`);
   });
 
   it("waits out a pause the forge asks for before its next scheduled verification", async () => {

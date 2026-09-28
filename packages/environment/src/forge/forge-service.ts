@@ -69,6 +69,15 @@ import { FORGE_CALL_TIMEOUT_MS, createEntityTags, forgeProvider, type ForgeFetch
  *   cached, so a read that fails never falls back to an earlier value. A
  *   copy with no credential (`none`) is never read and never verified: it
  *   has problem `needs-credential` until one is given.
+ * - **Aliases** (#311) are asked on their own origin with the credential an
+ *   add or update is given, or the one held, and accepted only as the same
+ *   login and user id (`alias_identity_mismatch`); one another forge account
+ *   holds is `origin_held`.
+ * - **Verification** (#311) is the verifier's (`verifier.ts`): after
+ *   startup's gate, every fifteen minutes, on `forge.accounts.verify` and
+ *   once a credential is given. The records answered carry the verified-at
+ *   times it keeps beside them. The state import's credential probe is one
+ *   verification with no record.
  */
 
 /** What every vault entry holding a forge token is named with. */

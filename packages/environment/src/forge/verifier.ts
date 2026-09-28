@@ -142,7 +142,7 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     const controller = new AbortController();
     const overrun = new Promise<Found>((resolve) => {
       controller.signal.addEventListener("abort", () =>
-        resolve({ outcome: "unreachable", message: `The forge at ${origin} did not finish answering within ${budgetMs / 1000} s; it is verified again later.` }),
+        resolve({ outcome: "unreachable", message: `The forge at ${origin} did not finish answering within ${budgetMs / 1000} s.` }),
       );
     });
     // On the wall clock, never the environment's, which a test may hold still.
