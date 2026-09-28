@@ -10,6 +10,7 @@ import {
 } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import { REPLAY_BOUND, formatActor, type EventEnvelope } from "../event-log/event-log.js";
+import type { ScrubRegistry, ScrubStream } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { FeedSource } from "../wire/subscriptions.js";
 import { nodePty, type Pty, type PtyProcess } from "./pty.js";
@@ -29,6 +30,16 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * flood of small reads is a chunk a frame rather than thousands; a chunk is
  * cut at 64 KiB whatever the wait.
  *
+ * Output is scrubbed of registered values before it becomes a chunk
+ * (ADR 0011; key-managers spec, "Where it applies"), so neither a
+ * subscriber nor the scrollback ever holds one. A chunk's tail that could
+ * be the start of one is held back until the output after it comes, for at
+ * most fifty milliseconds by the environment's clock, and shown before the
+ * terminal's exit; output whose tail could begin none is not delayed. What
+ * a catch-up sends, the scrollback or the chunks it replays, is scrubbed
+ * again as it is sent, so a value registered after its output was shown is
+ * not sent to a client connecting later either.
+ *
  * An exited terminal keeps its scrollback ten minutes by the environment's
  * clock, then only its exit code, listed until it is closed: with at most
  * sixteen terminals a session (the command's check), that bounds what the
@@ -41,13 +52,17 @@ export const OUTPUT_GATHER_MS = 5;
 const CHUNK_BYTES = 64 * 1024;
 /** How long a hung-up shell has to exit before it is killed. */
 export const KILL_GRACE_MS = 3000;
+/** The longest a chunk's tail is held back while it could be the start of a registered value, by the environment's clock (a chosen default). */
+export const HOLD_BACK_MS = 50;
 
 /** The actor a terminal's events name: the environment's terminals, never a client. */
 const ACTOR = formatActor({ kind: "system", id: "terminals" });
 
 export interface TerminalsOptions {
-  /** The environment's time: when a terminal opened and its output came, and when an exited one's scrollback goes. */
+  /** The environment's time: when a terminal opened and its output came, when a held tail is shown, and when an exited one's scrollback goes. */
   readonly clock: Clock;
+  /** The scrub registry, whose registered values no terminal output shows. */
+  readonly scrub: Pick<ScrubRegistry, "scrub" | "stream">;
   /** Preset: `node-pty`. */
   readonly pty?: Pty;
   /** What a terminal runs. Preset: the user's login shell (`loginShell`). */
@@ -123,6 +138,10 @@ interface Terminal {
   pending: string[];
   pendingBytes: number;
   gathering: ReturnType<typeof setTimeout> | undefined;
+  /** The output as it is scrubbed, and its held tail. */
+  readonly output: ScrubStream;
+  /** When the held tail is shown whatever comes after it. */
+  holding: Timer | undefined;
   closing: TerminalExitCause | undefined;
   killing: ReturnType<typeof setTimeout> | undefined;
   /** When an exited terminal's scrollback is dropped. */
@@ -160,9 +179,9 @@ const infoOf = (terminal: Terminal): TerminalInfo => ({
   signal: terminal.exit?.signal ?? null,
 });
 
-const snapshotOf = (terminal: Terminal): TerminalSnapshot => ({
+const snapshotOf = (terminal: Terminal, scrub: (text: string) => string): TerminalSnapshot => ({
   terminal: infoOf(terminal),
-  scrollback: terminal.scrollback.text(),
+  scrollback: scrub(terminal.scrollback.text()),
   firstSequence: terminal.scrollback.firstSequence,
   lastSequence: terminal.scrollback.lastSequence,
   truncated: terminal.scrollback.truncated,
@@ -183,6 +202,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
   const base = options.baseEnvironment ?? (() => baseEnvironment());
   const gatherMs = options.gatherMs ?? OUTPUT_GATHER_MS;
   const killGraceMs = options.killGraceMs ?? KILL_GRACE_MS;
+  const scrub = (text: string): string => options.scrub.scrub(text);
   const open = new Map<string, Terminal>();
   const used = new Set<string>();
 
@@ -196,6 +216,19 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     }
   };
 
+  /** Keeps `data`, scrubbed already, in the scrollback and publishes it as a chunk; nothing for no text. */
+  const show = (terminal: Terminal, data: string): void => {
+    if (data === "") return;
+    publish(terminal, outputEvent(terminal, terminal.scrollback.append(data, options.clock.now().toISOString())));
+  };
+
+  /** Shows what the output holds back, and stops waiting to. */
+  const release = (terminal: Terminal): void => {
+    terminal.holding?.cancel();
+    terminal.holding = undefined;
+    show(terminal, terminal.output.flush());
+  };
+
   const flush = (terminal: Terminal): void => {
     if (terminal.gathering !== undefined) clearTimeout(terminal.gathering);
     terminal.gathering = undefined;
@@ -203,7 +236,14 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     const data = terminal.pending.join("");
     terminal.pending = [];
     terminal.pendingBytes = 0;
-    publish(terminal, outputEvent(terminal, terminal.scrollback.append(data, options.clock.now().toISOString())));
+    show(terminal, terminal.output.push(data));
+    // A tail held from before keeps its time: nothing waits longer than the hold-back from when it was first held.
+    if (!terminal.output.holding) {
+      terminal.holding?.cancel();
+      terminal.holding = undefined;
+    } else {
+      terminal.holding ??= options.clock.setTimeout(() => release(terminal), HOLD_BACK_MS);
+    }
   };
 
   const hear = (terminal: Terminal, data: string): void => {
@@ -217,6 +257,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
   const exited = (terminal: Terminal, exitCode: number, signalNumber: number | null): void => {
     if (terminal.exit !== undefined) return;
     flush(terminal);
+    release(terminal);
     if (terminal.killing !== undefined) clearTimeout(terminal.killing);
     terminal.killing = undefined;
     terminal.process = undefined;
@@ -278,6 +319,8 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         pending: [],
         pendingBytes: 0,
         gathering: undefined,
+        output: options.scrub.stream(),
+        holding: undefined,
         closing: undefined,
         killing: undefined,
         forgetting: undefined,
@@ -331,9 +374,9 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
             const head = exit?.sequence ?? last;
             const replay = afterSequence > 0 && afterSequence <= head ? terminal.scrollback.after(Math.min(afterSequence, last)) : undefined;
             if (replay !== undefined && replay.length <= REPLAY_BOUND.events) {
-              return { events: [...replay.map((chunk) => outputEvent(terminal, chunk)), ...tail], sequence: last };
+              return { events: [...replay.map((chunk) => outputEvent(terminal, { ...chunk, data: scrub(chunk.data) })), ...tail], sequence: last };
             }
-            return { snapshot: { sequence: last, payload: snapshotOf(terminal) }, events: tail, sequence: last };
+            return { snapshot: { sequence: last, payload: snapshotOf(terminal, scrub) }, events: tail, sequence: last };
           },
         },
         endOn: (event) => (event.type === TERMINAL_EXITED_TYPE ? (event.payload["cause"] === "deleted" ? "deleted" : "closed") : undefined),

@@ -290,7 +290,7 @@ export interface EnvironmentOptions {
    */
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "clock">;
+  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub">;
   /**
    * The resolver `sessions.create` and the completions surface give a new
    * session its workspace through (#321). Preset: the environment's
@@ -766,7 +766,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, ...options.terminals });
+  const terminalService = createTerminalService({ log, clock, scrub, ...options.terminals });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,

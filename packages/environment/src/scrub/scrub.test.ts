@@ -7,8 +7,11 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { fakePty, type FakeProcess } from "../../test/fake-pty.js";
 import { create } from "../../test/sessions.js";
+import { follow, openTerminal, sessionIn, type TerminalView } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { HOLD_BACK_MS } from "../terminals/terminals.js";
 import { SIGNING_KEY } from "../serve/identity.js";
 import { fileVault, VAULT_FILE } from "../serve/vault.js";
 import { createScrubRegistry } from "./registry.js";
@@ -17,7 +20,8 @@ import { createScrubRegistry } from "./registry.js";
  * The scrub registry through the primary seam (key-managers spec, "Testing
  * Decisions"): an in-process environment with the scripted fake adapter, a
  * real client over a real WebSocket, the file vault in the test's temporary
- * data directory, and the environment's standard error captured.
+ * data directory, the environment's standard error captured, and a fake
+ * pseudo-terminal printing a registered value in pieces on the manual clock.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -236,5 +240,92 @@ describe("the diagnostic output", () => {
     await t.close();
     console.error(`after the close: ${HELD}`);
     expect(stderr()).toContain(`after the close: ${HELD}`);
+  });
+});
+
+describe("terminal output", () => {
+  const SPLIT = "alpha-secret-value-1";
+
+  /** An environment on a fake pseudo-terminal whose output is a chunk the moment it is printed, a terminal open on it, and a client following that terminal. */
+  const terminalOn = async () => {
+    const pty = fakePty();
+    const t = await start({ terminals: { pty, gatherMs: 0 } });
+    const client = await t.client();
+    const sessionId = await sessionIn(client, tempDir("agent-harness-terminal-"));
+    const terminal = await openTerminal(client, sessionId);
+    const view = await follow(client, terminal.id, 0);
+    await view.until((v) => v.synchronized, "the subscription's catch-up");
+    return { t, client, id: terminal.id, child: pty.spawned[0] as FakeProcess, view };
+  };
+
+  /** The output chunks the view received, each as it came. */
+  const chunks = (view: TerminalView): string[] =>
+    view.frames.flatMap((frame) => (frame.type === "event" && frame.event.type === "terminal.output" ? [String(frame.event.payload["data"])] : []));
+
+  /** The scrollback a client connecting afresh is sent. */
+  const reconnected = async (t: TestEnvironment, id: string): Promise<string> => {
+    const view = await follow(await t.client(), id, 0);
+    await view.until((v) => v.synchronized, "a fresh subscription's catch-up");
+    return view.snapshot?.scrollback ?? "";
+  };
+
+  it("replaces a registered value printed across two chunks, live and in the scrollback, so no piece of it reaches a subscriber", async () => {
+    const { t, id, child, view } = await terminalOn();
+    t.scrub.register(SPLIT, { owner: "test:terminal" });
+
+    child.print("$ echo alpha-sec");
+    child.print("ret-value-1 done\r\n");
+    await view.until((v) => v.text.includes("done"), "the rest of the line");
+
+    expect(chunks(view)).toEqual(["$ echo ", "[redacted] done\r\n"]);
+    expect(await reconnected(t, id)).toBe("$ echo [redacted] done\r\n");
+  });
+
+  it("shows output whose tail begins no registered value at once, setting no timer", async () => {
+    const { t, child, view } = await terminalOn();
+    t.scrub.register(SPLIT, { owner: "test:terminal" });
+    const timers = t.clock.pending();
+
+    child.print("plain output\r\n$ ");
+    await view.until((v) => v.text === "plain output\r\n$ ", "the output");
+    expect(t.clock.pending()).toBe(timers);
+  });
+
+  it("holds a tail back at most fifty milliseconds on the environment's clock, then shows it as it is", async () => {
+    const { t, id, child, view } = await terminalOn();
+    t.scrub.register(SPLIT, { owner: "test:terminal" });
+
+    child.print("x alpha-sec");
+    await view.until((v) => v.text === "x ", "the head of the line");
+    t.clock.advance(HOLD_BACK_MS - 1);
+    expect(await reconnected(t, id)).toBe("x ");
+
+    t.clock.advance(1);
+    await view.until((v) => v.text === "x alpha-sec", "the held tail");
+    expect(chunks(view)).toEqual(["x ", "alpha-sec"]);
+    expect(HOLD_BACK_MS).toBe(50);
+  });
+
+  it("shows a held tail before the terminal's exit", async () => {
+    const { t, child, view } = await terminalOn();
+    t.scrub.register(SPLIT, { owner: "test:terminal" });
+
+    child.print("x alpha-sec");
+    child.exit(0);
+    await view.until((v) => v.exited !== undefined, "the exit");
+    expect(chunks(view)).toEqual(["x ", "alpha-sec"]);
+  });
+
+  it("sends a client reconnecting the scrollback, or the chunks after its cursor, scrubbed of a value registered after they were printed", async () => {
+    const { t, id, child, view } = await terminalOn();
+    child.print("$ ");
+    child.print(`token ${SPLIT}\r\n`);
+    await view.until((v) => v.text.includes(SPLIT), "the line");
+
+    t.scrub.register(SPLIT, { owner: "test:later" });
+    expect(await reconnected(t, id)).toBe("$ token [redacted]\r\n");
+    const resumed = await follow(await t.client(), id, 1);
+    await resumed.until((v) => v.synchronized, "the replay");
+    expect(chunks(resumed)).toEqual(["token [redacted]\r\n"]);
   });
 });

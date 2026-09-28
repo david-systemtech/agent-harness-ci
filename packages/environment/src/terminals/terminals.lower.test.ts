@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import type { FeedCatchUp } from "../wire/subscriptions.js";
 import { fakePty, type FakeProcess, type FakePty } from "../../test/fake-pty.js";
+import { createScrubRegistry } from "../scrub/registry.js";
 import { runsCommand } from "./pty.js";
 import { KILL_GRACE_MS, createTerminals, type OpenTerminal, type Terminals } from "./terminals.js";
 
@@ -31,6 +32,7 @@ const setUp = (gatherMs = 0): { pty: FakePty; terminals: Terminals } => {
   const pty = fakePty();
   const terminals = createTerminals({
     clock: { now: () => NOW, setTimeout: () => ({ cancel: () => undefined }), setInterval: () => ({ cancel: () => undefined }) },
+    scrub: createScrubRegistry(),
     pty,
     shell: () => ({ file: "/bin/zsh", args: ["-l"] }),
     baseEnvironment: () => ({ TERM: "xterm-256color", PATH: "/usr/bin", HOME: "/home/david", LANG: "C.UTF-8" }),
