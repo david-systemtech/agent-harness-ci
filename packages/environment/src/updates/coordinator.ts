@@ -298,7 +298,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     if (version === harnessVersion) return refuse(conflict("current", `This environment runs ${harnessVersion} already.`));
     if (held.state === "waiting" && (version === undefined || version === held.update.toVersion)) return takeWaiting(held.update, when);
     if (artefactPath === undefined || version === undefined) {
-      return refuse(conflict("no_release_access", "This environment reads no releases yet: name the version with the path of its artefact on this machine."));
+      return refuse(conflict("no_release_access", "This environment does not download releases to update from yet: name the version with the path of its artefact on this machine."));
     }
     if (!launcher.present()) return refuse(noLauncher());
     // One artefact is staged at a time, so no two installs share the staging area.
