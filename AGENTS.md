@@ -3,6 +3,13 @@
 Working name. This repo has no agreed name yet; rename it once the project has
 an identity, and update the remotes of any clone.
 
+## Naming
+
+This repository, its pull requests, issues and commits name no predecessor
+product. Describe behaviour, rules and facts directly; never compare them to
+a predecessor, and never point at one through a stand-in name such as "the
+previous app" or "the legacy app".
+
 ## Agent skills
 
 ### Issue tracker
