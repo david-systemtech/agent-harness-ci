@@ -160,7 +160,7 @@ Read models in the environment's SQLite database, written in the same transactio
 
 - 78 env: the frame, envelope, receipts, replay bound, snapshot mechanics, transcript compaction, the rebuild command, pairing and scopes.
 - 80 client runtime: the outbox's implementation, cache retention, the connection registry, capability flags, the desktop-shell interface; this spec fixes what those must do for session state.
-- 81 tui and 84 gui: rendering, the badge design, drag, undo notices, shortcuts (every existing shortcut keeps working, ADR 0004), search over cached summaries.
+- 81 tui and 84 gui: rendering, the badge design, drag, undo notices, shortcuts (the reference keymap's shortcuts keep working, ADR 0004), search over cached summaries.
 - 82 claude-adapter: run and transcript events and their names, the transcript snapshot, provider titles, the transcript-deletion capability, stopping the provider process on delete. 83 permissions: which prompt and question events count as pending, and their TTLs.
 - 85 workspace-picker: workspace kinds, the repository identity value, the by-repository view. 87 forge: producing the reserved pull-request events. 88 setup: the registry entry's pane and check. 92 routines: how a firing tags and files its session. 94 switch-over and ticket 56: the import, which uses these commands.
 - 86 launcher-update, 89 skills-instructions, 90 banks, 91 key-managers, 93 browser: nothing here.
