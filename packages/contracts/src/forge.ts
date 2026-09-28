@@ -198,3 +198,46 @@ export const matchForgeAccount = <A extends ForgeAccountOrigins>(remote: ForgeRe
   if (canonical.length > 0) return soleAccount(canonical);
   return soleAccount(accounts.filter((account) => account.aliases.some((alias) => forgeOriginHost(alias) === host)));
 };
+
+// Slugs -----------------------------------------------------------------------
+
+/** The longest slug. */
+export const FORGE_SLUG_MAX = 40;
+
+/**
+ * A forge account's slug (ADR 0020): 1 to 40 of `a-z`, digits and
+ * underscore, unique on its environment. It names the account's variables
+ * upper-cased, and `forge-<slug>` is always one path segment, so a
+ * key-manager target `<base>/forge-<slug>` stays one level under its base
+ * (ADR 0028 as amended 2026-09-28).
+ */
+export const ForgeSlug = z
+  .string()
+  .regex(new RegExp(`^[a-z0-9_]{1,${FORGE_SLUG_MAX}}$`))
+  .meta({
+    description:
+      "A forge account's slug, unique on its environment: 1 to 40 of a-z, digits and underscore. Its variables use it upper-cased (FORGE_<SLUG>_TOKEN), and forge-<slug> names its key-manager entry.",
+  });
+export type ForgeSlug = z.infer<typeof ForgeSlug>;
+
+/** `text` cut to `length`, without the underscores the cut leaves at its end. */
+const cut = (text: string, length: number): string => text.slice(0, length).replace(/_+$/, "");
+
+/**
+ * The slug a new forge account on `origin` gets (forge spec, "Slug"): from
+ * the host in lower case, every run of other characters one underscore and
+ * none at either end, `github` for github.com; on a collision with `taken`,
+ * the port added, then a counter from 2. The host is cut so that what is
+ * added still fits in 40.
+ */
+export const deriveForgeSlug = (origin: ForgeOrigin, taken: Iterable<string>): ForgeSlug => {
+  const used = new Set(taken);
+  const host = forgeOriginHost(origin);
+  // Only the unspecified IPv6 address has no letter or digit to keep.
+  const base = host === GITHUB_HOST ? "github" : host.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "forge";
+  const { port } = new URL(origin);
+  const withPort = port === "" ? "" : `_${port}`;
+  const slugWith = (suffix: string): string => `${cut(base, FORGE_SLUG_MAX - suffix.length)}${suffix}`;
+  for (const suffix of ["", withPort]) if (!used.has(slugWith(suffix))) return slugWith(suffix);
+  for (let counter = 2; ; counter++) if (!used.has(slugWith(`${withPort}_${counter}`))) return slugWith(`${withPort}_${counter}`);
+};

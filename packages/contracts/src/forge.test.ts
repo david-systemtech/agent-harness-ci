@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { FORGE_KINDS, ForgeKind, ForgeOrigin, forgeOriginHost, matchForgeAccount, normaliseRemote, type ForgeRemote } from "./index.js";
+import {
+  FORGE_KINDS,
+  ForgeKind,
+  ForgeOrigin,
+  ForgeSlug,
+  deriveForgeSlug,
+  forgeOriginHost,
+  matchForgeAccount,
+  normaliseRemote,
+  type ForgeRemote,
+} from "./index.js";
 
 /**
  * Forge origins, slugs and variable names (forge spec, "The forge account
@@ -162,5 +172,47 @@ describe("matching a remote to a forge account", () => {
 
   it("matches nothing among no forge accounts", () => {
     expect(matchForgeAccount(normaliseRemote("https://github.com/david/agent-harness") as ForgeRemote, [])).toBeNull();
+  });
+});
+
+describe("the slug", () => {
+  const table: [string, string, string[], string][] = [
+    ["github.com is github", "https://github.com", [], "github"],
+    ["a host's other characters become underscores, its port left out", "https://git.systemtech.dev:5526", [], "git_systemtech_dev"],
+    ["an IPv4 address", "http://100.101.102.103:3000", [], "100_101_102_103"],
+    ["an IPv6 literal, without the underscores its brackets would make", "http://[fd7a:115c:a1e0::1]:3000", [], "fd7a_115c_a1e0_1"],
+    ["a run of other characters is one underscore", "https://my-forge_01--a.example.com", [], "my_forge_01_a_example_com"],
+    ["the unspecified IPv6 address, with no letter or digit to keep", "http://[::]:3000", [], "forge"],
+    ["a long host is cut to 40, never ending in an underscore", "https://forge.department-of-engineering.example.com", [], "forge_department_of_engineering_example"],
+    // Collisions: the port, then a counter.
+    ["a collision adds the port", "https://git.example.com:8443", ["git_example_com"], "git_example_com_8443"],
+    ["a collision without a port adds a counter", "https://git.example.com", ["git_example_com"], "git_example_com_2"],
+    ["a collision on github.com adds a counter", "https://github.com", ["github"], "github_2"],
+    ["a collision with the port taken too adds a counter after it", "https://git.example.com:8443", ["git_example_com", "git_example_com_8443"], "git_example_com_8443_2"],
+    ["the counter counts past what is taken", "http://git.example.com", ["git_example_com", "git_example_com_2", "git_example_com_3"], "git_example_com_4"],
+    ["a long host is cut further to fit its port", "https://forge.department-of-engineering.example.com:8443", ["forge_department_of_engineering_example"], "forge_department_of_engineering_exa_8443"],
+    [
+      "a long host is cut further to fit its port and counter",
+      "https://forge.department-of-engineering.example.com:8443",
+      ["forge_department_of_engineering_example", "forge_department_of_engineering_exa_8443"],
+      "forge_department_of_engineering_e_8443_2",
+    ],
+  ];
+
+  it.each(table)("derives: %s", (_, origin, taken, expected) => {
+    expect(deriveForgeSlug(origin, taken)).toBe(expected);
+  });
+
+  it("is always 1 to 40 of a-z, digits and underscore, so forge-<slug> is one path segment", () => {
+    for (const [, origin, taken] of table) {
+      const slug = deriveForgeSlug(origin, taken);
+      expect(ForgeSlug.safeParse(slug).success, slug).toBe(true);
+      expect(`harness/forge-${slug}`.split("/"), slug).toEqual(["harness", `forge-${slug}`]);
+    }
+  });
+
+  it("accepts an edited slug only in that alphabet and length", () => {
+    for (const slug of ["github", "work", "a", "git_systemtech_dev", "0", "x".repeat(40)]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(true);
+    for (const slug of ["", "x".repeat(41), "GitHub", "git-systemtech", "git.systemtech", "forge/work", "..", "work ", "ü"]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(false);
   });
 });

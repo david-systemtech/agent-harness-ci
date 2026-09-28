@@ -731,6 +731,10 @@
       "title": "ForgeOrigin"
     },
     {
+      "path": "forge/slug.json",
+      "title": "ForgeSlug"
+    },
+    {
       "path": "usage/verdict.json",
       "title": "UsageVerdict"
     },

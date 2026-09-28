@@ -11,6 +11,10 @@ interface Fixtures {
 
 export const forgeSchemaFixtures: Record<string, Fixtures> = {
   "forge/kind.json": { valid: ["github", "forgejo", "gitea", "gitlab"], invalid: ["GitHub", "bitbucket", ""] },
+  "forge/slug.json": {
+    valid: ["github", "git_systemtech_dev", "100_101_102_103", "x".repeat(40)],
+    invalid: ["", "x".repeat(41), "GitHub", "git-systemtech", "forge/work", ".."],
+  },
   "forge/origin.json": {
     valid: ["https://github.com", "https://git.systemtech.dev:5526", "http://100.101.102.103:3000", "http://nas.lan:443", "http://[fd7a:115c:a1e0::1]:3000"],
     invalid: [
