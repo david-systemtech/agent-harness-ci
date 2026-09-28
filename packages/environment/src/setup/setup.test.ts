@@ -38,13 +38,13 @@ const check = async (client: WireClient, step: StepResult["step"]): Promise<Step
 };
 
 describe("setup.check", () => {
-  it("checks every registered step on a fresh environment, in the milestone-1 order: each done, with its line and the environment's clock", async () => {
+  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, with its line and the environment's clock", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
     expect(results.map((result) => [result.step, result.state, result.failing, result.actions])).toEqual([
       ["account", "done", [], []],
-      ["your-machines", "done", [], []],
+      ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],
     ]);
@@ -78,7 +78,13 @@ describe("the Your machines step's health line", () => {
     const t = await start();
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).isRoot).toBe(false);
-    expect(await check(client, "your-machines")).toMatchObject({ state: "done", reason: "The environment runs as a non-root user.", failing: [] });
+    // With auto-update off, the release channel's check holds without a check (#346).
+    await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
+    expect(await check(client, "your-machines")).toMatchObject({
+      state: "done",
+      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours.",
+      failing: [],
+    });
   });
 });
 
@@ -109,8 +115,8 @@ describe("the Permissions step's check", () => {
     expect(result.reason).toContain("on Ubuntu 24.04 and later");
     expect(result.reason).toContain("/etc/apparmor.d/bwrap");
     expect(result.reason).not.toMatch(/\n/);
-    // The Your machines step is not the one that fails.
-    expect((await check(client, "your-machines")).state).toBe("done");
+    // The Your machines step's not-root line is not what fails.
+    expect((await check(client, "your-machines")).failing).not.toContain("your-machines.not-root");
   });
 
   it("names the container's seccomp profile beside the package hint when that is what refused bubblewrap", async () => {

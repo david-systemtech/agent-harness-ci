@@ -26,6 +26,7 @@ import {
   type EnvironmentStatus,
   type HealthDocument,
   type Mode,
+  type ReleaseSource,
   type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
@@ -78,6 +79,8 @@ import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
+import { RELEASE_SOURCE, createReleaseChannel } from "../updates/channel.js";
+import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { updateMethods } from "../updates/methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
@@ -331,6 +334,12 @@ export interface EnvironmentOptions {
    * binary's `--version` (`adapters/claude/version.ts`); tests script it.
    */
   readonly claudeCodeVersion?: () => Promise<string | null>;
+  /**
+   * Where the release channel is read (#346): an origin, its forge's kind
+   * and the repository. Preset: `RELEASE_SOURCE`, compiled into the build;
+   * tests name their fake release source.
+   */
+  readonly releaseSource?: ReleaseSource;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -818,6 +827,24 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
     drain: (cause) => void lifecycle.drain("update", cause),
   });
+  // The release channel (#346): read through the ForgeService with the forge account for the release origin, two minutes
+  // after the start, hourly, on updates.check and once the settings the target follows change.
+  const releaseSource = options.releaseSource ?? RELEASE_SOURCE;
+  const releaseChannel = createReleaseChannel({
+    forge,
+    source: releaseSource,
+    harnessVersion,
+    databaseSchemaVersion: () => Number(log.read<{ user_version: number }>("PRAGMA user_version")[0]?.user_version ?? 0),
+  });
+  const channelChecks = createChannelChecks({
+    clock,
+    dataDir,
+    channel: releaseChannel,
+    settings: () => {
+      const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+      return { autoUpdate: values["updates.autoUpdate"], channel: values["updates.channel"], pinnedVersion: values["updates.pinnedVersion"] };
+    },
+  });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
@@ -857,7 +884,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...reviewMethods({ log, environmentId: record.id }),
     ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
     // Set up's health checks (ADR 0031; #141): each registered step's, on this environment.
-    ...setupMethods({ log, clock, presets: settingsPresets(), stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir }) }),
+    ...setupMethods({
+      log,
+      clock,
+      presets: settingsPresets(),
+      stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir, releaseChannel: () => channelChecks.releaseChannelHolds() }),
+    }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...forgeMethods(forge),
@@ -872,6 +904,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       launcher,
       managedOutside: updatesManagedOutside,
       coordinator: updates,
+      releaseSource,
+      channel: releaseChannel,
+      checks: channelChecks,
       claudeCodeVersion: options.claudeCodeVersion ?? (() => readClaudeCodeVersion({ executable: bundledExecutable() })),
     }),
   });
@@ -997,6 +1032,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   forge.startVerifying();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
+  // The release channel's checks: two minutes from now, then hourly (#346).
+  closers.push(channelChecks.start());
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and
   // deleted sessions past their grace period, each part tried even when one before it fails, and named when it does.
   const sweep = clock.setInterval(() => {
