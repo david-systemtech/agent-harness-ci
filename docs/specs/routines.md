@@ -85,7 +85,7 @@ Structural problems refuse a save (`invalid_params` with paths). What the enviro
 - **One per environment**, in the environment process (ADR 0008; the desktop's is gone), armed by the start pass: one timer for the earliest due time, re-armed on every change, and a check every 60 seconds on the environment's clock that catches a sleeping machine or a clock jump.
 - **Overlap**: while a firing of the routine is live, from its pre-check to its end, its due time is skipped `overlap`.
 - **Concurrency**: at most four firings in a pre-check or run per environment; later due times wait in memory, in order.
-- **Missed**: due times after `handledThrough` found over two minutes late collapse to the latest (Hermes collapses a backlog too). With `run-once` and that due time within seven days (a chosen default), it fires now with trigger `catch-up`; otherwise it is skipped `missed`. Either record says how many due times it stands for.
+- **Missed**: due times after `handledThrough` found over two minutes late collapse to the latest (Hermes collapses a backlog too). With `run-once` and that due time within seven days (chosen default), it fires now with trigger `catch-up`; otherwise it is skipped `missed`. Either record says how many due times it stands for.
 
 ### Pre-checks
 
