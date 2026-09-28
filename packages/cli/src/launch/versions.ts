@@ -22,7 +22,7 @@ export const versionDirectory = (dataDir: string, version: string): string => jo
 /** Whether `version` is complete in the versions directory: its folder holds the sentinel. */
 export const isComplete = (dataDir: string, version: string): boolean => existsSync(join(versionDirectory(dataDir, version), VERSION_SENTINEL));
 
-/** The versions complete in the versions directory, oldest first by their numbers; none when it does not exist. */
+/** The versions complete in the versions directory, sorted by their numbers for a stable answer (not by SemVer precedence); none when it does not exist. */
 export const completeVersions = (dataDir: string): string[] => {
   let entries;
   try {
