@@ -238,20 +238,21 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
       const newest = (settings.channel === "stable" ? listed.find((candidate) => !isPrerelease(candidate.version)) : listed[0]) ?? null;
       const reading = (target: UpdateTarget | null, passedOver: UpdatePassedOver | null): ChannelReading => ({ outcome: "read", newest: newest?.version ?? null, target, passedOver });
 
-      let candidate: { readonly version: string; readonly source: UpdateTarget["source"] } | null = null;
-      let examined: Examined | undefined;
-      if (settings.pinnedVersion !== null) {
-        candidate = { version: settings.pinnedVersion, source: "pin" };
-        if (runsOn(candidate.version)) return reading(null, null);
-        examined = await examinePin(candidate.version, listed);
-      } else if (settings.autoUpdate && newest !== null && runsRelease && compareReleaseVersions(newest.version, harnessVersion) > 0) {
-        candidate = { version: newest.version, source: "channel" };
-        examined = await examine(newest);
-      }
-      if (candidate === null || examined === undefined) return reading(null, null);
+      // What would be the target: the pin, unless it runs; else, with auto-update effective, the channel's newest when newer.
+      const { pinnedVersion } = settings;
+      const choice =
+        pinnedVersion !== null
+          ? runsOn(pinnedVersion)
+            ? null
+            : { target: { version: pinnedVersion, source: "pin" } as const, examine: () => examinePin(pinnedVersion, listed) }
+          : settings.autoUpdate && newest !== null && runsRelease && compareReleaseVersions(newest.version, harnessVersion) > 0
+            ? { target: { version: newest.version, source: "channel" } as const, examine: () => examine(newest) }
+            : null;
+      if (choice === null) return reading(null, null);
+      const examined = await choice.examine();
       if (examined.outcome === "failed") return examined;
-      if (examined.outcome === "passed-over") return reading(null, { ...candidate, reason: examined.reason, message: examined.message });
-      return reading(candidate, null);
+      if (examined.outcome === "passed-over") return reading(null, { ...choice.target, reason: examined.reason, message: examined.message });
+      return reading(choice.target, null);
     },
 
     async pinRefusal(version) {
