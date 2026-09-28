@@ -75,6 +75,27 @@ describe("the normaliser", () => {
     expect(normaliseRemote(input)).toEqual(expected);
   });
 
+  describe("userinfo (a token in a URL)", () => {
+    const secret = "ghp_s3cretTokenValue";
+    const cases: [string, string, ForgeRemote][] = [
+      ["https with a user and a token", `https://x-access-token:${secret}@github.com/david/agent-harness.git`, remote("https://github.com", "david/agent-harness", false, true)],
+      ["https with a token as the user", `https://${secret}@github.com/david/agent-harness`, remote("https://github.com", "david/agent-harness", false, true)],
+      ["https with a login alone", "https://david@git.systemtech.dev:5526/david/agent-harness", remote("https://git.systemtech.dev:5526", "david/agent-harness", false, true)],
+      ["http with a percent-encoded token", `http://david:${secret}%21@100.101.102.103:3000/david/agent-harness`, remote("http://100.101.102.103:3000", "david/agent-harness", false, true)],
+      ["ssh with a password", `ssh://git:${secret}@git.systemtech.dev:2222/david/agent-harness.git`, remote("https://git.systemtech.dev", "david/agent-harness", true, true)],
+      ["scp with a password", `git:${secret}@github.com:david/agent-harness.git`, remote("https://github.com", "david/agent-harness", true, true)],
+      ["ssh's login alone, which is how ssh names its user and holds no credential", "ssh://git@github.com/david/agent-harness.git", remote("https://github.com", "david/agent-harness", true, false)],
+      ["scp's login alone", "david@git.systemtech.dev:david/agent-harness.git", remote("https://git.systemtech.dev", "david/agent-harness", true, false)],
+    ];
+
+    it.each(cases)("is dropped from %s, and reported where it can hold a credential", (_, input, expected) => {
+      const read = normaliseRemote(input);
+      expect(read).toEqual(expected);
+      expect(JSON.stringify(read)).not.toContain(secret);
+      expect(JSON.stringify(read)).not.toContain("@");
+    });
+  });
+
   it("answers only canonical forge origins", () => {
     for (const [, input] of table) {
       const origin = normaliseRemote(input)?.origin;
