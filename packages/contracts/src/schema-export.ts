@@ -156,6 +156,20 @@ import {
   UpdatesStatus,
 } from "./updates.js";
 import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
+import {
+  ADDRESS_ROWS,
+  SETTINGS_ADDRESSES,
+  SETTINGS_BANDS,
+  SETTINGS_ROWS,
+  SettingsAddress,
+  SettingsAddressRow,
+  SettingsBand,
+  SettingsBandId,
+  SettingsRow,
+  SettingsRowId,
+  SettingsRowScope,
+} from "./settings-rows.js";
+import { StepId } from "./steps.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -664,6 +678,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "settings/band-id.json", title: "SettingsBandId", schema: SettingsBandId },
+  { path: "settings/band.json", title: "SettingsBand", schema: SettingsBand },
+  { path: "settings/row-scope.json", title: "SettingsRowScope", schema: SettingsRowScope },
+  { path: "settings/row-id.json", title: "SettingsRowId", schema: SettingsRowId },
+  { path: "settings/row.json", title: "SettingsRow", schema: SettingsRow },
+  { path: "settings/address.json", title: "SettingsAddress", schema: SettingsAddress },
+  { path: "settings/address-row.json", title: "SettingsAddressRow", schema: SettingsAddressRow },
   { path: "updates/update-id.json", title: "UpdateId", schema: UpdateId },
   { path: "updates/update-source.json", title: "UpdateSource", schema: UpdateSource },
   { path: "updates/update-cause.json", title: "UpdateCause", schema: UpdateCause },
@@ -691,6 +712,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "updates/install-refusal.json", title: "UpdateInstallRefusal", schema: UpdateInstallRefusal },
   { path: "updates/settings-values.json", title: "UpdateSettingsValues", schema: UpdateSettingsValues },
   { path: "updates/settings-patch.json", title: "UpdateSettingsPatch", schema: UpdateSettingsPatch },
+  { path: "setup/step-id.json", title: "StepId", schema: StepId },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
@@ -762,6 +784,56 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
   },
 ];
 
+/**
+ * A table of data published beside the schemas: a registry the contracts
+ * hold, for a client in another language to read rather than copy, each
+ * entry valid against one exported schema.
+ */
+export interface PublishedData {
+  readonly path: string;
+  readonly title: string;
+  /** What the table is, and the rules its entries keep that the schema cannot state. */
+  readonly description: string;
+  /** The exported schema every entry is valid against, by its path under `schema/`. */
+  readonly schema: string;
+  readonly entries: readonly unknown[];
+}
+
+/** Every data table the export writes, in a stable order. */
+export const publishedData = (): PublishedData[] => [
+  {
+    path: "data/settings-bands.json",
+    title: "Settings bands",
+    description: "The eight bands of Settings in the rail's order (ADR 0027), each with the heading the rail draws.",
+    schema: "settings/band.json",
+    entries: SETTINGS_BANDS,
+  },
+  {
+    path: "data/settings-rows.json",
+    title: "Settings rows",
+    description: [
+      "The row registry (ADR 0027): every row of Settings in the rail's order, bands in their order.",
+      "A row's id is band.row, its first part its band.",
+      "Each step of the milestone-1 checklist is home on exactly one row, whose health dot shows that step's; the Set up row is home to the whole checklist.",
+      "Every settings key names the row it sits on, and every step its home row.",
+      "Search matches a row's id, label, hint and terms, the terms carrying the old settings addresses that open the row and the names of the sections it absorbed.",
+      "A stored row id the registry does not hold opens setup.checklist.",
+    ].join(" "),
+    schema: "settings/row.json",
+    entries: SETTINGS_ROWS,
+  },
+  {
+    path: "data/settings-addresses.json",
+    title: "Settings addresses",
+    description: [
+      "The address table (ADR 0027): each of the sixteen existing settings addresses and the row it opens, total over the addresses.",
+      "runs opens accounts.usage with its speed on accounts.default-model, and advanced opens environments.machines with its service verbs on environments.service; both are search terms of the second row too.",
+    ].join(" "),
+    schema: "settings/address-row.json",
+    entries: SETTINGS_ADDRESSES.map((address) => ({ address, row: ADDRESS_ROWS[address] })),
+  },
+];
+
 /** The document for one exported schema: the schema as zod's decoder reads it, titled. */
 const document = (entry: ExportedSchema): Record<string, unknown> => {
   const { $schema, ...rest } = z.toJSONSchema(entry.schema, { target: "draft-2020-12", io: "input" });
@@ -772,15 +844,17 @@ const GENERATED = "Generated by `pnpm --filter @agent-harness/contracts export-s
 
 /**
  * The manifest a client starts from: the protocol version, every document by
- * path and title, every case table by path and title, and every method with
+ * path and title, every case table by path and title, every data table by
+ * path, title and the schema of its entries, and every method with
  * its scope, kind, stream flag and documents; a command's include its
  * response, the receipt beside the result.
  */
-const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCaseTable[]) => ({
+const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCaseTable[], data: readonly PublishedData[]) => ({
   $comment: GENERATED,
   protocolVersion: PROTOCOL_VERSION,
   schemas: entries.map(({ path, title }) => ({ path, title })),
   cases: tables.map(({ path, title }) => ({ path, title })),
+  data: data.map(({ path, title, schema }) => ({ path, title, schema })),
   methods: methods.map((m) => ({
     name: m.name,
     scope: m.scope,
@@ -797,18 +871,20 @@ const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCas
 
 const serialise = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
-/** Every file of the export, by path under `schema/`: one per schema, one per case table, and `index.json`. */
+/** Every file of the export, by path under `schema/`: one per schema, one per case table, one per data table, and `index.json`. */
 export const jsonSchemaFiles = (): Map<string, string> => {
   const entries = exportedSchemas();
   const tables = publishedCaseTables();
+  const data = publishedData();
   const files = new Map<string, string>();
   for (const { path, content } of [
     ...entries.map((entry) => ({ path: entry.path, content: document(entry) })),
     ...tables.map(({ path, ...table }) => ({ path, content: { $comment: GENERATED, ...table } })),
+    ...data.map(({ path, ...table }) => ({ path, content: { $comment: GENERATED, ...table } })),
   ]) {
     if (files.has(path)) throw new Error(`Two documents export to ${path}.`);
     files.set(path, serialise(content));
   }
-  files.set("index.json", serialise(index(entries, tables)));
+  files.set("index.json", serialise(index(entries, tables, data)));
   return files;
 };

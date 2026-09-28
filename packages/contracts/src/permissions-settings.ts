@@ -59,10 +59,10 @@ export const parkedPromptTtlMs = (ttl: ParkedPromptTtl): number | null => (ttl =
 const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): SettingDefinition<S> => definition;
 
 /**
- * Every permission key sits under the Permissions step (#141), in the Access
- * band, whose Permissions row is `access.permissions` (ADR 0027).
+ * Every permission key sits under the Permissions step (#141), on its home
+ * row `access.permissions` (ADR 0027).
  */
-const PERMISSIONS_STEP = { id: "permissions", band: "access" } as const;
+const PERMISSIONS_STEP = { id: "permissions", row: "access.permissions" } as const;
 
 /** The one method that writes a permission key: the generic `settings.update` refuses them (#117's `writtenBy`). */
 const WRITTEN_BY = "permissions.settings.set";

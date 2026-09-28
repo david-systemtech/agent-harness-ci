@@ -6,8 +6,9 @@ import type { PanelRow } from "./panel.js";
  * The cards `/account`, `/handoff`, `/model`, `/mode`, `/containment` and
  * `/settings` open, and the sign-in (docs/specs/tui.md, "Status, usage,
  * pickers"): a list with a cursor, rows that cannot be chosen dim with
- * their reason, lines under the list, and a line being typed. Each draws its
- * props; what they hold is `panel.ts`'s.
+ * their reason, a heading over a row where one starts, lines under the
+ * list, and a line being typed. Each draws its props; what they hold is
+ * `panel.ts`'s.
  */
 
 const Styled = (props: { readonly span: Span }) => (
@@ -60,7 +61,7 @@ export const ListCard = (props: ListCardProps) => {
   const footer = (props.footer ?? []).flatMap((line) => (props.width === undefined ? [line] : wrap(line, Math.max(1, props.width - 2))));
   const footerRows = footer.length;
   const room = Math.max(1, props.height - 1 - (props.lead !== undefined ? 1 : 0) - footerRows - (props.childRows ?? 0));
-  const span = (row: PanelRow) => (row.under !== undefined ? 2 : 1);
+  const span = (row: PanelRow) => 1 + (row.under !== undefined ? 1 : 0) + (row.heading !== undefined ? 1 : 0);
   // The first row shown: enough before the cursor that it and the rows after it fit.
   let top = 0;
   let used = props.rows.slice(0, props.cursor + 1).reduce((sum, row) => sum + span(row), 0);
@@ -96,6 +97,11 @@ export const ListCard = (props: ListCardProps) => {
         const selected = top + index === props.cursor;
         return (
           <Box key={row.key} flexDirection="column">
+            {row.heading !== undefined && !clipped && (
+              <Text wrap="truncate-end">
+                <Styled span={row.heading} />
+              </Text>
+            )}
             <Text wrap="truncate-end" inverse={selected} dimColor={row.dim}>
               {selected ? "› " : "  "}
               {row.cells.map((cell, at) => (
