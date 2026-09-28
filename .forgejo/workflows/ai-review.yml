@@ -21,8 +21,10 @@
 # When it runs: when a pull request opens, reopens or leaves draft (on Forgejo,
 # a title edit that drops the "WIP:" prefix), and after that only when someone
 # adds the `ai-review` label. The label comes off again after every run that
-# found it on, so it can be added a second time. `no-ai-review` suppresses it.
-# Create both labels on the repository.
+# found it on, so it can be added a second time. It asks for a review of the
+# head as it is now: a head the comment already names is left alone, so push
+# first and add the label after. `no-ai-review` suppresses it. Create both
+# labels on the repository.
 #
 # Where it runs: the shared `review` runners in the Dokploy VM, never `ci`. A
 # large review generates for twenty minutes or more while only waiting on
@@ -53,11 +55,19 @@ on:
 # Such a run still posts its job as the check's latest status, so after a
 # description edit the review's check reads as a short green run. The comment
 # is what counts, and it is left alone.
+#
+# A label's run is told by `github.event.label`, which only a label event
+# carries, and never by the action's name: Forgejo calls adding a label
+# `label_updated`, not `labeled` (every label run's payload since 2026-09-23,
+# checked 2026-09-28). Testing the action for `labeled` let every label
+# through, here and in both `if`s below - the builder bots' `bot-1` and `bot-2`
+# ran 34 full reviews on 2026-09-25 and 26, and in the review's own group they
+# cancelled the reviews already on the way.
 concurrency:
   group: >-
     ai-review-${{ github.event.pull_request.number }}-${{
     github.event.pull_request.draft && 'draft' ||
-    (github.event.action == 'labeled' && github.event.label.name != 'ai-review') && 'other-label' ||
+    (github.event.label && github.event.label.name != 'ai-review') && 'other-label' ||
     'review' }}
   cancel-in-progress: ${{ github.event.action != 'edited' }}
 
@@ -74,7 +84,7 @@ jobs:
       !github.event.pull_request.draft &&
       github.actor != 'renovate' &&
       !contains(github.event.pull_request.labels.*.name, 'no-ai-review') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+      (!github.event.label || github.event.label.name == 'ai-review')
     runs-on: review
     # A backstop only. The script abandons a review at REVIEW_DEADLINE_S and
     # exits green, and the step has its own timeout under continue-on-error.
@@ -140,7 +150,7 @@ jobs:
     if: >-
       always() &&
       contains(github.event.pull_request.labels.*.name, 'ai-review') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+      (!github.event.label || github.event.label.name == 'ai-review')
     runs-on: review
     timeout-minutes: 5
     steps:
