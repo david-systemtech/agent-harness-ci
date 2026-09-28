@@ -80,7 +80,11 @@ const advance = (reveal: Reveal, text: string): Reveal => {
   const arrived = text.slice(reveal.shown, through);
   // Whitespace alone (a paragraph's break sent on its own) is carried as it is: the pieces joined are always what arrived.
   const words = arrived.match(WORD) ?? [arrived];
-  if (words.length >= INSTANT_WORDS) return { ...reveal, text, settled: reveal.settled + words.join(""), shown: through };
+  // A burst lands at once, and what was still fading before it lands with it, so the text stays in order.
+  if (words.length >= INSTANT_WORDS) {
+    const before = reveal.batches.flatMap((batch) => batch.words).join("");
+    return { ...reveal, text, settled: reveal.settled + before + words.join(""), shown: through, batches: [], ended: new Set() };
+  }
   const stagger = words.length > 1 ? Math.min(STAGGER_MS, STAGGER_BUDGET_MS / words.length) : 0;
   return { ...reveal, text, shown: through, batches: [...reveal.batches, { key: reveal.nextKey, words, stagger }], nextKey: reveal.nextKey + 1 };
 };

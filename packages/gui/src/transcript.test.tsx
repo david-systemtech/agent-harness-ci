@@ -106,6 +106,16 @@ describe("streaming", () => {
     expect(lastReply(transcript)?.textContent).toBe("One two three four ");
   });
 
+  it("keeps the words before a burst in their place when the burst lands at once", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Sure, " }] });
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["Sure, "]));
+    const burst = Array.from({ length: 250 }, (_, index) => `w${index} `).join("");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: burst }] });
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe(`Sure, ${burst}`));
+  });
+
   it("renders settled text as markdown, its fenced code highlighted", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Plan it");
@@ -348,6 +358,18 @@ describe("images", () => {
     expect(link.getAttribute("href")).toBe("https://example.com/dashboard");
     expect(within(transcript).getAllByRole("link")).toHaveLength(1);
     expect(within(transcript).queryByRole("img")).toBeNull();
+  });
+
+  it("keeps the words a call returned beside its picture", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Why did it fail?");
+    env.emit(session, "tool.started", { runId, toolCallId: "t1", name: "Screenshot", input: { url: "http://localhost:3000" }, title: null, agentId: null, parentToolCallId: null });
+    const output = [{ type: "text", text: "The page failed to load" }, { type: "image", source: { type: "base64", media_type: "image/png", data: PICTURE } }];
+    env.emit(session, "tool.ended", { runId, toolCallId: "t1", status: "error", output, durationMs: 20 });
+    expect(await within(transcript).findByRole("img", { name: "Returned by Screenshot: http://localhost:3000" })).toBeDefined();
+    const call = within(transcript).getByRole("group", { name: "Screenshot: http://localhost:3000" });
+    expect(call.textContent).toContain("The page failed to load");
+    expect(call.textContent).not.toContain(PICTURE);
   });
 
   it("names an image sent with a message, whose bytes the log never holds", async () => {

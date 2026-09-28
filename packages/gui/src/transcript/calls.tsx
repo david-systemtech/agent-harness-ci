@@ -15,7 +15,7 @@ import { useState } from "react";
 import { Fold } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { Marked } from "./find.js";
-import { picturesIn, pictureUrl } from "./images.js";
+import { picturesIn, pictureUrl, withoutPictures } from "./images.js";
 
 /**
  * A run's tool calls (docs/specs/gui.md, "A session pane"; the terminal UI's
@@ -88,8 +88,8 @@ export const CallCard = ({ call, quietMs }: { readonly call: ToolCallEntry; read
   const quiet = call.status === "running" && quietMs >= TOOL_QUIET_MS;
   const denied = call.decision?.decision === "denied" ? call.decision : null;
   const name = callName(call);
-  // A picture it returned is drawn under the run's calls, not spelt out here.
-  const output = picturesIn(call.output).length > 0 ? "" : outputText(call.output).trim();
+  // A picture it returned is drawn under the run's calls, not spelt out here; the words beside it are.
+  const output = outputText(withoutPictures(call.output)).trim();
   return (
     <div
       role="group"
