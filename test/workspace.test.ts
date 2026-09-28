@@ -64,12 +64,12 @@ describe("the workspace", () => {
     expect(runtimeDependencies(manifest("agent-harness"))).toContain("@agent-harness/tui");
   });
 
-  it("requires Node 22.16 or later, the first with node:sqlite's busy timeout and isTransaction", () => {
+  it("requires Node 24 or later: the LTS line with node:sqlite's busy timeout and isTransaction, Node 22 ending its life in April 2027", () => {
     const engines = (dir: string) =>
       (JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")) as { engines?: { node?: string } }).engines
         ?.node;
-    expect(engines(".")).toBe(">=22.16.0");
-    expect(engines("packages/environment")).toBe(">=22.16.0");
+    expect(engines(".")).toBe(">=24.0.0");
+    expect(engines("packages/environment")).toBe(">=24.0.0");
   });
 
   it("runs the environment's and the client runtime's test files in parallel, since every listener takes port 0", async () => {
