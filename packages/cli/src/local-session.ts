@@ -66,6 +66,12 @@ export type LocalCall = <N extends MethodName>(method: N, params: ParamsOf<N>) =
 /** How long the verb waits for the environment at each step: the exchange, the hello, each answer. */
 const WIRE_TIMEOUT_MS = 10_000;
 
+/** How the route waits: a test shortens the timeout. */
+export interface LocalSessionOptions {
+  /** How long the environment may stay silent while the verb waits on it; preset ten seconds. */
+  readonly timeoutMs?: number;
+}
+
 const readGrant = (dataDir: string): BootstrapGrant => {
   const path = join(dataDir, BOOTSTRAP_GRANT_FILE);
   let text: string;
@@ -89,7 +95,7 @@ const readGrant = (dataDir: string): BootstrapGrant => {
 };
 
 /** Exchanges the grant's secret for a local `tui` client session under `label`, which the verb revokes itself once its calls are done. */
-const exchangeGrant = async (origin: string, secret: string, label: string, net: Net): Promise<ClientSessionCredential> => {
+const exchangeGrant = async (origin: string, secret: string, label: string, net: Net, timeoutMs: number): Promise<ClientSessionCredential> => {
   let response: Response;
   try {
     response = await net.fetch(`${origin}${BOOTSTRAP_PATH}`, {
@@ -97,7 +103,7 @@ const exchangeGrant = async (origin: string, secret: string, label: string, net:
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ secret, kind: "tui", label }),
       // The same bound as the wire phase, so a wedged environment fails the verb in seconds rather than minutes.
-      signal: AbortSignal.timeout(WIRE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     throw new LocalFailure(`The environment at ${origin} did not answer: ${(error as Error).message}`, { cause: error });
@@ -119,10 +125,10 @@ type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
  * Authenticates on the wire, runs `work` once `hello` arrives, then revokes
  * its own client session, which the environment answers with `bye: revoked`
  * and the close; settles with what `work` came to, a failure included. A
- * refused revoke, a socket closed early and an environment silent for ten
- * seconds at any step fail the verb.
+ * refused revoke, a socket closed early and an environment silent for the
+ * timeout while the verb waits on it fail the verb.
  */
-const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net, work: (call: LocalCall) => Promise<T>): Promise<T> =>
+const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net, timeoutMs: number, work: (call: LocalCall) => Promise<T>): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const ws = new net.WebSocket(url);
     /** The calls awaiting their answer, by request id. */
@@ -145,7 +151,7 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
     /** Waits for the environment's next word, failing the verb after the timeout. */
     const awaitAnswer = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => fail(`The environment at ${url} did not answer within ${WIRE_TIMEOUT_MS / 1000} seconds.`), WIRE_TIMEOUT_MS);
+      timer = setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
     };
     const send = (frame: Parameters<typeof encodeFrame>[0]) => ws.send(encodeFrame(frame));
 
@@ -208,7 +214,9 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
           const waiting = pending.get(frame.id);
           if (waiting === undefined) return;
           pending.delete(frame.id);
-          clearTimeout(timer);
+          // Another call still in flight keeps the verb waiting on the environment, which may not go silent on it.
+          if (pending.size > 0) awaitAnswer();
+          else clearTimeout(timer);
           return waiting(frame);
         }
         default:
@@ -226,9 +234,15 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
  * revokes that client session, so each run leaves none behind. Rejects with a
  * `LocalFailure` saying plainly why when no environment answers.
  */
-export const withLocalSession = async <T>(target: LocalTarget, net: Net, label: string, work: (call: LocalCall) => Promise<T>): Promise<T> => {
+export const withLocalSession = async <T>(
+  target: LocalTarget,
+  net: Net,
+  label: string,
+  work: (call: LocalCall) => Promise<T>,
+  { timeoutMs = WIRE_TIMEOUT_MS }: LocalSessionOptions = {},
+): Promise<T> => {
   const grant = readGrant(target.dataDir);
   const hostPort = formatHostPort(grant.address.host, target.port ?? grant.address.port);
-  const credential = await exchangeGrant(`http://${hostPort}`, grant.secret, label, net);
-  return overWire(`ws://${hostPort}${WIRE_PATH}`, credential, net, work);
+  const credential = await exchangeGrant(`http://${hostPort}`, grant.secret, label, net, timeoutMs);
+  return overWire(`ws://${hostPort}${WIRE_PATH}`, credential, net, timeoutMs, work);
 };
