@@ -370,7 +370,7 @@ describe("agent-harness service install on Windows", () => {
     expect(readFileSync(join(dataDir, "launcher-entry.cmd"), "utf8")).toBe(renderLauncherEntry("cmd", { dataDir, port: 7433, name: "desk" }));
     expect(readFileSync(join(dataDir, "bin", "agent-harness.cmd"), "utf8")).toBe(renderShim("cmd", dataDir));
     expect(stateOf(dataDir)).toEqual(fresh("0.5.0"));
-    expect(task).toContain(`<Arguments>--headless cmd.exe /d /c call ${join(dataDir, "launcher-entry.cmd")}</Arguments>`);
+    expect(task).toContain(`<Arguments>--headless cmd.exe /d /c .\\launcher-entry.cmd</Arguments>\n      <WorkingDirectory>${dataDir}</WorkingDirectory>`);
     expect(cli.out()).toContain(`$k.SetValue('Path', '${join(dataDir, "bin")};' + $k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'), 'ExpandString')`);
   });
 });

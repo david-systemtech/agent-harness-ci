@@ -1,8 +1,7 @@
 import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
-import { windowsArgument } from "./quoting.js";
 import { SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
 import { escapeXml } from "./xml.js";
 
@@ -15,11 +14,14 @@ export const TASK_XML_FILE = "service-task.xml";
  * limit, restarted when it fails to start. It runs through `conhost.exe
  * --headless`: cmd and node are console programs, and a task that starts one
  * directly opens a console window at every logon, which Windows 11 hands to
- * Windows Terminal whatever the window style asked for. conhost passes on the
- * rest of its command line re-quoted as the C runtime reads it, so the entry
- * is `call`ed: cmd strips the quotes around a command that starts with one.
- * Task Scheduler cannot redirect output, and has no stop timeout: the entry
- * writes the service log, and a stop (End) ends the processes at once.
+ * Windows Terminal whatever the window style asked for. cmd runs the entry by
+ * its name in the entry's folder, the task's working directory: conhost
+ * passes on the rest of its command line re-quoted as the C runtime reads it,
+ * quoting a path only for a space, and cmd would read an `&` or `^` in a bare
+ * path, or strip the quotes of one that is quoted, so no command line carries
+ * the path. Task Scheduler cannot redirect output, and has no stop timeout:
+ * the entry writes the service log, and a stop (End) ends the processes at
+ * once.
  */
 export const renderTaskXml = (spec: ServiceSpec, user: string): string =>
   [
@@ -57,7 +59,8 @@ export const renderTaskXml = (spec: ServiceSpec, user: string): string =>
     '  <Actions Context="Author">',
     "    <Exec>",
     "      <Command>%SystemRoot%\\System32\\conhost.exe</Command>",
-    `      <Arguments>${escapeXml(["--headless", "cmd.exe", "/d", "/c", "call", windowsArgument(spec.entry)].join(" "))}</Arguments>`,
+    `      <Arguments>--headless cmd.exe /d /c .\\${escapeXml(win32.basename(spec.entry))}</Arguments>`,
+    `      <WorkingDirectory>${escapeXml(win32.dirname(spec.entry))}</WorkingDirectory>`,
     "    </Exec>",
     "  </Actions>",
     "</Task>",

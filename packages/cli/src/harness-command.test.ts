@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeTempDir } from "../test/service-helpers.js";
@@ -25,7 +25,8 @@ describe("the command line this CLI runs as", () => {
     writeFileSync(entry, "");
     const link = join(dir, "agent-harness");
     symlinkSync(entry, link);
-    expect(resolveProgram({ execPath: "/usr/bin/node", execArgv: [], argv: ["/usr/bin/node", link, "serve"] })).toEqual(["/usr/bin/node", entry]);
+    // The entry's own real path: the temporary folder may itself sit under a link (macOS's /var is /private/var).
+    expect(resolveProgram({ execPath: "/usr/bin/node", execArgv: [], argv: ["/usr/bin/node", link, "serve"] })).toEqual(["/usr/bin/node", realpathSync(entry)]);
   });
 
   it("keeps node's own flags, so a CLI run from source names itself from source", () => {

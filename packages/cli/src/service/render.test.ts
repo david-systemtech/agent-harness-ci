@@ -72,9 +72,12 @@ describe("the Task Scheduler logon task", () => {
     expect(renderTaskXml(windowsSpec, "GAMINGPC\\david")).toBe(fixture("agent-harness-task.xml"));
   });
 
-  it("quotes the entry as the Windows command line parses it and escapes XML", () => {
-    const xml = renderTaskXml({ dataDir: "C:\\Data & State", entry: "C:\\Data & State\\launcher-entry.cmd" }, "D&C\\david");
-    expect(xml).toContain('<Arguments>--headless cmd.exe /d /c call "C:\\Data &amp; State\\launcher-entry.cmd"</Arguments>');
-    expect(xml).toContain("<UserId>D&amp;C\\david</UserId>");
+  it("runs the entry by its name from its own folder, so no command line carries the path cmd would read an & or ^ in", () => {
+    for (const dataDir of ["C:\\Users\\AT&T\\AppData\\Local\\agent-harness", "C:\\Data & (State)^"]) {
+      const xml = renderTaskXml({ dataDir, entry: `${dataDir}\\launcher-entry.cmd` }, "D&C\\david");
+      expect(xml, dataDir).toContain("<Arguments>--headless cmd.exe /d /c .\\launcher-entry.cmd</Arguments>");
+      expect(xml, dataDir).toContain(`<WorkingDirectory>${dataDir.replaceAll("&", "&amp;")}</WorkingDirectory>`);
+      expect(xml, dataDir).toContain("<UserId>D&amp;C\\david</UserId>");
+    }
   });
 });

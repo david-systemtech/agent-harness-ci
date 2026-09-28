@@ -32,7 +32,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>%SystemRoot%\System32\conhost.exe</Command>
-      <Arguments>--headless cmd.exe /d /c call C:\Users\david\AppData\Local\agent-harness\launcher-entry.cmd</Arguments>
+      <Arguments>--headless cmd.exe /d /c .\launcher-entry.cmd</Arguments>
+      <WorkingDirectory>C:\Users\david\AppData\Local\agent-harness</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
