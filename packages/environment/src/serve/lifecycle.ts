@@ -51,6 +51,8 @@ export interface LifecycleOptions {
   /** The environment's own stream, where the draining notice goes. */
   readonly stream: StreamRef;
   readonly updatesManagedOutside: boolean;
+  /** The idle window, in milliseconds, read each time the activity is: the environment's `updates.idleWindowMinutes`. */
+  readonly idleWindowMs: () => number;
   readonly readiness: () => EnvironmentReadiness;
   /** Called once, as a drain begins: readiness turns `draining`. */
   readonly onDraining: () => void;
@@ -99,7 +101,7 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
   drained.catch(() => undefined);
 
   const activity = (): EnvironmentActivity =>
-    current ? { state: "draining", drainingSince: current.drainingSince } : activityOf(runs.runs(), clock.now());
+    current ? { state: "draining", drainingSince: current.drainingSince } : activityOf(runs.runs(), clock.now(), options.idleWindowMs());
   const status = (): EnvironmentStatus => ({
     readiness: options.readiness(),
     activity: activity(),

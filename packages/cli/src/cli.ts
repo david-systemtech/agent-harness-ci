@@ -16,8 +16,10 @@ import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
 import { service, type ServiceSeams } from "./service/verbs.js";
 import { status } from "./status.js";
-import { PairFailure, mintPairing, renderPairing, type Net, type PairArgs } from "./pair.js";
+import { LocalFailure, type Net } from "./local-session.js";
+import { mintPairing, renderPairing, type PairArgs } from "./pair.js";
 import { TUI_USAGE, tui, type RunTui } from "./tui.js";
+import { UPDATE_USAGE, update } from "./update.js";
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
@@ -29,6 +31,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} service start`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
+  ...UPDATE_USAGE.map((line) => `       ${line}`),
   `       ${TUI_USAGE}`,
   "",
 ].join("\n");
@@ -44,7 +47,7 @@ export interface CliContext extends ProcessContext {
   /** Seams into the service verbs for tests, under the same rule as `environment`. */
   readonly service?: ServiceSeams;
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment">;
-  /** The network `pair` uses; preset: the platform's `fetch` and `WebSocket`. */
+  /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
@@ -91,6 +94,9 @@ const parsePair = (args: readonly string[]): PairArgs => {
   return { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port), scopes, ceiling };
 };
 
+/** The network the verbs that reach the local environment use: the context's, else the platform's. */
+const netOf = (context: CliContext): Net => context.net ?? { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+
 /**
  * `pair`: mints a pairing code on the environment running on this machine as
  * this OS user, through the bootstrap grant, and prints it as a link, a QR of
@@ -98,12 +104,12 @@ const parsePair = (args: readonly string[]): PairArgs => {
  */
 const pair = async (args: readonly string[], context: CliContext): Promise<number> => {
   const parsed = parsePair(args);
-  const net: Net = context.net ?? { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  const net = netOf(context);
   try {
     context.stdout(renderPairing(await mintPairing(parsed, net)));
     return 0;
   } catch (error) {
-    if (!(error instanceof PairFailure)) throw error;
+    if (!(error instanceof LocalFailure)) throw error;
     context.stderr(`${error.message}\n`);
     return 1;
   }
@@ -167,6 +173,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       });
     }
     if (args[0] === "pair") return await pair(args.slice(1), context);
+    if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, net: netOf(context) });
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
         fetch: context.fetch ?? fetch,

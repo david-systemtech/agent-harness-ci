@@ -159,10 +159,8 @@ describe("the method registry", () => {
     });
   });
 
-  it("owes each updates method's handler to the launcher ticket that builds it (#335 registers them with none)", () => {
+  it("owes each updates method's handler not yet served to the launcher ticket that builds it (#335 registered them with none)", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("updates.")))).toEqual({
-      "updates.status": "#342",
-      "updates.settings.set": "#342",
       "updates.apply": "#343",
       "updates.cancel": "#343",
       "updates.check": "#346",
