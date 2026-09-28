@@ -316,46 +316,60 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return { kind: "stored", provenance, entry, handedOverBy: { clientSessionId, label: clientSessionLabel(clientSessionId) ?? "" }, followsGhRotations: false };
   };
 
-  /** A credential given to an add or update, heard from the forge before the transaction. */
-  type Checked =
-    | { readonly rejected: CommandRejection<"verification_failed" | "credential_source_unavailable"> }
-    | {
-        readonly rejected?: undefined;
-        readonly source: ForgeCredentialSource;
-        /** Who it answered as; null when it did not reach the forge's identity endpoint or the forge did not answer. */
-        readonly identity: ForgeIdentity | null;
-        readonly problem: ForgeProblem | null;
-        /** The registration a stored token keeps while the vault holds it; null for every other source. */
-        readonly held: ScrubRelease | null;
-      };
+  /** A credential given to an add or update, heard from the forge before the transaction; `Code` is the refusals the caller adds. */
+  type Checked<Code extends string> =
+    | { readonly rejected: CommandRejection<Code | "verification_failed" | "credential_source_unavailable"> }
+    | Accepted;
+
+  interface Accepted {
+    readonly rejected?: undefined;
+    readonly source: ForgeCredentialSource;
+    /** Who it answered as; null when it did not reach the forge's identity endpoint or the forge did not answer. */
+    readonly identity: ForgeIdentity | null;
+    readonly problem: ForgeProblem | null;
+    /** The registration a stored token keeps while the vault holds it; null for every other source. */
+    readonly held: ScrubRelease | null;
+  }
+
+  /** What `check` is given. */
+  interface CheckRequest<Code extends string> {
+    /** The forge account as the command names it: an add's before it exists, an update's as held. */
+    readonly target: Omit<CredentialTarget, "credential">;
+    readonly given: ForgeAddCredential | ImportedCredential;
+    readonly context: PrepareContext;
+    /** What registers a token sent once again with its Basic-auth form, from its arrival; null for a credential that is no token. */
+    readonly formed: ((kind: ForgeKind, login: string | null) => ScrubRelease) | null;
+    /** What the credential is read for, as the key-manager registry is told: `add`, `update`. */
+    readonly purpose: string;
+    /** The caller's refusal of the identity the credential answered as, if any, heard before a token is stored. */
+    readonly refuse: (found: ForgeIdentity | null) => CommandRejection<Code> | null;
+  }
 
   /**
    * Checks a given credential as the forge account `target` names it: a
-   * token sent once is asked about and written to the vault; `gh` and a
-   * reference are read for this one operation and asked about, their tokens
-   * let go again at once; none asks nothing. A refusal stores nothing; a
-   * reference that cannot be read is `credential_source_unavailable`; a `gh`
-   * that gives no token, or a forge that does not answer, leaves a problem.
+   * token sent once is asked about and, unless the caller refuses who it
+   * answered as, written to the vault; `gh` and a reference are read for
+   * this one operation and asked about, their tokens let go again at once;
+   * none asks nothing. A refusal stores nothing; a reference that cannot be
+   * read is `credential_source_unavailable`; a `gh` that gives no token, or a
+   * forge that does not answer, leaves a problem.
    */
-  const check = async (
-    target: Omit<CredentialTarget, "credential">,
-    given: ForgeAddCredential | ImportedCredential,
-    context: PrepareContext,
-    formed: ((kind: ForgeKind, login: string | null) => ScrubRelease) | null,
-    purpose: string,
-  ): Promise<Checked> => {
+  const check = async <Code extends string>({ target, given, context, formed, purpose, refuse }: CheckRequest<Code>): Promise<Checked<Code>> => {
     const { id, origin, kind } = target;
-    const answered = (answer: Exclude<IdentityAnswer, { outcome: "refused" }>) => ({
-      identity: answer.outcome === "identified" ? answer.identity : null,
-      problem: answer.outcome === "unreachable" ? unreachable(answer.message) : null,
-    });
     if (given.kind === "none") return { source: { kind: "none" }, identity: null, problem: needsCredential(), held: null };
-    if (given.kind === "stored") {
-      const answer = await identify(kind, origin, given.token);
+    /** What the forge's answer leaves: a refusal, the caller's refusal of who answered, or the identity and problem to record. */
+    const answered = (answer: IdentityAnswer): Checked<Code> | Omit<Accepted, "source" | "held"> => {
       if (answer.outcome === "refused") return { rejected: verificationFailed(origin, answer) };
+      const identity = answer.outcome === "identified" ? answer.identity : null;
+      const refused = refuse(identity);
+      if (refused !== null) return { rejected: refused };
+      return { identity, problem: answer.outcome === "unreachable" ? unreachable(answer.message) : null };
+    };
+    if (given.kind === "stored") {
+      const heard = answered(await identify(kind, origin, given.token));
+      if (heard.rejected !== undefined) return heard;
       const entry = await store(id, given.token, context);
-      const { identity, problem } = answered(answer);
-      return { source: storedSource(given.provenance, entry, context), identity, problem, held: formed?.(kind, identity?.login ?? target.login) ?? null };
+      return { ...heard, source: storedSource(given.provenance, entry, context), held: formed?.(kind, heard.identity?.login ?? target.login) ?? null };
     }
     const source: ForgeCredentialSource = given.kind === "gh" ? { kind: "gh", login: given.login } : { kind: "reference", reference: given.reference };
     const read = await readCredential({ ...target, credential: source }, purpose);
@@ -369,8 +383,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     } finally {
       read.release();
     }
-    if (answer.outcome === "refused") return { rejected: verificationFailed(origin, answer) };
-    return { source, ...answered(answer), held: null };
+    const heard = answered(answer);
+    return heard.rejected !== undefined ? heard : { ...heard, source, held: null };
   };
 
   /** Refuses `gh` and a client's `gh` for a forge account that is not GitHub's: `gh` holds GitHub tokens alone. */
@@ -400,7 +414,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const doomed = addRefusal(forgeAccountId, origin, params.slug);
       if (doomed !== null) return rejecting<"forge.accounts.add">(doomed);
 
-      const checked = await check({ id: forgeAccountId, origin, kind, login: null }, given, context, formed, "add");
+      const checked = await check<never>({ target: { id: forgeAccountId, origin, kind, login: null }, given, context, formed, purpose: "add", refuse: () => null });
       if (checked.rejected !== undefined) return rejecting<"forge.accounts.add">(checked.rejected);
 
       return (_params, command) => {
@@ -457,14 +471,19 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const formed = given?.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
       const doomed = updateRefusal(forgeAccountId, params.slug, null);
       if (doomed !== null) return rejecting<"forge.accounts.update">(doomed);
-      let replacement: Extract<Checked, { rejected?: undefined }> | null = null;
+      let replacement: Accepted | null = null;
       if (given !== undefined) {
         const { kind, origin, identity } = recordOf(forgeAccountId);
         refuseGhOffGitHub(given, kind);
-        const checked = await check({ id: forgeAccountId, origin, kind, login: identity?.login ?? null }, given, context, formed, "update");
+        const checked = await check({
+          target: { id: forgeAccountId, origin, kind, login: identity?.login ?? null },
+          given,
+          context,
+          formed,
+          purpose: "update",
+          refuse: (found) => updateRefusal(forgeAccountId, params.slug, found),
+        });
         if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
-        const mismatch = updateRefusal(forgeAccountId, params.slug, checked.identity);
-        if (mismatch !== null) return rejecting<"forge.accounts.update">(mismatch);
         replacement = checked;
       }
       const replacing = replacement;

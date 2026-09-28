@@ -427,6 +427,21 @@ describe("forge.accounts.update", () => {
     expect(await saidBack(t, [TOKEN, OTHER_TOKEN, "token-nobody-knows"])).toEqual(["[redacted]", OTHER_TOKEN, "token-nobody-knows"]);
   });
 
+  it("refuses a credential answering as another user id before writing it to the vault", async () => {
+    const dataDir = dataDirectory();
+    const vault = fileVault(join(dataDir, VAULT_FILE));
+    const written: string[] = [];
+    const recording = { ...vault, set: (key: string, value: string) => (written.push(value), vault.set(key, value)) };
+    const { forge, client } = await withForge({ dataDir, vault: recording });
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.user(OTHER_TOKEN, { login: "someone", id: 7 });
+
+    const mismatched = await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    expect(rejection(mismatched.receipt)).toMatchObject({ reason: "identity_mismatch" });
+    expect(written).not.toContain(OTHER_TOKEN);
+    expect(written).toContain(TOKEN);
+  });
+
   it("gives a forge account added while its forge did not answer the identity its new credential answers as, and clears the problem", async () => {
     const { forge, client } = await withForge();
     forge.answer(TOKEN, "GET /api/v1/user", { status: 502 });

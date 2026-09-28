@@ -120,6 +120,8 @@ export interface TestEnvironmentOptions {
   readonly gh?: EnvironmentOptions["gh"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's, with no connection. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
+  /** The vault the environment holds; preset: the file vault in the data directory. */
+  readonly vault?: EnvironmentOptions["vault"];
 }
 
 /** A PATH with nothing on it: where a test environment looks for `gh` unless the test gives it one. */
@@ -281,6 +283,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     gh: options.gh ?? managedGh({ hostEnv: { PATH: EMPTY_PATH } }),
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+    ...(options.vault !== undefined && { vault: options.vault }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;
