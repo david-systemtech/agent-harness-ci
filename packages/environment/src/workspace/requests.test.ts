@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,7 +10,7 @@ import { fakePty } from "../../test/fake-pty.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, get, refusal } from "../../test/sessions.js";
 import { openTerminal } from "../../test/terminals.js";
-import { makeDirectory, scriptedResolver } from "../../test/workspaces.js";
+import { git, makeDirectory, scriptedResolver } from "../../test/workspaces.js";
 import { createWorkspaceResolver } from "./resolver.js";
 
 /**
@@ -256,14 +255,6 @@ describe("the prepared command's undo", () => {
 });
 
 describe("a workspace of any kind", () => {
-  /** Runs git in `cwd` with no global or system configuration. */
-  const git = (cwd: string, ...args: string[]): string =>
-    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args], {
-      cwd,
-      encoding: "utf8",
-      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
-    });
-
   it("is read by its path alone: a fork shares it, and commands, terminals, files, diffs and a run find it there", async () => {
     const root = tempDir();
     git(root, "init", "-q");
