@@ -43,7 +43,7 @@ The window is Artemis's: a sidebar of every environment's sessions, a grid of up
 25. As a provider adapter, I want an unknown event drawn as one opaque row and a verb my adapter lacks drawn dim with my reason, so that an older window survives a newer environment.
 26. As a client developer in another language, I want the row registry, the address table, the GUI key column and the theme's derivation in the contracts and theme packages, so that my client lands on the same rows, keys and colours.
 27. As a build session, I want every surface rendered from the client runtime against a scripted fake environment in a DOM test renderer, and a lint refusing any literal colour, so that each story is a test and no colour escapes the tokens.
-28. As David, with several sessions open side by side, I want to drag a new session onto the grid, or start one in a new pane from the keyboard or the palette, so that it opens in a pane of its own beside the others and no conversation I have open is replaced (Artemis can only start a new session over an open pane).
+28. As David, with several sessions open side by side, I want to drag a new session onto the grid, or start one in a new pane from the keyboard or the palette, so that it opens in a pane of its own beside the others and no conversation I have open is replaced
 
 ## Implementation Decisions
 
@@ -233,7 +233,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 
 ## Further Notes
 
-- **A new session in a new pane** (added 2026-09-28 at David's request, story 28): Artemis can only start a new session over a pane that shows one, so with several conversations open he had to pick one to cover. Dragging the New session control onto the grid, or `app.session.newInPane`, adds a pane instead. The pane's chips preset from the pane it lands beside because that is the environment and workspace he was looking at; the picker's own presets (workspace-picker spec) apply when it lands beside none.
+- **A new session in a new pane** (added 2026-09-28 at David's request, story 28): starting a new session must never cover a conversation already open in the grid. Dragging the New session control onto the grid, or `app.session.newInPane`, adds a pane instead. The pane's chips preset from the pane it lands beside because that is the environment and workspace he was looking at; the picker's own presets (workspace-picker spec) apply when it lands beside none.
 
 **Chosen defaults** not decided on a ticket, for review:
 
