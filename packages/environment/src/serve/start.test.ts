@@ -14,6 +14,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import {
+  NO_LAUNCHER,
   RootRefusedError,
   ROOT_REFUSAL,
   SIGNING_KEY,
@@ -52,6 +53,7 @@ const recordingLauncher = (onPrepared?: () => void | Promise<void>, onClose?: ()
   const channel: LauncherChannel = {
     present: () => false,
     onQuery: () => undefined,
+    request: () => Promise.resolve(NO_LAUNCHER),
     prepared: async () => {
       signals.push("prepared");
       await onPrepared?.();
@@ -411,6 +413,7 @@ describe("the startup gate", () => {
           throw new Error("the launcher has gone");
         },
         onQuery: () => undefined,
+        request: () => Promise.resolve(NO_LAUNCHER),
         close: () => undefined,
       },
       hooks: { beforeStep: (_step, progress) => void (address = progress.address) },

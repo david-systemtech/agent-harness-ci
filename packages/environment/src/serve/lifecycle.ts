@@ -4,11 +4,12 @@ import type {
   EnvironmentActivity,
   EnvironmentReadiness,
   EnvironmentStatus,
+  LauncherQuery,
+  LauncherReply,
 } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { StreamSource } from "../wire/subscriptions.js";
 import type { Clock } from "./clock.js";
-import type { LauncherQuery, LauncherReply } from "./launcher.js";
 import type { MethodHandlers } from "./methods.js";
 import { activityOf, type RunRegistry } from "./run-registry.js";
 

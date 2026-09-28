@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DISCOVERY_PATH } from "@agent-harness/contracts";
-import { createRunRegistry, systemClock, type ContainmentProbe, type LauncherQuery, type LauncherReply } from "@agent-harness/environment";
+import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, DISCOVERY_PATH, type LauncherQuery, type LauncherReply } from "@agent-harness/contracts";
+import { HARNESS_VERSION, NO_LAUNCHER, createRunRegistry, systemClock, type ContainmentProbe } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
 
@@ -52,7 +52,7 @@ const harness = () => {
     stopRequested: () => stopped,
     environment: {
       user: { isPrivileged: () => false },
-      launcher: { present: () => true, prepared, close, onQuery: (respond) => void (answer = respond) },
+      launcher: { present: () => true, prepared, close, onQuery: (respond) => void (answer = respond), request: () => Promise.resolve(NO_LAUNCHER) },
       runs,
       interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
       probeContainment: async () => NO_BUBBLEWRAP,
@@ -70,6 +70,7 @@ describe("agent-harness serve", () => {
     const address = cli.out().trim();
     expect(address).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+${DISCOVERY_PATH.replaceAll(".", "\\.")}$`));
     expect(cli.prepared).toHaveBeenCalledOnce();
+    expect(cli.prepared).toHaveBeenCalledWith(HARNESS_VERSION);
     const discovery = (await (await fetch(address)).json()) as Record<string, unknown>;
     expect(discovery).toMatchObject({ environmentName: "cli", readiness: "ready" });
 
@@ -79,6 +80,26 @@ describe("agent-harness serve", () => {
     expect(cli.close).toHaveBeenCalledOnce();
     await expect(fetch(address)).rejects.toThrow();
     expect(cli.err()).toBe("");
+  });
+
+  it("prints the discovery address only once the launcher has committed the version serve said it runs", async () => {
+    const cli = harness();
+    let commit!: () => void;
+    cli.prepared.mockImplementation(() => new Promise<void>((resolve) => (commit = resolve)));
+    const dataDir = join(tempDir(), "data");
+    const exit = runCli(["serve", "--data-dir", dataDir, "--port", "0"], cli.context);
+    await vi.waitFor(() => expect(cli.prepared).toHaveBeenCalledWith(HARNESS_VERSION), SERVE_WAIT);
+
+    const { address } = BootstrapGrant.parse(JSON.parse(readFileSync(join(dataDir, BOOTSTRAP_GRANT_FILE), "utf8")));
+    const discovery = `http://${address.host}:${address.port}${DISCOVERY_PATH}`;
+    expect(await (await fetch(discovery)).json()).toMatchObject({ readiness: "starting" });
+    expect(cli.out()).toBe("");
+
+    commit();
+    await vi.waitFor(() => expect(cli.out()).toBe(`${discovery}\n`), SERVE_WAIT);
+    expect(await (await fetch(discovery)).json()).toMatchObject({ readiness: "ready" });
+    cli.stop();
+    expect(await exit).toBe(0);
   });
 
   it("drains on a stop request (SIGTERM): draining while a run holds it, then exits 0 once the run has ended", async () => {

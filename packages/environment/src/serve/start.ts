@@ -150,7 +150,7 @@ export interface StartupHooks {
   beforeStep?(step: StartupStep, progress: StartupProgress): void | Promise<void>;
 }
 
-/** A startup step failed. Everything opened before it was closed, and `prepared` was never signalled. */
+/** A startup step failed. Everything opened before it was closed, and the wire never opened: `prepared` was never signalled, or never committed. */
 export class StartupError extends Error {
   readonly step: StartupStep;
 
@@ -380,8 +380,9 @@ const passwdName = (): string | undefined => {
  * Starts an environment: refuses root before anything is created, then runs
  * the startup steps in order. Discovery and health are routed before the bind,
  * so they answer `starting` from the first byte; readiness is `ready` only
- * once `prepared` has been signalled. A failed step closes what was opened,
- * signals nothing, and rejects with a `StartupError` naming the step.
+ * once `prepared` has been signalled and, under a launcher, committed. A
+ * failed step closes what was opened, signals nothing, and rejects with a
+ * `StartupError` naming the step.
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
@@ -782,9 +783,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Closed before the wire and the listeners: an answer still open ends with a final chunk, never a bare close.
   closers.push(() => completions.close());
 
-  await step("prepared", () => launcher.prepared());
+  // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire answers nothing,
+  // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
+  await step("prepared", () => launcher.prepared(HARNESS_VERSION));
   readiness = "ready";
-  // Only a start the launcher accepted is noted, and before the wire opens, so a first subscriber finds it.
+  // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
     log.append(
       environmentStream,

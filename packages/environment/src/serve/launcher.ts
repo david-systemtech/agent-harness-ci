@@ -1,41 +1,61 @@
-import type { DrainStarted, EnvironmentStatus } from "@agent-harness/contracts";
+import {
+  answersRequest,
+  parseLauncherMessage,
+  type EnvironmentMessage,
+  type EnvironmentRequest,
+  type LauncherQuery,
+  type LauncherReply,
+  type RequestAnswers,
+} from "@agent-harness/contracts";
 
 /**
- * The child's side of the launcher's channel (ADR 0007), and the one place
- * its messages are defined. The environment sends `{type: "prepared"}` once
- * its startup gate is passed, so a trial version that cannot serve is rolled
- * back. After that the launcher may ask two things, each answered with one
- * reply:
+ * The environment's side of the launcher's channel (ADR 0007). Its messages
+ * have one definition, shared with the launcher, in the contracts' launcher
+ * module; a message the environment does not know is ignored. Once its
+ * startup gate is passed the environment says `prepared` with the version it
+ * runs, and waits for the launcher's `committed` before it serves anything,
+ * so a trial the launcher rolls back never served a person. It asks the
+ * launcher `install?`, `switch?` and `versions?`, each answered once, and
+ * answers the launcher's `idle?` and `drain?`.
  *
- * - `{type: "idle?"}` → `{type: "idle", ...status}`: the status document
- *   `environment.status` answers (readiness, activity, updatesManagedOutside);
- *   the environment is idle when `activity.state` is `idle`.
- * - `{type: "drain?"}` → `{type: "draining", ...DrainStarted}`: the drain
- *   begins, or the one under way is joined, and the reply says since when and
- *   what started it.
- *
- * Any other message is ignored. The channel is let go by `close`, which the
- * environment calls last when it closes (or when a start fails), so an open
- * channel never keeps a finished process alive. After a drain, the channel
- * closing is the report that the environment is done: every provider
- * process has stopped, or was killed once the stop timeout passed.
+ * The channel is let go by `close`, which the environment calls last when it
+ * closes (or when a start fails), so an open channel never keeps a finished
+ * process alive. After a drain, the channel closing is the report that the
+ * environment is done: every provider process has stopped, or was killed
+ * once the stop timeout passed.
  */
-export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain?" };
 
-/** The environment's reply to a `LauncherQuery`, as the pairs above. */
-export type LauncherReply = ({ readonly type: "idle" } & EnvironmentStatus) | ({ readonly type: "draining" } & DrainStarted);
+/** A request refused on the environment's own side, never waited on: no launcher is behind the channel, or it went before answering. */
+export interface NoLauncher {
+  readonly type: "refused";
+  readonly reason: "no-launcher";
+}
+
+/** The refusal of a request no launcher answers. */
+export const NO_LAUNCHER: NoLauncher = { type: "refused", reason: "no-launcher" };
+
+/** What a request of type `T` settles with: the launcher's answer, or the refusal when no launcher answers. */
+export type AnswerTo<T extends EnvironmentRequest["type"]> = RequestAnswers[T] | NoLauncher;
 
 export interface LauncherChannel {
   /** Whether a launcher is behind the channel; with none, and in a container, updates are managed outside. */
   present(): boolean;
-  prepared(): void | Promise<void>;
+  /**
+   * Says the startup gate is passed, running `version`, and settles once the
+   * launcher has committed that version; at once when no launcher is
+   * present. Rejects when the launcher goes before committing.
+   */
+  prepared(version: string): void | Promise<void>;
   /** Answers the launcher's queries with `answer` from now until `close`; the environment calls it once, when it is ready. */
   onQuery(answer: (query: LauncherQuery) => LauncherReply): void;
+  /**
+   * Asks the launcher `request`, and settles with its answer. Refused
+   * `no-launcher` at once when no launcher is present or the channel is
+   * closed, and when the launcher goes before answering.
+   */
+  request<T extends EnvironmentRequest["type"]>(request: Extract<EnvironmentRequest, { readonly type: T }>): Promise<AnswerTo<T>>;
   close(): void | Promise<void>;
 }
-
-/** The message a launcher that spawned the environment with an IPC channel receives. */
-export const PREPARED_MESSAGE = { type: "prepared" } as const;
 
 /** The parts of `process` the preset uses. */
 export interface IpcProcess {
@@ -43,15 +63,10 @@ export interface IpcProcess {
   readonly send?: ((message: unknown, callback: (error: Error | null) => void) => boolean) | undefined;
   readonly disconnect: () => void;
   /** Hears every message the launcher sends; returns the unsubscribe. */
-  readonly onMessage?: ((listener: (message: unknown) => void) => () => void) | undefined;
+  readonly onMessage: (listener: (message: unknown) => void) => () => void;
+  /** Hears the channel close from the launcher's side; returns the unsubscribe. */
+  readonly onDisconnect: (listener: () => void) => () => void;
 }
-
-/** The query `message` is, if it is one; the launcher's other messages are not the environment's to answer. */
-const queryOf = (message: unknown): LauncherQuery | undefined => {
-  if (typeof message !== "object" || message === null) return undefined;
-  const type = (message as { type?: unknown }).type;
-  return type === "idle?" || type === "drain?" ? { type } : undefined;
-};
 
 const ipcOf = (proc: NodeJS.Process): IpcProcess => {
   const send = proc.send?.bind(proc);
@@ -65,50 +80,126 @@ const ipcOf = (proc: NodeJS.Process): IpcProcess => {
       proc.on("message", listener);
       return () => void proc.off("message", listener);
     },
+    onDisconnect: (listener) => {
+      proc.on("disconnect", listener);
+      return () => void proc.off("disconnect", listener);
+    },
   };
 };
 
 /**
  * The preset channel: over the IPC channel when a launcher spawned the
- * environment with one, and a no-op when `serve` runs in the foreground.
- * A signal the channel cannot deliver, or a launcher that disconnected before
- * the gate, fails the start. Each query is answered with one reply message;
- * a reply the launcher is no longer there to take is dropped; the foreground
- * channel ignores queries, since no launcher asks them. `close` stops
- * listening and disconnects the channel if it is still connected.
+ * environment with one, and with no launcher when `serve` runs in the
+ * foreground, where `prepared` settles at once, requests are refused at once
+ * and queries never come. A `prepared` the channel cannot deliver, or a
+ * launcher that disconnected before committing, fails the start. A reply to
+ * a query the launcher is no longer there to take is dropped. `close` stops
+ * listening, refuses what is still outstanding, and disconnects the channel
+ * if it is still connected.
  */
 export const processLauncherChannel = (proc: IpcProcess = ipcOf(process)): LauncherChannel => {
+  const send = proc.send;
+  let answerQuery: ((query: LauncherQuery) => LauncherReply) | undefined;
+  let commit: { readonly resolve: () => void; readonly reject: (error: Error) => void } | undefined;
+  const outstanding = new Map<number, { readonly type: EnvironmentRequest["type"]; readonly settle: (answer: unknown) => void }>();
+  let lastId = 0;
   let stopListening: (() => void) | undefined;
+  let closed = false;
+
+  /** The launcher can no longer answer: a commit still awaited fails with `why`, and every outstanding request is refused. */
+  const unanswerable = (why: string) => {
+    if (commit) {
+      commit.reject(new Error(why));
+      commit = undefined;
+    }
+    for (const [id, waiting] of outstanding) {
+      outstanding.delete(id);
+      waiting.settle(NO_LAUNCHER);
+    }
+  };
+
+  const hear = (raw: unknown) => {
+    const message = parseLauncherMessage(raw);
+    if (message === undefined) return;
+    switch (message.type) {
+      case "committed":
+        commit?.resolve();
+        commit = undefined;
+        return;
+      case "idle?":
+      case "drain?": {
+        if (!answerQuery || !send) return;
+        try {
+          const reply = answerQuery(message);
+          if (proc.connected) send(reply, () => undefined);
+        } catch (error) {
+          console.error(`Answering the launcher's ${message.type} query failed:`, error);
+        }
+        return;
+      }
+      default: {
+        const { id, ...answer } = message;
+        const waiting = outstanding.get(id);
+        if (!waiting || !answersRequest(waiting.type, message)) return;
+        outstanding.delete(id);
+        waiting.settle(answer);
+      }
+    }
+  };
+
+  const listen = () => {
+    if (stopListening || closed || !send) return;
+    const stopMessages = proc.onMessage(hear);
+    const stopDisconnect = proc.onDisconnect(() => unanswerable("The launcher's channel disconnected before the launcher committed."));
+    stopListening = () => {
+      stopMessages();
+      stopDisconnect();
+    };
+  };
+
+  /** Sends `message`, calling `failed` when the channel cannot deliver it. */
+  const post = (message: EnvironmentMessage, failed: (error: Error) => void) =>
+    send?.(message, (error) => {
+      if (error) failed(error);
+    });
+
   return {
-    present: () => proc.send !== undefined,
-    prepared: () => {
-      const send = proc.send;
+    present: () => send !== undefined,
+    prepared: (version) => {
       if (!send) return Promise.resolve();
       // A launcher spawned this environment and has since gone: the gate cannot be reported, so the start fails.
       if (!proc.connected) return Promise.reject(new Error("The launcher's channel disconnected before prepared could be sent."));
+      listen();
       return new Promise<void>((resolve, reject) => {
-        send(PREPARED_MESSAGE, (error) => (error ? reject(error) : resolve()));
+        commit = { resolve, reject };
+        post({ type: "prepared", version }, (error) => {
+          commit = undefined;
+          reject(error);
+        });
       });
     },
     onQuery: (answer) => {
-      const send = proc.send;
-      if (!send || !proc.onMessage) return;
-      stopListening?.();
-      stopListening = proc.onMessage((message) => {
-        const query = queryOf(message);
-        if (!query) return;
-        try {
-          const reply = answer(query);
-          if (proc.connected) send(reply, () => undefined);
-        } catch (error) {
-          console.error(`Answering the launcher's ${query.type} query failed:`, error);
-        }
+      answerQuery = answer;
+      listen();
+    },
+    request: <T extends EnvironmentRequest["type"]>(request: Extract<EnvironmentRequest, { readonly type: T }>): Promise<AnswerTo<T>> => {
+      if (!send || closed || !proc.connected) return Promise.resolve(NO_LAUNCHER);
+      listen();
+      const id = ++lastId;
+      return new Promise<AnswerTo<T>>((resolve) => {
+        outstanding.set(id, { type: request.type, settle: resolve as (answer: unknown) => void });
+        post({ ...request, id }, () => {
+          if (outstanding.delete(id)) resolve(NO_LAUNCHER);
+        });
       });
     },
     close: async () => {
+      closed = true;
       stopListening?.();
       stopListening = undefined;
-      if (proc.send && proc.connected) proc.disconnect();
+      answerQuery = undefined;
+      unanswerable("The launcher's channel was closed before the launcher committed.");
+      if (send && proc.connected) proc.disconnect();
     },
   };
 };

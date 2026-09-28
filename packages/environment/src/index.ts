@@ -239,12 +239,12 @@ export {
 } from "./serve/interfaces.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
 export {
-  PREPARED_MESSAGE,
+  NO_LAUNCHER,
   processLauncherChannel,
+  type AnswerTo,
   type IpcProcess,
   type LauncherChannel,
-  type LauncherQuery,
-  type LauncherReply,
+  type NoLauncher,
 } from "./serve/launcher.js";
 export {
   isDeclaredContainer,
