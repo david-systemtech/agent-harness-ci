@@ -8,7 +8,14 @@ an identity, and update the remotes of any clone.
 This repository, its pull requests, issues and commits name no predecessor
 product. Describe behaviour, rules and facts directly; never compare them to
 a predecessor, and never point at one through a stand-in name such as "the
-previous app" or "the legacy app".
+previous app" or "the legacy app". Before pushing or posting, `grep -i` what
+you wrote for the predecessor product's name: it must find nothing.
+
+One exception: the state import's source reader,
+`packages/environment/src/state-import/source/`, may contain the source
+product's folder names and environment variables, because detecting its data
+folder needs them (ADR 0036). The name grep before a push skips that directory's
+files and nothing else; posts on the tracker get no exemption.
 
 ## Agent skills
 

@@ -21,3 +21,4 @@ Decided 2026-09-23 on the map ticket "Account step: hosted sign-in in the wizard
 - The step registry entry: writes accounts, the default account and family; checks signed-in status per account; links the Accounts pane. The terminal UI can start a sign-in and take the code, since both are commands on the wire.
 - The Claude adapter specification (issue 82) verifies session-store resume across two config directories and the bundled CLI's `auth login` before either is relied on.
 - Whether the user's own `claude` in a terminal, outside the harness, should see the environment's skills and memory is left in the fog.
+- Amended by ADR 0036: a Claude config directory the state import finds listed is adopted in place on the same terms as the machine's own.

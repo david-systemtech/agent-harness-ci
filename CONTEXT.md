@@ -29,12 +29,16 @@ The environment running a provider's own CLI (Claude's bundled binary, `auth log
 _Avoid_: login (the provider's credential itself), authentication, OAuth flow
 
 **Adopted account**:
-An account whose config directory is the machine's own provider directory, registered in place; never moved, linked or deleted by the harness.
+An account whose config directory existed before the harness and is registered in place: the machine's own provider directory, or one listed in the data folder the state import reads; never moved, linked or deleted by the harness.
 _Avoid_: carried-over profile, imported account
 
 **Imported session**:
-A session record the Carry over step creates from a transcript found in an adopted directory, with its title, workspace, repository identity and provider session id set at once and its history appended to the log the first time a client opens it.
+A session record the Carry over step creates from a transcript found in an adopted directory or an import source, with its title, workspace, repository identity and provider session id set at once and its history appended to the log the first time a client opens it.
 _Avoid_: migrated session, legacy session, provider session (the provider's own record the imported session links, defined below, not the session)
+
+**State import**:
+The re-runnable environment command that reads another program's data and state folders on the same machine and carries what it can through the services that own each kind of state: provider directories adopted in place, organisation state, banks, forge accounts, key-manager records, routines (disabled, bar one imported from its document), skill sources, instructions and the browser's page policy; what it cannot carry is named on its report.
+_Avoid_: migration, carry-over (the step that imports each adopted account's sessions, memory and skills, from its directory or an import source)
 
 **Session**:
 One conversation with an agent, owned by exactly one environment.
