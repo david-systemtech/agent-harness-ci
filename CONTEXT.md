@@ -228,6 +228,18 @@ _Avoid_: intermediate version, hop, bridge release
 The file whoever rolled an update back leaves in the data directory (the launcher after a failed trial or a crash loop, a container's `update restore`), naming the update, its versions, the stage and the reason; the environment reads it as it settles that update, then deletes it.
 _Avoid_: rollback log, result file, the outcome (the notice it becomes)
 
+**Trial**:
+A version's first start after a switch, which serves nothing until the launcher commits it: it must say it is prepared, for itself, within 120 seconds of its spawn, or it is ended and its update rolled back.
+_Avoid_: canary, probation, test start
+
+**Database snapshot**:
+The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial, in a folder named by that id; a rollback copies it back.
+_Avoid_: backup (a copy a person keeps), checkpoint (SQLite's own)
+
+**Restore marker**:
+The file in the data directory that is there from before a rollback copies the database snapshot back until its outcome record is written, holding that record, so a restore cut short is finished before anything opens the database.
+_Avoid_: lock file, restore flag
+
 **Host-side updater**:
 The published script that carries out the update coordinator's plan for a container, which cannot replace itself: it polls the environment, pulls the target image by its digest, stops, snapshots, recreates, checks health and rolls back on failure.
 _Avoid_: Watchtower, container updater, sidecar

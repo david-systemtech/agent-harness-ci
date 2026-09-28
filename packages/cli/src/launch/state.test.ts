@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -64,6 +64,10 @@ const recordingFs = (dataDir: string): { readonly fs: DurableFs; readonly calls:
       calls.push(`rename ${name(from)} to ${name(to)}`);
       renameSync(from, to);
     },
+    linkSync: (existing, path) => {
+      calls.push(`link ${name(existing)} as ${name(path)}`);
+      linkSync(existing, path);
+    },
     rmSync: (path, options) => {
       calls.push(`remove ${name(path)}`);
       rmSync(path, options);
@@ -126,6 +130,23 @@ describe("the service state", () => {
     expect(readdirSync(dataDir)).toEqual([SERVICE_STATE_FILE]);
   });
 
+  it("keeps the state it had, and leaves no temporary file, when writing or fsyncing the temporary file fails", () => {
+    const dataDir = dataDirectory();
+    writeServiceState(dataDir, state);
+    const { fs } = recordingFs(dataDir);
+    const failing = (step: "writeFileSync" | "fsyncSync"): DurableFs => ({
+      ...fs,
+      [step]: () => {
+        throw Object.assign(new Error("input/output error"), { code: "EIO" });
+      },
+    });
+    for (const step of ["writeFileSync", "fsyncSync"] as const) {
+      expect(() => writeServiceState(dataDir, { ...state, activeVersion: "0.6.0" }, failing(step)), step).toThrow("input/output error");
+      expect(readServiceState(dataDir), step).toEqual({ state });
+      expect(readdirSync(dataDir), step).toEqual([SERVICE_STATE_FILE]);
+    }
+  });
+
   it("is missing when no file is there, and says where it looked", () => {
     const dataDir = dataDirectory();
     expect(readServiceState(dataDir)).toEqual({ problem: `there is no service state at ${join(dataDir, SERVICE_STATE_FILE)}` });
@@ -158,6 +179,8 @@ describe("the service state", () => {
       [{ ...state, launcherVersion: 4 }, "launcherVersion is not a version"],
       [{ ...state, pendingUpdate: undefined }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, pendingUpdate: { updateId: "", fromVersion: "0.5.0", toVersion: "0.6.0" } }, "pendingUpdate is neither a pending-update record nor null"],
+      // The launcher names the update's snapshot folder by its id, so nothing but an update id is one.
+      [{ ...state, pendingUpdate: { updateId: "../versions", fromVersion: "0.5.0", toVersion: "0.6.0" } }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, pendingUpdate: { updateId: "u", fromVersion: "0.5.0" } }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, watchDeadline: "soon" }, "watchDeadline is neither a time nor null"],
       [{ ...state, watchDeadline: undefined }, "watchDeadline is neither a time nor null"],

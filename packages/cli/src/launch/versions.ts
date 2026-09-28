@@ -19,8 +19,9 @@ export const VERSION_SENTINEL = ".complete";
 /** The folder `version` is installed in. */
 export const versionDirectory = (dataDir: string, version: string): string => join(dataDir, VERSIONS_DIRECTORY, version);
 
-/** Whether `version` is complete in the versions directory: its folder holds the sentinel. */
-export const isComplete = (dataDir: string, version: string): boolean => existsSync(join(versionDirectory(dataDir, version), VERSION_SENTINEL));
+/** Whether `version` is complete in the versions directory: it is a version, which is all a folder there is named by, and its folder holds the sentinel. */
+export const isComplete = (dataDir: string, version: string): boolean =>
+  RELEASE_VERSION_PATTERN.test(version) && existsSync(join(versionDirectory(dataDir, version), VERSION_SENTINEL));
 
 /** The versions complete in the versions directory, sorted by their numbers for a stable answer (not by SemVer precedence); none when it does not exist. */
 export const completeVersions = (dataDir: string): string[] => {

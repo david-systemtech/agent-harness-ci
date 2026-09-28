@@ -141,7 +141,7 @@ describe("the scripted launcher channel", () => {
     const staged = join(t.dataDir, "staging", "0.5.0");
     expect(await launcher.request({ type: "install?", version: "0.5.0", staged })).toEqual({ type: "installed" });
     expect(await launcher.request({ type: "install?", version: "0.6.0", staged })).toEqual({ type: "refused", reason: "preflight" });
-    expect(await launcher.request({ type: "switch?", updateId: "u-1", version: "0.5.0" })).toEqual({ type: "refused", reason: "disk" });
+    expect(await launcher.request({ type: "switch?", updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" })).toEqual({ type: "refused", reason: "disk" });
     expect(await launcher.request({ type: "versions?" })).toEqual({
       type: "versions",
       installed: ["0.4.0", "0.5.0"],
@@ -152,7 +152,7 @@ describe("the scripted launcher channel", () => {
       { type: "prepared", version: HARNESS_VERSION },
       { type: "install?", id: 1, version: "0.5.0", staged },
       { type: "install?", id: 2, version: "0.6.0", staged },
-      { type: "switch?", id: 3, updateId: "u-1", version: "0.5.0" },
+      { type: "switch?", id: 3, updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" },
       { type: "versions?", id: 4 },
     ]);
   });
@@ -161,7 +161,7 @@ describe("the scripted launcher channel", () => {
     const launcher = testLauncher({ present: true });
     await start({ launcher });
     expect(await launcher.request({ type: "install?", version: "0.5.0", staged: "/staged" })).toEqual({ type: "installed" });
-    expect(await launcher.request({ type: "switch?", updateId: "u-1", version: "0.5.0" })).toEqual({ type: "switching" });
+    expect(await launcher.request({ type: "switch?", updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" })).toEqual({ type: "switching" });
     expect(await launcher.request({ type: "versions?" })).toEqual({
       type: "versions",
       installed: [HARNESS_VERSION],
