@@ -21,9 +21,8 @@ const tempHome = (): string => {
 };
 
 const specIn = (home: string): ServiceSpec => ({
-  program: ["/usr/bin/node", "/opt/agent-harness/dist/main.js"],
   dataDir: join(home, "state", "agent-harness"),
-  port: 7433,
+  entry: join(home, "state", "agent-harness", "launcher-entry.sh"),
 });
 
 /** A spec whose data directory exists, as the install verb leaves it before the platform writes into it. */
@@ -32,6 +31,9 @@ const preparedSpecIn = (home: string): ServiceSpec => {
   mkdirSync(spec.dataDir, { recursive: true });
   return spec;
 };
+
+/** An install that restarts a running service onto its new definition, as one over a service that runs no launcher is. */
+const RESTART = { restartRunning: true } as const;
 
 const platformFor = (platform: NodeJS.Platform, home: string, answer?: Answer, env: Record<string, string> = {}) => {
   const stub = stubRunner(answer);
@@ -72,7 +74,7 @@ describe("the systemd user unit", () => {
     const spec = specIn(home);
     const { service, calls } = platformFor("linux", home);
 
-    const installed = await service.install(spec);
+    const installed = await service.install(spec, RESTART);
 
     expect(readFileSync(unitPath(home), "utf8")).toBe(renderSystemdUnit(spec));
     expect(installed.createdDirectories).toEqual([
@@ -80,7 +82,7 @@ describe("the systemd user unit", () => {
       join(home, ".config", "systemd"),
       join(home, ".config", "systemd", "user"),
     ]);
-    expect((await service.install(spec)).createdDirectories).toEqual([]);
+    expect((await service.install(spec, RESTART)).createdDirectories).toEqual([]);
     expect(calls.slice(0, 3)).toEqual([
       "systemctl --user daemon-reload",
       "systemctl --user enable agent-harness.service",
@@ -95,7 +97,7 @@ describe("the systemd user unit", () => {
       args.includes("daemon-reload") && reloads++ === 0 ? { code: 1, stderr: "Failed to connect to bus: No medium found" } : undefined,
     );
 
-    const failure = service.install(specIn(home));
+    const failure = service.install(specIn(home), RESTART);
     await expect(failure).rejects.toThrow(ServiceCommandError);
     await expect(failure).rejects.toThrow(/systemctl --user daemon-reload.*Failed to connect to bus/s);
     expect(existsSync(unitPath(home))).toBe(false);
@@ -107,7 +109,7 @@ describe("the systemd user unit", () => {
     const home = tempHome();
     const { service, calls } = platformFor("linux", home, (_, args) => (args.includes("try-restart") ? { code: 1 } : undefined));
 
-    await expect(service.install(specIn(home))).rejects.toThrow(ServiceCommandError);
+    await expect(service.install(specIn(home), RESTART)).rejects.toThrow(ServiceCommandError);
     expect(existsSync(unitPath(home))).toBe(false);
     expect(calls).toEqual([
       "systemctl --user daemon-reload",
@@ -130,7 +132,7 @@ describe("the systemd user unit", () => {
           return args.includes(failing) ? { code: 1 } : undefined;
         });
 
-        await expect(service.install(specIn(home)), `${failing} ${previously}`).rejects.toThrow(ServiceCommandError);
+        await expect(service.install(specIn(home), RESTART), `${failing} ${previously}`).rejects.toThrow(ServiceCommandError);
         expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
         // A unit that was disabled before is disabled again once enable succeeded; an enabled one keeps its enablement.
         const disables = calls.filter((call) => call.includes(" disable "));
@@ -143,6 +145,16 @@ describe("the systemd user unit", () => {
     }
   });
 
+  it("install over a running unit asked to leave it running reloads and enables the new unit and restarts nothing", async () => {
+    const home = tempHome();
+    mkdirSync(dirname(unitPath(home)), { recursive: true });
+    writeFileSync(unitPath(home), "the previous unit\n");
+    const { service, calls } = platformFor("linux", home, (_, args) => (args.includes("is-active") ? { stdout: "active\n" } : undefined));
+    await service.install(specIn(home), { restartRunning: false });
+    expect(readFileSync(unitPath(home), "utf8")).toBe(renderSystemdUnit(specIn(home)));
+    expect(calls.filter((call) => !call.includes(" is-"))).toEqual(["systemctl --user daemon-reload", "systemctl --user enable agent-harness.service"]);
+  });
+
   it("install starts the replaced unit again when it was running and the restart onto the new one failed", async () => {
     const home = tempHome();
     mkdirSync(dirname(unitPath(home)), { recursive: true });
@@ -152,7 +164,7 @@ describe("the systemd user unit", () => {
       if (args.includes("is-enabled")) return { code: 0, stdout: "enabled\n" };
       return args.includes("try-restart") ? { code: 1 } : undefined;
     });
-    await expect(service.install(specIn(home))).rejects.toThrow(ServiceCommandError);
+    await expect(service.install(specIn(home), RESTART)).rejects.toThrow(ServiceCommandError);
     expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
     expect(calls.slice(-2)).toEqual(["systemctl --user daemon-reload", "systemctl --user start agent-harness.service"]);
   });
@@ -166,7 +178,7 @@ describe("the systemd user unit", () => {
       return args.includes("try-restart") ? { code: 1 } : undefined;
     });
 
-    await expect(service.install(specIn(home))).rejects.toThrow(ServiceCommandError);
+    await expect(service.install(specIn(home), RESTART)).rejects.toThrow(ServiceCommandError);
     expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
     expect(calls.filter((call) => call.includes(" disable "))).toEqual(["systemctl --user disable agent-harness.service"]);
   });
@@ -185,7 +197,7 @@ describe("the systemd user unit", () => {
     mkdirSync(unitPath(home), { recursive: true });
     const { service, calls } = platformFor("linux", home);
 
-    await expect(service.install(specIn(home))).rejects.toThrow(/could not read the existing definition/i);
+    await expect(service.install(specIn(home), RESTART)).rejects.toThrow(/could not read the existing definition/i);
     expect(statSync(unitPath(home)).isDirectory()).toBe(true);
     expect(calls).toEqual([]);
   });
@@ -193,7 +205,7 @@ describe("the systemd user unit", () => {
   it("uninstall stops and disables the unit, removes the file and reloads", async () => {
     const home = tempHome();
     const { service, calls } = platformFor("linux", home);
-    await service.install(specIn(home));
+    await service.install(specIn(home), RESTART);
     calls.length = 0;
 
     await service.uninstall();
@@ -232,7 +244,7 @@ describe("the systemd user unit", () => {
     );
     expect(await service.isInstalled()).toBe(false);
     expect(await service.isRunning()).toBe(false);
-    await service.install(specIn(home));
+    await service.install(specIn(home), RESTART);
     active = true;
     expect(await service.isInstalled()).toBe(true);
     expect(await service.isRunning()).toBe(true);
@@ -277,7 +289,7 @@ describe("the launchd agent", () => {
     const spec = specIn(home);
     const { service, calls } = platformFor("darwin", home, notLoaded);
 
-    const installed = await service.install(spec);
+    const installed = await service.install(spec, RESTART);
 
     expect(readFileSync(plistPath(home), "utf8")).toBe(renderLaunchdPlist(spec));
     expect(installed.createdDirectories).toEqual([join(home, "Library"), join(home, "Library", "LaunchAgents")]);
@@ -294,7 +306,7 @@ describe("the launchd agent", () => {
       return loaded("running")(command, args);
     });
 
-    await expect(service.install(specIn(home))).rejects.toThrow(/Input\/output error/);
+    await expect(service.install(specIn(home), RESTART)).rejects.toThrow(/Input\/output error/);
     expect(readFileSync(plistPath(home), "utf8")).toBe("the previous agent\n");
     expect(calls).toEqual([
       "launchctl print gui/501/agent-harness",
@@ -308,14 +320,14 @@ describe("the launchd agent", () => {
     const home = tempHome();
     mkdirSync(plistPath(home), { recursive: true });
     const { service, calls } = platformFor("darwin", home, loaded("running"));
-    await expect(service.install(specIn(home))).rejects.toThrow(/could not read the existing definition/i);
+    await expect(service.install(specIn(home), RESTART)).rejects.toThrow(/could not read the existing definition/i);
     expect(calls).toEqual([]);
   });
 
   it("install boots out a loaded agent and bootstraps the new one when the old one was running", async () => {
     const home = tempHome();
     const { service, calls } = platformFor("darwin", home, loaded("running"));
-    await service.install(specIn(home));
+    await service.install(specIn(home), RESTART);
     expect(calls).toEqual([
       "launchctl print gui/501/agent-harness",
       "launchctl bootout gui/501/agent-harness",
@@ -323,10 +335,18 @@ describe("the launchd agent", () => {
     ]);
   });
 
+  it("install over a running agent asked to leave it running writes the new agent for its next load and unloads nothing", async () => {
+    const home = tempHome();
+    const { service, calls } = platformFor("darwin", home, loaded("running"));
+    await service.install(specIn(home), { restartRunning: false });
+    expect(readFileSync(plistPath(home), "utf8")).toBe(renderLaunchdPlist(specIn(home)));
+    expect(calls).toEqual(["launchctl print gui/501/agent-harness"]);
+  });
+
   it("install boots out a loaded agent that was not running and leaves it for start", async () => {
     const home = tempHome();
     const { service, calls } = platformFor("darwin", home, loaded("not running"));
-    await service.install(specIn(home));
+    await service.install(specIn(home), RESTART);
     expect(calls).toEqual(["launchctl print gui/501/agent-harness", "launchctl bootout gui/501/agent-harness"]);
   });
 
@@ -346,7 +366,7 @@ describe("the launchd agent", () => {
   it("uninstall boots out a loaded agent and removes the file", async () => {
     const home = tempHome();
     const { service, calls } = platformFor("darwin", home, loaded("running"));
-    await service.install(specIn(home));
+    await service.install(specIn(home), RESTART);
     calls.length = 0;
 
     await service.uninstall();
@@ -388,7 +408,7 @@ describe("the Task Scheduler logon task", () => {
       { USERDOMAIN: "GAMINGPC" },
     );
 
-    await service.install(spec);
+    await service.install(spec, RESTART);
 
     expect(calls).toEqual([
       "schtasks /Query /TN agent-harness",
@@ -407,7 +427,7 @@ describe("the Task Scheduler logon task", () => {
     const { service } = platformFor("win32", home, (_, args) =>
       args[0] === "/Create" ? { code: 1, stderr: "ERROR: Access is denied." } : { code: 1 },
     );
-    await expect(service.install(spec)).rejects.toThrow(/Access is denied/);
+    await expect(service.install(spec, RESTART)).rejects.toThrow(/Access is denied/);
     expect(existsSync(join(spec.dataDir, "service-task.xml"))).toBe(false);
   });
 
@@ -415,7 +435,7 @@ describe("the Task Scheduler logon task", () => {
     const home = tempHome();
     const spec = preparedSpecIn(home);
     const { service, calls } = platformFor("win32", home, running);
-    await service.install(spec);
+    await service.install(spec, RESTART);
     expect(calls).toEqual([
       "schtasks /Query /TN agent-harness",
       "schtasks /Query /TN agent-harness /FO CSV /NH",
@@ -424,6 +444,14 @@ describe("the Task Scheduler logon task", () => {
       "schtasks /End /TN agent-harness",
       "schtasks /Run /TN agent-harness",
     ]);
+  });
+
+  it("install over a running task asked to leave it running replaces the task and neither ends nor reruns it", async () => {
+    const home = tempHome();
+    const spec = preparedSpecIn(home);
+    const { service, calls } = platformFor("win32", home, running);
+    await service.install(spec, { restartRunning: false });
+    expect(calls.filter((call) => !call.startsWith("schtasks /Query"))).toEqual([`schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`]);
   });
 
   it("install puts the previous task back and runs it again when rerunning the task fails after /Create", async () => {
@@ -435,7 +463,7 @@ describe("the Task Scheduler logon task", () => {
       if (args.includes("/End")) return { code: 1, stderr: "ERROR: The task is not running." };
       return running(_, args);
     });
-    await expect(service.install(spec)).rejects.toThrow(ServiceCommandError);
+    await expect(service.install(spec, RESTART)).rejects.toThrow(ServiceCommandError);
     const create = `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`;
     expect(calls.filter((call) => !call.startsWith("schtasks /Query"))).toEqual([
       create,
@@ -454,7 +482,7 @@ describe("the Task Scheduler logon task", () => {
       if (args[0] === "/Create") written = readFileSync(join(spec.dataDir, "service-task.xml")).subarray(2).toString("utf16le");
       return args.includes("CSV") ? { code: 1 } : undefined;
     });
-    await service.install(spec);
+    await service.install(spec, RESTART);
     expect(written).toBe(renderTaskXml(spec, "david"));
   });
 
@@ -466,7 +494,7 @@ describe("the Task Scheduler logon task", () => {
       if (args.includes("/End")) return { code: 1 };
       return running(_, args);
     });
-    await expect(service.install(spec)).rejects.toThrow(ServiceCommandError);
+    await expect(service.install(spec, RESTART)).rejects.toThrow(ServiceCommandError);
     expect(calls.filter((call) => call.includes("/Delete") || call.includes("/Create")).length).toBe(1);
   });
 
@@ -481,7 +509,7 @@ describe("the Task Scheduler logon task", () => {
       if (args.includes("/Run") && creates === 1) return { code: 1 };
       return running(_, args);
     });
-    await expect(service.install(spec)).rejects.toThrow(ServiceCommandError);
+    await expect(service.install(spec, RESTART)).rejects.toThrow(ServiceCommandError);
     expect(calls.slice(-2)).toEqual([
       `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`,
       "schtasks /Run /TN agent-harness",

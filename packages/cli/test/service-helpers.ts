@@ -1,14 +1,16 @@
 /**
  * Test helpers for the service verbs: a command runner that records what it
  * is asked to run and answers from a script, an install context rooted in a temporary
- * home, and a listing of every path under a directory. Test-only: not under
- * `src/`, so never built or shipped.
+ * home, a release's unpacked artefact to install from, and a listing of every
+ * path under a directory. Test-only: not under `src/`, so never built or shipped.
  */
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { VERSION_CLI_ENTRY } from "../src/launch/versions.js";
 import type { CommandResult, CommandRunner } from "../src/service/runner.js";
 import type { InstallContext } from "../src/service/spec.js";
+import { layOutVersion } from "./launcher-fixtures.js";
 
 /** Answers one command, or leaves it to the preset: exit 0, no output. */
 export type Answer = (command: string, args: readonly string[]) => Partial<CommandResult> | undefined;
@@ -48,3 +50,14 @@ export const snapshot = (root: string): Record<string, string> =>
       return [path, statSync(full).isDirectory() ? "<dir>" : readFileSync(full, "base64")];
     }),
   );
+
+/**
+ * `version` unpacked in `home`'s `bundle` folder, outside any data directory,
+ * as a desktop carries its bundled artefact; answers the real path of its CLI
+ * entry, the running CLI's as `service install` reads it.
+ */
+export const bundledVersion = (home: string, version = "0.5.0"): string => {
+  const root = join(home, "bundle", version);
+  layOutVersion(root, version);
+  return join(root, ...VERSION_CLI_ENTRY);
+};

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { parseOptions, parsePort, UsageError } from "../args.js";
+import { parseName, parseOptions, parsePort, UsageError } from "../args.js";
 import type { ProcessContext } from "../process-context.js";
 import { startLauncher } from "./launcher.js";
 
@@ -24,9 +24,8 @@ export const launch = async (args: readonly string[], context: ProcessContext): 
     const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
     port = parsePort(values.port, 0);
     if (!values["data-dir"]) throw new UsageError("launch needs --data-dir <path>, the data directory whose service state names the version to run.");
-    if (values.name !== undefined && values.name.trim() === "") throw new UsageError("--name takes the environment's name; got an empty one.");
+    name = parseName(values.name);
     dataDir = resolve(values["data-dir"]);
-    name = values.name;
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
     context.stderr(`${error.message}\nusage: ${LAUNCH_USAGE}\n`);

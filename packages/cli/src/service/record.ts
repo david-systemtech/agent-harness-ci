@@ -11,6 +11,12 @@ export interface ServiceRecord {
   readonly platform: ServicePlatform["kind"];
   readonly definitionPath: string;
   readonly port: number;
+  /**
+   * The launcher entry the definition runs. A record without one is from
+   * before the launcher, whose definition runs `serve` directly, so its
+   * service runs no launcher.
+   */
+  readonly launcherEntry?: string;
   /** Every folder install created, the data directory's included, outermost first; uninstall removes those left empty. */
   readonly createdDirectories: readonly string[];
 }
@@ -22,6 +28,7 @@ const isRecord = (value: unknown): value is ServiceRecord => {
     typeof record["platform"] === "string" &&
     typeof record["definitionPath"] === "string" &&
     Number.isInteger(record["port"]) &&
+    (record["launcherEntry"] === undefined || typeof record["launcherEntry"] === "string") &&
     Array.isArray(record["createdDirectories"]) &&
     record["createdDirectories"].every((dir) => typeof dir === "string")
   );

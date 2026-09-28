@@ -7,13 +7,8 @@
 	<string>agent-harness</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/opt/homebrew/bin/node</string>
-		<string>/Users/david/.local/share/agent-harness/0.1.0/dist/main.js</string>
-		<string>serve</string>
-		<string>--data-dir</string>
-		<string>/Users/david/Library/Application Support/agent-harness</string>
-		<string>--port</string>
-		<string>7433</string>
+		<string>/bin/sh</string>
+		<string>/Users/david/Library/Application Support/agent-harness/launcher-entry.sh</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -22,6 +17,8 @@
 		<key>SuccessfulExit</key>
 		<false/>
 	</dict>
+	<key>ExitTimeOut</key>
+	<integer>1860</integer>
 	<key>StandardOutPath</key>
 	<string>/Users/david/Library/Application Support/agent-harness/logs/service.log</string>
 	<key>StandardErrorPath</key>

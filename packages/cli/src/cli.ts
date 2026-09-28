@@ -26,7 +26,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} ${LAUNCH_USAGE}`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
-  `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>]`,
+  `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
   `       ${PRODUCT_NAME} service start`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,

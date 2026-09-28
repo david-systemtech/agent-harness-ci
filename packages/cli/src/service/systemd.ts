@@ -3,7 +3,7 @@ import { posix } from "node:path";
 import { writeDefinition } from "./definition.js";
 import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
-import { LOG_DIRECTORY, LOG_FILE, serveArguments, SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
+import { ENTRY_SHELL, LOG_DIRECTORY, LOG_FILE, SERVICE_LABEL, STOP_TIMEOUT_S, type InstallContext, type ServiceSpec } from "./spec.js";
 
 /** Characters that make systemd split or unescape a word: whitespace, quotes, backslash, and `;` which separates commands. */
 const NEEDS_QUOTES = /[\s"'\\;]/;
@@ -22,10 +22,12 @@ const execWord = (word: string): string => {
 const logPath = (spec: ServiceSpec): string => posix.join(spec.dataDir, LOG_DIRECTORY, LOG_FILE).replaceAll("%", "%%");
 
 /**
- * The `systemd --user` unit: `serve` with the data directory and port,
- * restarted when it fails (a clean exit, after a drain, is left alone), its
- * output appended to the log in the data directory, wanted by the user's
- * default target so it starts with the user's manager.
+ * The `systemd --user` unit: the launcher entry through `sh`, restarted when
+ * it fails (a crash, or a launcher's exit to hand over to a newer one; a
+ * clean exit is a stop), the launcher alone sent the stop's SIGTERM
+ * (`KillMode=mixed`: it drains its child) and given `STOP_TIMEOUT_S` before
+ * the SIGKILL, its output appended to the log in the data directory, wanted
+ * by the user's default target so it starts with the user's manager.
  */
 export const renderSystemdUnit = (spec: ServiceSpec): string =>
   [
@@ -36,9 +38,11 @@ export const renderSystemdUnit = (spec: ServiceSpec): string =>
     "",
     "[Service]",
     "Type=simple",
-    `ExecStart=${serveArguments(spec).map(execWord).join(" ")}`,
+    `ExecStart=${[ENTRY_SHELL, spec.entry].map(execWord).join(" ")}`,
     "Restart=on-failure",
     "RestartSec=5",
+    "KillMode=mixed",
+    `TimeoutStopSec=${STOP_TIMEOUT_S / 60}min`,
     `StandardOutput=append:${logPath(spec)}`,
     `StandardError=append:${logPath(spec)}`,
     "",
@@ -77,7 +81,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
   return {
     kind: "systemd",
     definitionPath: () => path,
-    install: async (spec) => {
+    install: async (spec, { restartRunning }) => {
       const written = writeDefinition(path, renderSystemdUnit(spec));
       const wantsExisted = existsSync(wantsDir);
       // A unit that was running before is started again on a refusal, since a failed try-restart leaves it stopped.
@@ -90,8 +94,9 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
         await systemctl("daemon-reload");
         await systemctl("enable", unit);
         enabled = true;
-        // try-restart restarts a running unit onto the new definition and leaves a stopped one stopped.
-        await systemctl("try-restart", unit);
+        // try-restart restarts a running unit onto the new definition and leaves a stopped one stopped. Left running, the
+        // unit takes the reloaded definition at its next start.
+        if (restartRunning) await systemctl("try-restart", unit);
       } catch (error) {
         if (enabled && !wasEnabled) {
           await commands.attempt("systemctl", ["--user", "disable", unit]);

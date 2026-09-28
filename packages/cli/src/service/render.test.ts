@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderLaunchdPlist } from "./launchd.js";
-import { SERVICE_LABEL, type ServiceSpec } from "./spec.js";
+import { SERVICE_LABEL, STOP_TIMEOUT_S, type ServiceSpec } from "./spec.js";
 import { renderSystemdUnit } from "./systemd.js";
 import { renderTaskXml } from "./task-scheduler.js";
 
@@ -9,24 +9,18 @@ const fixture = (name: string): string =>
   readFileSync(new URL(`../../test/fixtures/service/${name}`, import.meta.url), "utf8");
 
 const macSpec: ServiceSpec = {
-  program: ["/opt/homebrew/bin/node", "/Users/david/.local/share/agent-harness/0.1.0/dist/main.js"],
   dataDir: "/Users/david/Library/Application Support/agent-harness",
-  port: 7433,
+  entry: "/Users/david/Library/Application Support/agent-harness/launcher-entry.sh",
 };
 
 const linuxSpec: ServiceSpec = {
-  program: ["/usr/bin/node", "/home/david/.local/share/agent-harness/0.1.0/dist/main.js"],
   dataDir: "/home/david/.local/state/agent-harness",
-  port: 7433,
+  entry: "/home/david/.local/state/agent-harness/launcher-entry.sh",
 };
 
 const windowsSpec: ServiceSpec = {
-  program: [
-    "C:\\Program Files\\nodejs\\node.exe",
-    "C:\\Users\\david\\AppData\\Local\\Programs\\agent-harness\\0.1.0\\dist\\main.js",
-  ],
   dataDir: "C:\\Users\\david\\AppData\\Local\\agent-harness",
-  port: 7433,
+  entry: "C:\\Users\\david\\AppData\\Local\\agent-harness\\launcher-entry.cmd",
 };
 
 describe("the service label", () => {
@@ -35,57 +29,52 @@ describe("the service label", () => {
   });
 });
 
+describe("the stop timeout", () => {
+  it("is 31 minutes, so the drain's 30 fit inside a stop", () => {
+    expect(STOP_TIMEOUT_S).toBe(31 * 60);
+  });
+});
+
 describe("the launchd agent", () => {
-  it("renders as the fixture: serve with the data directory and port, at load, kept alive, logging into the data directory", () => {
+  it("renders as the fixture: the launcher entry through sh, at load, restarted after a non-zero exit, 31 minutes to stop, logging into the data directory", () => {
     expect(renderLaunchdPlist(macSpec)).toBe(fixture("agent-harness.plist"));
   });
 
   it("escapes XML in every string it writes", () => {
-    const plist = renderLaunchdPlist({ ...macSpec, dataDir: "/Users/d&c/<state>" });
-    expect(plist).toContain("<string>/Users/d&amp;c/&lt;state&gt;</string>");
+    const plist = renderLaunchdPlist({ dataDir: "/Users/d&c/<state>", entry: "/Users/d&c/<state>/launcher-entry.sh" });
+    expect(plist).toContain("<string>/Users/d&amp;c/&lt;state&gt;/launcher-entry.sh</string>");
     expect(plist).toContain("<string>/Users/d&amp;c/&lt;state&gt;/logs/service.log</string>");
     expect(plist).not.toContain("d&c");
   });
 });
 
 describe("the systemd user unit", () => {
-  it("renders as the fixture: serve with the data directory and port, restarted on failure, logging into the data directory", () => {
+  it("renders as the fixture: the launcher entry through sh, restarted on failure, the launcher alone asked to stop and given 31 minutes, logging into the data directory", () => {
     expect(renderSystemdUnit(linuxSpec)).toBe(fixture("agent-harness.service"));
   });
 
-  it("quotes an argument holding a backslash or a lone semicolon, which systemd would otherwise unescape or split on", () => {
-    const unit = renderSystemdUnit({ ...linuxSpec, program: ["/usr/bin/node", "/srv/a\\b/main.js", ";"] });
-    expect(unit).toContain('ExecStart=/usr/bin/node "/srv/a\\\\b/main.js" ";" serve');
+  it("quotes an entry holding a backslash or a semicolon, which systemd would otherwise unescape or split on", () => {
+    const unit = renderSystemdUnit({ dataDir: "/srv/a\\b;c", entry: "/srv/a\\b;c/launcher-entry.sh" });
+    expect(unit).toContain('ExecStart=/bin/sh "/srv/a\\\\b;c/launcher-entry.sh"\n');
   });
 
-  it("quotes arguments with spaces or quotes and escapes the specifier and variable characters", () => {
-    const unit = renderSystemdUnit({
-      ...linuxSpec,
-      program: ["/opt/my node/bin/node", '/srv/"q"/main.js'],
-      dataDir: "/home/david/100% $HOME\\state",
-    });
+  it("quotes an entry with spaces or quotes and escapes the specifier and variable characters", () => {
+    const unit = renderSystemdUnit({ dataDir: "/home/david/100% $HOME \"q\"", entry: "/home/david/100% $HOME \"q\"/launcher-entry.sh" });
     const execStart = unit.split("\n").find((line) => line.startsWith("ExecStart="));
-    expect(execStart).toBe(
-      'ExecStart="/opt/my node/bin/node" "/srv/\\"q\\"/main.js" serve --data-dir "/home/david/100%% $$HOME\\\\state" --port 7433',
-    );
+    expect(execStart).toBe('ExecStart=/bin/sh "/home/david/100%% $$HOME \\"q\\"/launcher-entry.sh"');
     // Only specifiers are expanded in a log path, not variables.
-    expect(unit).toContain("StandardOutput=append:/home/david/100%% $HOME\\state/logs/service.log\n");
+    expect(unit).toContain('StandardOutput=append:/home/david/100%% $HOME "q"/logs/service.log\n');
   });
 });
 
 describe("the Task Scheduler logon task", () => {
-  it("renders as the fixture: a logon trigger and principal for the user, serve through a headless console, restarted on failure", () => {
+  it("renders as the fixture: a logon trigger and principal for the user, the launcher entry through cmd in a headless console, restarted on failure", () => {
     expect(renderTaskXml(windowsSpec, "GAMINGPC\\david")).toBe(fixture("agent-harness-task.xml"));
   });
 
-  it("quotes arguments as the Windows command line parses them and escapes XML", () => {
-    const xml = renderTaskXml(
-      { ...windowsSpec, program: ["C:\\node.exe", 'C:\\a "b"\\main.js'], dataDir: "C:\\Data & State\\" },
-      "D&C\\david",
-    );
-    expect(xml).toContain(
-      '<Arguments>--headless C:\\node.exe "C:\\a \\"b\\"\\main.js" serve --data-dir "C:\\Data &amp; State\\\\" --port 7433</Arguments>',
-    );
+  it("quotes the entry as the Windows command line parses it and escapes XML", () => {
+    const xml = renderTaskXml({ dataDir: "C:\\Data & State", entry: "C:\\Data & State\\launcher-entry.cmd" }, "D&C\\david");
+    expect(xml).toContain('<Arguments>--headless cmd.exe /d /c call "C:\\Data &amp; State\\launcher-entry.cmd"</Arguments>');
     expect(xml).toContain("<UserId>D&amp;C\\david</UserId>");
   });
 });
