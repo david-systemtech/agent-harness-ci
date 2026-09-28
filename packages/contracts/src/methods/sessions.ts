@@ -49,13 +49,23 @@ const sessionCommand = <const N extends `sessions.${string}`>(name: N) =>
  * `conflict` (data reason `account_unavailable`), as `runs.start` rejects
  * it; a model the account does not offer, or a mode its adapter lacks, is
  * `invalid_params`. A new
- * session has no repository identity yet and, with no title, shows "New
- * session". A group that is not on this environment is rejected
- * `not_found` (data kind `group`); an id already used is rejected `conflict`
- * (data reason `exists`); both are checked before anything is made for the
- * workspace. A workspace the environment cannot give is rejected in the
- * receipt too (`conflict`, a `reason` in the data): a kind it does not
- * serve yet is reason `kind_not_served`.
+ * session records the repository identity of its workspace's repository and,
+ * with no title, shows "New session". A group that is not on this
+ * environment is rejected `not_found` (data kind `group`); an id already
+ * used is rejected `conflict` (data reason `exists`); both are checked
+ * before anything is made for the workspace. A workspace the environment
+ * cannot give is rejected in the receipt too: a directory that does not
+ * exist, is not a directory, cannot be read, or lies inside the data
+ * directory outside every workspace root is `conflict`, reason
+ * `workspace_unusable`, with its `problem` (`WorkspaceProblem`) and `path`;
+ * a `session` request naming a session that is not here or is deleted is
+ * `not_found` (data kind `session`), and one whose workspace is gone
+ * `conflict`, reason `workspace_missing`; a kind it does not serve yet is
+ * reason `kind_not_served`. A `scratch` request is a directory of the
+ * session's own under the data directory's scratch root; a `session` request
+ * shares the named session's workspace, kind, path and identity. A directory
+ * path the environment's operating system does not read as absolute (a
+ * drive path on Linux) is `invalid_params`, as a relative one is.
  */
 export const sessionsCreate = defineMethod({
   name: "sessions.create",

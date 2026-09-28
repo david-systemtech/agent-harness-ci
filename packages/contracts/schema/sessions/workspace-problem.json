@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkspaceProblem",
+  "type": "string",
+  "enum": [
+    "does_not_exist",
+    "not_a_directory",
+    "not_readable",
+    "reserved"
+  ],
+  "description": "Why a directory cannot be a session's workspace: does_not_exist, not_a_directory, not_readable (the environment's user cannot list or enter it), or reserved (inside the environment's data directory, outside every workspace root)."
+}

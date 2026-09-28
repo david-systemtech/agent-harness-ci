@@ -255,6 +255,7 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   },
   "sessions/workspace-request.json": { valid: workspaceRequests, invalid: invalidWorkspaceRequests },
   "sessions/workspace-status.json": { valid: ["missing", "present"], invalid: ["gone", ""] },
+  "sessions/workspace-problem.json": { valid: ["does_not_exist", "not_a_directory", "not_readable", "reserved"], invalid: ["missing", ""] },
   "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
   "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
