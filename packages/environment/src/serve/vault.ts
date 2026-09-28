@@ -1,4 +1,5 @@
 import { chmodSync, statSync } from "node:fs";
+import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import { readJsonFile, writeFileAtomic } from "./files.js";
 
 /**
@@ -58,5 +59,60 @@ export const fileVault = (path: string): Vault => {
       write(entries);
     },
     keys: async () => Object.keys(read()),
+  };
+};
+
+/**
+ * The vault as the environment holds it (ADR 0011, key-managers spec, "Who
+ * registers"): every entry registered with the scrub registry, as
+ * `vault:<key>`, for as long as the vault holds it. The entries there are
+ * registered before this answers, so the environment takes hold of its vault
+ * at start, before the wire opens. A value set is registered before it is
+ * written, and a value it replaces released once the write is done; a deleted
+ * entry is released once the delete is done; a read that finds an entry
+ * changed or gone outside the environment registers what it finds and lets
+ * the old value go.
+ */
+export const holdVault = async (vault: Vault, registry: ScrubRegistry): Promise<Vault> => {
+  interface Held {
+    readonly value: string;
+    readonly release: ScrubRelease;
+  }
+  const held = new Map<string, Held>();
+  const register = (key: string, value: string): Held => ({ value, release: registry.register(value, { owner: `vault:${key}` }) });
+  /** Holds `next` for `key`, or nothing, then lets go of what was held: a value both hold is never unregistered between. */
+  const replace = (key: string, next: Held | undefined): void => {
+    const current = held.get(key);
+    if (next === undefined) held.delete(key);
+    else held.set(key, next);
+    current?.release();
+  };
+  /** Holds what a read found for `key`, unless it is what is held already. */
+  const found = (key: string, value: string | undefined): void => {
+    if (held.get(key)?.value !== value) replace(key, value === undefined ? undefined : register(key, value));
+  };
+  for (const key of await vault.keys()) found(key, await vault.get(key));
+
+  return {
+    get: async (key) => {
+      const value = await vault.get(key);
+      found(key, value);
+      return value;
+    },
+    set: async (key, value) => {
+      const next = register(key, value);
+      try {
+        await vault.set(key, value);
+      } catch (error) {
+        next.release();
+        throw error;
+      }
+      replace(key, next);
+    },
+    delete: async (key) => {
+      await vault.delete(key);
+      replace(key, undefined);
+    },
+    keys: () => vault.keys(),
   };
 };

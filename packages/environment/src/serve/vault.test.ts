@@ -2,7 +2,8 @@ import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { fileVault } from "./vault.js";
+import { createScrubRegistry } from "../scrub/registry.js";
+import { fileVault, holdVault, type Vault } from "./vault.js";
 
 const posix = process.platform !== "win32";
 
@@ -92,5 +93,70 @@ describe("the file vault", () => {
       await expect(fileVault(path).set("k", "v")).rejects.toThrow(/vault/);
       expect(readFileSync(path, "utf8")).toBe(content);
     }
+  });
+});
+
+describe("the vault as the environment holds it", () => {
+  const FIRST = "hvs.first-token-0000";
+  const SECOND = "hvs.second-token-111";
+
+  /** A file vault in a fresh temporary directory holding `entries`, and a registry to hold it with. */
+  const held = async (entries: Record<string, string> = {}) => {
+    const path = join(tempDir(), "vault.json");
+    for (const [key, value] of Object.entries(entries)) await fileVault(path).set(key, value);
+    const registry = createScrubRegistry();
+    return { path, registry, vault: await holdVault(fileVault(path), registry) };
+  };
+
+  it("registers every entry the vault held when it was taken hold of", async () => {
+    const { registry } = await held({ "forge-a": FIRST, "forge-b": SECOND });
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe("[redacted] [redacted]");
+  });
+
+  it("registers a value set, and lets a replaced one go", async () => {
+    const { registry, vault } = await held({ "forge-a": FIRST });
+    await vault.set("forge-a", SECOND);
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe(`${FIRST} [redacted]`);
+    await vault.set("forge-b", FIRST);
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe("[redacted] [redacted]");
+  });
+
+  it("releases an entry once it is deleted, and removes it from the file", async () => {
+    const { path, registry, vault } = await held({ "forge-a": FIRST, "forge-b": SECOND });
+    await vault.delete("forge-a");
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe(`${FIRST} [redacted]`);
+    expect(await fileVault(path).keys()).toEqual(["forge-b"]);
+    await vault.delete("forge-a");
+  });
+
+  it("keeps a value two entries hold registered until both are gone", async () => {
+    const { registry, vault } = await held({ "forge-a": FIRST, "forge-b": FIRST });
+    await vault.delete("forge-a");
+    expect(registry.scrub(FIRST)).toBe("[redacted]");
+    await vault.delete("forge-b");
+    expect(registry.scrub(FIRST)).toBe(FIRST);
+  });
+
+  it("registers a value it reads that was changed outside it, and lets the old one go", async () => {
+    const { path, registry, vault } = await held({ "forge-a": FIRST });
+    await fileVault(path).set("forge-a", SECOND);
+    expect(await vault.get("forge-a")).toBe(SECOND);
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe(`${FIRST} [redacted]`);
+  });
+
+  it("leaves a value whose write failed unregistered, and the entry it would have replaced registered", async () => {
+    const registry = createScrubRegistry();
+    const stored = new Map([["forge-a", FIRST]]);
+    const failing: Vault = {
+      get: async (key) => stored.get(key),
+      set: async () => {
+        throw new Error("the keychain is locked");
+      },
+      delete: async (key) => void stored.delete(key),
+      keys: async () => [...stored.keys()],
+    };
+    const vault = await holdVault(failing, registry);
+    await expect(vault.set("forge-a", SECOND)).rejects.toThrow(/locked/);
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe(`[redacted] ${SECOND}`);
   });
 });

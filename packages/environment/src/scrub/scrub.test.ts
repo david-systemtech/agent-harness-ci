@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { registry, type EventEnvelope, type EventFrame, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { SIGNING_KEY } from "../serve/identity.js";
+import { fileVault, VAULT_FILE } from "../serve/vault.js";
+import { createScrubRegistry } from "./registry.js";
 import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
@@ -14,7 +19,7 @@ import type { WireClient } from "../../test/wire-client.js";
  * data directory, and the environment's standard error captured.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const HELD = "a-value-a-forge-holds";
 
@@ -96,5 +101,41 @@ describe("the event log's append", () => {
       if (event.type === "assistant.text") texts.push(event.payload["text"]);
     }
     expect(texts).toEqual([`The token is ${HELD}.`, "The token is [redacted]."]);
+  });
+});
+
+describe("the vault's entries", () => {
+  it("are registered from start, before the wire opens: those the vault held and the signing key a first start makes", async () => {
+    const dataDir = join(tempDir(), "data");
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    await fileVault(join(dataDir, VAULT_FILE)).set("forge-git.example.com", HELD);
+    const scrub = createScrubRegistry();
+    const atListen: string[] = [];
+    await start({
+      dataDir,
+      scrub,
+      hooks: {
+        beforeStep: async (step) => {
+          if (step !== "listen") return;
+          const key = (await fileVault(join(dataDir, VAULT_FILE)).get(SIGNING_KEY)) ?? "no signing key yet";
+          atListen.push(scrub.scrub(HELD), scrub.scrub(key));
+        },
+      },
+    });
+    expect(atListen).toEqual(["[redacted]", "[redacted]"]);
+  });
+
+  it("keep the client-session signing key out of every event: a run that says it reads back redacted", async () => {
+    const t = await start();
+    const key = await fileVault(join(t.dataDir, VAULT_FILE)).get(SIGNING_KEY);
+    expect(key).toBeDefined();
+    t.adapter.nextScripts.push(leakingScript(key as string));
+    const client = await t.client();
+    const { id } = await create(client);
+
+    const read = readBack(await runAndRead(client, id, t.env.log.head()));
+    expect(read.said).toEqual(["The token is [redacted]."]);
+    expect(read.output).toBe('{"token":"[redacted]","scopes":["repo"]}');
+    expect(read.json).not.toContain(key);
   });
 });

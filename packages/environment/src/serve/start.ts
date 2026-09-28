@@ -105,7 +105,7 @@ import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
 import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
-import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
+import { fileVault, holdVault, VAULT_FILE, type Vault } from "./vault.js";
 
 /** The harness version the environment reports: its own package's, read from `src/` and `dist/` alike. */
 export const HARNESS_VERSION: string = (
@@ -183,7 +183,7 @@ export interface EnvironmentOptions {
   readonly user?: UserCheck;
   /** Preset: the IPC channel of a launcher that spawned the environment, else nothing (`processLauncherChannel`). */
   readonly launcher?: LauncherChannel;
-  /** Preset: the file vault in the data directory. */
+  /** Preset: the file vault in the data directory. Every entry is registered with the scrub registry while the environment holds it. */
   readonly vault?: Vault;
   /** Registered and caught up from their cursors in the `projectors` step, after the environment's own (the session list). */
   readonly projectors?: readonly Projector[];
@@ -200,8 +200,9 @@ export interface EnvironmentOptions {
   readonly runs?: MemoryRunRegistry;
   /**
    * The scrub registry (ADR 0011): the values the environment holds as
-   * secrets, replaced with `[redacted]` in every event payload as the log
-   * appends it. Preset: a fresh one.
+   * secrets, its vault's entries among them from start, replaced with
+   * `[redacted]` in every event payload as the log appends it. Preset: a
+   * fresh one.
    */
   readonly scrub?: ScrubRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
@@ -450,11 +451,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) }, settingsPresets());
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
+  // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
   const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
-    const key = await ensureSigningKey(options.vault ?? fileVault(join(dataDir, VAULT_FILE)));
+    const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
+    const key = await ensureSigningKey(vault);
     const access = createAccessLog(log, loaded.id);
     const loadedClientSessions: ClientSessions = createClientSessions({
       table: log.clientSessions,
