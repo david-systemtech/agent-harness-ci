@@ -2,7 +2,7 @@ import { THEME_SEED_NAMES, type Theme, type ThemeSeedName } from "@agent-harness
 import { hueDistance } from "./oklch.js";
 
 /** How far apart the accent and the five role and status hues stay, so each is told apart from the others. */
-export const HUE_SEPARATION = 40;
+const HUE_SEPARATION = 40;
 
 /**
  * The order hues keep their place when two are too near: the accent, the
