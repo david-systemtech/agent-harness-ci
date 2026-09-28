@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateCheckFailure",
+  "type": "string",
+  "enum": [
+    "no_release_access",
+    "unreachable",
+    "manifest",
+    "artefact",
+    "install"
+  ],
+  "description": "Why a check failed: no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed), manifest (the release's manifest is missing or not its schema), artefact (this platform's artefact did not download, or does not match its size and SHA-256) or install (the launcher refused to install it). A failed check is tried again at the next."
+}

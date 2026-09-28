@@ -40,7 +40,7 @@ import {
   SharedError,
   WireError,
 } from "./errors.js";
-import { CapabilityFlag, CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
+import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
 import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import {
@@ -79,6 +79,48 @@ import {
   TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
+import {
+  AssetFormat,
+  ReleaseAsset,
+  ReleaseAssetKind,
+  ReleaseImage,
+  ReleaseManifest,
+  ReleasePlatform,
+  ReleaseVersion,
+  Sha256,
+} from "./release.js";
+import { UpdateAnswer, UpdateError, UpdateRequest } from "./update-route.js";
+import {
+  AutoUpdate,
+  DeferralCapHours,
+  IdleWindowMinutes,
+  PinnedVersion,
+  ReleaseChannel,
+  UpdateSettingsPatch,
+  UpdateSettingsValues,
+} from "./update-settings.js";
+import {
+  PendingUpdate,
+  UpdateBlockedReason,
+  UpdateCancelCause,
+  UpdateCancelledPayload,
+  UpdateCause,
+  UpdateCheck,
+  UpdateCheckFailure,
+  UpdateConflictReason,
+  UpdateFailedPayload,
+  UpdateFailureStage,
+  UpdateId,
+  UpdateManager,
+  UpdateOutcome,
+  UpdatePendingPayload,
+  UpdateSource,
+  UpdateStartedPayload,
+  UpdateState,
+  UpdateWaitsOn,
+  UpdateWhen,
+  UpdatesStatus,
+} from "./updates.js";
 import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -174,6 +216,8 @@ import {
   TRANSCRIPT_EVENT_TYPES,
   ToolStatus,
   TranscriptItem,
+  UpdateInterruptOutcome,
+  UpdateInterruptReason,
 } from "./transcript.js";
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
@@ -293,6 +337,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
   { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
   { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
+  { path: "launcher-protocol.json", title: "LauncherProtocol", schema: LauncherProtocol },
+  { path: "release/release-version.json", title: "ReleaseVersion", schema: ReleaseVersion },
+  { path: "release/sha256.json", title: "Sha256", schema: Sha256 },
+  { path: "release/asset-kind.json", title: "ReleaseAssetKind", schema: ReleaseAssetKind },
+  { path: "release/platform.json", title: "ReleasePlatform", schema: ReleasePlatform },
+  { path: "release/asset-format.json", title: "AssetFormat", schema: AssetFormat },
+  { path: "release/asset.json", title: "ReleaseAsset", schema: ReleaseAsset },
+  { path: "release/image.json", title: "ReleaseImage", schema: ReleaseImage },
+  { path: "release/manifest.json", title: "ReleaseManifest", schema: ReleaseManifest },
   { path: "lifecycle/busy-reason.json", title: "BusyReason", schema: BusyReason },
   { path: "lifecycle/drain-trigger.json", title: "DrainTrigger", schema: DrainTrigger },
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
@@ -305,6 +358,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
   { path: "pair/request.json", title: "PairRequest", schema: PairRequest },
   { path: "pair/error.json", title: "PairError", schema: PairError },
+  { path: "update/request.json", title: "UpdateRequest", schema: UpdateRequest },
+  { path: "update/answer.json", title: "UpdateAnswer", schema: UpdateAnswer },
+  { path: "update/error.json", title: "UpdateError", schema: UpdateError },
   { path: "access/event-type.json", title: "AccessEventType", schema: AccessEventType },
   { path: "access/client-session-origin.json", title: "ClientSessionOrigin", schema: ClientSessionOrigin },
   { path: "access/revocation-reason.json", title: "RevocationReason", schema: RevocationReason },
@@ -406,6 +462,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
+  { path: "transcript/update-interrupt-outcome.json", title: "UpdateInterruptOutcome", schema: UpdateInterruptOutcome },
+  { path: "transcript/update-interrupt-reason.json", title: "UpdateInterruptReason", schema: UpdateInterruptReason },
   { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
   { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
   { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },
@@ -514,9 +572,36 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/accounts.defaultModelFamily.json", title: "DefaultModelFamily", schema: DefaultModelFamily },
   { path: "settings/keys/accounts.defaultEffort.json", title: "DefaultEffort", schema: DefaultEffort },
   { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
+  { path: "settings/keys/updates.autoUpdate.json", title: "AutoUpdate", schema: AutoUpdate },
+  { path: "settings/keys/updates.channel.json", title: "ReleaseChannel", schema: ReleaseChannel },
+  { path: "settings/keys/updates.pinnedVersion.json", title: "PinnedVersion", schema: PinnedVersion },
+  { path: "settings/keys/updates.idleWindowMinutes.json", title: "IdleWindowMinutes", schema: IdleWindowMinutes },
+  { path: "settings/keys/updates.deferralCapHours.json", title: "DeferralCapHours", schema: DeferralCapHours },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "updates/update-id.json", title: "UpdateId", schema: UpdateId },
+  { path: "updates/update-source.json", title: "UpdateSource", schema: UpdateSource },
+  { path: "updates/update-cause.json", title: "UpdateCause", schema: UpdateCause },
+  { path: "updates/update-failure-stage.json", title: "UpdateFailureStage", schema: UpdateFailureStage },
+  { path: "updates/update-cancel-cause.json", title: "UpdateCancelCause", schema: UpdateCancelCause },
+  { path: "updates/events/environment.update-pending.json", title: "UpdatePendingPayload", schema: UpdatePendingPayload },
+  { path: "updates/events/environment.update-started.json", title: "UpdateStartedPayload", schema: UpdateStartedPayload },
+  { path: "updates/events/environment.update-failed.json", title: "UpdateFailedPayload", schema: UpdateFailedPayload },
+  { path: "updates/events/environment.update-cancelled.json", title: "UpdateCancelledPayload", schema: UpdateCancelledPayload },
+  { path: "updates/manager.json", title: "UpdateManager", schema: UpdateManager },
+  { path: "updates/check-failure.json", title: "UpdateCheckFailure", schema: UpdateCheckFailure },
+  { path: "updates/check.json", title: "UpdateCheck", schema: UpdateCheck },
+  { path: "updates/update-state.json", title: "UpdateState", schema: UpdateState },
+  { path: "updates/blocked-reason.json", title: "UpdateBlockedReason", schema: UpdateBlockedReason },
+  { path: "updates/waits-on.json", title: "UpdateWaitsOn", schema: UpdateWaitsOn },
+  { path: "updates/pending-update.json", title: "PendingUpdate", schema: PendingUpdate },
+  { path: "updates/outcome.json", title: "UpdateOutcome", schema: UpdateOutcome },
+  { path: "updates/status.json", title: "UpdatesStatus", schema: UpdatesStatus },
+  { path: "updates/when.json", title: "UpdateWhen", schema: UpdateWhen },
+  { path: "updates/conflict-reason.json", title: "UpdateConflictReason", schema: UpdateConflictReason },
+  { path: "updates/settings-values.json", title: "UpdateSettingsValues", schema: UpdateSettingsValues },
+  { path: "updates/settings-patch.json", title: "UpdateSettingsPatch", schema: UpdateSettingsPatch },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },

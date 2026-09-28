@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReleasePlatform",
+  "type": "string",
+  "pattern": "^[a-z0-9]+-[a-z0-9]+$",
+  "description": "A platform, <os>-<arch> as Node names them: linux-x64, darwin-arm64, win32-x64; a later release may add others."
+}

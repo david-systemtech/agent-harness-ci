@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "updates.desktop.stage params",
+  "type": "object",
+  "properties": {
+    "platform": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+-[a-z0-9]+$",
+      "description": "A platform, <os>-<arch> as Node names them: linux-x64, darwin-arm64, win32-x64; a later release may add others."
+    },
+    "format": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+      "description": "The format the desktop's shell installs: zip, nsis or pacman."
+    }
+  },
+  "required": [
+    "platform",
+    "format"
+  ]
+}

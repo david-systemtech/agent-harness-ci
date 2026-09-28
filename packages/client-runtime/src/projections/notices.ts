@@ -26,7 +26,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  *
  * `signin.updated`, `signin.executable-chosen`, `environment.started` and
  * `usage.updated` (#136) raise none: the sign-in flow shows its own state, a
- * start is the connection's phase, and plan usage is `projections.usage`'s. A routine's client-notice delivery (ADR 0008) and a
+ * start is the connection's phase, and plan usage is `projections.usage`'s.
+ * An update's pending, started, failed and cancelled notices (#335) raise
+ * none yet: the failed update's notice is owed (#344). A routine's client-notice delivery (ADR 0008) and a
  * key manager's failed verification (ADR 0011) are owed: no event on the
  * environment's stream carries them yet (#92, #91).
  */
@@ -126,6 +128,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "signin.updated":
         case "signin.executable-chosen":
         case "usage.updated":
+        case "environment.update-pending":
+        case "environment.update-started":
+        case "environment.update-failed":
+        case "environment.update-cancelled":
           return;
       }
     },

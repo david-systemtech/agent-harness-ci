@@ -25,9 +25,12 @@
           "description": "The scope the method requires."
         },
         "reason": {
-          "description": "Present when the scope is held but the call would grant a ceiling above the caller's own: a pairing, or raising another client session.",
+          "description": "Present when the scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session) or local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage).",
           "type": "string",
-          "const": "ceiling"
+          "enum": [
+            "ceiling",
+            "local"
+          ]
         },
         "ceiling": {
           "description": "With reason ceiling: the caller's own ceiling, the highest it may grant.",
@@ -50,5 +53,5 @@
     "message",
     "data"
   ],
-  "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling."
+  "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason local, only a local client session may ask it."
 }

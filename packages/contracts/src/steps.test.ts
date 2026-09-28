@@ -8,6 +8,7 @@ import {
   SETUP_ACTIONS,
   STEP_ORDER,
   STEP_REGISTRY,
+  UPDATE_SETTINGS_KEYS,
   isMethodName,
   presetSettings,
   type SettingsKey,
@@ -230,10 +231,23 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry its not-root line and no setting yet (ADR 0027: environments.machines)", () => {
+  it("gives the Your machines entry the five update keys as its writes, in the Environments band (ADR 0027: environments.machines), and its not-root line", () => {
     const machines = stepOf("your-machines");
-    expect(machines).toMatchObject({ writes: [], checks: [], links: [{ pane: "machines", band: "environments" }], skippable: false });
+    expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
+    expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
+    expect(machines.checks.map((check) => check.key)).toEqual(machines.writes);
+    expect(machines).toMatchObject({ links: [{ pane: "machines", band: "environments" }], skippable: false });
+    for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", band: "environments" });
     expect(machines.stateChecks).toEqual([{ id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] }]);
+  });
+
+  it("holds the Your machines entry's update keys done on any value their schemas take, a pin included", () => {
+    const machines = stepOf("your-machines");
+    const checkOf = (key: string) => machines.checks.find((check) => check.key === key)?.check;
+    const presets = presetSettings();
+    for (const key of UPDATE_SETTINGS_KEYS) expect(checkOf(key)?.(presets[key]), key).toBe(true);
+    expect(checkOf("updates.pinnedVersion")?.("0.4.2")).toBe(true);
+    expect(checkOf("updates.idleWindowMinutes")?.(0)).toBe("updates.idleWindowMinutes does not hold a valid value.");
   });
 
   it("fails a step out of the order or outside it, a link to no step or to itself, state through no method, a confirmation of an unwritten key, and a misnamed, doubled or unknown state check", () => {

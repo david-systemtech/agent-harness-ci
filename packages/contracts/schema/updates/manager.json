@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateManager",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "launcher"
+        },
+        "launcherVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version of the launcher running the environment."
+        }
+      },
+      "required": [
+        "kind",
+        "launcherVersion"
+      ],
+      "description": "The launcher of a native service manages updates: the environment stages them and the launcher switches."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "outside"
+        },
+        "lastPoll": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the host-side updater last polled updates.status; null before its first poll."
+        }
+      },
+      "required": [
+        "kind",
+        "lastPoll"
+      ],
+      "description": "A host-side updater outside the container carries out the environment's plan: it pulls, recreates and rolls back."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "none"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why nothing manages updates, for people: serve runs in the foreground, with no launcher."
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "description": "Nothing can update the environment: no launcher runs it and it is no container."
+    }
+  ],
+  "description": "Who manages the environment's updates: launcher with its version, outside with the host-side updater's last poll, or none with why."
+}

@@ -15,6 +15,7 @@ import {
   registry,
   GENERIC_SETTINGS_KEYS,
   PERMISSION_SETTINGS_KEYS,
+  UPDATE_SETTINGS_KEYS,
   isGenericSettingsKey,
   presetPermissionSettings,
   settingForm,
@@ -27,7 +28,7 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129) and the update keys (#335)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -37,6 +38,7 @@ describe("the settings keys", () => {
       "accounts.defaultEffort",
       "providers.processIdleMinutes",
       ...PERMISSION_SETTINGS_KEYS,
+      ...UPDATE_SETTINGS_KEYS,
     ]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
@@ -48,11 +50,16 @@ describe("the settings keys", () => {
       "accounts.defaultEffort": null,
       "providers.processIdleMinutes": 30,
       ...presetPermissionSettings(),
+      "updates.autoUpdate": true,
+      "updates.channel": "stable",
+      "updates.pinnedVersion": null,
+      "updates.idleWindowMinutes": 10,
+      "updates.deferralCapHours": 24,
     });
     for (const key of SETTINGS_KEYS) expect(SETTINGS[key].schema.safeParse(SETTINGS[key].preset).success, key).toBe(true);
   });
 
-  it("leave the permission keys to permissions.settings.set: settings.update refuses them, settings.get reads them", () => {
+  it("leave the permission keys to permissions.settings.set and the update keys to updates.settings.set: settings.update refuses them, settings.get reads them", () => {
     expect(GENERIC_SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -66,8 +73,14 @@ describe("the settings keys", () => {
       expect(SETTINGS[key].writtenBy, key).toBe("permissions.settings.set");
       expect(isGenericSettingsKey(key), key).toBe(false);
     }
+    for (const key of UPDATE_SETTINGS_KEYS) {
+      expect(SETTINGS[key].writtenBy, key).toBe("updates.settings.set");
+      expect(isGenericSettingsKey(key), key).toBe(false);
+    }
     const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
     expect(registry["settings.update"].params.safeParse({ commandId, values: { "permissions.unattended.mode": "bypassPermissions" } }).success).toBe(false);
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "updates.autoUpdate": false } }).success).toBe(false);
+    expect(registry["settings.get"].params.safeParse({ keys: ["updates.channel"] }).success).toBe(true);
     expect(registry["settings.update"].params.safeParse({ commandId, values: { "sessions.autoSettleOnMerge": true } }).success).toBe(true);
     expect(registry["settings.update"].params.safeParse({ commandId, values: { "providers.processIdleMinutes": 5 } }).success).toBe(true);
     expect(registry["settings.get"].params.safeParse({ keys: ["permissions.defaultCeiling"] }).success).toBe(true);
@@ -115,6 +128,20 @@ describe("the settings keys", () => {
     for (const value of [0, TRANSCRIPT_COMPACT_DAYS.max + 1, 1.5, null, "90", { amount: 90, unit: "days" }]) {
       expect(window.safeParse(value).success, JSON.stringify(value)).toBe(false);
     }
+  });
+
+  it("take the update settings' ranges: on or off, stable or beta, a version without its v or none, 1 to 120 idle minutes and 1 to 168 hours of deferral, with no never", () => {
+    const accepts = (key: (typeof UPDATE_SETTINGS_KEYS)[number], value: unknown) => SETTINGS[key].schema.safeParse(value).success;
+    expect([true, false].map((value) => accepts("updates.autoUpdate", value))).toEqual([true, true]);
+    expect([null, "on", 1].map((value) => accepts("updates.autoUpdate", value))).toEqual([false, false, false]);
+    expect(["stable", "beta"].map((value) => accepts("updates.channel", value))).toEqual([true, true]);
+    expect(["nightly", "Stable", null].map((value) => accepts("updates.channel", value))).toEqual([false, false, false]);
+    for (const value of [null, "0.4.2", "1.0.0-beta.2", "2.10.0-rc.1+build.7"]) expect(accepts("updates.pinnedVersion", value), String(value)).toBe(true);
+    for (const value of ["v0.4.2", "0.4", "latest", "01.2.3", "", "1.2.3-"]) expect(accepts("updates.pinnedVersion", value), value).toBe(false);
+    for (const value of [1, 10, 120]) expect(accepts("updates.idleWindowMinutes", value), String(value)).toBe(true);
+    for (const value of [0, 121, 1.5, null]) expect(accepts("updates.idleWindowMinutes", value), String(value)).toBe(false);
+    for (const value of [1, 24, 168]) expect(accepts("updates.deferralCapHours", value), String(value)).toBe(true);
+    for (const value of [0, 169, 2.5, null, "never"]) expect(accepts("updates.deferralCapHours", value), String(value)).toBe(false);
   });
 
   it("are set some at a time, each checked against its own schema, and refuse a key that is not a setting", () => {

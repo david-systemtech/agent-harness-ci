@@ -22,6 +22,7 @@ import {
   ContainmentReport,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
+  UPDATE_SETTINGS_KEYS,
   ReviewRun,
   SignIn,
   compareModes,
@@ -1356,6 +1357,13 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
     return acceptedWith({ values });
   });
+  // The update keys (#335), which only updates.settings.set writes.
+  wire.answer("updates.settings.set", (params) => {
+    const refused = rejection("updates.settings.set");
+    if (refused) return refused;
+    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    return acceptedWith({ values: Object.fromEntries(UPDATE_SETTINGS_KEYS.map((key) => [key, values[key]])) });
+  });
   wire.answer("permissions.settings.get", () => ({
     result: { values: permissionValues(), containment, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
   }));
@@ -1504,6 +1512,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "accounts.signin.code",
     "accounts.signin.cancel",
     "settings.update",
+    "updates.settings.set",
     "permissions.settings.set",
     "permissions.mode.set",
     "permissions.containment.set",

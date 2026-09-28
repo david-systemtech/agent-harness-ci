@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateCancelCause",
+  "type": "string",
+  "enum": [
+    "requested",
+    "settings"
+  ],
+  "description": "Why a pending update was withdrawn: requested (updates.cancel) or settings (auto-update was turned off, the channel changed, or a pin names another version, for an update the channel called for)."
+}

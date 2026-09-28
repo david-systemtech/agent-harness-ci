@@ -42,21 +42,26 @@ export const UnauthorizedError = errorSchema("unauthorized", z.object({})).meta(
 });
 /**
  * The client session lacks the scope the method requires, named in `data`;
- * or, with `reason: "ceiling"`, it holds the scope but the call would grant
- * a ceiling above its own (#180: a pairing, or raising another client
- * session), and `data.ceiling` is the caller's.
+ * or it holds the scope, and `data.reason` says why the call is still
+ * refused: `ceiling`, it would grant a ceiling above its own (#180: a
+ * pairing, or raising another client session), `data.ceiling` being the
+ * caller's; `local`, only a local client session (the bootstrap grant's)
+ * may ask it (#335: an artefact path, the desktop's stage).
  */
+export const FORBIDDEN_REASONS = ["ceiling", "local"] as const;
 export const ForbiddenError = errorSchema(
   "forbidden",
   z.object({
     scope: Scope.meta({ description: "The scope the method requires." }),
-    reason: z.literal("ceiling").optional().meta({
-      description: "Present when the scope is held but the call would grant a ceiling above the caller's own: a pairing, or raising another client session.",
+    reason: z.enum(FORBIDDEN_REASONS).optional().meta({
+      description:
+        "Present when the scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session) or local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage).",
     }),
     ceiling: Ceiling.optional().meta({ description: "With reason ceiling: the caller's own ceiling, the highest it may grant." }),
   }),
 ).meta({
-  description: "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling.",
+  description:
+    "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason local, only a local client session may ask it.",
 });
 /** The environment is not ready yet, or is draining. */
 export const UnavailableError = errorSchema(

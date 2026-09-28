@@ -29,6 +29,8 @@ const fromEnvironment: readonly EnvironmentMessage[] = [
   { type: "idle", ...status },
   { type: "idle", readiness: "draining", activity: { state: "draining", drainingSince: "2026-09-28T10:00:00.000Z" }, updatesManagedOutside: false },
   { type: "draining", drainingSince: "2026-09-28T10:00:00.000Z", trigger: "launcher" },
+  // The drain an update began, joined by the launcher's drain query (#335).
+  { type: "draining", drainingSince: "2026-09-28T10:00:00.000Z", trigger: "update" },
 ];
 
 /** Every message the launcher sends the environment, one of each kind, each refusal reason included. */

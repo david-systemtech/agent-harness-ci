@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdleWindowMinutes",
+  "type": "integer",
+  "minimum": 1,
+  "maximum": 120,
+  "description": "The idle window, in minutes: the environment is idle once no run has started or ended within it, and a run parked on a prompt counts as busy for it only; 1 to 120, preset 10."
+}
