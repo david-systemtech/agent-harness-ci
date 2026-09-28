@@ -2,7 +2,7 @@ import { copyFile, mkdir, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
-import { filtersNamed, gitComplaint, repositoryFilters, runGit } from "./git.js";
+import { UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit } from "./git.js";
 
 /**
  * `diffs.workingTree` and `diffs.session` (tui spec, "Terminals, files and
@@ -95,7 +95,7 @@ export interface WorkingTreeDiff {
 /** The workspace's diff against HEAD, untracked files as new: see the module comment. */
 export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> => {
   const small = { maxBytes: 64 * 1024 };
-  const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"], small);
+  const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"], { ...small, env: UNTRANSLATED });
   if (inside.missing) {
     throw new ContractError({ code: "conflict", message: "There is no git on this environment to diff with.", data: { reason: "git_unavailable" } });
   }

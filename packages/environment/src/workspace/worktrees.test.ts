@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -261,6 +262,28 @@ describe("a worktree request's refusals", () => {
     const gone = join(outside, "gone");
     expect((await refusedWorktree(t, { repository: gone })).data).toEqual({ reason: "not_a_repository", path: gone });
     expect(madeUnder(t)).toEqual([]);
+  });
+
+  it("reads git's not-a-repository answer untranslated, whatever the environment's locale", async () => {
+    // A git on the PATH that notes the locale each worktree listing runs in, then runs the real one.
+    const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    const bin = tempDir("agent-harness-git-");
+    const marker = join(bin, "locales");
+    writeFileSync(join(bin, "git"), `#!/bin/sh\ncase "$*" in *"worktree list"*) echo "[$LC_ALL]" >> ${marker};; esac\nexec ${real} "$@"\n`);
+    chmodSync(join(bin, "git"), 0o755);
+    const path = process.env["PATH"];
+    const lang = process.env["LANG"];
+    process.env["PATH"] = `${bin}:${path ?? ""}`;
+    process.env["LANG"] = "de_DE.UTF-8";
+    onCleanup(() => {
+      process.env["PATH"] = path;
+      if (lang === undefined) delete process.env["LANG"];
+      else process.env["LANG"] = lang;
+    });
+    const t = await start();
+    const outside = tempDir();
+    expect((await refusedWorktree(t, { repository: outside })).data).toEqual({ reason: "not_a_repository", path: outside });
+    expect(readFileSync(marker, "utf8")).toBe("[C]\n");
   });
 
   it("refuses git_unavailable where there is no git", async () => {

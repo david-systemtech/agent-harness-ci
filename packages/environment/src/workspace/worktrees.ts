@@ -6,7 +6,7 @@ import type { Workspace, WorkspaceRequest } from "@agent-harness/contracts";
 import type { JsonObject } from "../event-log/event-log.js";
 import type { Refusal } from "../sessions/decider.js";
 import { hashedName, slug } from "./directory-names.js";
-import { GIT_TIMEOUT_MS, filtersNamed, gitComplaint, repositoryFilters, runGit, type GitAnswer } from "./git.js";
+import { GIT_TIMEOUT_MS, UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit, type GitAnswer } from "./git.js";
 import { isInside } from "./paths.js";
 import type { Resolution } from "./resolver.js";
 
@@ -278,7 +278,7 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
   try {
     const from = await startingDirectory(request.repository);
     if (from === null) throw refused("not_a_repository", `There is nothing at ${request.repository} on this environment.`, { path: request.repository });
-    const listing = await git(from, ["worktree", "list", "--porcelain", "-z"], LISTING_BYTES);
+    const listing = await runGit(from, ["worktree", "list", "--porcelain", "-z"], { maxBytes: LISTING_BYTES, timeoutMs, env: UNTRANSLATED });
     if (!listing.ok && !listing.missing && /not a git repository/i.test(listing.stderr)) {
       throw refused("not_a_repository", `${request.repository} is in no git repository.`, { path: request.repository });
     }

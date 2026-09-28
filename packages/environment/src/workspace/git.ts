@@ -128,6 +128,14 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
   });
 
 /**
+ * The variables for a call whose complaint is read as text (`not a git
+ * repository`): git's messages untranslated, as its `fatal:` prefix always
+ * is. Only such calls take it, so a filter the machine's config names runs
+ * in the owner's locale.
+ */
+export const UNTRANSLATED: Readonly<Record<string, string>> = { LC_ALL: "C" };
+
+/**
  * The line that says why git failed: its `fatal:` line when it wrote one
  * (its `error:` lines come first and say less), else its first.
  */
