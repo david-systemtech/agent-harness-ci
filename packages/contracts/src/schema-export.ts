@@ -127,6 +127,7 @@ import {
   UpdateSettingsValues,
 } from "./update-settings.js";
 import {
+  EnvironmentUpdatedPayload,
   PendingUpdate,
   UpdateBlockedReason,
   UpdateCancelCause,
@@ -135,6 +136,7 @@ import {
   UpdateCheck,
   UpdateCheckFailure,
   UpdateConflictReason,
+  UpdateInstallRefusal,
   UpdateFailedPayload,
   UpdateFailureStage,
   UpdateId,
@@ -658,6 +660,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "updates/update-cancel-cause.json", title: "UpdateCancelCause", schema: UpdateCancelCause },
   { path: "updates/events/environment.update-pending.json", title: "UpdatePendingPayload", schema: UpdatePendingPayload },
   { path: "updates/events/environment.update-started.json", title: "UpdateStartedPayload", schema: UpdateStartedPayload },
+  { path: "updates/events/environment.updated.json", title: "EnvironmentUpdatedPayload", schema: EnvironmentUpdatedPayload },
   { path: "updates/events/environment.update-failed.json", title: "UpdateFailedPayload", schema: UpdateFailedPayload },
   { path: "updates/events/environment.update-cancelled.json", title: "UpdateCancelledPayload", schema: UpdateCancelledPayload },
   { path: "updates/manager.json", title: "UpdateManager", schema: UpdateManager },
@@ -671,6 +674,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "updates/status.json", title: "UpdatesStatus", schema: UpdatesStatus },
   { path: "updates/when.json", title: "UpdateWhen", schema: UpdateWhen },
   { path: "updates/conflict-reason.json", title: "UpdateConflictReason", schema: UpdateConflictReason },
+  { path: "updates/install-refusal.json", title: "UpdateInstallRefusal", schema: UpdateInstallRefusal },
   { path: "updates/settings-values.json", title: "UpdateSettingsValues", schema: UpdateSettingsValues },
   { path: "updates/settings-patch.json", title: "UpdateSettingsPatch", schema: UpdateSettingsPatch },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateInstallRefusal",
+  "type": "string",
+  "enum": [
+    "launcher-protocol",
+    "incomplete",
+    "preflight",
+    "disk",
+    "io"
+  ],
+  "description": "Why the launcher refused to install the version: launcher-protocol (it needs a newer launcher protocol), incomplete (the unpacked artefact is not a whole version), preflight (its preflight failed or timed out), disk (too little free disk) or io (a write failed)."
+}

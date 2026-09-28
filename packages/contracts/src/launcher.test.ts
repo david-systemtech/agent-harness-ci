@@ -30,6 +30,8 @@ const fromEnvironment: readonly EnvironmentMessage[] = [
   { type: "switch?", id: 2, updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" },
   { type: "versions?", id: 3 },
   { type: "idle", ...status },
+  // A terminal running a command holds the environment busy, as a run does (#343).
+  { type: "idle", readiness: "ready", activity: { state: "busy", reason: "terminal-running" }, updatesManagedOutside: false },
   { type: "idle", readiness: "draining", activity: { state: "draining", drainingSince: "2026-09-28T10:00:00.000Z" }, updatesManagedOutside: false },
   { type: "draining", drainingSince: "2026-09-28T10:00:00.000Z", trigger: "launcher" },
   // The drain an update began, joined by the launcher's drain query (#335).

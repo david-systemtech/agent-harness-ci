@@ -41,11 +41,13 @@ const absent = (reason: AbsentReason, message: string): CapabilityAnswer => ({ s
 /** What each shell member lets a client do, for the line that says it cannot. */
 const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.dialogs": "open the system's file dialogs",
-  "shell.window": "set its window's title or badge",
+  "shell.window": "set its window's title, badge or background colour",
   "shell.notifications.show": "show system notifications",
+  "shell.notifications.onActivate": "open what a clicked notification is about",
   "shell.tray": "show a tray icon",
   "shell.deepLinks.onOpen": `open ${PRODUCT_NAME} links`,
   "shell.webView": "embed a browser",
+  "shell.preview": "show a preview",
   "shell.installer": "run the desktop installer",
   "shell.update": "update itself",
   "shell.service": "install, start or check the local environment's service",
@@ -53,6 +55,9 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.openExternal": "open links in the system browser",
   "shell.localGrant.read": "read the local environment's grant",
   "shell.secrets": "keep secrets in the system keychain",
+  "shell.http": "reach an environment over HTTP from outside the page",
+  "shell.network": "declare the addresses its window may connect to",
+  "shell.system": "tell which machine and user it runs as",
 };
 
 const isShellMember = (name: string): name is ShellMember => (SHELL_MEMBERS as readonly string[]).includes(name);

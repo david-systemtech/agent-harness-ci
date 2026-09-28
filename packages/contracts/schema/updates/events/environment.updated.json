@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "fromVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The harness version that ran before the update."
+    },
+    "toVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The harness version the environment was updated to."
+    },
+    "updateId": {
+      "description": "The update that took; absent from an event older than update ids.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    }
+  },
+  "required": [
+    "fromVersion",
+    "toVersion"
+  ],
+  "description": "An update took: from which harness version, to which, and by which update."
+}

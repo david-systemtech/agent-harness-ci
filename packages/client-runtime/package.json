@@ -23,6 +23,11 @@
       "@agent-harness/source": "./src/testing/storage-contract.ts",
       "types": "./dist/testing/storage-contract.d.ts",
       "default": "./dist/testing/storage-contract.js"
+    },
+    "./testing/scripted-environment": {
+      "@agent-harness/source": "./src/testing/scripted-environment.ts",
+      "types": "./dist/testing/scripted-environment.d.ts",
+      "default": "./dist/testing/scripted-environment.js"
     }
   },
   "scripts": {

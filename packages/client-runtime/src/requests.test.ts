@@ -157,6 +157,20 @@ describe("requests.call", () => {
   });
 });
 
+/** An `updates.status` answer: an environment under its launcher with nothing pending. */
+const UPDATES_STATUS = {
+  version: "0.1.0",
+  protocolVersion: 1,
+  bundledClaudeCodeVersion: null,
+  manager: { kind: "launcher", launcherVersion: "0.1.0" },
+  newest: null,
+  lastCheck: null,
+  pending: { state: "current" },
+  lastOutcome: null,
+  failedVersions: [],
+  installed: ["0.1.0"],
+};
+
 describe("the request cache", () => {
   /** A runtime paired with the fake wire, counting the `groups.list` requests it sends. */
   const counting = async (setup: { readonly environmentStream?: boolean } = {}) => {
@@ -248,6 +262,38 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "environment.draining", { drainingSince: "2026-09-24T00:00:00.000Z" }));
     await flush();
     expect(asked()).toBe(2);
+  });
+
+  it("fetches updates.status again on every update notice, and no other query for the pending, started, failed or cancelled one (#344)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let statuses = 0;
+    wire.answer("updates.status", () => {
+      statuses++;
+      return { result: UPDATES_STATUS };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "updates.status", {});
+    status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), statuses]).toEqual([1, 1]);
+
+    const updateId = "0d4f2c1e-7a3b-4c5d-8e9f-0a1b2c3d4e5f";
+    const steps: [string, Record<string, unknown>][] = [
+      ["environment.update-pending", { updateId, toVersion: "0.2.0", source: "channel", since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z" }],
+      ["environment.update-started", { updateId, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "idle" }],
+      ["environment.update-failed", { updateId, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline", rolledBack: true }],
+      ["environment.update-cancelled", { updateId, toVersion: "0.2.0", cause: "requested" }],
+    ];
+    for (const [sequence, [type, payload]] of steps.entries()) {
+      environment?.event(noticeEvent(sequence + 1, wire.environmentId, type, payload));
+      await flush();
+      expect([asked(), statuses], type).toEqual([1, sequence + 2]);
+    }
+    // The update that took refreshes every answer, this one with them.
+    environment?.event(noticeEvent(5, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0", updateId }));
+    await flush();
+    expect([asked(), statuses]).toEqual([2, 6]);
+    expect(status.read()).toMatchObject({ result: UPDATES_STATUS, error: null });
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {

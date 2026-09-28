@@ -1,5 +1,3 @@
-import type { ManualClock } from "@agent-harness/client-runtime/testing";
-import type { FakeAnswer, FakeWire } from "@agent-harness/client-runtime/testing/fake-wire";
 import {
   PromptOpenedPayload,
   type EventEnvelope,
@@ -9,6 +7,8 @@ import {
   type SessionSummary,
   type SummaryPatch,
 } from "@agent-harness/contracts";
+import type { FakeAnswer, FakeWire } from "./fake-wire.js";
+import type { ManualClock } from "./in-memory-platform.js";
 
 /**
  * The scripted environment's parked prompts (permissions spec, "Prompts,

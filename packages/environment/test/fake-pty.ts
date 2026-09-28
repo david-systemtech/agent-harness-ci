@@ -17,6 +17,8 @@ export interface FakeProcess extends PtyProcess {
   print(data: string): void;
   /** Ends the process with `exitCode`, and the signal that ended it when one did. */
   exit(exitCode: number, signal?: number): void;
+  /** Whether a command typed at the shell runs in the terminal's foreground: what `commandRunning` answers; preset false, the shell at its prompt. */
+  running: boolean;
 }
 
 export interface FakePty extends Pty {
@@ -56,6 +58,8 @@ export const fakePty = (): FakePty => {
         write: (text) => void process.written.push(text),
         resize: (cols, rows) => void process.resized.push([cols, rows]),
         kill: (signal) => void process.signals.push(signal ?? "SIGHUP"),
+        running: false,
+        commandRunning: () => process.running,
         onData: (listener) => void data.push(listener),
         onExit: (listener) => void exits.push(listener),
         print: (text) => {

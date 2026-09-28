@@ -54,11 +54,18 @@ export interface LifecycleOptions {
   readonly updatesManagedOutside: boolean;
   /** The idle window, in milliseconds, read each time the activity is: the environment's `updates.idleWindowMinutes`. */
   readonly idleWindowMs: () => number;
+  /** Whether a terminal's shell runs a command in its foreground, read each time the activity is: busy as a run is (#343). */
+  readonly terminalRunning: () => boolean;
   readonly readiness: () => EnvironmentReadiness;
   /** Called once, as a drain begins: readiness turns `draining`. */
   readonly onDraining: () => void;
-  /** Closes the environment once the drain has waited: `bye: draining` to every socket, the listener, the log, the launcher channel. */
-  readonly close: () => Promise<void>;
+  /**
+   * Closes the environment once the drain has waited, told how the drain
+   * ended: `bye` to every socket (`draining`, or `updating` for an update's
+   * drain, whose switch comes next), the listener, the log, the launcher
+   * channel.
+   */
+  readonly close: (ended: DrainOutcome) => Promise<void>;
 }
 
 export interface Lifecycle {
@@ -102,7 +109,9 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
   drained.catch(() => undefined);
 
   const activity = (): EnvironmentActivity =>
-    current ? { state: "draining", drainingSince: current.drainingSince } : activityOf(runs.runs(), clock.now(), options.idleWindowMs());
+    current
+      ? { state: "draining", drainingSince: current.drainingSince }
+      : activityOf(runs.runs(), clock.now(), options.idleWindowMs(), options.terminalRunning());
   const status = (): EnvironmentStatus => ({
     readiness: options.readiness(),
     activity: activity(),
@@ -168,7 +177,7 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
       (async () => {
         const endedBy = await waitForRuns();
         const ended: DrainOutcome = { ...started, endedBy, cutRuns: activeRuns(runs) };
-        await options.close();
+        await options.close(ended);
         return ended;
       })(),
     );

@@ -1503,6 +1503,10 @@
       "title": "UpdateStartedPayload"
     },
     {
+      "path": "updates/events/environment.updated.json",
+      "title": "EnvironmentUpdatedPayload"
+    },
+    {
       "path": "updates/events/environment.update-failed.json",
       "title": "UpdateFailedPayload"
     },
@@ -1553,6 +1557,10 @@
     {
       "path": "updates/conflict-reason.json",
       "title": "UpdateConflictReason"
+    },
+    {
+      "path": "updates/install-refusal.json",
+      "title": "UpdateInstallRefusal"
     },
     {
       "path": "updates/settings-values.json",

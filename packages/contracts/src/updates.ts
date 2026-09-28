@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProtocolVersion } from "./flags.js";
-import { OUTCOME_STAGES } from "./launcher.js";
+import { INSTALL_REFUSALS, OUTCOME_STAGES } from "./launcher.js";
 import { BusyReason } from "./lifecycle.js";
 import { Timestamp } from "./primitives.js";
 import { ReleaseImage, ReleaseVersion } from "./release.js";
@@ -98,6 +98,17 @@ export const UpdateStartedPayload = z
   })
   .meta({ description: "An update began: the environment drains before the switch; from and to which version, and what made it go." });
 export type UpdateStartedPayload = z.infer<typeof UpdateStartedPayload>;
+
+/** `environment.updated`: the update took, and the version it went to runs; appended as that version's start settles it (#344). */
+export const EnvironmentUpdatedPayload = z
+  .object({
+    fromVersion: z.string().min(1).meta({ description: "The harness version that ran before the update." }),
+    toVersion: z.string().min(1).meta({ description: "The harness version the environment was updated to." }),
+    // Optional: an event appended before update ids existed carries none, and still parses.
+    updateId: UpdateId.optional().meta({ description: "The update that took; absent from an event older than update ids." }),
+  })
+  .meta({ description: "An update took: from which harness version, to which, and by which update." });
+export type EnvironmentUpdatedPayload = z.infer<typeof EnvironmentUpdatedPayload>;
 
 /** `environment.update-failed`: an update did not take, and the version it went from runs. */
 export const UpdateFailedPayload = z
@@ -291,12 +302,21 @@ export type UpdateWhen = z.infer<typeof UpdateWhen>;
  * Why an update is refused in `conflict` (its `data.reason`): the environment
  * is pinned to another version, already runs this one, the version's
  * database schema is below the database's, it needs a newer launcher than
- * the running one hosts, an update is draining or switching, or the
- * environment cannot read the releases.
+ * the running one hosts, an update is draining or switching, the
+ * environment cannot read the releases, the launcher refused to install the
+ * version (`data.launcherReason` says why), or no launcher runs the
+ * environment to switch it (#343).
  */
-export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access"] as const;
+export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"] as const;
 export const UpdateConflictReason = z.enum(UPDATE_CONFLICT_REASONS).meta({
   description:
-    "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching) or no_release_access (no forge account can read the releases).",
+    "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account can read the releases), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes).",
 });
 export type UpdateConflictReason = z.infer<typeof UpdateConflictReason>;
+
+/** The launcher's reason for refusing the install of an update's version, carried as `data.launcherReason` beside the conflict reason `install`. */
+export const UpdateInstallRefusal = z.enum(INSTALL_REFUSALS).meta({
+  description:
+    "Why the launcher refused to install the version: launcher-protocol (it needs a newer launcher protocol), incomplete (the unpacked artefact is not a whole version), preflight (its preflight failed or timed out), disk (too little free disk) or io (a write failed).",
+});
+export type UpdateInstallRefusal = z.infer<typeof UpdateInstallRefusal>;

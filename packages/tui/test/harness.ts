@@ -6,6 +6,7 @@ import { render } from "ink-testing-library";
 import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
+import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { App, type AppProps, type DiffFilter, type OpenedFile, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
 import type { AttentionNotice, TerminalChrome } from "../src/attention/chrome.js";
 import type { ExternalEditResult } from "../src/composer/external-editor.js";
@@ -15,9 +16,8 @@ import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
 import type { Presentation } from "../src/presentation.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
 import type { Fault } from "../src/view.js";
-import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "./script.js";
 
-export { scriptedWorld, type Script, type ScriptedEnvironment, type EnvironmentHandle } from "./script.js";
+export { scriptedWorld, type Script, type ScriptedEnvironment, type EnvironmentHandle } from "@agent-harness/client-runtime/testing/scripted-environment";
 
 /**
  * The terminal UI's test harness (docs/specs/tui.md, "Testing Decisions"):

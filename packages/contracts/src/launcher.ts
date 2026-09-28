@@ -152,7 +152,7 @@ const isOneOf = <T extends string>(values: readonly T[], value: unknown): value 
 const keysOf = <T extends string>(members: Record<T, true>): readonly T[] => Object.keys(members) as T[];
 
 const READINESS = keysOf<EnvironmentReadiness>({ starting: true, ready: true, draining: true });
-const BUSY_REASONS = keysOf<BusyReason>({ "run-starting": true, "run-running": true, "parked-prompt": true, "recent-activity": true });
+const BUSY_REASONS = keysOf<BusyReason>({ "run-starting": true, "run-running": true, "terminal-running": true, "parked-prompt": true, "recent-activity": true });
 const DRAIN_TRIGGERS = keysOf<DrainTrigger>({ command: true, launcher: true, signal: true, update: true });
 const REFUSALS: readonly (InstallRefusal | SwitchRefusal)[] = [...new Set([...INSTALL_REFUSALS, ...SWITCH_REFUSALS])];
 

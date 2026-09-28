@@ -159,7 +159,9 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
  * prompt parking or resolving (`prompt.parked`, `prompt.resolved`, #130)
  * the parked prompts; a sign-in moving (`signin.updated`, which carries it)
  * the environment's sign-in, which a client attending it follows for its
- * verification URL and its end (#147).
+ * verification URL and its end (#147); and every step of an update (pending,
+ * started, updated, failed, cancelled) `updates.status`, which the card and
+ * About follow (#344).
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -168,6 +170,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.handoff.recommend": ["usage.updated", "account.updated", "signin.updated"],
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
   "accounts.signin.get": ["signin.updated"],
+  "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
 };
 
 export interface RequestCache {

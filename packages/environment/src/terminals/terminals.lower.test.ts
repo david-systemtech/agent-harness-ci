@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import type { FeedCatchUp } from "../wire/subscriptions.js";
 import { fakePty, type FakeProcess, type FakePty } from "../../test/fake-pty.js";
+import { runsCommand } from "./pty.js";
 import { KILL_GRACE_MS, createTerminals, type OpenTerminal, type Terminals } from "./terminals.js";
 
 /**
@@ -245,5 +246,46 @@ describe("closing a terminal", () => {
     expect(heard.map((event) => event.payload)).toEqual([{ exitCode: 0, signal: 1, cause: "deleted" }]);
     expect(source.endOn?.(heard[0] as EventEnvelope)).toBe("deleted");
     expect(terminals.list(otherSession)).toHaveLength(1);
+  });
+});
+
+describe("a terminal running a command (#343)", () => {
+  it("counts while an open terminal's shell runs one, and not once it is back at its prompt, has exited or is closing", () => {
+    const { pty, terminals } = setUp();
+    const other = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    terminals.open(request());
+    terminals.open(request({ id: other }));
+    const [one, two] = pty.spawned as [FakeProcess, FakeProcess];
+    expect(terminals.commandRunning()).toBe(false);
+
+    two.running = true;
+    expect(terminals.commandRunning()).toBe(true);
+    two.running = false;
+    expect(terminals.commandRunning()).toBe(false);
+
+    one.running = true;
+    terminals.close(ID, "closed");
+    expect(terminals.commandRunning()).toBe(false);
+    two.running = true;
+    two.exit(0);
+    expect(terminals.commandRunning()).toBe(false);
+  });
+
+  it("reads a shell whose foreground cannot be read as at its prompt", () => {
+    const { pty, terminals } = setUp();
+    terminals.open(request());
+    const [child] = pty.spawned as [FakeProcess];
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    child.commandRunning = () => {
+      throw new Error("gone");
+    };
+    expect(terminals.commandRunning()).toBe(false);
+    loud.mockRestore();
+  });
+
+  it("is a foreground process group other than the shell's own, which a shell at its prompt leads", () => {
+    expect(runsCommand(4242, () => 4242)).toBe(false);
+    expect(runsCommand(4242, () => 4250)).toBe(true);
+    expect(runsCommand(4242, () => undefined)).toBe(false);
   });
 });

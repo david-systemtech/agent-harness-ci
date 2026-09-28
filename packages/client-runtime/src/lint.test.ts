@@ -30,6 +30,13 @@ describe("the client runtime under the repository's lint", () => {
     expect(await ruleIds(file, source.replaceAll('"environments.sequence"', '"environments.order"'))).toContain(HOLDS[0]);
   });
 
+  it("holds the testing exports to contracts alone, so a renderer's tests run them in a DOM: the scripted environment importing a Node built-in fails it", async () => {
+    const file = "packages/client-runtime/src/testing/scripted-environment.ts";
+    const source = readFileSync(join(root, file), "utf8");
+    expect(await ruleIds(file, source)).not.toContain(HOLDS[2]);
+    expect(await ruleIds(file, `import { randomUUID } from "node:crypto";\n${source}`)).toContain(HOLDS[2]);
+  });
+
   it("holds the shell interface to no session types: importing one fails it", async () => {
     const file = "packages/client-runtime/src/shell.ts";
     const source = readFileSync(join(root, file), "utf8");

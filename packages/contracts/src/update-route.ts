@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ForbiddenError, InternalError, InvalidParamsError, NotFoundError, UnauthorizedError, UnavailableError, errorSchema } from "./errors.js";
 import { ReleaseVersion } from "./release.js";
-import { UpdateConflictReason, UpdateId } from "./updates.js";
+import { UpdateConflictReason, UpdateId, UpdateInstallRefusal } from "./updates.js";
 
 /**
  * `POST /api/update` (launcher-update spec, "Across a protocol gap"): a
@@ -43,9 +43,15 @@ export const UpdateAnswer = z
   .meta({ description: "The update the environment took: its id, and the version it goes to." });
 export type UpdateAnswer = z.infer<typeof UpdateAnswer>;
 
-/** The update was refused for the state it would change: `data.reason` says why. */
-const UpdateConflictError = errorSchema("conflict", z.object({ reason: UpdateConflictReason })).meta({
-  description: "The update was refused for the environment's state; data.reason says why.",
+/** The update was refused for the state it would change: `data.reason` says why, and `data.launcherReason` why the launcher refused its install. */
+const UpdateConflictError = errorSchema(
+  "conflict",
+  z.object({
+    reason: UpdateConflictReason,
+    launcherReason: UpdateInstallRefusal.optional().meta({ description: "With reason install: why the launcher refused to install the version." }),
+  }),
+).meta({
+  description: "The update was refused for the environment's state; data.reason says why, and with reason install data.launcherReason says why the launcher refused.",
 });
 
 /**
