@@ -17,7 +17,8 @@ const tempDir = (): string => {
 };
 
 describe("the command line this CLI runs as", () => {
-  it("is node and the real path of the CLI's entry, so a symlinked bin still names the installed files", () => {
+  // A file symlink needs a privilege on Windows that an ordinary account lacks.
+  it.runIf(process.platform !== "win32")("is node and the real path of the CLI's entry, so a symlinked bin still names the installed files", () => {
     const dir = tempDir();
     mkdirSync(join(dir, "0.1.0", "dist"), { recursive: true });
     const entry = join(dir, "0.1.0", "dist", "main.js");
