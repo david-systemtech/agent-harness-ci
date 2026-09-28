@@ -93,6 +93,8 @@ export interface LauncherOptions {
   readonly dataDir: string;
   /** The port the child's `serve` listens on; with none, `serve` takes its own. */
   readonly port?: number | undefined;
+  /** The name `serve` creates a new environment with; an environment that has one keeps its own. With none, `serve` takes its own. */
+  readonly name?: string | undefined;
   /** Writes one line to the service log. Preset: the launcher's standard output, which the service definition sends to the service log. */
   readonly log?: (line: string) => void;
   /** Preset: the system's clock and timers. */
@@ -134,7 +136,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 
 /** Starts the launcher on `options.dataDir`: it starts the active version's `serve` at once, or says in the service log why it starts nothing. */
 export const startLauncher = (options: LauncherOptions): Launcher => {
-  const { dataDir, port } = options;
+  const { dataDir, port, name } = options;
   const timer = options.timer ?? systemTimer;
   const freeBytes = options.freeBytes ?? freeBytesOn;
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
@@ -347,7 +349,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   /** Spawns `version`'s `serve`: the trial of `trial` when given, which fails unless it says `prepared` within the deadline. */
   const run = (version: string, trial?: PendingUpdate) => {
     const [node, entry] = versionCommand(versionDirectory(dataDir, version));
-    const serve = ["serve", "--data-dir", dataDir, ...(port === undefined ? [] : ["--port", String(port)])];
+    const serve = ["serve", "--data-dir", dataDir, ...(port === undefined ? [] : ["--port", String(port)]), ...(name === undefined ? [] : ["--name", name])];
     const started: Child = {
       process: spawn(node, [entry, ...serve], { stdio: ["ignore", "inherit", "inherit", "ipc"] }),
       version,
