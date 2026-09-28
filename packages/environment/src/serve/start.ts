@@ -7,6 +7,7 @@ import {
   DATABASE_FILE,
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
+  GIT_CREDENTIAL_PATH,
   HEALTH_PATH,
   OPENAI_PATH_PREFIX,
   PAIR_PATH,
@@ -86,6 +87,7 @@ import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { createForgeService, type ForgeService } from "../forge/forge-service.js";
 import { forgeAccountsProjector } from "../forge/forge-store.js";
+import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
 import type { ManagedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
@@ -303,6 +305,14 @@ export interface EnvironmentOptions {
    * directory can be read; how long git gets. Each has a preset.
    */
   readonly workspaces?: WorkspaceSettings;
+  /**
+   * The command line that runs the `agent-harness` binary before its verb
+   * (#314): git names it, with `git-credential <slug>`, as its credential
+   * helper. `serve` passes the one it runs as; the launcher's stable shim
+   * (#338) takes its place once it exists. Absent, the harness's git fails
+   * on an origin a forge account covers.
+   */
+  readonly harnessCommand?: readonly string[];
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
   /** How long one call to a forge, and one verification of a forge account, may take (#311). Preset: `FORGE_CALL_TIMEOUT_MS`, ADR 0031's ten seconds. */
@@ -568,6 +578,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
       ...(options.gh !== undefined && { gh: options.gh }),
       ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+      ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
+      // Where the credential helper asks: the loopback listener, bound after this step.
+      address: () => address,
     });
     closers.push(() => forgeService.close());
     await forgeService.start();
@@ -877,6 +890,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     PAIR_PATH,
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
+  // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
+  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
   const completions = createCompletionsSurface({
     log,

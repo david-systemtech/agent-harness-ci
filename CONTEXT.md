@@ -345,8 +345,16 @@ One thing a forge account may be able to do (read repositories, write issues, op
 _Avoid_: scope (the provider's token setting), permission (the harness's run modes)
 
 **Credential helper**:
-The harness command a run's git calls for a forge origin's credential, which answers from the environment's vault for that run only; it serves git's http transport for the account's origins and leaves ssh to the user's keys.
+The harness command a run's git, and the harness's own, calls for a forge origin's credential, which asks the credential route with a run-scoped secret and so answers for that run or operation only; it serves git's http transport for the account's origins and leaves ssh to the user's keys.
 _Avoid_: git credential store, token file, GCM
+
+**Run-scoped secret**:
+The random value the credential helper proves itself with: minted for one harness git operation, a provider process or a terminal, naming the forge accounts it may be served, held only in the environment's memory as a secret, and void once what it was minted for ends or the environment restarts.
+_Avoid_: token (the forge's credential), session token, API key
+
+**Credential route**:
+The environment's internal route the credential helper asks over loopback: it serves a run-scoped secret's forge accounts on their canonical origins and verified aliases, reading the credential on every request, and refuses everything else.
+_Avoid_: token endpoint, credential server, auth API
 
 **Primary forge**:
 The one forge origin a user has marked as the default, flagged on that origin's account on every environment: where new repositories are created and the release channel is read unless another forge is named.

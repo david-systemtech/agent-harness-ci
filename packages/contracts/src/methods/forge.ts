@@ -78,6 +78,24 @@ export const CredentialSourceUnavailableError = errorSchema(
 });
 export type CredentialSourceUnavailableError = z.infer<typeof CredentialSourceUnavailableError>;
 
+/**
+ * A harness operation on a forge was refused on an origin no forge account
+ * covers (forge spec, "No forge account"; ADR 0020): it read anonymously,
+ * and the forge asked for a credential. The refusal names the origin and the
+ * Forges step, which a client deep-links to.
+ */
+export const ForgeAccountMissingError = errorSchema(
+  "forge_account_missing",
+  z.object({
+    origin: ForgeOrigin.meta({ description: "The origin no forge account covers." }),
+    step: z.literal("forges").meta({ description: "The Set up step that adds a forge account for it, for the deep link." }),
+  }),
+).meta({
+  description:
+    "The forge asked for a credential on an origin no forge account on this environment covers, after an anonymous read: data names the origin, and the Forges step that adds one.",
+});
+export type ForgeAccountMissingError = z.infer<typeof ForgeAccountMissingError>;
+
 /** The kinds a forge account is added with: GitLab is reserved for milestone 2 (ADR 0033). */
 const AddableKind = ForgeKind.exclude(["gitlab"]).meta({
   description: `The kind of forge the URL is on: ${FORGE_KINDS.filter((kind) => kind !== "gitlab").join(", ")}; optional for github.com, which is GitHub. gitlab is reserved for milestone 2.`,

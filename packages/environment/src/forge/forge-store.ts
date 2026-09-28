@@ -15,6 +15,7 @@ import {
   type ForgeCredentialSource,
   type ForgeIdentity,
   type ForgeKind,
+  type ForgeOriginMissingPayload,
   type ForgeProblem,
   type ForgeTokenInformation,
   type ForgeVariables,
@@ -29,7 +30,8 @@ import type { Reader } from "../sessions/session-tables.js";
  * transaction that appends them and rebuilt from the log. A removed forge
  * account keeps its row, marked removed, so its id is never taken again.
  * `forge_origins` holds the canonical origin and every alias of each forge
- * account the environment holds, one forge account per origin; the partial
+ * account the environment holds, one forge account per origin;
+ * `forge_missing_origins` the last `forge.origin-missing` of each origin; the partial
  * unique indexes hold one slug per live forge account and one primary,
  * which the ForgeService checks before it appends.
  */
@@ -60,6 +62,11 @@ export const FORGE_ACCOUNTS_TABLES = {
   forge_origins: `CREATE TABLE forge_origins (
     origin TEXT PRIMARY KEY,
     forge_account_id TEXT NOT NULL
+  ) STRICT`,
+  forge_missing_origins: `CREATE TABLE forge_missing_origins (
+    origin TEXT PRIMARY KEY,
+    operation TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
   ) STRICT`,
 } as const;
 
@@ -159,11 +166,22 @@ const removed = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountRe
   db.run("DELETE FROM forge_origins WHERE forge_account_id = ?", payload.forgeAccountId);
 };
 
+/** The last time a harness operation was refused on `origin` for want of a forge account, and what it was doing. */
+const originMissing = (db: ProjectionDb, event: EventEnvelope, payload: ForgeOriginMissingPayload): void => {
+  db.run(
+    `INSERT INTO forge_missing_origins (origin, operation, recorded_at) VALUES (?, ?, ?)
+     ON CONFLICT (origin) DO UPDATE SET operation = excluded.operation, recorded_at = excluded.recorded_at`,
+    payload.origin,
+    payload.operation,
+    event.occurredAt,
+  );
+};
+
 /**
  * Keeps the read model from the environment stream's forge events. A git
  * rejection and a missing origin change no record: the verification that
  * follows a rejection records what it finds, and a missing origin is one no
- * forge account covers.
+ * forge account covers, kept apart with its last record.
  */
 export const forgeAccountsProjector: Projector = {
   name: FORGE_ACCOUNTS_PROJECTOR,
@@ -183,6 +201,8 @@ export const forgeAccountsProjector: Projector = {
         return capabilityLearned(db, event, event.payload as ForgeAccountCapabilityLearnedPayload);
       case "forge.account.removed":
         return removed(db, event, event.payload as ForgeAccountRemovedPayload);
+      case "forge.origin-missing":
+        return originMissing(db, event, event.payload as ForgeOriginMissingPayload);
     }
   },
 };
@@ -262,3 +282,16 @@ export const slugHolder = (reader: Reader, slug: string): string | null =>
 /** The primary forge account; null when none is. */
 export const primaryForgeAccount = (reader: Reader): string | null =>
   reader.all<{ id: string }>("SELECT id FROM forge_accounts WHERE is_primary = 1")[0]?.id ?? null;
+
+/** A missing origin's last record: the origin, what the harness was doing there, and when. */
+export interface MissingOrigin {
+  readonly origin: string;
+  readonly operation: string;
+  readonly recordedAt: string;
+}
+
+/** Every origin a harness operation was refused on for want of a forge account, with its last record, oldest first. */
+export const missingOrigins = (reader: Reader): MissingOrigin[] =>
+  reader
+    .all<{ origin: string; operation: string; recorded_at: string }>("SELECT origin, operation, recorded_at FROM forge_missing_origins ORDER BY recorded_at, origin")
+    .map((row) => ({ origin: row.origin, operation: row.operation, recordedAt: row.recorded_at }));
