@@ -1,0 +1,17 @@
+{
+  // The GUI's tests and their harness, which run in jsdom and so need the DOM's types beside Node's: the repository's
+  // tooling project has no DOM, so they are checked here instead (tsconfig.tooling.json leaves them out).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../.tsbuild/gui-tests",
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "test"],
+  "exclude": [],
+  // The tooling project holds the lint rules, whose presentation list a test reads.
+  "references": [{ "path": "." }, { "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }, { "path": "../../tsconfig.tooling.json" }]
+}
