@@ -156,7 +156,7 @@ describe("discovery and health", () => {
       environmentName: "desk",
       harnessVersion: packageVersion,
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: [],
+      capabilities: ["forge"],
       authPolicy: "local-only",
       readiness: "ready",
     });
