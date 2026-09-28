@@ -83,19 +83,64 @@ const webRemote = (url: URL): ForgeRemote | null => {
   return { origin, path: repositoryPath(url.pathname), sshDerived: false, userinfoDropped: url.username !== "" || url.password !== "" };
 };
 
+/** The URL schemes git reaches a host over ssh or its own protocol with; each maps to the host's `https` origin. */
+const SSH_DERIVED_SCHEMES = new Set(["ssh", "git+ssh", "ssh+git", "git"]);
+
+/** GitHub's ssh-over-443 host, which serves github.com's repositories. */
+const GITHUB_SSH_HOST = "ssh.github.com";
+const GITHUB_HOST = "github.com";
+
+/**
+ * An ssh, scp or `git://` remote: `https` on the same host with no port,
+ * since the port is sshd's or git-daemon's and never the web server's, and
+ * `ssh.github.com` read as `github.com`.
+ */
+const sshDerivedRemote = (host: string, path: string, userinfoDropped: boolean): ForgeRemote | null => {
+  const lower = host.toLowerCase();
+  let url: URL;
+  try {
+    url = new URL(`https://${lower === GITHUB_SSH_HOST ? GITHUB_HOST : lower}`);
+  } catch {
+    return null;
+  }
+  const origin = originOf(url);
+  return origin === null ? null : { origin, path: repositoryPath(path), sshDerived: true, userinfoDropped };
+};
+
+/**
+ * git's scp-like form, `[user@]host:path`: a colon before any slash. The host
+ * has a dot, is `localhost` or is a bracketed IPv6 literal, so a Windows
+ * drive (`C:\repo`) or a bare word before a colon stays a local path.
+ */
+const SCP_FORM = /^(?:([^@/]*)@)?(\[[0-9a-f:.]+\]|[^@/:[\]]+):(.*)$/is;
+const SCP_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)+|localhost|\[[0-9a-f:.]+\])$/i;
+
+const scpRemote = (text: string): ForgeRemote | null => {
+  const scp = SCP_FORM.exec(text);
+  if (scp === null) return null;
+  const [, user = "", host = "", path = ""] = scp;
+  return SCP_HOST.test(host) ? sshDerivedRemote(host, path, user.includes(":")) : null;
+};
+
+/** A URL-form remote: `https`, `http`, ssh's three spellings or `git://`; any other scheme is not a remote. */
+const urlRemote = (text: string, scheme: string): ForgeRemote | null => {
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if (scheme === "https" || scheme === "http") return webRemote(url);
+  if (SSH_DERIVED_SCHEMES.has(scheme) && url.hostname !== "") return sshDerivedRemote(url.hostname, url.pathname, url.password !== "");
+  return null;
+};
+
 /**
  * Maps a remote, in any spelling git takes, to its forge origin and
  * repository path; null for anything that is not a remote (a local path).
  */
 export const normaliseRemote = (remote: string): ForgeRemote | null => {
   const text = remote.trim();
-  const scheme = URL_FORM.exec(text)?.[1]?.toLowerCase();
-  if (scheme === "https" || scheme === "http") {
-    try {
-      return webRemote(new URL(text));
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  const scheme = URL_FORM.exec(text)?.[1];
+  return scheme === undefined ? scpRemote(text) : urlRemote(text, scheme.toLowerCase());
 };

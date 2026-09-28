@@ -33,6 +33,23 @@ describe("the normaliser", () => {
     ["https with one .git dropped, not two", "https://github.com/david/odd.git.git", remote("https://github.com", "david/odd.git")],
     ["https with a port out of range", "https://github.com:70000/david/agent-harness", null],
     ["another scheme", "ftp://github.com/david/agent-harness", null],
+    // ssh, scp and git:// forms: https on the same host, no port, ssh-derived.
+    ["ssh with a port", "ssh://git@git.systemtech.dev:2222/david/agent-harness.git", remote("https://git.systemtech.dev", "david/agent-harness", true)],
+    ["ssh without a user, upper-case", "SSH://Git.SystemTech.dev/david/agent-harness", remote("https://git.systemtech.dev", "david/agent-harness", true)],
+    ["git+ssh", "git+ssh://git@github.com/david/agent-harness.git", remote("https://github.com", "david/agent-harness", true)],
+    ["ssh+git", "ssh+git://git@github.com/david/agent-harness.git", remote("https://github.com", "david/agent-harness", true)],
+    ["ssh to ssh.github.com on 443", "ssh://git@ssh.github.com:443/david/agent-harness.git", remote("https://github.com", "david/agent-harness", true)],
+    ["ssh on an IPv6 literal", "ssh://git@[fd7a:115c:a1e0::1]:2222/david/agent-harness.git", remote("https://[fd7a:115c:a1e0::1]", "david/agent-harness", true)],
+    ["scp", "git@github.com:david/agent-harness.git", remote("https://github.com", "david/agent-harness", true)],
+    ["scp without a user", "git.systemtech.dev:david/agent-harness", remote("https://git.systemtech.dev", "david/agent-harness", true)],
+    ["scp with an absolute path", "git@git.systemtech.dev:/srv/git/agent-harness.git", remote("https://git.systemtech.dev", "srv/git/agent-harness", true)],
+    ["scp to ssh.github.com", "git@ssh.github.com:david/agent-harness.git", remote("https://github.com", "david/agent-harness", true)],
+    ["scp to localhost", "git@localhost:david/agent-harness.git", remote("https://localhost", "david/agent-harness", true)],
+    ["scp to an IPv4 address", "git@100.101.102.103:david/agent-harness.git", remote("https://100.101.102.103", "david/agent-harness", true)],
+    ["scp to a bracketed IPv6 literal", "git@[fd7a:115c:a1e0::1]:david/agent-harness.git", remote("https://[fd7a:115c:a1e0::1]", "david/agent-harness", true)],
+    ["scp with a port-like first segment and a user, as git reads it", "git@git.systemtech.dev:2222/david/agent-harness.git", remote("https://git.systemtech.dev", "2222/david/agent-harness", true)],
+    ["git://", "git://git.kernel.org/pub/scm/git/git.git", remote("https://git.kernel.org", "pub/scm/git/git", true)],
+    ["git:// with a port", "git://git.systemtech.dev:9418/david/agent-harness.git", remote("https://git.systemtech.dev", "david/agent-harness", true)],
   ];
 
   it.each(table)("reads %s", (_, input, expected) => {
