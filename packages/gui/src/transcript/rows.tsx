@@ -1,10 +1,20 @@
-import { endWords, oneLine, turnFacts, type AssistantEntry, type PromptEntry, type SubagentEntry, type TranscriptRow, type UserMessageEntry } from "@agent-harness/client-runtime";
+import {
+  endWords,
+  oneLine,
+  turnFacts,
+  type AssistantEntry,
+  type PromptEntry,
+  type SubagentEntry,
+  type TranscriptRow,
+  type UserMessageEntry,
+} from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
-import { use, useState } from "react";
+import { useState } from "react";
+import { classes } from "../ui/classes.js";
 import { Fold } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
 import { CallCard, CallsRow } from "./calls.js";
-import { FindQuery, Marked } from "./find.js";
+import { Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
 import { StreamingText } from "./streaming-text.js";
 
@@ -93,7 +103,7 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
   const completed = run.reason === "completed";
   const line = (completed ? facts : [endWords(run), ...facts]).join(" · ");
   return (
-    <div className={completed ? "text-[0.85em] text-ink-faint" : run.reason === "error" ? "text-[0.85em] text-signal" : "text-[0.85em] text-amber"}>
+    <div className={classes("text-[0.85em]", completed ? "text-ink-faint" : run.reason === "error" ? "text-signal" : "text-amber")}>
       <p>
         <Marked text={line} />
       </p>
@@ -107,20 +117,17 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
 };
 
 /** The assistant's reply: fading in word by word while it streams, markdown once it has settled. */
-const AssistantText = ({ text, streaming, arrived }: { readonly text: string; readonly streaming: boolean; readonly arrived: boolean }) => {
-  const query = use(FindQuery);
-  return (
-    <article aria-label="Reply" className="text-ink">
-      {streaming ? (
-        <div className="whitespace-pre-wrap break-words">
-          <StreamingText text={text} arrived={arrived} />
-        </div>
-      ) : (
-        <Markdown text={text} query={query} />
-      )}
-    </article>
-  );
-};
+const AssistantText = ({ text, streaming, arrived }: { readonly text: string; readonly streaming: boolean; readonly arrived: boolean }) => (
+  <article aria-label="Reply" className="text-ink">
+    {streaming ? (
+      <div className="whitespace-pre-wrap break-words">
+        <StreamingText text={text} arrived={arrived} />
+      </div>
+    ) : (
+      <Markdown text={text} />
+    )}
+  </article>
+);
 
 /** The marks a one-line preview of reasoning leaves out: markdown's headings, list markers, emphasis and code ticks. */
 const PREVIEW_MARKS = /^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+|\*\*|__|~~|`/gm;
@@ -158,14 +165,12 @@ const Reasoning = ({ entry, arrived }: { readonly entry: AssistantEntry; readonl
             <StreamingText text={entry.text} arrived={arrived} />
           </div>
         ) : (
-          <ReasoningText text={entry.text} />
+          <Markdown text={entry.text} />
         )}
       </div>
     </Fold>
   );
 };
-
-const ReasoningText = ({ text }: { readonly text: string }) => <Markdown text={text} query={use(FindQuery)} />;
 
 /** A subagent's calls, in one row naming its agent and the work that started it; unfolded, each call. */
 const Subagent = ({ entry, quietMs }: { readonly entry: SubagentEntry; readonly quietMs: (toolCallId: string) => number }) => {
@@ -203,7 +208,7 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
         <p className="text-[0.85em]">
           <span className="font-semibold text-ink">Plan</span> <span className={answer === null ? "text-amber" : "text-ink-muted"}>· {verdict}</span>
         </p>
-        <PromptMarkdown text={prompt.plan ?? ""} />
+        <Markdown text={prompt.plan ?? ""} />
       </article>
     );
   }
@@ -241,5 +246,3 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
     </article>
   );
 };
-
-const PromptMarkdown = ({ text }: { readonly text: string }) => <Markdown text={text} query={use(FindQuery)} />;

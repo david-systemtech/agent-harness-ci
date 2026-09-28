@@ -19,7 +19,7 @@ import { Button } from "../ui/index.js";
 export const FindQuery = createContext("");
 
 /** `text` cut at each match of `query`, ignoring case: the pieces between, and the matches. */
-export const matchesIn = (text: string, query: string): readonly { readonly text: string; readonly match: boolean }[] => {
+const matchesIn = (text: string, query: string): readonly { readonly text: string; readonly match: boolean }[] => {
   if (query === "") return [{ text, match: false }];
   const lower = text.toLowerCase();
   const needle = query.toLowerCase();

@@ -1,8 +1,8 @@
-import { memo, useMemo, type ComponentPropsWithoutRef } from "react";
+import { memo, use, useMemo, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { findMarks } from "./find.js";
+import { FindQuery, findMarks } from "./find.js";
 
 /**
  * Markdown as the transcript draws it (docs/specs/gui.md, "A session pane"):
@@ -42,14 +42,10 @@ const Link = ({ href, children }: ComponentPropsWithoutRef<"a"> & ExtraProps) =>
 
 const COMPONENTS: Components = { img: Image, a: Link };
 
-export interface MarkdownProps {
-  readonly text: string;
-  /** What the find bar looks for, marked where it matches; empty for nothing. */
-  readonly query?: string;
-}
+/** Markdown with what the find bar looks for marked, parsed again only when its text or the query changes. */
+export const Markdown = ({ text }: { readonly text: string }) => <Parsed text={text} query={use(FindQuery)} />;
 
-/** Markdown, parsed again only when its text or the find bar's query changes. */
-export const Markdown = memo(({ text, query = "" }: MarkdownProps) => {
+const Parsed = memo(({ text, query }: { readonly text: string; readonly query: string }) => {
   const rehypePlugins = useMemo<Options["rehypePlugins"]>(() => (query === "" ? [HIGHLIGHT] : [HIGHLIGHT, findMarks(query)]), [query]);
   return (
     <div className="markdown">

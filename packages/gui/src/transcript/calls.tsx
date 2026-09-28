@@ -38,13 +38,13 @@ const countsOf = (calls: readonly ToolCallEntry[]): ActivityCounts => {
 };
 
 /** A call's name for people: its title when the provider gives one, else its tool and what it was given. */
-export const callName = (call: ToolCallEntry): string => {
+const callName = (call: ToolCallEntry): string => {
   if (call.title !== null && call.title.length > 0) return oneLine(call.title, 160);
   const gloss = summarizeToolInput(call.input);
   return gloss.length > 0 ? `${call.name}: ${oneLine(gloss, 140)}` : call.name;
 };
 
-export interface CallsRowProps {
+interface CallsRowProps {
   readonly calls: readonly ToolCallEntry[];
   /** How long each running call has said nothing, in milliseconds. */
   readonly quietMs: (toolCallId: string) => number;
