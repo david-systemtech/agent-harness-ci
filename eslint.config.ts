@@ -1,3 +1,4 @@
+import css from "@eslint/css";
 import eslint from "@eslint/js";
 import type { Linter } from "eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
@@ -12,6 +13,20 @@ const rendererPackages = clientPackageNames.filter((p) => p !== "client-runtime"
 /** One alternation over every client package name, for the import bans below. */
 const anyClient = clientPackageNames.join("|");
 
+/** Every script's extension, TypeScript's and JavaScript's. */
+const scripts = "{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
+
+/**
+ * The packages that paint with the theme's tokens (ADR 0023): the GUI, the desktop shell and the browser tab, and any
+ * renderer package added later. The terminal UI keeps the terminal's own sixteen colours and is not one.
+ */
+const tokenPackages = ["gui", "desktop", "web"];
+/**
+ * The two places a painting package may write a literal colour (ADR 0023), each a module name wherever the package keeps it:
+ * xterm's fallback theme, the terminal pane's colours before the theme is read, and the preview frame's content, a document's own colours.
+ */
+const literalColourAllowed = ["**/xterm-fallback-theme.ts", "**/preview-frame-content.{ts,tsx,css}"];
+
 /** Why the environment imports no client and not the CLI. */
 const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
 
@@ -23,8 +38,8 @@ const forbidImports = (regex: string, message: string): Linter.RulesRecord => ({
 export default defineConfig([
   // `.ci/` is david/ci, which CI checks out inside the workspace.
   globalIgnores(["**/dist/", "**/coverage/", ".tsbuild/", ".ci/"]),
-  eslint.configs.recommended,
-  tseslint.configs.recommended,
+  // The JavaScript rules read scripts only: a stylesheet has no comments or tokens of theirs to read.
+  { files: [`**/*.${scripts}`], extends: [eslint.configs.recommended, tseslint.configs.recommended] },
   { plugins: { "agent-harness": plugin } },
 
   // ADR 0003, lint (a): no client store or preference named after session organisation state.
@@ -39,6 +54,22 @@ export default defineConfig([
   {
     files: ["packages/client-runtime/src/shell.ts", "packages/client-runtime/src/shell/**/*.ts"],
     rules: { "agent-harness/no-session-types-in-shell": "error" },
+  },
+
+  // ADR 0023: every colour a window paints is a token, in the painting packages' scripts, tests included, and stylesheets.
+  {
+    files: tokenPackages.map((p) => `packages/${p}/**/*.${scripts}`),
+    ignores: literalColourAllowed,
+    rules: { "agent-harness/no-literal-colour": "error" },
+  },
+  // Stylesheets through ESLint's CSS language, tolerant of the at-rules and the `--color-*` reset Tailwind 4 adds to CSS.
+  {
+    files: tokenPackages.map((p) => `packages/${p}/**/*.css`),
+    ignores: literalColourAllowed,
+    plugins: { css },
+    language: "css/css",
+    languageOptions: { tolerant: true },
+    rules: { "agent-harness/no-literal-colour": "error" },
   },
 
   // Dependency direction, as source imports; test/workspace.test.ts holds the manifests to the same rules.
