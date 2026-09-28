@@ -49,8 +49,11 @@ import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
  *
  * Each run is settled in a transaction of its own, and one already marked is
  * passed over, so a second start appends nothing; a run whose settling fails
- * is left for the next start. After a rollback past a commit the restored log
- * never saw the marks, so the restored version marks and continues again.
+ * is left for the next start, which settles it while no other update has
+ * begun: only the latest update is ever settled, its runs as its outcome
+ * (#344), since a run of an older one may be long past what its session has
+ * done since. After a rollback past a commit the restored log never saw the
+ * marks, so the restored version marks and continues again.
  */
 
 export interface InterruptedRunsOptions {
@@ -152,7 +155,7 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
     latest = readUpdateHistory(log).latest;
     cuts = latest === undefined ? [] : unmarkedCutRuns(reader, latest.sequence);
   } catch (error) {
-    console.error("Reading the runs the latest update cut failed; the next start settles them:", error);
+    console.error("Reading the runs the latest update cut failed; the next start settles them unless another update begins first:", error);
     return;
   }
   if (latest === undefined) return;
@@ -213,7 +216,7 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
     try {
       continuation = mark(cut);
     } catch (error) {
-      console.error(`Settling run ${cut.runId}, which update ${updateId} cut, failed; the next start settles it:`, error);
+      console.error(`Settling run ${cut.runId}, which update ${updateId} cut, failed; the next start settles it unless another update begins first:`, error);
       continue;
     }
     if (continuation === undefined) continue;
