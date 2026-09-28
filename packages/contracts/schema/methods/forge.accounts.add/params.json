@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.accounts.add params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "forgeAccountId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "description": "The forge's URL in any form git takes, or a repository's on it: only its origin is kept."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "github",
+        "forgejo",
+        "gitea"
+      ],
+      "description": "The kind of forge the URL is on: github, forgejo, gitea; optional for github.com, which is GitHub. gitlab is reserved for milestone 2."
+    },
+    "slug": {
+      "description": "The slug its variables are named by; derived from the host when absent.",
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,40}$"
+    },
+    "primary": {
+      "description": "Make it the primary forge, clearing the one that is. The first forge account is primary whatever this says.",
+      "type": "boolean"
+    },
+    "credential": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "stored"
+            },
+            "provenance": {
+              "type": "string",
+              "const": "pasted",
+              "description": "A person pasted the token."
+            },
+            "token": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^\\S+$",
+              "description": "A forge token as pasted, trimmed: 1 to 4096 characters with no white space. It crosses the wire once and is never answered back."
+            }
+          },
+          "required": [
+            "kind",
+            "provenance",
+            "token"
+          ],
+          "description": "A pasted token, which the environment keeps in its vault."
+        }
+      ],
+      "description": "The credential a forge account is given: a pasted token, stored in the environment's vault and never answered back."
+    }
+  },
+  "required": [
+    "commandId",
+    "forgeAccountId",
+    "url",
+    "credential"
+  ]
+}

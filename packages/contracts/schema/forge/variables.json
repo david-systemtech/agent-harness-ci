@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeVariables",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The variables holding the canonical origin: FORGE_<SLUG>_URL, and FORGE_URL for the primary."
+    },
+    "token": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The variables holding the token: FORGE_<SLUG>_TOKEN, FORGE_TOKEN for the primary, GH_TOKEN for github.com."
+    },
+    "kind": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The variables holding the kind: FORGE_<SLUG>_KIND, and FORGE_KIND for the primary."
+    }
+  },
+  "required": [
+    "url",
+    "token",
+    "kind"
+  ],
+  "description": "The exact names of the variables a forge account injects into a run; all empty for one that injects nothing (identity-changed or needs-credential)."
+}

@@ -44,6 +44,7 @@ export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag)
  *
  * - `self-update`: the environment can update itself to a client's version (the launcher workstream, ADR 0007).
  * - `containment:workspace`, `containment:no-network`: the containment levels the environment can enforce (the permissions workstream).
+ * - `forge`: the environment holds forge accounts and answers the `forge.*` methods (the forge workstream); without it a client shows Forges absent-with-reason.
  */
-export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network"] as const;
+export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge"] as const;
 export type KnownCapabilityFlag = (typeof CAPABILITY_FLAG_LIST)[number];

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeIdentity",
+  "type": "object",
+  "properties": {
+    "login": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The login the forge's user endpoint answered, which may change while the user id stays."
+    },
+    "userId": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "The forge's numeric user id as decimal digits, a string so that no JSON reader rounds it: what makes a credential the same identity."
+    }
+  },
+  "required": [
+    "login",
+    "userId"
+  ],
+  "description": "Who a forge account's credential answers as: its login and the forge's user id."
+}

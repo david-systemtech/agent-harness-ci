@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeAccountVerifiedPayload",
+  "type": "object",
+  "properties": {
+    "forgeAccountId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "identity": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "login": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The login the forge's user endpoint answered, which may change while the user id stays."
+            },
+            "userId": {
+              "type": "string",
+              "pattern": "^[0-9]+$",
+              "description": "The forge's numeric user id as decimal digits, a string so that no JSON reader rounds it: what makes a credential the same identity."
+            }
+          },
+          "required": [
+            "login",
+            "userId"
+          ],
+          "description": "Who a forge account's credential answers as: its login and the forge's user id."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "readRepository": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "failed",
+                "unknown"
+              ],
+              "description": "Whether a forge account can do something: verified (a probe or an operation succeeded), failed (refused) or unknown (not tried yet)."
+            },
+            "verifiedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When it was last found verified; null until it has been."
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The HTTP status a failure answered; null unless it failed."
+            }
+          },
+          "required": [
+            "state",
+            "verifiedAt",
+            "status"
+          ],
+          "description": "What is known of one capability: its state, when it was last verified, and a failure's status."
+        },
+        "writeIssues": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "failed",
+                "unknown"
+              ],
+              "description": "Whether a forge account can do something: verified (a probe or an operation succeeded), failed (refused) or unknown (not tried yet)."
+            },
+            "verifiedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When it was last found verified; null until it has been."
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The HTTP status a failure answered; null unless it failed."
+            }
+          },
+          "required": [
+            "state",
+            "verifiedAt",
+            "status"
+          ],
+          "description": "What is known of one capability: its state, when it was last verified, and a failure's status."
+        },
+        "pullRequests": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "failed",
+                "unknown"
+              ],
+              "description": "Whether a forge account can do something: verified (a probe or an operation succeeded), failed (refused) or unknown (not tried yet)."
+            },
+            "verifiedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When it was last found verified; null until it has been."
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The HTTP status a failure answered; null unless it failed."
+            }
+          },
+          "required": [
+            "state",
+            "verifiedAt",
+            "status"
+          ],
+          "description": "What is known of one capability: its state, when it was last verified, and a failure's status."
+        },
+        "createRepository": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "failed",
+                "unknown"
+              ],
+              "description": "Whether a forge account can do something: verified (a probe or an operation succeeded), failed (refused) or unknown (not tried yet)."
+            },
+            "verifiedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When it was last found verified; null until it has been."
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The HTTP status a failure answered; null unless it failed."
+            }
+          },
+          "required": [
+            "state",
+            "verifiedAt",
+            "status"
+          ],
+          "description": "What is known of one capability: its state, when it was last verified, and a failure's status."
+        },
+        "readReleases": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "failed",
+                "unknown"
+              ],
+              "description": "Whether a forge account can do something: verified (a probe or an operation succeeded), failed (refused) or unknown (not tried yet)."
+            },
+            "verifiedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When it was last found verified; null until it has been."
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The HTTP status a failure answered; null unless it failed."
+            }
+          },
+          "required": [
+            "state",
+            "verifiedAt",
+            "status"
+          ],
+          "description": "What is known of one capability: its state, when it was last verified, and a failure's status."
+        }
+      },
+      "required": [
+        "readRepository",
+        "writeIssues",
+        "pullRequests",
+        "createRepository",
+        "readReleases"
+      ],
+      "description": "Each of a forge account's five capabilities: readRepository, writeIssues, pullRequests, createRepository and readReleases."
+    },
+    "tokenInformation": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "classic",
+                "fine-grained",
+                "oauth",
+                "unknown"
+              ],
+              "description": "What kind of token a credential is: classic, fine-grained, oauth, or unknown (a Forgejo or Gitea token, which does not say)."
+            },
+            "scopes": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The scopes the forge's scope header named, a hint only; null when it sent none."
+            },
+            "expiresAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When the token expires, when the forge says; null otherwise."
+            }
+          },
+          "required": [
+            "kind",
+            "scopes",
+            "expiresAt"
+          ],
+          "description": "What a verification read of a forge account's token: its kind, the scope header as a hint, and its expiry."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "problem": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "needs-credential",
+                "credential-rejected",
+                "credential-unavailable",
+                "identity-changed",
+                "unreachable",
+                "expiring"
+              ],
+              "description": "What is wrong with a forge account: needs-credential (a copy with none), credential-rejected (401 on its identity), credential-unavailable (the key manager or gh signed out, or the vault entry missing), identity-changed (another user id answered; unused until the credential is replaced), unreachable (the forge did not answer) or expiring (the token expires within thirty days)."
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "Since when the forge account has had this problem."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\n]*$",
+              "description": "One line for people: what is wrong and what to do."
+            }
+          },
+          "required": [
+            "kind",
+            "since",
+            "message"
+          ],
+          "description": "A forge account's problem: which, since when, and one line saying what to do."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "forgeAccountId",
+    "identity",
+    "capabilities",
+    "tokenInformation",
+    "problem"
+  ],
+  "description": "forge.account.verified: a verification found the identity, a capability, the token information or the problem changed; what it found, whole."
+}

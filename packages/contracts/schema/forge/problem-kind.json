@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeProblemKind",
+  "type": "string",
+  "enum": [
+    "needs-credential",
+    "credential-rejected",
+    "credential-unavailable",
+    "identity-changed",
+    "unreachable",
+    "expiring"
+  ],
+  "description": "What is wrong with a forge account: needs-credential (a copy with none), credential-rejected (401 on its identity), credential-unavailable (the key manager or gh signed out, or the vault entry missing), identity-changed (another user id answered; unused until the credential is replaced), unreachable (the forge did not answer) or expiring (the token expires within thirty days)."
+}
