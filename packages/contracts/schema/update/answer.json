@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateAnswer",
+  "type": "object",
+  "properties": {
+    "updateId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+    },
+    "toVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The target: the version the update goes to."
+    }
+  },
+  "required": [
+    "updateId",
+    "toVersion"
+  ],
+  "description": "The update the environment took: its id, and the version it goes to."
+}

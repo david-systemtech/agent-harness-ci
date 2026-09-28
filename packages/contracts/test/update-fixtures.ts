@@ -186,6 +186,26 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   "updates/pending-update.json": pendingUpdates,
   "updates/outcome.json": outcomes,
   "updates/status.json": statuses,
+  "update/request.json": {
+    valid: [{ version: "0.5.0" }, { version: "1.0.0-beta.2", artefactPath: "/opt/agent-harness-linux-x64.tar.gz" }],
+    invalid: [{}, { version: "v0.5.0" }, { version: "0.5.0", artefactPath: "" }],
+  },
+  "update/answer.json": taken,
+  "update/error.json": {
+    valid: [
+      { code: "unauthorized", message: "The token is not valid here.", data: {} },
+      { code: "forbidden", message: "Only a local client session may name an artefact path.", data: { scope: "admin", reason: "local" } },
+      { code: "not_found", message: "No release 0.9.0.", data: {} },
+      { code: "conflict", message: "0.5.0 runs already.", data: { reason: "current" } },
+      { code: "unavailable", message: "The environment is draining.", data: { readiness: "draining" } },
+    ],
+    invalid: [
+      { code: "conflict", message: "m", data: {} },
+      { code: "conflict", message: "m", data: { reason: "busy" } },
+      { code: "rate_limited", message: "m", data: { retryAfterMs: 5 } },
+      { code: "forbidden", message: "m", data: {} },
+    ],
+  },
   "updates/when.json": { valid: ["idle", "now"], invalid: ["tonight", ""] },
   "updates/conflict-reason.json": { valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access"], invalid: ["in-progress", ""] },
 };

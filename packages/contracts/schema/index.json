@@ -171,6 +171,18 @@
       "title": "PairError"
     },
     {
+      "path": "update/request.json",
+      "title": "UpdateRequest"
+    },
+    {
+      "path": "update/answer.json",
+      "title": "UpdateAnswer"
+    },
+    {
+      "path": "update/error.json",
+      "title": "UpdateError"
+    },
+    {
       "path": "access/event-type.json",
       "title": "AccessEventType"
     },

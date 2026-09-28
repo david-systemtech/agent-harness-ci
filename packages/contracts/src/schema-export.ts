@@ -89,6 +89,7 @@ import {
   ReleaseVersion,
   Sha256,
 } from "./release.js";
+import { UpdateAnswer, UpdateError, UpdateRequest } from "./update-route.js";
 import {
   AutoUpdate,
   DeferralCapHours,
@@ -354,6 +355,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
   { path: "pair/request.json", title: "PairRequest", schema: PairRequest },
   { path: "pair/error.json", title: "PairError", schema: PairError },
+  { path: "update/request.json", title: "UpdateRequest", schema: UpdateRequest },
+  { path: "update/answer.json", title: "UpdateAnswer", schema: UpdateAnswer },
+  { path: "update/error.json", title: "UpdateError", schema: UpdateError },
   { path: "access/event-type.json", title: "AccessEventType", schema: AccessEventType },
   { path: "access/client-session-origin.json", title: "ClientSessionOrigin", schema: ClientSessionOrigin },
   { path: "access/revocation-reason.json", title: "RevocationReason", schema: RevocationReason },
