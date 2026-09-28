@@ -391,3 +391,47 @@ describe("display preferences", () => {
     expect(column().style.maxWidth).toBe("none");
   });
 });
+
+describe("the find bar", () => {
+  it("opens on Mod+F and highlights matches; Enter moves to the next, Shift+Enter to the previous, and Esc closes it", async () => {
+    const { app, env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the parser");
+    env.emit(session, "assistant.text", { runId, itemId: "i-1", text: "The Parser sums twice. Fix the **parser** first.", aborted: false });
+    env.endRun(session, runId);
+    await within(transcript).findByText(/sums twice/);
+
+    await app.user.keyboard("{Control>}f{/Control}");
+    const bar = screen.getByRole("search", { name: "Find in the conversation" });
+    const field = within(bar).getByRole("searchbox", { name: "Find" });
+    expect(document.activeElement).toBe(field);
+    // Typed where the key left the caret (a click in jsdom lands on the sidebar's divider, which lays out at the pointer).
+    await app.user.keyboard("parser");
+    const marks = () => within(transcript).queryAllByRole("mark");
+    const current = () => marks().findIndex((mark) => mark.getAttribute("aria-current") === "true");
+    expect(marks().map((mark) => mark.textContent)).toEqual(["parser", "Parser", "parser"]);
+    expect(within(bar).getByText("1 of 3")).toBeDefined();
+    expect(current()).toBe(0);
+
+    await app.user.keyboard("{Enter}");
+    expect(within(bar).getByText("2 of 3")).toBeDefined();
+    expect(current()).toBe(1);
+    await app.user.keyboard("{Enter}{Enter}");
+    expect(within(bar).getByText("1 of 3")).toBeDefined();
+    await app.user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(within(bar).getByText("3 of 3")).toBeDefined();
+    expect(current()).toBe(2);
+
+    await app.user.keyboard("z");
+    expect(within(bar).getByText("No matches")).toBeDefined();
+    expect(marks()).toEqual([]);
+
+    await app.user.keyboard("{Escape}");
+    expect(screen.queryByRole("search", { name: "Find in the conversation" })).toBeNull();
+    expect(marks()).toEqual([]);
+    // Opened again, it offers what it looked for last, ready to be typed over.
+    await app.user.keyboard("{Control>}f{/Control}");
+    const again = screen.getByRole("searchbox", { name: "Find" });
+    expect(again).toHaveProperty("value", "parserz");
+    expect(document.activeElement).toBe(again);
+  });
+});

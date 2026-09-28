@@ -14,8 +14,10 @@ import type { DelegatedWorkRow } from "@agent-harness/contracts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { ReadingWidth } from "../presentation.js";
+import { KeyContext } from "../keys/key-dispatch.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { FindBar, FindKeys, FindQuery, useFindBar } from "./find.js";
 import { TranscriptRowView, type RowFacts } from "./rows.js";
 
 export interface TranscriptProps {
@@ -106,7 +108,13 @@ const useFollow = () => {
     toEnd();
   }, [toEnd]);
 
-  return { box, column, away, onScroll, jump };
+  /** Stops following the end, as a scroll up does: David was taken somewhere to read. */
+  const stop = useCallback(() => {
+    following.current = false;
+    setAway(true);
+  }, []);
+
+  return { box, column, away, onScroll, jump, stop };
 };
 
 /**
@@ -119,7 +127,7 @@ const useFollow = () => {
  * is live a marker heads it: the catch-up under way, or what this window
  * last saw of it while its environment is not answering. Under it, the live
  * run's delegated work still going. Its text size and reading width are
- * presentation, read on each render.
+ * presentation, read on each render. Mod+F opens its find bar.
  */
 export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const runtime = useRuntime();
@@ -136,15 +144,18 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const quietMs = useQuietCalls(projection);
   const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs };
   const follow = useFollow();
+  const find = useFindBar(follow.column, follow.stop);
   const name = environments.find((environment) => environment.environmentId === environmentId)?.name ?? THIS_MACHINE;
   return (
-    <>
+    <KeyContext context="transcript" conditions={find.conditions}>
+      <FindKeys find={find} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <section
           aria-label="Transcript"
           ref={follow.box}
           onScroll={follow.onScroll}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain text-ink"
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain text-ink outline-none"
           style={{ fontSize: `${textSize}px` }}
         >
           <div ref={follow.column} className="mx-auto flex min-h-full w-full flex-col justify-end gap-3 px-4 py-3.5" style={{ maxWidth: COLUMN_WIDTHS[readingWidth] }}>
@@ -156,9 +167,11 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
             {rows.length === 0 && (projection.deleted || projection.freshness === "live") && (
               <p className="text-ink-faint">{projection.deleted ? "This session was deleted." : "Nothing said yet."}</p>
             )}
-            {rows.map((row) => (
-              <TranscriptRowView key={row.id} row={row} facts={facts} />
-            ))}
+            <FindQuery value={find.marked}>
+              {rows.map((row) => (
+                <TranscriptRowView key={row.id} row={row} facts={facts} />
+              ))}
+            </FindQuery>
           </div>
         </section>
         {follow.away && (
@@ -166,9 +179,10 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
             Jump to the latest
           </Button>
         )}
+        {find.open && <FindBar find={find} />}
       </div>
       <DelegatedStrip tasks={tasks} />
-    </>
+    </KeyContext>
   );
 };
 
