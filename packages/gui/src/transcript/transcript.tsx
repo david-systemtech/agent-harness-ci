@@ -1,4 +1,4 @@
-import { hear, nextQuietChange, quietFor, runningCalls, transcriptRows, type QuietCalls, type SessionProjection } from "@agent-harness/client-runtime";
+import { hear, liveRun, liveTasks, nextQuietChange, oneLine, quietFor, runningCalls, transcriptRows, type QuietCalls, type SessionProjection } from "@agent-harness/client-runtime";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
@@ -54,7 +54,9 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const quietMs = useQuietCalls(projection);
   const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs };
   const name = environments.find((environment) => environment.environmentId === environmentId)?.name ?? THIS_MACHINE;
+  const tasks = useMemo(() => liveTasks(projection, liveRun(projection)?.runId), [projection]);
   return (
+    <>
     <section aria-label="Transcript" className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full flex-col gap-3 px-4 py-3.5">
         {projection.freshness !== "live" && (
@@ -70,5 +72,15 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
         ))}
       </div>
     </section>
+    {tasks.length > 0 && (
+      <ul aria-label="Delegated work" className="flex shrink-0 flex-col gap-0.5 border-t border-hairline px-4 py-1.5 text-xs text-ink-muted">
+        {tasks.map((task) => (
+          <li key={task.taskId}>
+            <span className="text-cyan">{task.subagentType ?? task.kind}</span>: {oneLine(task.description, 120)} · {task.status}
+          </li>
+        ))}
+      </ul>
+    )}
+    </>
   );
 };

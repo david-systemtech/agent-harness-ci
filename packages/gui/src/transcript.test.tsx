@@ -161,3 +161,155 @@ describe("tool calls", () => {
     expect(call.textContent).toContain("No output for 3 min");
   });
 });
+
+describe("delegated work and plans", () => {
+  const task = (status: "running" | "completed") => ({
+    taskId: "task-1",
+    kind: "local_agent",
+    description: "Find where totals are summed",
+    status,
+    startedAt: "2026-09-28T10:00:00.000Z",
+    endedAt: status === "running" ? null : "2026-09-28T10:01:00.000Z",
+    subagentType: "Explore",
+    toolCallId: "t-agent",
+    error: null,
+  });
+
+  it("shows delegated work with its agent: the subagent's calls in one row, and the live run's live work in a strip under the transcript", async () => {
+    const { app, env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "tool.started", { runId, toolCallId: "t-agent", name: "Task", input: { description: "Find where totals are summed" }, title: null, agentId: null, parentToolCallId: null });
+    env.emit(session, "tasks.changed", { runId, tasks: [task("running")] });
+    env.emit(session, "tool.started", { runId, toolCallId: "t-grep", name: "Grep", input: { pattern: "total" }, title: null, agentId: "agent-1", parentToolCallId: "t-agent" });
+    env.emit(session, "tool.ended", { runId, toolCallId: "t-grep", status: "ok", output: "receipts.ts:3", durationMs: 20 });
+
+    const agent = await within(transcript).findByRole("button", { name: "Explore: Find where totals are summed · 1 call · running" });
+    const strip = screen.getByRole("list", { name: "Delegated work" });
+    expect(within(strip).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Explore: Find where totals are summed · running"]);
+    await app.user.click(agent);
+    expect(within(transcript).getByRole("group", { name: "Grep: total" })).toBeDefined();
+
+    env.emit(session, "tasks.changed", { runId, tasks: [task("completed")] });
+    await within(transcript).findByRole("button", { name: "Explore: Find where totals are summed · 1 call · done" });
+    expect(screen.queryByRole("list", { name: "Delegated work" })).toBeNull();
+  });
+
+  it("renders a plan in place, as markdown, with how it was answered", async () => {
+    const { env, transcript, session } = await opened();
+    env.startRun(session, "Plan the fix");
+    const promptId = env.openPrompt(session, { kind: "plan", summary: "A plan to approve", plan: "## Steps\n\n1. Read the parser\n2. Fix the sum", toolName: null, input: null });
+    const plan = await within(transcript).findByRole("article", { name: "Plan" });
+    expect(within(plan).getByRole("heading", { name: "Steps" })).toBeDefined();
+    expect(within(plan).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Read the parser", "Fix the sum"]);
+    expect(plan.textContent).toContain("Waiting for an answer");
+    env.answerElsewhere(session, promptId, { decision: "deny" });
+    await waitFor(() => expect(plan.textContent).toContain("Kept planning"));
+  });
+});
+
+describe("prompts in place", () => {
+  it("draws an answered prompt and question at the place each was asked, not where they were answered", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Clean up");
+    env.emit(session, "assistant.text", { runId, itemId: "i-1", text: "First.", aborted: false });
+    const permission = env.openPrompt(session, { summary: "Bash: rm -rf build" });
+    env.emit(session, "assistant.text", { runId, itemId: "i-2", text: "Second.", aborted: false });
+    const question = env.openPrompt(session, {
+      kind: "question",
+      summary: "Which database?",
+      toolName: null,
+      input: null,
+      questions: [{ header: "DB", question: "Which database?", options: [{ label: "Postgres", description: "" }], multiSelect: false }],
+    });
+    env.emit(session, "assistant.text", { runId, itemId: "i-3", text: "Third.", aborted: false });
+    env.answerElsewhere(session, permission);
+    env.emit(session, "prompt.answered", {
+      runId,
+      promptId: question,
+      decision: "allow",
+      message: null,
+      answers: { "Which database?": "Postgres" },
+      updatedInput: null,
+      mode: null,
+      remember: null,
+      decidedBy: "0199cc00-0000-7000-8000-000000000009",
+      delivery: "live",
+    });
+
+    await waitFor(() => expect(within(transcript).getByRole("article", { name: "Question" }).textContent).toContain("Postgres"));
+    const order = within(transcript)
+      .getAllByRole("article")
+      .map((article) => `${article.getAttribute("aria-label")}: ${article.textContent}`);
+    expect(order).toEqual([
+      "Your message: Clean up",
+      "Reply: First.",
+      "Permission: Bash: rm -rf build — allowed",
+      "Reply: Second.",
+      "Question: Which database? — Postgres",
+      "Reply: Third.",
+    ]);
+  });
+});
+
+describe("the cost line", () => {
+  it("sits under each finished turn: its duration, its tokens, its dollars when the provider says, and how it ended when it did not complete", async () => {
+    const { env, transcript, session } = await opened();
+    const usage = [
+      { model: "a", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 3000, cacheWriteTokens: 100, costUsd: 0.01, contextWindow: null },
+      { model: "b", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.002, contextWindow: null },
+    ];
+    const first = env.startRun(session, "Fix the receipts");
+    env.emit(session, "assistant.text", { runId: first.runId, itemId: "i-1", text: "Done.", aborted: false });
+    env.endRun(session, first.runId, { durationMs: 12_300, usage });
+    expect(await within(transcript).findByText("12s · 4.1k in · 205 out · $0.012")).toBeDefined();
+
+    const second = env.startRun(session, "And the tests");
+    env.emit(session, "assistant.text", { runId: second.runId, itemId: "i-2", text: "Looking.", aborted: false });
+    env.endRun(session, second.runId, { reason: "interrupted", durationMs: 800, usage: usage.map((model) => ({ ...model, costUsd: null })) });
+    expect(await within(transcript).findByText("Interrupted · 800ms · 4.1k in · 205 out")).toBeDefined();
+
+    const third = env.startRun(session, "Once more");
+    env.emit(session, "assistant.text", { runId: third.runId, itemId: "i-3", text: "Hm.", aborted: false });
+    env.endRun(session, third.runId, { reason: "error", durationMs: 1000 });
+    expect(await within(transcript).findByText("Error · 1.0s")).toBeDefined();
+    expect(within(transcript).getByText("The run failed.")).toBeDefined();
+  });
+});
+
+describe("images", () => {
+  const PICTURE = "aGVsbG8=";
+
+  it("draws the images a call returned inline, its calls folded or not, and a picture the reply carries", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Look at the chart");
+    env.emit(session, "tool.started", { runId, toolCallId: "t1", name: "Read", input: { file_path: "chart.png" }, title: null, agentId: null, parentToolCallId: null });
+    env.emit(session, "tool.ended", { runId, toolCallId: "t1", status: "ok", output: [{ type: "image", source: { type: "base64", media_type: "image/png", data: PICTURE } }], durationMs: 20 });
+    env.emit(session, "tool.started", { runId, toolCallId: "t2", name: "Read", input: { file_path: "photo.jpg" }, title: null, agentId: null, parentToolCallId: null });
+    env.emit(session, "tool.ended", { runId, toolCallId: "t2", status: "ok", output: { type: "image", file: { base64: PICTURE, type: "image/jpeg" } }, durationMs: 20 });
+    const text = `Here it is: ![the totals chart](data:image/png;base64,${PICTURE}) and ![a remote one](https://example.com/c.png)`;
+    env.emit(session, "assistant.text", { runId, itemId: "i-1", text, aborted: false });
+
+    const chart = await within(transcript).findByRole("img", { name: "Returned by Read: chart.png" });
+    expect(chart.getAttribute("src")).toBe(`data:image/png;base64,${PICTURE}`);
+    expect(within(transcript).getByRole("img", { name: "Returned by Read: photo.jpg" }).getAttribute("src")).toBe(`data:image/jpeg;base64,${PICTURE}`);
+    expect(within(transcript).getByRole("img", { name: "the totals chart" }).getAttribute("src")).toBe(`data:image/png;base64,${PICTURE}`);
+    // A picture elsewhere is a link to it, never fetched on its own.
+    expect(within(transcript).queryByRole("img", { name: "a remote one" })).toBeNull();
+    expect(within(transcript).getByRole("link", { name: "a remote one" }).getAttribute("href")).toBe("https://example.com/c.png");
+  });
+
+  it("names an image sent with a message, whose bytes the log never holds", async () => {
+    const { env, transcript, session } = await opened();
+    env.startRun(session, "See this", [{ kind: "image", name: "screen.png", mediaType: "image/png", data: PICTURE }]);
+    const message = await within(transcript).findByRole("article", { name: "Your message" });
+    expect(within(message).getByText("screen.png · 1 KB")).toBeDefined();
+  });
+});
+
+describe("an entry this version does not know", () => {
+  it("renders as one dim row naming its type", async () => {
+    const { env, transcript, session } = await opened();
+    env.emit(session, "weird.new-thing", { anything: true });
+    expect(await within(transcript).findByText("weird.new-thing: an event this version does not show")).toBeDefined();
+  });
+});

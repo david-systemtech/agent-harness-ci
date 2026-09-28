@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Fold } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { Marked } from "./find.js";
+import { picturesIn, pictureUrl } from "./images.js";
 
 /**
  * A run's tool calls (docs/specs/gui.md, "A session pane"; the terminal UI's
@@ -22,7 +23,8 @@ import { Marked } from "./find.js";
  * them, which unfolds to each; what is running, failed or was denied stands
  * in full under it. A running call that has said nothing for three minutes
  * (`TOOL_QUIET_MS`, measured by the transcript on the window's clock) turns
- * amber and says for how long: a cue, not a verdict.
+ * amber and says for how long: a cue, not a verdict. The pictures the run's
+ * calls returned are drawn under them, folded or not.
  */
 
 /** The counts of the calls folded into the count row, by category. */
@@ -67,19 +69,27 @@ export const CallsRow = ({ calls, quietMs }: CallsRowProps) => {
       {standing.map((call) => (
         <CallCard key={call.toolCallId} call={call} quietMs={call.status === "running" ? quietMs(call.toolCallId) : 0} />
       ))}
+      {calls.flatMap((call) =>
+        picturesIn(call.output).map((picture, index) => (
+          <img
+            key={`${call.toolCallId} ${index}`}
+            src={pictureUrl(picture)}
+            alt={`Returned by ${callName(call)}`}
+            className="max-h-96 max-w-full self-start rounded-md border border-hairline object-contain"
+          />
+        )),
+      )}
     </div>
   );
 };
-
-/** How many lines of what a call returned its card shows before the rest scrolls. */
-const OUTPUT_HEIGHT = "max-h-48";
 
 /** One call: its name, its time, and what became of it; quiet for three minutes, amber. */
 export const CallCard = ({ call, quietMs }: { readonly call: ToolCallEntry; readonly quietMs: number }) => {
   const quiet = call.status === "running" && quietMs >= TOOL_QUIET_MS;
   const denied = call.decision?.decision === "denied" ? call.decision : null;
   const name = callName(call);
-  const output = outputText(call.output).trim();
+  // A picture it returned is drawn under the run's calls, not spelt out here.
+  const output = picturesIn(call.output).length > 0 ? "" : outputText(call.output).trim();
   return (
     <div
       role="group"
@@ -100,10 +110,14 @@ export const CallCard = ({ call, quietMs }: { readonly call: ToolCallEntry; read
           {quiet ? `No output for ${Math.floor(quietMs / 60_000)} min` : call.update === null ? "Running…" : <Marked text={`Running: ${oneLine(outputText(call.update), 160)}`} />}
         </p>
       )}
-      {denied !== null && <p className="text-amber">Denied: {oneLine(denied.reason, 300)}</p>}
+      {denied !== null && (
+        <p className="text-amber">
+          <Marked text={`Denied: ${oneLine(denied.reason, 300)}`} />
+        </p>
+      )}
       {call.status === "cancelled" && <p className="text-ink-faint">Cancelled</p>}
       {(call.status === "error" || call.status === "ok") && output.length > 0 && (
-        <pre className={classes("overflow-auto font-mono whitespace-pre-wrap break-words", OUTPUT_HEIGHT, call.status === "error" ? "text-signal" : "text-ink-muted")}>
+        <pre className={classes("max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words", call.status === "error" ? "text-signal" : "text-ink-muted")}>
           <Marked text={output} />
         </pre>
       )}
