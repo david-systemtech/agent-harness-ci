@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
@@ -117,6 +117,19 @@ describe("aliases on forge.accounts.add", () => {
     const copy = await added(client, { url: other.origin, kind: "forgejo", credential: { kind: "none" }, aliases: ["http://100.101.102.103:3000"] });
     expect(copy.aliases).toEqual([{ origin: "http://100.101.102.103:3000", verifiedAt: null }]);
     expect(other.requests).toEqual([]);
+  });
+  it("asks every alias at once, so origins that are slow to answer hold the add up once, not once each", async () => {
+    const { forge, client } = await withTwoOrigins();
+    const slow = await Promise.all([fakeForge(), fakeForge(), fakeForge()]);
+    let answer = (): void => undefined;
+    const held = new Promise<void>((resolve) => (answer = resolve));
+    for (const origin of slow) origin.user(TOKEN, DAVID, held);
+
+    const adding = added(client, { url: forge.origin, kind: "forgejo", aliases: slow.map((origin) => origin.origin) });
+    await vi.waitFor(() => expect(slow.map((origin) => origin.requests.length)).toEqual([1, 1, 1]));
+    answer();
+
+    expect((await adding).aliases.map((alias) => alias.verifiedAt)).toEqual([MANUAL_CLOCK_START, MANUAL_CLOCK_START, MANUAL_CLOCK_START]);
   });
 });
 

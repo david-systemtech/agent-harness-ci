@@ -395,7 +395,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   };
 
   /**
-   * Asks each of `origins` who `token` is, the credential having answered
+   * Asks each of `origins` who `token` is, all at once, the credential having answered
    * as `identity` on the forge account's own origin: one answering as the
    * same login and user id is verified now; one that does not answer, or
    * any while the identity is not known, waits unverified; another identity
@@ -403,10 +403,12 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
    */
   const checkAliases = async (kind: ForgeKind, token: string, identity: ForgeIdentity | null, origins: readonly ForgeOrigin[]) => {
     const at = clock.now().toISOString();
+    // Asked all at once, so aliases slow to answer (an offline tailnet address) hold the command up by one call's timeout, not one each.
+    const answers = identity === null ? [] : await Promise.all(origins.map((origin) => identify(kind, origin, token)));
     const aliases: ForgeAlias[] = [];
-    for (const origin of origins) {
-      const answer = identity === null ? null : await identify(kind, origin, token);
-      if (identity === null || answer === null || answer.outcome === "unreachable") {
+    for (const [index, origin] of origins.entries()) {
+      const answer = answers[index];
+      if (identity === null || answer === undefined || answer.outcome === "unreachable") {
         aliases.push({ origin, verifiedAt: null });
         continue;
       }

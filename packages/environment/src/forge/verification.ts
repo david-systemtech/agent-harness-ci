@@ -124,11 +124,19 @@ const describeIdentity = (identity: ForgeIdentity): string => `${identity.login}
 /** `2026-10-15 12:00 UTC`: an instant to the minute, for a line a person reads. */
 const minute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
 
+/** How a problem's line ends: what a person does about it, for a forge account; nothing more for a credential no forge account holds yet. */
+export interface ReconcileOptions {
+  /** Whether the lines name the forge account's remedy in Set up, Forges; preset: they do. */
+  readonly remedies?: boolean;
+}
+
 /**
  * What `found` makes of `known` at `now`: the state to hold, and whether it
  * changed anything a client shows.
  */
-export const reconcile = (known: Known, found: Found, now: Date): Reconciled => {
+export const reconcile = (known: Known, found: Found, now: Date, options: ReconcileOptions = {}): Reconciled => {
+  /** `line`, with `remedy` after it for a forge account. */
+  const advised = (line: string, remedy: string): string => (options.remedies === false ? `${line}.` : `${line}: ${remedy}.`);
   const at = now.toISOString();
   const problemNow = (kind: ForgeProblem["kind"], message: string): ForgeProblem => ({ kind, since: at, message });
   const unchanged = { ...known, changed: false, aliasesChanged: false };
@@ -141,7 +149,7 @@ export const reconcile = (known: Known, found: Found, now: Date): Reconciled => 
     case "unavailable":
       return withProblem(found.problem);
     case "refused":
-      return withProblem(problemNow("credential-rejected", `${found.message} Give this forge account a new credential in Set up, Forges.`));
+      return withProblem(problemNow("credential-rejected", options.remedies === false ? found.message : `${found.message} Give this forge account a new credential in Set up, Forges.`));
     case "unreachable":
       return withProblem(problemNow("unreachable", found.message));
     case "identified":
@@ -151,7 +159,7 @@ export const reconcile = (known: Known, found: Found, now: Date): Reconciled => 
   if (reads === null) {
     const expected = known.identity ?? identity;
     return withProblem(
-      problemNow("identity-changed", `The credential now answers as ${describeIdentity(identity)}, not ${describeIdentity(expected)}: replace it in Set up, Forges.`),
+      problemNow("identity-changed", advised(`The credential now answers as ${describeIdentity(identity)}, not ${describeIdentity(expected)}`, "replace it in Set up, Forges")),
     );
   }
   const capabilities: ForgeCapabilities = {
@@ -161,7 +169,7 @@ export const reconcile = (known: Known, found: Found, now: Date): Reconciled => 
   };
   const expiresAt = tokenInformation.expiresAt;
   const expiring = expiresAt !== null && Date.parse(expiresAt) - now.getTime() <= EXPIRING_WITHIN_MS;
-  const problem = keepSince(known.problem, expiring ? problemNow("expiring", `The token expires at ${minute(expiresAt)}: replace it in Set up, Forges before then.`) : null);
+  const problem = keepSince(known.problem, expiring ? problemNow("expiring", advised(`The token expires at ${minute(expiresAt)}`, "replace it in Set up, Forges before then")) : null);
   const aliases = known.aliases.map((alias): ForgeAlias => {
     const answer = found.aliases.get(alias.origin);
     if (answer === undefined || answer.outcome === "unreachable") return alias;

@@ -394,7 +394,14 @@ describe("the state import's credential probe", () => {
   it("answers a credential the forge refuses with problem credential-rejected, and one on a forge that does not answer with unreachable", async () => {
     const { t, forge } = await withForge();
     const refused = await t.env.forge.probeCredential({ url: forge.origin, kind: "gitea", token: "token-nobody-knows" });
-    expect(refused).toMatchObject({ identity: null, capabilities: UNKNOWN_FORGE_CAPABILITIES, tokenInformation: null, problem: { kind: "credential-rejected", since: MANUAL_CLOCK_START } });
+    // No forge account holds it yet, so the line says what the forge said and names none to fix.
+    expect(refused).toEqual({
+      origin: forge.origin,
+      identity: null,
+      capabilities: UNKNOWN_FORGE_CAPABILITIES,
+      tokenInformation: null,
+      problem: { kind: "credential-rejected", since: MANUAL_CLOCK_START, message: `The forge at ${forge.origin} refused the token (HTTP 401).` },
+    });
     await forge.close();
     const unreachable = await t.env.forge.probeCredential({ url: forge.origin, kind: "gitea", token: TOKEN });
     expect(unreachable).toMatchObject({ identity: null, problem: { kind: "unreachable" } });

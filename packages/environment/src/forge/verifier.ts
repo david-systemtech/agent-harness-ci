@@ -275,7 +275,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       const found = await withinBudget(origin, (signal) =>
         verifyCredential(options.provider(kind), { origin, token, expected: null, repository, aliases: [] }, { signal }),
       );
-      return reconcile(NOTHING_KNOWN, found, clock.now());
+      // No forge account holds the token yet: its lines name no remedy in Set up, Forges.
+      return reconcile(NOTHING_KNOWN, found, clock.now(), { remedies: false });
     },
     close() {
       closed = true;
