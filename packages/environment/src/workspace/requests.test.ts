@@ -12,6 +12,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, get, refusal } from "../../test/sessions.js";
 import { openTerminal } from "../../test/terminals.js";
 import { makeDirectory, scriptedResolver } from "../../test/workspaces.js";
+import { createWorkspaceResolver } from "./resolver.js";
 
 /**
  * `sessions.create` taking a workspace request (workspace-picker spec,
@@ -89,6 +90,21 @@ describe("sessions.create's workspace request", () => {
       data: { issues: [expect.objectContaining({ path: ["workspace", "path"] })] },
     });
     expect(t.env.log.head()).toBe(head);
+  });
+});
+
+describe("the environment's resolver", () => {
+  it("reads ~, ~/ and ~\\ from the environment's home and takes no other ~ form for one, whoever calls it", async () => {
+    const resolver = createWorkspaceResolver({ home: "/home/seth" });
+    const recorded = async (path: string) => {
+      const resolved = await resolver.resolve({ kind: "directory", path }, "7c9e6679-7425-40de-944b-e07fc1f90ae7");
+      return resolved.refused === undefined ? resolved.workspace.path : resolved.refused;
+    };
+    expect(await recorded("~")).toBe("/home/seth");
+    expect(await recorded("~/code")).toBe("/home/seth/code");
+    expect(await recorded("~\\code")).toBe("/home/seth/code");
+    // An in-process caller's ~user path, which the wire's schema refuses, is not rewritten into the home.
+    expect(await recorded("~alice/code")).toBe("~alice/code");
   });
 });
 

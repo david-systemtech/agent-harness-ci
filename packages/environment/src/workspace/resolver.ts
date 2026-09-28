@@ -61,8 +61,13 @@ export interface WorkspaceResolverOptions {
 /** The environment's resolver. */
 export const createWorkspaceResolver = (options: WorkspaceResolverOptions = {}): WorkspaceResolver => {
   const home = options.home ?? homedir();
-  /** A requested directory as recorded: `~` and what follows it read from the environment's home, anything else as sent. */
-  const recorded = (path: string): string => (path === "~" ? home : path.startsWith("~") ? join(home, path.slice(2)) : path);
+  /**
+   * A requested directory as recorded: `~`, and `~/` or `~\` with what
+   * follows, read from the environment's home; anything else as sent. The
+   * wire's schema refuses any other `~` form; an in-process caller's is not
+   * taken for a home.
+   */
+  const recorded = (path: string): string => (path === "~" ? home : /^~[\\/]/.test(path) ? join(home, path.slice(2)) : path);
   return {
     resolve: (request) => {
       // Phase A's rule: any full path, recorded as it came; whether it is there is the workspace workstream's check (#325).
