@@ -63,7 +63,8 @@ const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, 
     fetch: world.fetch,
     webSocket: world.webSocket,
     shell,
-    ...(world.grant && { grant: world.grant }),
+    // The desktop reads the local grant through its shell, so with no local environment scripted the grant reads nothing.
+    grant: world.grant ?? shell.localGrant,
     ...(documents && { documents }),
     ...(secrets && { secrets }),
   });
@@ -98,7 +99,8 @@ const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, 
 /**
  * The app over `script`: the runtime started, the local environment reached
  * through its grant and each `paired` one paired by its link, then the
- * window mounted.
+ * window mounted. With no local environment scripted, the grant the shell
+ * reads is none, as on a desktop whose machine runs no environment yet.
  */
 export const renderApp = async (script: Script, options: RenderOptions = {}): Promise<RenderedApp> => {
   const clock = manualClock();

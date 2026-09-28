@@ -21,6 +21,13 @@ describe("the frame", () => {
     expect(within(sidebar).getAllByRole("heading").map((heading) => heading.textContent)).toEqual(["desk", "laptop"]);
   });
 
+  it("calls the local environment this machine before it has ever answered", async () => {
+    await renderApp({ environments: [{ name: "laptop", reach: "paired" }] });
+    const sidebar = screen.getByRole("navigation", { name: "Sessions" });
+    expect(await within(sidebar).findByRole("heading", { name: "laptop" })).toBeDefined();
+    expect(within(sidebar).getAllByRole("heading").map((heading) => heading.textContent)).toEqual(["This machine", "laptop"]);
+  });
+
   it("draws one session pane region, with no session open in it", async () => {
     await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Fix the rail" }] }] });
     const pane = within(screen.getByRole("main")).getByRole("region", { name: "Session pane" });
