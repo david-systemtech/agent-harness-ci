@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  DATABASE_FILE,
+  DRAIN_CAP_MS,
   INSTALL_REFUSALS,
   LAUNCHER_PROTOCOL,
   OUTCOME_RECORD_FILE,
   STAGING_DIRECTORY,
   SWITCH_REFUSALS,
+  UPDATE_ID_PATTERN,
   answersRequest,
   isOutcomeRecord,
   parseEnvironmentMessage,
@@ -99,6 +102,10 @@ describe("the launcher channel's messages", () => {
       { type: "install?", id: 1, version: "0.5.0" },
       { type: "install?", version: "0.5.0", staged: "/staging/0.5.0" },
       { type: "switch?", id: 2, version: "0.5.0" },
+      // The launcher names the update's snapshot folder by its id, so an id that is not a version 4 UUID is no switch.
+      { type: "switch?", id: 2, updateId: "update-1", version: "0.5.0" },
+      { type: "switch?", id: 2, updateId: "../7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" },
+      { type: "switch?", id: 2, updateId: "7d0f2b1e-2c55-1a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" },
       { type: "versions?" },
       { type: "idle", readiness: "ready", updatesManagedOutside: false },
       { type: "idle", ...status, activity: { state: "asleep" } },
@@ -140,6 +147,16 @@ describe("the launcher channel's messages", () => {
     expect(LAUNCHER_PROTOCOL).toBe(1);
   });
 
+  it("name an update by a version 4 UUID, in either case, and by nothing else", () => {
+    for (const id of ["7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", "7D0F2B1E-2C55-4A8E-BF0B-3A1C5D7E9B20"]) expect(UPDATE_ID_PATTERN.test(id), id).toBe(true);
+    const others = ["", "update-1", "7d0f2b1e2c554a8e9f0b3a1c5d7e9b20", "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20/..", "7d0f2b1e-2c55-4a8e-cf0b-3a1c5d7e9b20"];
+    for (const id of others) expect(UPDATE_ID_PATTERN.test(id), id).toBe(false);
+  });
+
+  it("give the environment's drain its 30-minute cap, which the launcher waits a minute past for a child that is switching", () => {
+    expect(DRAIN_CAP_MS).toBe(30 * 60_000);
+  });
+
   it("load nothing at run time, so the launcher reads them on Node's built-ins alone: every import is a type", () => {
     const source = readFileSync(new URL("./launcher.ts", import.meta.url), "utf8");
     const imports = source.match(/^(?:import|export)\b[^;]*?\bfrom\s*["'][^"']+["']/gm) ?? [];
@@ -159,7 +176,8 @@ describe("the files the environment and the launcher share in the data directory
     reason: "deadline",
   };
 
-  it("are the staging area and the outcome record, each named once", () => {
+  it("are the database, the staging area and the outcome record, each named once", () => {
+    expect(DATABASE_FILE).toBe("environment.db");
     expect(STAGING_DIRECTORY).toBe("staging");
     expect(OUTCOME_RECORD_FILE).toBe("update-outcome.json");
   });
@@ -176,7 +194,7 @@ describe("the files the environment and the launcher share in the data directory
       expect(isOutcomeRecord(partial), key).toBe(false);
       expect(isOutcomeRecord({ ...record, [key]: "" }), key).toBe(false);
     }
-    for (const invalid of [null, [], "trial", { ...record, stage: "switch" }, { ...record, reason: 3 }]) {
+    for (const invalid of [null, [], "trial", { ...record, stage: "switch" }, { ...record, reason: 3 }, { ...record, updateId: "../update" }]) {
       expect(isOutcomeRecord(invalid), JSON.stringify(invalid)).toBe(false);
     }
   });

@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
-import { EnvironmentId, Timestamp } from "./primitives.js";
+import { ForgeKind, ForgeOrigin, ForgeSlug, GhLogin } from "./forge.js";
+import { KeyManagerReference } from "./key-managers.js";
+import { ClientSessionId, EnvironmentId, Timestamp } from "./primitives.js";
 
 /**
  * The forge account record and its events (forge spec, "The forge account
@@ -54,26 +55,59 @@ export const ForgeVaultEntry = z
   .meta({ description: "The environment's vault entry holding a stored token, one per credential it was given: forge:<forge account id>:<entry id>. Never the token itself." });
 export type ForgeVaultEntry = z.infer<typeof ForgeVaultEntry>;
 
+const ghSource = z
+  .object({
+    kind: z.literal("gh"),
+    login: GhLogin.meta({ description: "The account gh reads the token for on the forge account's host, as gh names it." }),
+  })
+  .meta({ description: "The environment's own gh, signed in for the forge account's host and this login, read on every operation so it follows gh's rotations." });
+
+/** The client session that handed its `gh` token over (ADR 0032), which the card names. */
+export const ForgeHandingClient = z
+  .object({
+    clientSessionId: ClientSessionId,
+    label: z.string().meta({ description: "The client session's label when it handed the token over." }),
+  })
+  .meta({ description: "The client session that handed its own gh's token over, by id and label." });
+export type ForgeHandingClient = z.infer<typeof ForgeHandingClient>;
+
+/** A stored token by where it came from: a client's `gh` names the client session that handed it over, and says it does not follow `gh`'s rotations. */
+const storedSource = z
+  .discriminatedUnion("provenance", [
+    z
+      .object({ kind: z.literal("stored"), provenance: StoredTokenProvenance.exclude(["client-gh"]).meta({
+          description: "pasted (a person pasted it), imported (the state import carried it over) or oauth (a device flow, milestone 3).",
+        }),
+        entry: ForgeVaultEntry,
+      })
+      .meta({ description: "A token the environment holds in its vault, never answered again: where it came from, and the vault entry that holds it." }),
+    z
+      .object({
+        kind: z.literal("stored"),
+        provenance: z.literal("client-gh"),
+        entry: ForgeVaultEntry,
+        handedOverBy: ForgeHandingClient,
+        followsGhRotations: z.literal(false).meta({ description: "Always false: the token is a copy of what the client's gh held when it was handed over, and gh's later rotations never reach it." }),
+      })
+      .meta({ description: "A token a client's own gh handed over once, held in the vault: the client session that handed it over, and that it does not follow gh's rotations." }),
+  ])
+  .meta({ description: "A token the environment holds in its vault, by where it came from." });
+
+const referenceSource = z
+  .object({ kind: z.literal("reference"), reference: KeyManagerReference })
+  .meta({ description: "A key-manager reference, resolved on every operation and never cached, so a rotation in the key manager is live at once." });
+
+const noneSource = z.object({ kind: z.literal("none") }).meta({ description: "No credential: a copy from another environment awaiting one here." });
+
 /**
  * A forge account's credential source (forge spec, "Credential sources"):
- * `gh`, the environment's own `gh` for the forge account's host and login,
- * read per operation; `stored`, a token in the environment's vault, with
- * where it came from; `reference`, a key-manager path resolved per
+ * `gh`, the environment's own `gh` for the forge account's host and a
+ * login, read per operation; `stored`, a token in the environment's vault,
+ * with where it came from; `reference`, a key-manager reference resolved per
  * operation; `none`, a copy awaiting a credential. Never the secret.
  */
 export const ForgeCredentialSource = z
-  .discriminatedUnion("kind", [
-    z
-      .object({ kind: z.literal("gh") })
-      .meta({ description: "The environment's own gh, signed in for the forge account's host and login, read on every operation so it follows gh's rotations." }),
-    z
-      .object({ kind: z.literal("stored"), provenance: StoredTokenProvenance, entry: ForgeVaultEntry })
-      .meta({ description: "A token the environment holds in its vault, never answered again: where it came from, and the vault entry that holds it." }),
-    z
-      .object({ kind: z.literal("reference") })
-      .meta({ description: "A key-manager reference, resolved per operation and never cached; its connection and locator arrive with the key-manager references." }),
-    z.object({ kind: z.literal("none") }).meta({ description: "No credential: a copy from another environment awaiting one here." }),
-  ])
+  .discriminatedUnion("kind", [ghSource, storedSource, referenceSource, noneSource])
   .meta({ description: "Where a forge account's credential comes from, never the secret itself: gh, stored, reference or none." });
 export type ForgeCredentialSource = z.infer<typeof ForgeCredentialSource>;
 
@@ -94,19 +128,57 @@ export const ForgeToken = z
     description: `A forge token as pasted, trimmed: 1 to ${MAX_FORGE_TOKEN} printable ASCII characters with no space. It crosses the wire once and is never answered back.`,
   });
 
+/** The credentials a client gives a forge account: the environment's `gh`, a token it sends once, or a key-manager reference. */
+const givenCredentials = [
+  ghSource,
+  z
+    .object({
+      kind: z.literal("stored"),
+      provenance: z.enum(["pasted", "client-gh"]).meta({
+        description: "pasted: a person pasted the token. client-gh: the calling client read it from its own gh and hands it over once; the calling client session is recorded as the one that did.",
+      }),
+      token: ForgeToken,
+    })
+    .meta({ description: "A token sent once, which the environment keeps in its vault." }),
+  referenceSource,
+] as const;
+
 /**
- * A credential as `forge.accounts.add` and `update` take it: a token pasted
- * into a client, sent once. The environment's `gh`, a client's `gh`, a
- * reference and none join it with the credential sources' ticket.
+ * A credential as `forge.accounts.update` takes it: the environment's `gh`
+ * for a login, a token sent once (pasted, or handed over from the calling
+ * client's `gh`), or a key-manager reference. A token crosses the wire once
+ * and is never answered back.
  */
-export const ForgeCredentialInput = z
-  .discriminatedUnion("kind", [
-    z
-      .object({ kind: z.literal("stored"), provenance: z.literal("pasted").meta({ description: "A person pasted the token." }), token: ForgeToken })
-      .meta({ description: "A pasted token, which the environment keeps in its vault." }),
-  ])
-  .meta({ description: "The credential a forge account is given: a pasted token, stored in the environment's vault and never answered back." });
+export const ForgeCredentialInput = z.discriminatedUnion("kind", [...givenCredentials]).meta({
+  description:
+    "A forge account's new credential: the environment's gh for a login, a token sent once (pasted, or handed over from the calling client's gh) which the environment keeps in its vault and never answers back, or a key-manager reference.",
+});
 export type ForgeCredentialInput = z.infer<typeof ForgeCredentialInput>;
+
+/** A credential as `forge.accounts.add` takes it: any of `update`'s, or none, for a copy awaiting one. */
+export const ForgeAddCredential = z.discriminatedUnion("kind", [...givenCredentials, noneSource]).meta({
+  description:
+    "The credential a forge account is added with: the environment's gh for a login, a token sent once (pasted, or handed over from the calling client's gh), a key-manager reference, or none for a copy awaiting one.",
+});
+export type ForgeAddCredential = z.infer<typeof ForgeAddCredential>;
+
+/**
+ * The credential a copy of a forge account is added with on another
+ * environment (ADR 0020; forge spec, "Copies and the state import"): a `gh`
+ * source as `gh`, a reference as it is, and a stored token as `none`, since
+ * no secret travels between environments.
+ */
+export const forgeCopyCredential = (source: ForgeCredentialSource): ForgeAddCredential => {
+  switch (source.kind) {
+    case "gh":
+      return { kind: "gh", login: source.login };
+    case "reference":
+      return { kind: "reference", reference: source.reference };
+    case "stored":
+    case "none":
+      return { kind: "none" };
+  }
+};
 
 /** What a forge account may be able to do (ADR 0020). */
 export const FORGE_CAPABILITIES = ["readRepository", "writeIssues", "pullRequests", "createRepository", "readReleases"] as const;

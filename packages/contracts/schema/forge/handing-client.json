@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeHandingClient",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "label": {
+      "type": "string",
+      "description": "The client session's label when it handed the token over."
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "label"
+  ],
+  "description": "The client session that handed its own gh's token over, by id and label."
+}

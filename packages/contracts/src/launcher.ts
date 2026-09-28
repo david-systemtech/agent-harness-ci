@@ -39,6 +39,21 @@ export const LAUNCHER_PROTOCOL = 1;
 export const RELEASE_VERSION_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
 
+/**
+ * An update's id, as the launcher reads it: a version 4 UUID, in either case
+ * (the update vocabulary's `UpdateId`, which takes the same). The launcher
+ * names the update's database snapshot by it, so `switch?` and the outcome
+ * record take nothing else.
+ */
+export const UPDATE_ID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+/**
+ * How long the environment's drain waits for running runs before it cuts
+ * them (ADR 0007). The launcher waits a minute past it for a child that it
+ * answered `switching` to exit, and then ends it.
+ */
+export const DRAIN_CAP_MS = 30 * 60_000;
+
 /** The launcher's queries: whether the environment is idle, and to drain. */
 export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain?" };
 
@@ -131,6 +146,7 @@ type Fields = Readonly<Record<string, unknown>>;
 const isFields = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+const isUpdateId = (value: unknown): value is string => typeof value === "string" && UPDATE_ID_PATTERN.test(value);
 const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
 /** The keys of a record over a contracts enum, which a new member of that enum makes the compiler ask for here. */
 const keysOf = <T extends string>(members: Record<T, true>): readonly T[] => Object.keys(members) as T[];
@@ -196,7 +212,7 @@ export const parseEnvironmentMessage = (value: unknown): EnvironmentMessage | un
     case "install?":
       return isCount(id) && isText(version) && isText(value["staged"]) ? { type, id, version, staged: value["staged"] } : undefined;
     case "switch?":
-      return isCount(id) && isText(version) && isText(value["updateId"]) ? { type, id, updateId: value["updateId"], version } : undefined;
+      return isCount(id) && isText(version) && isUpdateId(value["updateId"]) ? { type, id, updateId: value["updateId"], version } : undefined;
     case "versions?":
       return isCount(id) ? { type, id } : undefined;
     case "idle": {
@@ -213,6 +229,13 @@ export const parseEnvironmentMessage = (value: unknown): EnvironmentMessage | un
       return undefined;
   }
 };
+
+/**
+ * The database, a file in the data directory: the environment's SQLite event
+ * log, with its `-wal` and `-shm` files beside it. The launcher snapshots all
+ * three before an update and copies them back when it rolls one back.
+ */
+export const DATABASE_FILE = "environment.db";
 
 /**
  * The staging area, a directory in the data directory: where the environment
@@ -243,10 +266,10 @@ export interface OutcomeRecord {
   readonly reason: string;
 }
 
-/** Whether `value` is an outcome record: every part present, the stage one a rollback has. */
+/** Whether `value` is an outcome record: every part present, the update id one, the stage one a rollback has. */
 export const isOutcomeRecord = (value: unknown): value is OutcomeRecord =>
   isFields(value) &&
-  isText(value["updateId"]) &&
+  isUpdateId(value["updateId"]) &&
   isText(value["fromVersion"]) &&
   isText(value["toVersion"]) &&
   isOneOf(OUTCOME_STAGES, value["stage"]) &&

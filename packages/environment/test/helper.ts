@@ -27,6 +27,7 @@ import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-regi
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { createScrubRegistry, type ScrubRegistry } from "../src/scrub/registry.js";
+import { managedGh } from "../src/forge/gh.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ContainmentProbe } from "../src/permissions/containment-probe.js";
 import { absentProbe } from "./containment.js";
@@ -117,9 +118,18 @@ export interface TestEnvironmentOptions {
   readonly scrub?: ScrubRegistry;
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
   readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
+  /** The environment's own `gh` (`test/fake-gh.ts` puts a fake one on a PATH); preset: a PATH with no `gh`, so a test never runs a real one. */
+  readonly gh?: EnvironmentOptions["gh"];
+  /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's, with no connection. */
+  readonly keyManagers?: EnvironmentOptions["keyManagers"];
+  /** The vault the environment holds; preset: the file vault in the data directory. */
+  readonly vault?: EnvironmentOptions["vault"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
 }
+
+/** A PATH with nothing on it: where a test environment looks for `gh` unless the test gives it one. */
+export const EMPTY_PATH = "/nonexistent/agent-harness-test-path";
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
 export const TEST_BUNDLED_CLAUDE = "/nonexistent/agent-harness-sdk/claude";
@@ -279,6 +289,9 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
+    gh: options.gh ?? managedGh({ hostEnv: { PATH: EMPTY_PATH } }),
+    ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+    ...(options.vault !== undefined && { vault: options.vault }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };

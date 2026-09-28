@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerProvider",
+  "type": "string",
+  "enum": [
+    "openbao",
+    "doppler",
+    "onepassword",
+    "bitwarden"
+  ],
+  "description": "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager)."
+}

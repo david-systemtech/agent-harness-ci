@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { completeVersions, VERSION_SENTINEL, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
+import { completeVersions, isComplete, VERSION_SENTINEL, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
 
 /**
  * The versions directory (launcher-update spec, "Versions and the launcher"):
@@ -36,6 +36,14 @@ describe("the versions directory", () => {
     }
     writeFileSync(join(dataDir, VERSIONS_DIRECTORY, "0.6.0"), "a file, not a folder");
     expect(completeVersions(dataDir)).toEqual(["0.5.0", "0.9.1-beta.2", "0.10.0"]);
+  });
+
+  it("counts nothing but a version complete, however a folder holding the sentinel is reached", () => {
+    const dataDir = dataDirectory();
+    mkdirSync(versionDirectory(dataDir, "0.5.0"), { recursive: true });
+    writeFileSync(join(versionDirectory(dataDir, "0.5.0"), VERSION_SENTINEL), "");
+    expect(isComplete(dataDir, "0.5.0")).toBe(true);
+    for (const reached of ["../versions/0.5.0", "0.5.0/.", "latest/../0.5.0"]) expect(isComplete(dataDir, reached), reached).toBe(false);
   });
 
   it("holds no complete version when it does not exist", () => {
