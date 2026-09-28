@@ -135,7 +135,7 @@ Scope `admin` unless stated; mutating methods take a `commandId`.
 
 ### Orientation
 
-The block is #91's (ADR 0011), empty until then (claude-adapter spec). The ForgeService supplies its lines from live state through the composer's seam (ADR 0012, ADR 0020): each forge with kind, login and when verified; the primary ("your primary forge is git.systemtech.dev (Forgejo); GitHub is also connected"); each slug's variables and API base; failed or unknown writes and tokens left out; that https git to these origins just works while ssh uses the user's keys; that repositories go to the primary forge unless the user names another; that other origins have no credential here. The instruction text is in the spawn key, so a change reaches the next process.
+The block is #91's (ADR 0011), empty until then (claude-adapter spec). The ForgeService supplies its lines from live state through the composer's seam (ADR 0012, ADR 0020): each forge with kind, login and its status with the time that status last changed ("verified, unchanged since …", or the problem and since when), never the latest verification time, so the text changes only when the status does (skills-instructions spec's rule for instruction text; key-managers spec); the primary ("your primary forge is git.systemtech.dev (Forgejo); GitHub is also connected"); each slug's variables and API base; failed or unknown writes and tokens left out; that https git to these origins just works while ssh uses the user's keys; that repositories go to the primary forge unless the user names another; that other origins have no credential here. The instruction text is in the spawn key, so a change reaches the next process.
 
 ### The Forges step
 
