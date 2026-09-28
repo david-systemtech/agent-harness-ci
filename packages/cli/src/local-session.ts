@@ -134,6 +134,7 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
     /** The calls awaiting their answer, by request id. */
     const pending = new Map<string, (frame: ResponseFrame) => void>();
     let calls = 0;
+    let greeted = false;
     let outcome: Outcome<T> | undefined;
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -148,10 +149,16 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
     };
     /** Fails the verb, unless its work failed first: that failure is the one reported. */
     const fail = (message: string) => settle(outcome?.ok === false ? outcome : { ok: false, error: new LocalFailure(message) });
-    /** Waits for the environment's next word, failing the verb after the timeout. */
-    const awaitAnswer = () => {
+    /**
+     * The timeout's one rule, applied after every step: while the verb waits on
+     * the environment (the connection and its hello, a call's answer, the
+     * revoke and its bye) the wait starts again, and silence for the timeout
+     * fails the verb; while only the verb's own work runs, nothing is waited on.
+     */
+    const rearm = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
+      const waiting = !greeted || pending.size > 0 || outcome !== undefined;
+      if (waiting && !settled) timer = setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
     };
     const send = (frame: Parameters<typeof encodeFrame>[0]) => ws.send(encodeFrame(frame));
 
@@ -167,7 +174,7 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
           resolveCall(answer.data as ResponseOf<typeof method>);
         });
         send({ type: "request", id, method, params: params as Record<string, unknown> });
-        awaitAnswer();
+        rearm();
       });
 
     /** The work is done: the verb revokes its own client session, and settles with the work's outcome once the environment says so. */
@@ -175,12 +182,12 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
       if (settled) return;
       outcome = done;
       send({ type: "request", id: "revoke", method: "access.sessions.revoke", params: { commandId: randomUUID(), clientSessionId: credential.clientSessionId } });
-      awaitAnswer();
+      rearm();
     };
 
     ws.addEventListener("open", () => {
       send({ type: "auth", token: credential.token, protocolVersion: PROTOCOL_VERSION, clientKind: "tui", harnessVersion: HARNESS_VERSION });
-      awaitAnswer();
+      rearm();
     });
     ws.addEventListener("message", (event) => {
       let frame;
@@ -191,7 +198,8 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
       }
       switch (frame.type) {
         case "hello":
-          clearTimeout(timer);
+          greeted = true;
+          rearm();
           return void Promise.resolve()
             .then(() => work(call))
             .then(
@@ -209,14 +217,12 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
             // Refused as an error, or rejected in its receipt; accepted, the bye that follows settles it.
             const receipt = registry["access.sessions.revoke"].response.safeParse(frame.result).data?.receipt;
             const refusal = frame.error?.message ?? (receipt?.status === "rejected" ? receipt.error.message : undefined);
-            return refusal === undefined ? undefined : fail(`The environment would not revoke this CLI's client session: ${refusal}`);
+            return refusal === undefined ? rearm() : fail(`The environment would not revoke this CLI's client session: ${refusal}`);
           }
           const waiting = pending.get(frame.id);
           if (waiting === undefined) return;
           pending.delete(frame.id);
-          // Another call still in flight keeps the verb waiting on the environment, which may not go silent on it.
-          if (pending.size > 0) awaitAnswer();
-          else clearTimeout(timer);
+          rearm();
           return waiting(frame);
         }
         default:
@@ -225,6 +231,8 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
     });
     ws.addEventListener("error", () => fail(`The environment at ${url} did not answer.`));
     ws.addEventListener("close", () => fail("The environment closed the socket before answering."));
+    // The connection and its hello are waited on from the start.
+    rearm();
   });
 
 /**
