@@ -25,8 +25,7 @@ import type { LadderName, TokenName } from "./tokens.js";
  */
 
 /** The rules a derivation holds. */
-export const RULES = ["text-contrast", "component-contrast", "gamut", "hue-separation"] as const;
-export type Rule = (typeof RULES)[number];
+export type Rule = "text-contrast" | "component-contrast" | "gamut" | "hue-separation";
 
 /** A seed that could not hold a rule where its role puts it, in one ladder, and the token that showed it. */
 export interface Clamp {
@@ -121,8 +120,8 @@ const place = <O extends Owed>(start: number, chroma: number, hue: number, away:
 
 type Role = Exclude<ThemeSeedName, "canvas" | "accent">;
 
-/** The token each seed paints first: what a clamp to its hue names. */
-export const SEED_TOKENS: Readonly<Record<ThemeSeedName, TokenName>> = {
+/** The token each seed paints first: what a clamp to its hue or its chroma names. */
+const SEED_TOKENS: Readonly<Record<ThemeSeedName, TokenName>> = {
   canvas: "abyss",
   accent: "beam",
   machine: "cyan",
