@@ -40,6 +40,7 @@ import {
   Group,
   type HelloFrame,
   type InterruptCause,
+  type JsonObject,
   MAX_DRAFT_LENGTH,
   invalidParams,
   type ModelUsage,
@@ -157,6 +158,11 @@ export interface ScriptedEnvironment {
   readonly filesTruncated?: boolean;
   /** What `files.read` answers, by path: its text, or a file too large or binary; any other path is `not_found`, and a directory of `files` is `not_a_file`. */
   readonly fileContents?: Readonly<Record<string, ScriptedFile>>;
+  /**
+   * Each subagent's stored transcript, by the agent id `sessions.subagentTranscript` is asked with: read while the provider
+   * declares `subagentTranscripts`, else refused as the environment refuses it. An agent not named has none (`[]`).
+   */
+  readonly subagentTranscripts?: Readonly<Record<string, readonly JsonObject[]>>;
   /** What `diffs.session` answers for any session: preset no files. */
   readonly sessionDiff?: { readonly files: readonly SessionDiffFile[]; readonly truncated?: boolean };
   /** What `diffs.workingTree` answers, or its refusal (a `conflict` with its reason): preset an empty diff in a repository. */
@@ -1252,6 +1258,17 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
   wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
+  // A subagent's transcript, read from the provider's store on demand (#137): refused, as the environment's host refuses
+  // it, while the session's provider (the script's first) does not declare `subagentTranscripts`.
+  wire.answer("sessions.subagentTranscript", (params) => {
+    const provider = providerOf((spec.providers ?? [spec.provider ?? {}])[0]);
+    if (!provider.subagentTranscripts) {
+      const message = `The ${provider.displayName} adapter cannot read a subagent's transcript: it does not declare subagentTranscripts.`;
+      return { error: { code: "invalid_params", message, data: { reason: "unsupported", capability: "subagentTranscripts", provider: provider.provider } } };
+    }
+    const agentId = String(params["agentId"]);
+    return { result: { sessionId: params["sessionId"], agentId, messages: [...(spec.subagentTranscripts?.[agentId] ?? [])] } };
+  });
   const accountOf = (account: Partial<AccountRecord>, i: number): AccountRecord =>
     checked(AccountRecord, {
       id: `account-${i + 1}`,

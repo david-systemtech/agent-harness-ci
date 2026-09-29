@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { InProcessToolServer } from "../../adapter/contract.js";
 import { claudeGatedCall, claudeToolAccess } from "./gate-access.js";
 
 /** Claude's tool inputs as the tool gate reads them. */
@@ -29,7 +30,7 @@ describe("Claude's tools as the gate reads them", () => {
       input: { file_path: "/etc/hosts" },
     });
     expect(claudeGatedCall("Bash", { command: "echo a\necho b" }, "toolu_2").summary).toBe("Bash echo a");
-    expect(claudeGatedCall("Bash", { command: "ls" }, "toolu_3", "List the files").summary).toBe("List the files");
+    expect(claudeGatedCall("Bash", { command: "ls" }, "toolu_3", { title: "List the files" }).summary).toBe("List the files");
   });
 
   it("reads WebSearch's allowed domains for the denylist's hosts (#132)", () => {
@@ -60,10 +61,38 @@ describe("Claude's tools as the gate reads them", () => {
   });
 
   it("cuts a long title to 200 characters, as it cuts a long command", () => {
-    const title = claudeGatedCall("Bash", { command: "ls" }, "toolu_4", `${"t".repeat(300)}\nsecond line`).summary;
+    const title = claudeGatedCall("Bash", { command: "ls" }, "toolu_4", { title: `${"t".repeat(300)}\nsecond line` }).summary;
     expect(title).toBe(`${"t".repeat(199)}…`);
     const command = claudeGatedCall("Bash", { command: "c".repeat(300) }, "toolu_5").summary;
     expect(command).toBe(`Bash ${"c".repeat(194)}…`);
     expect(command).toHaveLength(200);
+  });
+
+  it("reads an in-process tool's call as its tool declares it, naming the address in the summary, and one that declares nothing as other (#540)", () => {
+    const browser: InProcessToolServer = {
+      name: "browser",
+      external: false,
+      tools: [
+        { name: "open", description: "", inputSchema: {}, access: (input) => ({ kind: "browse", urls: [String(input["address"])] }), call: async () => ({ text: "", isError: false }) },
+        { name: "read", description: "", inputSchema: {}, access: (input) => ({ kind: "fetch", urls: [String(input["url"])] }), call: async () => ({ text: "", isError: false }) },
+        { name: "close", description: "", inputSchema: {}, call: async () => ({ text: "", isError: false }) },
+      ],
+    };
+    const servers = [{ name: "memory", config: {} }, browser];
+    expect(claudeGatedCall("mcp__browser__open", { address: "https://www.paypal.com/" }, "toolu_8", { servers })).toEqual({
+      toolCallId: "toolu_8",
+      tool: "mcp__browser__open",
+      summary: "mcp__browser__open https://www.paypal.com/",
+      access: { kind: "browse", urls: ["https://www.paypal.com/"] },
+      input: { address: "https://www.paypal.com/" },
+    });
+    expect(claudeGatedCall("mcp__browser__read", { url: "http://169.254.169.254/latest" }, "toolu_9", { servers })).toMatchObject({
+      summary: "mcp__browser__read http://169.254.169.254/latest",
+      access: { kind: "fetch", urls: ["http://169.254.169.254/latest"] },
+    });
+    expect(claudeGatedCall("mcp__browser__close", { address: "https://www.paypal.com/" }, "toolu_10", { servers }).access).toEqual({ kind: "other" });
+    // A tool no in-process server has, and the same name with no servers handed over, are read as before.
+    expect(claudeGatedCall("mcp__memory__recall", { query: "x" }, "toolu_11", { servers }).access).toEqual({ kind: "other" });
+    expect(claudeGatedCall("mcp__browser__open", { address: "https://www.paypal.com/" }, "toolu_12").access).toEqual({ kind: "other" });
   });
 });

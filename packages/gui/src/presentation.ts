@@ -30,6 +30,30 @@ export interface PaneLayout {
   readonly session: PaneSession | null;
 }
 
+/**
+ * The panes a session pane's side column holds (docs/specs/gui.md, "The
+ * seven panes and the grid"): this build's; the terminal, documents, the
+ * preview and the browser dock join them.
+ */
+export const SIDE_PANES = ["files", "diff", "tasks"] as const;
+export type SidePane = (typeof SIDE_PANES)[number];
+
+/**
+ * One session's side column: the panes open in it, in the strip's sequence,
+ * the one it shows, and whether the column is hidden. A pane leaving the
+ * screen stays open: hidden, never closed.
+ */
+export interface SideColumn {
+  readonly open: readonly SidePane[];
+  /** The pane shown, one of `open`; null only while none is open. */
+  readonly shown: SidePane | null;
+  /** The column is hidden: its panes stay open, and the one shown shows again with it. */
+  readonly hidden: boolean;
+}
+
+/** The key a session's side column is kept under. */
+export const sideColumnKey = (session: PaneSession): string => `${session.environmentId} ${session.sessionId}`;
+
 /** How wide the transcript's column may grow: a comfortable measure, wider, or the whole pane. */
 export const READING_WIDTHS = ["comfortable", "wide", "full"] as const;
 export type ReadingWidth = (typeof READING_WIDTHS)[number];
@@ -47,6 +71,8 @@ export interface PresentationValues {
    */
   readonly sidebarWidth: number | null;
   readonly paneLayout: PaneLayout;
+  /** Each session's side column, by `sideColumnKey`; a session with no pane open has none. */
+  readonly sideColumns: Readonly<Record<string, SideColumn>>;
   /** The transcript's text size, in CSS pixels (`TEXT_SIZE_LEAST` to `TEXT_SIZE_MOST`). */
   readonly textSize: number;
   /** How wide the transcript's column may grow. */
@@ -70,6 +96,7 @@ export type PresentationKey = keyof PresentationValues;
 export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   sidebarWidth: null,
   paneLayout: Object.freeze({ session: null }),
+  sideColumns: Object.freeze({}),
   textSize: 14,
   readingWidth: "comfortable",
   reasoningShown: true,
@@ -81,6 +108,16 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
 const DOCUMENT = "presentation";
 const FORMAT = 1;
 
+/** A side column as stored, without the panes this build cannot show (a newer build's); undefined when none it can show is open. */
+const readSideColumn = (stored: unknown): SideColumn | undefined => {
+  if (typeof stored !== "object" || stored === null) return undefined;
+  const { open, shown, hidden } = stored as { readonly open?: unknown; readonly shown?: unknown; readonly hidden?: unknown };
+  const kept = Array.isArray(open) ? SIDE_PANES.filter((pane) => open.includes(pane)).sort((a, b) => open.indexOf(a) - open.indexOf(b)) : [];
+  const first = kept[0];
+  if (first === undefined) return undefined;
+  return { open: kept, shown: kept.find((pane) => pane === shown) ?? first, hidden: hidden === true };
+};
+
 /** How each key's stored value is read back: undefined for a value this build cannot read, which takes the default. */
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
   sidebarWidth: (stored) => (stored === null || (typeof stored === "number" && stored > 0 && stored < 100) ? stored : undefined),
@@ -90,6 +127,15 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
     if (session === null) return { session: null };
     const ids = session as { readonly environmentId?: unknown; readonly sessionId?: unknown } | undefined;
     return typeof ids?.environmentId === "string" && typeof ids.sessionId === "string" ? { session: { environmentId: ids.environmentId, sessionId: ids.sessionId } } : undefined;
+  },
+  sideColumns: (stored) => {
+    if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return undefined;
+    const columns: Record<string, SideColumn> = {};
+    for (const [key, value] of Object.entries(stored)) {
+      const column = readSideColumn(value);
+      if (column !== undefined) columns[key] = column;
+    }
+    return columns;
   },
   textSize: (stored) => (typeof stored === "number" && stored >= TEXT_SIZE_LEAST && stored <= TEXT_SIZE_MOST ? stored : undefined),
   readingWidth: (stored) => READING_WIDTHS.find((width) => width === stored),
