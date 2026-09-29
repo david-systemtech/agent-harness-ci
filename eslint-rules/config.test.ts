@@ -86,6 +86,8 @@ describe("the lint configuration", () => {
     // A folder of the environment's own named like a client is not that client.
     expect(await ids("packages/environment/src/terminals/x.ts", "../web/x.js")).not.toContain(relative);
     expect(await ids("packages/environment/src/x.ts", "@agent-harness/contracts")).not.toContain("no-restricted-imports");
+    // The theme package, pure maths on contracts alone, which the Appearance step's contrast check runs (ADR 0023; #391).
+    expect(await ids("packages/environment/src/appearance/x.ts", "@agent-harness/theme")).not.toContain("no-restricted-imports");
   });
 
   describe("the literal-colour rule (ADR 0023)", () => {

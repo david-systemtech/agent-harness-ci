@@ -198,7 +198,7 @@ describe("the step registry", () => {
   });
 
   it("gives the Appearance entry the theme on its home row appearance.theme, the state check appearance.contrast with Restore, and never skips it (ADR 0023, ADR 0031; #391)", () => {
-    expect(appearance.home).toBe("appearance.theme");
+    expect(STEP_REGISTRY.find((step) => step.id === "appearance")?.home).toBe("appearance.theme");
     expect(appearance.writes).toContain("appearance.theme");
     expect(appearance.checks.map((check) => check.key)).toContain("appearance.theme");
     expect(SETTINGS["appearance.theme"].step).toEqual({ id: "appearance", row: "appearance.theme" });
