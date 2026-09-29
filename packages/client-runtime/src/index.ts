@@ -90,7 +90,7 @@ export {
   type DesktopUpdateFailure,
   type DesktopUpdateView,
 } from "./desktop-update.js";
-export type { EnvironmentView } from "./projections/environments.js";
+export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
   COMMAND_EXPIRY_MS,
@@ -250,3 +250,65 @@ export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, t
 export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
+export {
+  ACCOUNT_STATUS_WORDS,
+  BETWEEN_ENVIRONMENTS,
+  MODE_BADGE_WORDS,
+  aboveCeilingWords,
+  clampWords,
+  containmentWords,
+  elapsedClock,
+  gaugeOf,
+  identityWords,
+  modelName,
+  modelsOf,
+  percent,
+  pressureOf,
+  readingWords,
+  readingsOf,
+  spendOf,
+  startingAccount,
+  windowLabel,
+  windowOut,
+  windowWords,
+  workingWords,
+  type Pressure,
+  type Reading,
+  type Spend,
+} from "./status/words.js";
+export {
+  modeBadgeOf,
+  sessionModeOf,
+  statusOf,
+  type Activity,
+  type ContainmentBadge,
+  type ModeBadge,
+  type RunChoice,
+  type StatusFacts,
+  type StatusInput,
+} from "./status/line.js";
+export {
+  adminCall,
+  handOff,
+  handedOffAlreadyWords,
+  handingOffWords,
+  setSessionContainment,
+  setSessionMode,
+  type AdminOutcome,
+  type ContainmentSet,
+  type HandOff,
+  type ModeSet,
+} from "./status/actions.js";
+export {
+  LABEL_RULE,
+  addAccount,
+  cancelSignIn,
+  fallbackOf,
+  followedSignIn,
+  labelProblem,
+  sendSignInCode,
+  signInEnd,
+  startSignIn,
+  type AccountAdded,
+  type AttendedSignIn,
+} from "./status/sign-in.js";

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, RELEASE_MANIFEST_FILE, type ReleaseAsset, type ReleaseManifest, type ReleaseSource } from "@agent-harness/contracts";
-import { MIGRATIONS } from "../src/event-log/migrations.js";
+import { DATABASE_SCHEMA_VERSION } from "../src/event-log/migrations.js";
 import { RUNNING_PLATFORM } from "../src/updates/channel.js";
 import { startFakeForge, type FakeForge, type FakeForgeRequest } from "./fake-forge.js";
 import { DAVID, TOKEN, pasted } from "./forge.js";
@@ -18,7 +18,7 @@ import type { WireClient } from "./wire-client.js";
  */
 
 /** The database schema of a test environment's database: the last migration, which every start applies. */
-export const DATABASE_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0;
+export { DATABASE_SCHEMA_VERSION };
 
 /** The name of this platform's artefact, as a release publishes it. */
 export const ARTEFACT = `agent-harness-${RUNNING_PLATFORM}.tar.gz`;

@@ -10,6 +10,7 @@ import {
   type Numbered,
   type SwitchAnswer,
 } from "@agent-harness/contracts/launcher";
+import { createInstaller } from "./install.js";
 import { discardSnapshot, finishMarkedRestore, hasSnapshot, restoreSnapshot, snapshotNeeds, takeSnapshot, writeOutcomeRecord } from "./snapshot.js";
 import { readServiceState, writeServiceState, type PendingUpdate, type ServiceState } from "./state.js";
 import { completeVersions, isComplete, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
@@ -34,6 +35,9 @@ import { completeVersions, isComplete, versionCommand, versionDirectory, VERSION
  * the snapshot and starts the version the update went from, whose settle
  * reports the failure from the outcome record. A launcher restarted in the
  * middle of an update finishes what it finds before it starts anything.
+ * The version an update goes to got into the versions directory on
+ * `install?`: the launcher installs what the environment staged once the
+ * version's own preflight has passed (`install.ts`).
  *
  * It runs on Node's built-ins and the contracts' launcher module alone, and
  * loads nothing of the environment package, so the process that judges every
@@ -99,7 +103,7 @@ export interface LauncherOptions {
   readonly log?: (line: string) => void;
   /** Preset: the system's clock and timers. */
   readonly timer?: LauncherTimer;
-  /** The bytes free on the disk holding the data directory, which a snapshot needs room on. Preset: the file system's count. */
+  /** The bytes free on the disk holding the data directory, which a snapshot and an installed version need room on. Preset: the file system's count. */
   readonly freeBytes?: (dataDir: string) => number;
 }
 
@@ -141,6 +145,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   const freeBytes = options.freeBytes ?? freeBytesOn;
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
   const log = (text: string) => write(`${new Date(timer.now()).toISOString()} launcher: ${text}`);
+  const installer = createInstaller({ dataDir, timer, freeBytes, log });
 
   /** The service state as last read or written; set before any child runs. */
   let state!: ServiceState;
@@ -265,12 +270,19 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
         tell(from, { type: "versions", id: message.id, installed, launcherVersion: LAUNCHER_VERSION, launcherProtocol: LAUNCHER_PROTOCOL });
         return;
       }
+      case "install?": {
+        const { id, version, staged } = message;
+        void installer.install(version, staged).then((answer) => {
+          if (answer !== undefined) tell(from, { ...answer, id });
+        });
+        return;
+      }
       case "draining":
         cancelDrainAsk?.();
         cancelDrainAsk = undefined;
         return;
       default:
-        // `install?` is answered once installing (#339) is built; anything else is ignored.
+        // Anything else is ignored.
         return;
     }
   };
@@ -413,6 +425,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     stop: () => {
       if (stopping) return stopped;
       stopping = true;
+      installer.stop();
       cancelRestart?.();
       cancelRestart = undefined;
       const current = child;

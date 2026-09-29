@@ -1,4 +1,5 @@
 import { writable, type DocumentStore, type Observable } from "@agent-harness/client-runtime";
+import { Theme } from "@agent-harness/contracts";
 
 /**
  * The GUI's client-local presentation (ADR 0003, ADR 0004; glossary: Pane):
@@ -62,6 +63,14 @@ export type ReadingWidth = (typeof READING_WIDTHS)[number];
 export const TEXT_SIZE_LEAST = 11;
 export const TEXT_SIZE_MOST = 24;
 
+/**
+ * Light or dark (ADR 0023): the ladder of the theme this client paints,
+ * whatever the theme: the light one, the dark one, or the one the OS
+ * prefers, followed as the OS switches.
+ */
+export const LIGHT_OR_DARK = ["system", "light", "dark"] as const;
+export type LightOrDark = (typeof LIGHT_OR_DARK)[number];
+
 /** Every key the presentation holds, and its value. */
 export interface PresentationValues {
   /**
@@ -88,6 +97,14 @@ export interface PresentationValues {
    * pairing with an environment elsewhere.
    */
   readonly runLocalEnvironment: boolean;
+  /** Light or dark: this client's own preference, never the theme's (docs/specs/gui.md, "Theme: tokens, the setting and the lint"). */
+  readonly lightOrDark: LightOrDark;
+  /**
+   * The home environment's theme as this window last read it, painted on
+   * the next launch's first frame before anything is connected; null until
+   * one was read, when the preset is painted.
+   */
+  readonly cachedTheme: Theme | null;
 }
 
 export type PresentationKey = keyof PresentationValues;
@@ -102,6 +119,8 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   reasoningShown: true,
   streamingFade: true,
   runLocalEnvironment: true,
+  lightOrDark: "system",
+  cachedTheme: null,
 });
 
 /** The document the presentation is kept in, and the format this build writes. */
@@ -142,6 +161,8 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   reasoningShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
   streamingFade: (stored) => (typeof stored === "boolean" ? stored : undefined),
   runLocalEnvironment: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  lightOrDark: (stored) => LIGHT_OR_DARK.find((preference) => preference === stored),
+  cachedTheme: (stored) => (stored === null ? null : Theme.safeParse(stored).data),
 };
 
 export interface Presentation {

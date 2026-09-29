@@ -61,6 +61,20 @@ export const syncDirectory = (path: string, fs: DurableFs = nodeFs, platform: No
 };
 
 /**
+ * Puts every file and folder under `dir`, and `dir` itself, on disk, as a
+ * version's files must be before the sentinel that completes it is written;
+ * links are left as they are.
+ */
+export const syncTree = (dir: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
+  for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) syncTree(path, fs, platform);
+    else if (entry.isFile()) syncFile(path, fs, platform);
+  }
+  syncDirectory(dir, fs, platform);
+};
+
+/**
  * Replaces the file at `path` with `text` so that a power loss leaves either
  * the old file or the new one, never a torn one: a temporary file beside it,
  * fsynced, renamed over it, and the directory fsynced so the rename itself

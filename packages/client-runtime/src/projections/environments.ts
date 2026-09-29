@@ -65,3 +65,19 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
       }),
     ),
   );
+
+/**
+ * The home environment (ADR 0023; docs/specs/gui.md, "Theme: tokens, the
+ * setting and the lint"): the environment whose theme a client paints. The
+ * local environment once it has answered, wherever it stands in the
+ * sequence and whether or not it answers now; else the first in the
+ * sequence that is not the placeholder for a local environment never
+ * answered (which lists first and holds no theme), so the primary; none
+ * while no other is known. A client never takes the theme of the
+ * environment it is looking at, so moving between environments never
+ * recolours it.
+ */
+export const homeEnvironment = (environments: readonly EnvironmentView[]): EnvironmentView | undefined => {
+  const answered = environments.filter((environment) => environment.environmentId !== LOCAL_PLACEHOLDER_ID);
+  return answered.find((environment) => environment.kind === "local") ?? answered[0];
+};

@@ -67,8 +67,10 @@ export const FORBIDDEN_WORDS = [
  * `environments.lastUsed` (workspace-picker spec), which both renderers' pickers read.
  */
 export const PRESENTATION_KEYS: readonly string[] = [
+  "cachedTheme",
   "collapsedHeadings",
   "hiddenDirectories",
+  "lightOrDark",
   "paneLayout",
   "readingWidth",
   "reasoningShown",
