@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
-import { DAVID, TOKEN, added as forgeAdded, list as forgeList, rejection, saidBack, verify as forgeVerify } from "../../test/forge.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added as forgeAdded, list as forgeList, pasted, rejection, saidBack, update as forgeUpdate, verify as forgeVerify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ROLE_ID, SECRET_ID, added, approle, copyValue, keyManagerEvents, list, move, moveList, setBasePath, verify } from "../../test/key-manager-connections.js";
 import { scriptedMoveSource, storedAtOf } from "../../test/move-sources.js";
@@ -414,6 +414,25 @@ describe("keyManagers.move.copyValue", () => {
     expect(events.map((event) => event.type)).toContain("key-manager.value-copied");
     expect(JSON.stringify([events, copied.receipt, replayed, refused, await moveList(client)])).not.toContain(TOKEN);
     expect(JSON.stringify(logged.map((spy) => spy.mock.calls))).not.toContain(TOKEN);
+  });
+
+  it("is offered no more once a Move that writes names the item while it holds no stored token, so a token pasted later is not answered", async () => {
+    const { bao, client, connection, forge, account } = await withForgeAccount(READER);
+    forge.user(OTHER_TOKEN, DAVID);
+    await setBasePath(client, connection.id, "personal/harness");
+    const item = { kind: "forge-account", id: account.id } as const;
+    const reference = homeTarget(connection.id);
+    await move(client, { connectionId: connection.id });
+    // The account is given the reference by hand, so it holds no stored token when a Move names it.
+    bao.secret("personal", "harness/forge-home", { token: TOKEN });
+    expect((await forgeUpdate(client, { forgeAccountId: account.id, credential: { kind: "reference", reference } })).receipt).toMatchObject({ status: "accepted" });
+    expect((await move(client, { connectionId: connection.id, items: [item] })).result?.items).toMatchObject([{ item, outcome: "failed", step: "read", error: { code: "not_found" } }]);
+    expect((await forgeUpdate(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) })).receipt).toMatchObject({ status: "accepted" });
+
+    const copied = await copyValue(client, { connectionId: connection.id, item });
+
+    expect(rejection(copied.receipt)).toMatchObject({ reason: "not_found", data: item });
+    expect(JSON.stringify(copied)).not.toContain(OTHER_TOKEN);
   });
 
   it("is not_found for a connection the environment does not hold, and for an item no Move answered cannot_write on the connection", async () => {

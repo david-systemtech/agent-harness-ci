@@ -219,8 +219,6 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     const connectionId = record.id;
     const kind = ITEM_KINDS[source.kind];
     const offer = offerOf(connectionId, ref);
-    // A Move that writes answers afresh whether a copy is offered; one that only verifies leaves an offer as it is.
-    if (!mode.verifyOnly) offered.delete(offer);
     const stored = await source.read(item.id);
     if (stored === null) {
       return { result: failed(ref, "read", false, { code: "not_found", message: `The ${kind} ${item.name} holds no stored token to move now.`, data: { kind: source.kind, id: item.id } }), event: null };
@@ -340,6 +338,8 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
               });
         const done: Moved[] = [];
         for (const { ref, source, item } of chosen) {
+          // A Move that writes answers afresh whether a copy is offered, whatever it answers; one that only verifies leaves an offer as it is.
+          if (params.verifyOnly !== true) offered.delete(offerOf(record.id, ref));
           if (source === undefined || item === undefined) {
             done.push({ result: failed(ref, "read", false, { code: "not_found", message: `No ${ITEM_KINDS[ref.kind]} ${ref.id} holds a stored token on this environment.`, data: { kind: ref.kind, id: ref.id } }), event: null });
             continue;
@@ -365,7 +365,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         const item = source?.items().find((each) => each.id === ref.id);
         const none = (message: string) => rejecting({ code: "not_found", message, data: { ...ref } });
         if (source === undefined || item === undefined) return none(`No ${ITEM_KINDS[ref.kind]} ${ref.id} holds a stored token on this environment.`);
-        const offer = offerOf(connectionId, ref);
+        const offer = offerOf(held.record.id, ref);
         if (!offered.has(offer)) {
           return none(`No copy of the stored token of the ${ITEM_KINDS[ref.kind]} ${item.name} is offered on ${held.record.label}: move it first, and a Move that may not write its target offers one.`);
         }
