@@ -73,16 +73,17 @@ export interface DesktopOptions {
  * Starts the desktop: resolves once its window has loaded, or at once when
  * another instance holds the lock, which this one hands its launch to by
  * quitting. The steps before the first `await` run before the app is ready,
- * as Electron requires of the lock, the data path, the scheme's privileges
+ * as Electron requires of the data path, the lock, the scheme's privileges
  * and the macOS `open-url` listener.
  */
 export const startDesktop = async (electron: DesktopElectron, platform: DesktopPlatform, { reportError = console.error }: DesktopOptions = {}): Promise<void> => {
   const { app, protocol } = electron;
+  // First: Electron keeps the single-instance lock in the data directory in force when it is asked for.
+  app.setPath("userData", platform.paths.data);
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
   }
-  app.setPath("userData", platform.paths.data);
   protocol.registerSchemesAsPrivileged([APP_SCHEME_REGISTRATION]);
   if (platform.relaunch) app.setAsDefaultProtocolClient(APP_SCHEME, platform.relaunch.executable, [...platform.relaunch.args]);
   else app.setAsDefaultProtocolClient(APP_SCHEME);

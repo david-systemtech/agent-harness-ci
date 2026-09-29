@@ -131,11 +131,13 @@ describe("one window, one instance", () => {
     expect(electron.app.calls).toContainEqual(["quit"]);
   });
 
-  it("keeps Chromium's profile in the platform's data directory, set before the app is ready", async () => {
+  it("keeps Chromium's profile in the platform's data directory, set before the single-instance lock, which Electron keeps there, and before the app is ready", async () => {
     const electron = fakeElectron({ ready: false });
     const platform = platformOn("linux");
     const started = startDesktop(electron, platform);
+    const methods = electron.app.calls.map(([method]) => method);
     expect(electron.app.calls).toContainEqual(["setPath", "userData", platform.paths.data]);
+    expect(methods.indexOf("setPath")).toBeLessThan(methods.indexOf("requestSingleInstanceLock"));
     electron.app.becomeReady();
     await started;
   });
