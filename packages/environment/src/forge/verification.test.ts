@@ -409,6 +409,40 @@ describe("a pause the replaced credential draws after it was replaced", () => {
   });
 });
 
+describe("closing the environment while a verification is in flight", () => {
+  const BUDGET_MS = 300;
+
+  /** Every unhandled rejection and every error line from here to the test's end. */
+  const heard = () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => void rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    onCleanup(() => void process.off("unhandledRejection", onRejection));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    return { rejections, errors };
+  };
+
+  /** Waits in real time past the budget of a verification that began before, which ends one the forge never answers. */
+  const pastTheBudget = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, BUDGET_MS + 50));
+
+  it("leaves no unhandled rejection and reads nothing from the log once the budget ends it", async () => {
+    const { rejections, errors } = heard();
+    const { t, forge, client } = await withForge({ forgeTimeoutMs: BUDGET_MS });
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    // The forge never says who the token is: the verification the add starts waits on it until its budget passes.
+    forge.user(TOKEN, DAVID, new Promise(() => undefined));
+    t.clock.advance(0);
+    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
+
+    await t.close();
+    await pastTheBudget();
+
+    expect(rejections).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+});
+
 describe("the state import's credential probe", () => {
   it("answers the identity and capabilities a credential has, on the repository its URL names, storing and recording nothing", async () => {
     const { t, forge, client } = await withForge();
