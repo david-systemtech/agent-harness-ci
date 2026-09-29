@@ -45,6 +45,7 @@ describe("the key-manager connection methods", () => {
       "keyManagers.connections.setBasePath": ["command", "admin"],
       "keyManagers.move.list": ["query", "read"],
       "keyManagers.move": ["command", "admin"],
+      "keyManagers.move.copyValue": ["command", "admin"],
     });
   });
 

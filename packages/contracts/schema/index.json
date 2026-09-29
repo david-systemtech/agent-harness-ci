@@ -1175,12 +1175,20 @@
       "title": "KeyManagerTargetExistsError"
     },
     {
+      "path": "key-managers/errors/cannot_write.json",
+      "title": "KeyManagerCannotWriteError"
+    },
+    {
       "path": "key-managers/events/key-manager.moved.json",
       "title": "KeyManagerMovedPayload"
     },
     {
       "path": "key-managers/events/key-manager.stored-value-deleted.json",
       "title": "KeyManagerStoredValueDeletedPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.value-copied.json",
+      "title": "KeyManagerValueCopiedPayload"
     },
     {
       "path": "key-managers/errors/verification_failed.json",
@@ -4251,6 +4259,22 @@
       "title": "keyManagers.move error"
     },
     {
+      "path": "methods/keyManagers.move.copyValue/params.json",
+      "title": "keyManagers.move.copyValue params"
+    },
+    {
+      "path": "methods/keyManagers.move.copyValue/result.json",
+      "title": "keyManagers.move.copyValue result"
+    },
+    {
+      "path": "methods/keyManagers.move.copyValue/response.json",
+      "title": "keyManagers.move.copyValue response"
+    },
+    {
+      "path": "methods/keyManagers.move.copyValue/error.json",
+      "title": "keyManagers.move.copyValue error"
+    },
+    {
       "path": "methods/tools.list/params.json",
       "title": "tools.list params"
     },
@@ -6013,6 +6037,16 @@
       "result": "methods/keyManagers.move/result.json",
       "response": "methods/keyManagers.move/response.json",
       "error": "methods/keyManagers.move/error.json"
+    },
+    {
+      "name": "keyManagers.move.copyValue",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.move.copyValue/params.json",
+      "result": "methods/keyManagers.move.copyValue/result.json",
+      "response": "methods/keyManagers.move.copyValue/response.json",
+      "error": "methods/keyManagers.move.copyValue/error.json"
     },
     {
       "name": "tools.list",
