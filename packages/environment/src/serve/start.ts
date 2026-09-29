@@ -116,7 +116,8 @@ import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
-import { setupMethods, type SetupSteps } from "../setup/methods.js";
+import { setupMethods } from "../setup/methods.js";
+import { createSetupService, type SetupSteps } from "../setup/service.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
@@ -933,9 +934,33 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
   const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
+  // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
+  // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
+  const setup = createSetupService({
+    log,
+    clock,
+    presets: settingsPresets(),
+    stream: environmentStream,
+    steps: options.setupSteps ?? {
+      steps: STEP_REGISTRY,
+      stateChecks: environmentStateChecks({
+        log,
+        containment,
+        isRoot,
+        dataDir,
+        releaseChannel: () => channelChecks.releaseChannelHolds(),
+        updates: () => updates.machineHolds(channelChecks.status().newest),
+        hostUpdater: () => hostUpdater.holds(),
+        forge,
+        clock,
+      }),
+    },
+  });
+  capabilities.push("setup");
   const table = createMethodTable({
     ...lifecycle.handlers,
-    "environment.subscribe": () => lifecycle.source,
+    // The snapshot, sent when replay from the cursor is out of bounds: the status now, and every step's cached result (#569).
+    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), setup: setup.cached() }) }),
     // The rebuild joins the command's transaction, so it and the receipt commit together.
     "environment.rebuildProjections": () => ({
       aggregate: environmentStream,
@@ -967,26 +992,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
     ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
-    // Set up's health checks (ADR 0031; #141): each registered step's, on this environment.
-    ...setupMethods({
-      log,
-      clock,
-      presets: settingsPresets(),
-      steps: options.setupSteps ?? {
-        steps: STEP_REGISTRY,
-        stateChecks: environmentStateChecks({
-          log,
-          containment,
-          isRoot,
-          dataDir,
-          releaseChannel: () => channelChecks.releaseChannelHolds(),
-          updates: () => updates.machineHolds(channelChecks.status().newest),
-          hostUpdater: () => hostUpdater.holds(),
-          forge,
-          clock,
-        }),
-      },
-    }),
+    ...setupMethods(setup),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...instructionMethods({ host }),
