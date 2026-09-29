@@ -27,11 +27,11 @@ import type { HostUpdaterPolls } from "./host-updater.js";
  * newest, the last check and the target it found (#346), the pending update
  * as the update coordinator holds it, how the last update ended (#344) and
  * the versions installed, and, with `hostUpdater: true`, the host-side
- * updater's poll, which it remembers (#348); `updates.check`, a check of the channel and then
- * the same document; `updates.settings.set`, the one way to write the five
- * update settings, a pin checked against its release first (#346); and the
- * coordinator's `updates.apply` and `updates.cancel` (#343) and
- * `updates.begin` (#348).
+ * updater's poll, which it remembers (#348); `updates.check`, a check of
+ * the channel and then the same document; `updates.settings.set`, the one
+ * way to write the five update settings, a pin checked against its release
+ * first (#346); and the coordinator's `updates.apply` and `updates.cancel`
+ * (#343) and `updates.begin` (#348).
  */
 
 /** Why nothing manages the updates of an environment `serve` runs in the foreground, for people. */

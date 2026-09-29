@@ -249,7 +249,7 @@ describe("updates.begin", () => {
     t.clock.advance(24 * HOUR);
     await begin(client, updateId);
     expect(updateNotices(t).at(-1)).toMatchObject({ type: "environment.update-started", payload: { updateId, cause: "cap" } });
-    expect(await t.env.status().activity).toMatchObject({ state: "draining" });
+    expect(t.env.status().activity).toMatchObject({ state: "draining" });
     t.clock.advance(29 * MINUTE);
     expect(await pendingOf(client)).toMatchObject({ state: "draining", cause: "cap" });
   });
@@ -437,6 +437,7 @@ describe("updates.apply in a container", () => {
   });
 });
 
+/** The JSON document the environment answers at `path`. */
 const getJson = async (t: TestEnvironment, path: string): Promise<Record<string, unknown>> =>
   (await (await fetch(`http://${t.address.host}:${t.address.port}${path}`)).json()) as Record<string, unknown>;
 
