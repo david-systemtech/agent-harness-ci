@@ -166,7 +166,9 @@ export type ForgeAddCredential = z.infer<typeof ForgeAddCredential>;
  * The credential a copy of a forge account is added with on another
  * environment (ADR 0020; forge spec, "Copies and the state import"): a `gh`
  * source as `gh`, a reference as it is, and a stored token as `none`, since
- * no secret travels between environments.
+ * no secret travels between environments. A reference still names the
+ * source's connection: the client runtime's copy points it at the target's
+ * own connection to the same key manager (#706).
  */
 export const forgeCopyCredential = (source: ForgeCredentialSource): ForgeAddCredential => {
   switch (source.kind) {

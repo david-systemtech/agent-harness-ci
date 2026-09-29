@@ -1,7 +1,8 @@
-import { forgeCopyCredential, normaliseRemote, type ForgeAccountRecord, type MethodName, type ParamsOf } from "@agent-harness/contracts";
+import { forgeCopyCredential, normaliseRemote, type ForgeAccountRecord, type ForgeAddCredential, type MethodName, type ParamsOf } from "@agent-harness/contracts";
 import { noShellMessage, type CapabilityAnswer } from "./capabilities.js";
 import { copyOutcome, copyToEach, type CopyReport } from "./copies.js";
 import { uuidv4, uuidv7 } from "./ids.js";
+import { referenceCopies } from "./key-managers.js";
 import type { Clock } from "./platform.js";
 import type { RequestAnswer, Requests } from "./requests.js";
 import type { Shell } from "./shell.js";
@@ -38,14 +39,18 @@ export interface Forges {
    * named (ADR 0020's bulk copy; forge spec, "Copies and the state
    * import"): `forge.accounts.add` on each, all at once, with its origin,
    * aliases, kind, slug and primary flag and `copiedFrom` naming the source;
-   * a key-manager reference as it is, a stored token as `none` (no secret
-   * travels between environments; the target's Forges check asks for one),
-   * the environment's own `gh` as `gh`. Each is a new forge account there,
+   * a key-manager reference with its locator, read through that
+   * environment's own connection to the same key manager (#706,
+   * `referenceCopies`), a stored token as `none` (no secret travels between
+   * environments; the target's Forges check asks for one), the
+   * environment's own `gh` as `gh`. Each is a new forge account there,
    * under an id of its own. Answers a report per environment: `copied` with
    * the forge account it added, or `refused` with the environment's error
    * (a `conflict`, the origin or slug held there) or the connection's
    * (`unreachable` at once, `scope` without `admin`, `unsupported`
-   * without `forge`); one refused never stops the others.
+   * without `forge`), or `credential_source_unavailable`, sending nothing,
+   * for a reference where the environment holds no connection to its key
+   * manager; one refused never stops the others.
    */
   copy(fromEnvironmentId: string, account: ForgeAccountRecord, toEnvironmentIds: readonly string[]): Promise<readonly CopyReport<ForgeAccountRecord | null>[]>;
 }
@@ -91,7 +96,16 @@ export const createForges = (host: ForgesHost): Forges => ({
   async copy(fromEnvironmentId, account, toEnvironmentIds) {
     const environmentName = host.name(fromEnvironmentId);
     const from = environmentName === null ? null : { environmentId: fromEnvironmentId, environmentName };
+    const credential = forgeCopyCredential(account.credential);
+    // A reference names a connection by an id each environment gives its own copy of the key manager (#706).
+    const referenceOn = from !== null && credential.kind === "reference" ? await referenceCopies(host, from, credential.reference) : null;
     return copyToEach(from, toEnvironmentIds, async (environmentId, copiedFrom) => {
+      let given: ForgeAddCredential = credential;
+      if (referenceOn !== null) {
+        const there = await referenceOn(environmentId);
+        if (!there.ok) return { status: "refused", error: there.error };
+        given = { kind: "reference", reference: there.reference };
+      }
       const answer = await host.call(environmentId, "forge.accounts.add", {
         commandId: uuidv7(host.clock.now()),
         forgeAccountId: uuidv4(),
@@ -101,7 +115,7 @@ export const createForges = (host: ForgesHost): Forges => ({
         slug: account.slug,
         aliases: account.aliases.map((alias) => alias.origin),
         primary: account.primary,
-        credential: forgeCopyCredential(account.credential),
+        credential: given,
         copiedFrom,
       });
       return copyOutcome(answer, (result) => result.account);
