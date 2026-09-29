@@ -10,14 +10,18 @@ import type { ProcessEnvironment, SuppliedVariables } from "./contract.js";
  * environment is built the same way, whatever started it. A holder is a
  * run's provider process or a session's terminal.
  *
- * The key is empty while no supplier is registered. Otherwise it names
- * each supplier's part, in the order they were registered, so a part that
- * changes is a key that changes. A supplier's variables are asked at each
- * spawn, all of them at once; where two name one variable, the one
- * registered later wins. A supplier that fails is logged and left out, of
- * the key when its key fails and of the variables when its supply does:
- * nothing is supplied in its place. The release calls each supplier's
- * release once, a failure logged.
+ * One injection answer is asked for each holder (ADR 0011's setting,
+ * #91's; until then the seam's preset, `allow`, ADR 0028), and on `deny`
+ * no supplier is asked anything. A seam that throws denies, logged. The key
+ * is empty while no supplier is registered. Otherwise it names the answer
+ * and, on `allow`, each supplier's part, in the order they were
+ * registered, so a changed answer or a changed part is a changed key.
+ *
+ * A supplier's variables are asked at each spawn, every supplier at once;
+ * where two name one variable, the one registered later wins. A supplier
+ * that fails is logged and left out, of the key when its key fails and of
+ * the variables when its supply does: nothing is supplied in its place.
+ * The release calls each supplier's release once, a failure logged.
  */
 
 /** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), and who started it (a client, for a terminal). */
@@ -26,6 +30,18 @@ export interface ProcessEnvironmentScope {
   readonly accountId: string | null;
   readonly origin: RunActorKind;
 }
+
+/** Whether a holder's suppliers are asked for its variables (ADR 0011). */
+export type InjectionAnswer = "allow" | "deny";
+
+/**
+ * Answers a holder's injection (ADR 0011, ADR 0028): #91's setting, the
+ * environment's `credentials.injection`, outranked by the account's and
+ * then a routine's or a bot's. Preset: `allow`, the setting's preset.
+ */
+export type InjectionSeam = (scope: ProcessEnvironmentScope) => InjectionAnswer;
+
+export const presetInjection: InjectionSeam = () => "allow";
 
 /**
  * One harness service's part of every holder's process environment: its
@@ -84,7 +100,17 @@ const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope
   };
 };
 
-export const createProcessEnvironments = (): ProcessEnvironments => {
+/** The holder's injection answer: the seam's, or `deny` when the seam fails. */
+const answerOf = (injection: InjectionSeam, scope: ProcessEnvironmentScope): InjectionAnswer => {
+  try {
+    return injection(scope) === "allow" ? "allow" : "deny";
+  } catch (error) {
+    console.error(`The injection answer for session ${scope.sessionId} could not be read; nothing is injected: ${describe(error)}`);
+    return "deny";
+  }
+};
+
+export const createProcessEnvironments = (injection: InjectionSeam = presetInjection): ProcessEnvironments => {
   const suppliers: ProcessEnvironmentSupplier[] = [];
   return {
     register(supplier) {
@@ -92,7 +118,9 @@ export const createProcessEnvironments = (): ProcessEnvironments => {
       suppliers.push(supplier);
     },
     of(scope) {
+      const answer = answerOf(injection, scope);
       if (suppliers.length === 0) return EMPTY_PROCESS_ENVIRONMENT;
+      if (answer === "deny") return { key: JSON.stringify({ injection: answer }), supply: async () => NOTHING };
       const parts = suppliers.flatMap((supplier) => {
         try {
           return [{ supplier, key: supplier.key(scope) }];
@@ -103,7 +131,7 @@ export const createProcessEnvironments = (): ProcessEnvironments => {
       });
       const asked = parts.map((part) => part.supplier);
       return {
-        key: JSON.stringify({ suppliers: parts.map((part) => [part.supplier.name, part.key]) }),
+        key: JSON.stringify({ injection: answer, suppliers: parts.map((part) => [part.supplier.name, part.key]) }),
         supply: () => supplyAll(asked, scope),
       };
     },

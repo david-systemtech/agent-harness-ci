@@ -7,7 +7,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent } from "./contract.js";
-import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "./process-environment.js";
+import { presetInjection, type InjectionAnswer, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "./process-environment.js";
 
 /**
  * The process environment through the primary seam (forge spec, "Per
@@ -136,6 +136,49 @@ describe("a run's process environment", () => {
     expect(asked.supplies.map((scope) => scope.origin)).toEqual(["client", "completions", "routine"]);
     const given = await Promise.all(t.adapter.processes.map((process) => process.supplied));
     expect(given).toEqual([{ HARNESS_TEST_VARIABLE: "for every run" }, { HARNESS_TEST_VARIABLE: "for every run" }, { HARNESS_TEST_VARIABLE: "for every run" }]);
+  });
+});
+
+describe("the injection answer", () => {
+  it("is asked once per run, of a seam whose preset allows, for the run's session, account and origin", async () => {
+    const answered: ProcessEnvironmentScope[] = [];
+    const t = await start({}, { adapterSeams: { injection: (scope) => (answered.push(scope), presetInjection(scope)) } });
+    const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    t.env.processEnvironments.register(supplier);
+    const client = await t.client();
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+    await runTo(t, client, session.id, "And the refunds");
+
+    expect(answered).toEqual([
+      { sessionId: session.id, accountId: "claude-max", origin: "client" },
+      { sessionId: session.id, accountId: "claude-max", origin: "client" },
+    ]);
+    expect(asked.supplies).toHaveLength(1);
+  });
+
+  it("asks no supplier on deny, so nothing is supplied, and is in the key: a run denied after an allowed one is served by a fresh process", async () => {
+    let answer: InjectionAnswer = "allow";
+    const t = await start({}, { adapterSeams: { injection: () => answer } });
+    const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    t.env.processEnvironments.register(supplier);
+    const client = await t.client();
+    const session = await create(client);
+    await runTo(t, client, session.id);
+
+    answer = "deny";
+    await runTo(t, client, session.id, "And the refunds");
+
+    const [allowed, denied] = t.adapter.runs;
+    expect(denied?.input.processEnvironment.key).not.toBe(allowed?.input.processEnvironment.key);
+    expect(denied?.input.processEnvironment.key).not.toBe("");
+    expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+    expect(await t.adapter.processesOf(session.id)[1]?.supplied).toEqual({});
+    // The supplier was asked for the allowed run alone, and what it supplied was released as the denied run's spawn replaced it.
+    expect(asked.keys).toHaveLength(1);
+    expect(asked.supplies).toHaveLength(1);
+    expect(asked.releases).toEqual([1]);
   });
 });
 
