@@ -55,7 +55,7 @@ describe("the app scheme", () => {
     }
   });
 
-  it("refuses the text of a <style> element a script adds: no nonce, hash or 'unsafe-inline' admits one, so xterm.js's stylesheets go through the CSSOM (#486)", async () => {
+  it("refuses the text of a <style> element a script adds: no nonce, hash or 'unsafe-inline' admits one, so the terminal pane puts xterm.js's stylesheets through the CSSOM", async () => {
     const { electron } = await start();
     const policy = directives((await electron.protocol.load("agent-harness://app/")).headers.get("content-security-policy"));
     // `style-src-elem` and `style-src-attr` would each stand in for `style-src` on their own; neither is sent.

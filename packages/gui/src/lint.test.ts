@@ -41,6 +41,14 @@ describe("the GUI under the repository's lint", () => {
     expect(await ruleIds(file, `${source}\nexport const pinnedSessions = writable([]);\n`)).toContain(ORGANISATION);
   });
 
+  it("allows the terminal pane's fallback theme its literal colours, and refuses the same theme in any other module", async () => {
+    const file = "packages/gui/src/terminal/xterm-fallback-theme.ts";
+    const source = readFileSync(join(root, file), "utf8");
+    expect(source).toContain(hex.replace("fff", ""));
+    expect(await ruleIds(file, source)).not.toContain(COLOUR);
+    expect(await ruleIds("packages/gui/src/terminal/terminal-theme.ts", source)).toContain(COLOUR);
+  });
+
   it("refuses a literal colour in a primitive and in the stylesheet", async () => {
     const button = "packages/gui/src/ui/button.tsx";
     expect(await ruleIds(button, readFileSync(join(root, button), "utf8"))).not.toContain(COLOUR);
