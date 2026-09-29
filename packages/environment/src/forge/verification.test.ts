@@ -10,6 +10,7 @@ import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted,
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
+import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 
 /**
@@ -406,6 +407,113 @@ describe("a pause the replaced credential draws after it was replaced", () => {
 
     t.clock.advance(15 * MINUTE);
     await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual(verifiedAt(after(15 * MINUTE))));
+  });
+});
+
+describe("closing the environment while a verification is in flight", () => {
+  const REFERENCE = { provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount: "personal", path: "harness/forge-work", key: "token" } as const;
+
+  /** Every unhandled rejection and every error line from here to the test's end. */
+  const heard = () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => void rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    onCleanup(() => void process.off("unhandledRejection", onRejection));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    return { rejections, errors };
+  };
+
+  /**
+   * A key manager that answers `REFERENCE` with the test's token at once for
+   * an add, and holds a verification's read until the test answers it: the
+   * verification is in flight, on no clock, until then.
+   */
+  const heldVerifyRead = () => {
+    const scripted = scriptedKeyManagers();
+    scripted.answer(REFERENCE, TOKEN);
+    const held: (() => void)[] = [];
+    const keyManagers: KeyManagerRegistry = {
+      async resolve(request) {
+        if (request.purpose === "verify") await new Promise<void>((resolve) => held.push(resolve));
+        return scripted.registry.resolve(request);
+      },
+    };
+    return {
+      keyManagers,
+      scripted,
+      held: () => held.length,
+      /** Answers the verification's read: the token, or null for unavailable. */
+      answer(value: string | null) {
+        scripted.answer(REFERENCE, value);
+        held.shift()?.();
+      },
+    };
+  };
+
+  /** A forge account on the fake forge whose credential is `REFERENCE`, and the verification its add starts, waiting on its credential. */
+  const verifying = async () => {
+    const read = heldVerifyRead();
+    const { t, forge, client } = await withForge({ keyManagers: read.keyManagers });
+    const account = await added(client, { url: forge.origin, kind: "forgejo", credential: { kind: "reference", reference: REFERENCE } });
+    t.clock.advance(0);
+    await vi.waitFor(() => expect(read.held()).toBe(1));
+    return { t, forge, client, account, read };
+  };
+
+  /** Lets what an answer set going settle, and a rejection it left unhandled be heard. */
+  const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it("leaves no unhandled rejection and reads nothing from the log once it ends", async () => {
+    const { rejections, errors } = heard();
+    const { t, read } = await verifying();
+
+    await t.close();
+    const reads = vi.spyOn(t.env.log, "read");
+    read.answer(null);
+    await settled();
+
+    expect(rejections).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
+  });
+
+  it("never starts the one queued behind it for a credential given since, and reads nothing for it", async () => {
+    const { rejections, errors } = heard();
+    const { t, forge, client, account, read } = await verifying();
+    forge.user(OTHER_TOKEN, DAVID);
+    // The credential given while it runs is verified once it ends.
+    await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    t.clock.advance(0);
+
+    await t.close();
+    const reads = vi.spyOn(t.env.log, "read");
+    read.answer(null);
+    await settled();
+
+    expect(rejections).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
+    // The add's identity call and the update's: none for the credential given.
+    expect(forge.requests.map((request) => request.path)).toEqual(["/api/v1/user", "/api/v1/user"]);
+  });
+
+  it("reads nothing once the credential it waited on arrives after the close", async () => {
+    const { rejections, errors } = heard();
+    const { t, forge, read } = await verifying();
+    forge.repositories(TOKEN, []);
+
+    await t.close();
+    const reads = vi.spyOn(t.env.log, "read");
+    read.answer(TOKEN);
+    // The credential read for it is let go once the verification has its answers.
+    await vi.waitFor(() => expect([read.scripted.requests.length, read.scripted.outstanding()]).toEqual([2, 0]), { timeout: 5_000 });
+    await settled();
+
+    expect(rejections).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
+    expect(read.scripted.requests.map((request) => request.purpose)).toEqual(["add", "verify"]);
   });
 });
 
