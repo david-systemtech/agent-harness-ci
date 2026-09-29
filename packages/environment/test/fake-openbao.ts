@@ -42,8 +42,12 @@ import { join } from "node:path";
  * (`sys/internal/ui/mounts/<path>`) answers the mount's type and version to
  * a token with any access under it, and 403 alike for a mount that is not
  * there, so it cannot be used to find mounts; with no path it lists the
- * mounts the token has access under. Later tickets extend it (child tokens,
- * KV writes).
+ * mounts the token has access under. A write (#371), `POST` or `PUT` at a
+ * secret's path (version 2's under `data/`, its fields under `data` in the
+ * body), replaces the secret with the fields given; the token's policies
+ * must grant `create` there for a secret that is not there yet and `update`
+ * for one that is, as OpenBao's existence check asks. Later tickets extend
+ * it (child tokens).
  */
 
 /** A login a credential answers with: its policies, and what its token's lookup says of it. */
@@ -107,6 +111,8 @@ export interface FakeOpenBao {
   kv(path: string, version: 1 | 2): void;
   /** Writes the secret at `path` under the KV mount `mount`, replacing what it held: its keys and their values. */
   secret(mount: string, path: string, data: Record<string, unknown>): void;
+  /** The secret at `path` under the KV mount `mount` as it holds it now, its keys and their values; undefined for none. */
+  stored(mount: string, path: string): Record<string, unknown> | undefined;
   /** Scripts what `route` (`GET auth/token/lookup-self`, `LIST personal/metadata/`) answers from now on, in place of the fake's own answer; null to answer as the fake does. */
   answer(route: string, answer: FakeRouteAnswer | null): void;
   /** Presents `which` certificate from the next handshake on, closing every connection held, as a key manager restarted with it would. Preset `leaf`. */
@@ -322,6 +328,32 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     return { type: "kv", path: `${mount}/`, description: "", options: version === 2 ? { version: "2" } : null };
   };
 
+  /** Where a secret's name sits in a request's path under a KV mount of `version`: the path itself on version 1, under `data/` on version 2; undefined for a path the version does not route there. */
+  const secretNameOf = (version: 1 | 2, mount: string, path: string): string | undefined => {
+    const rest = path === mount ? "" : path.slice(mount.length + 1);
+    if (version === 1) return rest;
+    return rest.startsWith("data/") ? rest.slice("data/".length) : undefined;
+  };
+
+  /**
+   * Answers a KV write under a mount: the secret replaced with the fields
+   * given, the body itself on version 1 and its `data` on version 2, once the
+   * token's policies grant `create` for a new secret or `update` for one
+   * there, as OpenBao's existence check asks.
+   */
+  const writeKv = (response: ServerResponse, token: FakeToken | undefined, mount: string, path: string, fields: Record<string, unknown>): void => {
+    const { version, secrets } = kvMounts.get(mount) ?? { version: 1, secrets: new Map() };
+    const name = secretNameOf(version, mount, path);
+    if (name === undefined || name === "") return send(response, 404, { errors: [`no handler for route "${path}". route entry not found.`] });
+    const wanted = secrets.has(name) ? "update" : "create";
+    if (token === undefined || !capabilitiesOn(token, path).some((capability) => capability === wanted || capability === "root")) return send(response, 403, { errors: ["permission denied"] });
+    const data = version === 2 ? fields["data"] : fields;
+    if (typeof data !== "object" || data === null || Array.isArray(data)) return send(response, 400, { errors: ["no data provided"] });
+    secrets.set(name, { ...(data as Record<string, unknown>) });
+    if (version === 1) return send(response, 204);
+    send(response, 200, { data: { created_time: now().toISOString(), deletion_time: "", destroyed: false, version: 1 } });
+  };
+
   /**
    * Answers a KV read or list under a mount: version 1's secrets sit at the
    * path, version 2's under `data/` and their lists under `metadata/`. A
@@ -448,6 +480,10 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       }
       return send(response, 200, { data: describeMount(mount) });
     }
+    if (method === "POST" || method === "PUT") {
+      const mount = kvMountOf(path);
+      if (mount !== undefined) return writeKv(response, known, mount, path, fields);
+    }
     if (method === "GET" || method === "LIST") {
       // The token's policies first, as OpenBao checks them before it routes: a path it may not read is refused whether it is there or not.
       const wanted = method === "LIST" ? "list" : "read";
@@ -482,6 +518,10 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       const held = kvMounts.get(mount);
       if (held === undefined) throw new Error(`No KV mount ${mount} on the fake OpenBao.`);
       held.secrets.set(path, { ...data });
+    },
+    stored(mount, path) {
+      const data = kvMounts.get(mount)?.secrets.get(path);
+      return data === undefined ? undefined : { ...data };
     },
     answer: (route, answer) => void (answer === null ? routes.delete(route) : routes.set(route, answer)),
     present(which) {

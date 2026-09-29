@@ -1,4 +1,4 @@
-import type { KeyManagerProvider } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, KeyManagerProvider, KeyManagerReference } from "@agent-harness/contracts";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
 /**
@@ -14,6 +14,19 @@ export const basePathProblem = (provider: KeyManagerProvider, basePath: string):
   provider === "openbao" && basePath.split("/").length !== 2
     ? `An OpenBao base path is a KV mount and one project segment, as personal/harness, so each entry sits two levels under its mount; ${basePath} is not.`
     : null;
+
+/**
+ * Where a Move puts the entry `entry` (`forge-<slug>`) on a connection, its
+ * value at `key`: one level below the base path, so for OpenBao the base's
+ * mount, and `<project>/<entry>` under it. Null for a connection with no
+ * base path, or of a provider a Move cannot write to yet (#377 to #379 map
+ * theirs).
+ */
+export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): KeyManagerReference | null => {
+  if (record.provider !== "openbao" || record.basePath === null) return null;
+  const [mount = "", project = ""] = record.basePath.split("/");
+  return { provider: "openbao", connectionId: record.id, mount, path: `${project}/${entry}`, key };
+};
 
 /** The project the provider's suggestion puts under a mount (ADR 0028's chosen default). */
 const SUGGESTED_PROJECT = "harness";

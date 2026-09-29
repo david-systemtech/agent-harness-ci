@@ -107,6 +107,19 @@ export interface SecretLocation {
 /** What a write check answered: whether the login may write a secret at the location, creating or replacing it. */
 export type WriteCheckAnswer = { readonly outcome: "checked"; readonly writable: boolean } | ProviderFailure;
 
+/** A value a Move writes at a reference (#371), with the fields its entry carries beside it. */
+export interface WriteRequest {
+  readonly reference: KeyManagerReference;
+  readonly value: string;
+  /** What the entry carries beside the value, where the provider keeps fields: OpenBao's `note`, `service` and `added`. */
+  readonly fields: Readonly<Record<string, string>>;
+  /** Whether a different value already at the reference is replaced. */
+  readonly overwrite: boolean;
+}
+
+/** What a write answered: written, or a different value at the reference already, left as it was; never either value. */
+export type WriteAnswer = { readonly outcome: "written" } | { readonly outcome: "exists" } | ProviderFailure;
+
 export interface ConnectionProvider {
   /** Logs in at the target's mount with `credential`, whose method is the target's: a token is its own login. */
   logIn(target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<LogInAnswer>;
@@ -128,4 +141,11 @@ export interface ConnectionProvider {
   list(target: SignInTarget, token: string, location: ListLocation, signal?: AbortSignal): Promise<ListAnswer>;
   /** Asks whether the login's token may write a secret at `location` (#371): its capabilities there, nothing written. */
   canWrite(target: SignInTarget, token: string, location: SecretLocation, signal?: AbortSignal): Promise<WriteCheckAnswer>;
+  /**
+   * Writes `request.value` at its reference with the login's token (#371),
+   * the fields beside it, keeping whatever else the entry holds; a different
+   * value there already is left as it was unless `overwrite` is asked, and
+   * the same value is no conflict. Values are compared in constant time.
+   */
+  write(target: SignInTarget, token: string, request: WriteRequest, signal?: AbortSignal): Promise<WriteAnswer>;
 }

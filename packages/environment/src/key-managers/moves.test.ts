@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import type { EventEnvelope, EventFrame, KeyManagerReference } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
-import { rejection } from "../../test/forge.js";
+import { DAVID, TOKEN, added as forgeAdded, list as forgeList, rejection, saidBack, verify as forgeVerify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, setBasePath, verify } from "../../test/key-manager-connections.js";
+import { ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, move, moveList, setBasePath, verify } from "../../test/key-manager-connections.js";
+import type { WireClient } from "../../test/wire-client.js";
+import { VAULT_FILE, fileVault } from "../serve/vault.js";
 
 /**
  * Move stored tokens through the primary seam (key-managers spec, "Move
@@ -107,5 +112,101 @@ describe("the suggested base path", () => {
 
     await verify(client, connection.id);
     expect(await list(client)).toMatchObject([{ status: { kind: "signed-in" }, suggestedBasePath: null }]);
+  });
+});
+
+/** Every event a client reads on `environment.subscribe` after `afterSequence`, up to where it is synchronized. */
+const environmentEvents = async (client: WireClient, afterSequence: number): Promise<EventEnvelope[]> => {
+  const { subscription } = await client.subscribe("environment.subscribe", { afterSequence });
+  const events: EventEnvelope[] = [];
+  for (;;) {
+    const frame = await client.next((f) => "subscription" in f && f.subscription === subscription && (f.type === "event" || f.type === "synchronized"));
+    if (frame.type === "synchronized") return events;
+    events.push((frame as EventFrame).event);
+  }
+};
+
+/** The vault entries the environment's file vault holds: what a restart would find. */
+const vaultKeys = async (t: TestEnvironment): Promise<readonly string[]> => fileVault(join(t.dataDir, VAULT_FILE)).keys();
+
+/**
+ * An environment connected to the fake OpenBao (above), whose forge is the
+ * fake forge answering the test's token as David, with a Forgejo forge
+ * account holding that token pasted under the slug home.
+ */
+const withForgeAccount = async () => {
+  const forge: FakeForge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, DAVID);
+  const setup = await withOpenBao({ forgeFetch: forge.fetch });
+  const account = await forgeAdded(setup.client, { url: forge.origin, kind: "forgejo", slug: "home" });
+  return { ...setup, forge, account };
+};
+
+/** The reference a forge account with the slug home is moved to under `base` on `connectionId`. */
+const homeTarget = (connectionId: string, base = "personal/harness"): KeyManagerReference => {
+  const [mount = "", project = ""] = base.split("/");
+  return { provider: "openbao", connectionId, mount, path: `${project}/forge-home`, key: "token" };
+};
+
+describe("keyManagers.move.list", () => {
+  it("lists each forge account holding a stored token, by its origin, with its target one level below the base path of each connection that has one", async () => {
+    const { client, connection, forge, account } = await withForgeAccount();
+    expect(await moveList(client)).toEqual([{ kind: "forge-account", id: account.id, name: forge.origin, targets: [] }]);
+
+    await setBasePath(client, connection.id, "personal/harness");
+    const items = await moveList(client);
+    expect(items).toEqual([{ kind: "forge-account", id: account.id, name: forge.origin, targets: [{ connectionId: connection.id, reference: homeTarget(connection.id) }] }]);
+    expect(JSON.stringify(items)).not.toContain(TOKEN);
+  });
+});
+
+describe("keyManagers.move", () => {
+  it("writes a forge account's pasted token to <base>/forge-<slug>, reads it back, swaps the account to the reference, deletes the stored token and appends key-manager.moved", async () => {
+    const { t, bao, client, connection, forge, account } = await withForgeAccount();
+    await setBasePath(client, connection.id, "personal/harness");
+    const from = t.env.log.head();
+    const reference = homeTarget(connection.id);
+
+    const answer = await move(client, { connectionId: connection.id });
+
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect(answer.result?.items).toEqual([
+      {
+        item: { kind: "forge-account", id: account.id },
+        outcome: "moved",
+        reference,
+        storedValueDeleted: true,
+        message: "Moved to OpenBao at personal/harness/forge-home (key token); the stored token was deleted.",
+      },
+    ]);
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({
+      token: TOKEN,
+      note: expect.stringContaining(`forge account home (${forge.origin})`),
+      service: forge.origin.replace(/^https?:\/\//, ""),
+      added: "2026-09-24",
+    });
+    const [held] = await forgeList(client);
+    expect(held).toMatchObject({ id: account.id, credential: { kind: "reference", reference }, problem: null });
+    const events = await environmentEvents(client, from);
+    expect(events.map((event) => event.type)).toEqual(["forge.account.updated", "key-manager.moved"]);
+    expect(events[1]?.payload).toEqual({ connectionId: connection.id, item: { kind: "forge-account", id: account.id }, reference, undeleted: null });
+    expect(events[1]).toMatchObject({ actor: { kind: "client_session" }, commandId: expect.any(String) });
+    expect(await moveList(client)).toEqual([]);
+    expect((await vaultKeys(t)).filter((key) => key.startsWith("forge:"))).toEqual([]);
+
+    // The forge account verifies through the reference, and the token is no longer held as a stored secret.
+    expect(await forgeVerify(client, account.id)).toMatchObject([{ id: account.id, identity: { login: "david" }, problem: null }]);
+    expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
+  });
+
+  it("gives an entry on a KV version 1 mount its note, service and added fields as on version 2", async () => {
+    const { client, bao, connection, forge } = await withForgeAccount();
+    await setBasePath(client, connection.id, "legacy/harness");
+
+    const answer = await move(client, { connectionId: connection.id });
+
+    expect(answer.result?.items).toMatchObject([{ outcome: "moved", reference: homeTarget(connection.id, "legacy/harness") }]);
+    expect(bao.stored("legacy", "harness/forge-home")).toEqual({ token: TOKEN, note: expect.any(String), service: forge.origin.replace(/^https?:\/\//, ""), added: "2026-09-24" });
   });
 });
