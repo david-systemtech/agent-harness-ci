@@ -43,6 +43,18 @@ describe("the lint configuration", () => {
     );
   });
 
+  it.each(["packages/desktop/src/main.ts", "packages/desktop/src/preload/preload.ts", "packages/desktop/test/fake-electron.ts", "packages/desktop/src/desktop.test.ts"])(
+    "runs the shell rule on the desktop package that implements the interface, %s",
+    async (file) => {
+      expect(await ruleIds(file, shellImport)).toContain("agent-harness/no-session-types-in-shell");
+      // Electron's own names are checked too: its `session` module and its event types are Sessions and Events to the rule.
+      expect(await ruleIds(file, `import { session } from "electron";\nexport { session };\n`)).toContain("agent-harness/no-session-types-in-shell");
+      expect(await ruleIds(file, `import { app, BrowserWindow } from "electron";\nexport { app, BrowserWindow };\n`)).not.toContain(
+        "agent-harness/no-session-types-in-shell",
+      );
+    },
+  );
+
   it("keeps contracts free of imports from the environment", async () => {
     expect(
       await ruleIds("packages/contracts/src/x.ts", `import { x } from "@agent-harness/environment";\nexport { x };\n`),
@@ -53,6 +65,8 @@ describe("the lint configuration", () => {
     const ids = async (file: string, source: string) => ruleIds(file, `import { x } from "${source}";\nexport { x };\n`);
     const relative = "agent-harness/no-relative-import-into";
     expect(await ids("packages/environment/src/x.ts", "@agent-harness/tui")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "@agent-harness/desktop")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "../../desktop/src/desktop.js")).toContain(relative);
     expect(await ids("packages/environment/src/terminals/x.test.ts", "../../../tui/src/terminal/one-off.js")).toContain(relative);
     expect(await ids("packages/environment/test/x.ts", "../../cli/src/main.js")).toContain(relative);
     // The same climbs spelled with a leading `./`, a `./` between them, or back down through `packages/`.
@@ -135,6 +149,19 @@ describe("the lint configuration", () => {
     // A test reads files and runs builds under Node; it still never imports the environment.
     expect(await ids("packages/gui/src/bundle.test.ts", "node:fs")).not.toContain("no-restricted-imports");
     expect(await ids("packages/gui/src/bundle.test.ts", "@agent-harness/environment")).toContain("no-restricted-imports");
+  });
+
+  it("keeps Electron and the desktop's entry out of the desktop's tests, which fake Electron", async () => {
+    const ids = async (file: string, source: string) => ruleIds(file, `import { x } from "${source}";\nexport { x };\n`);
+    for (const file of ["packages/desktop/src/desktop.test.ts", "packages/desktop/test/harness.ts"]) {
+      expect(await ids(file, "electron")).toContain("no-restricted-imports");
+      expect(await ids(file, "electron/main")).toContain("no-restricted-imports");
+      expect(await ids(file, "./main.js")).toContain("no-restricted-imports");
+      expect(await ids(file, "../src/main.js")).toContain("no-restricted-imports");
+      expect(await ids(file, "../src/electron.js")).not.toContain("no-restricted-imports");
+      expect(await ids(file, "./domain.js")).not.toContain("no-restricted-imports");
+    }
+    expect(await ids("packages/desktop/src/main.ts", "electron")).not.toContain("no-restricted-imports");
   });
 
   it("keeps the client runtime's imports to contracts", async () => {

@@ -6,8 +6,10 @@ import { createRule } from "./create-rule.js";
  * run or group type, so nothing about sessions, runs or organisation can pass
  * through the shell (docs/specs/client-runtime.md, "The desktop shell seam").
  *
- * The configuration applies this rule to the shell interface module only
- * (`packages/client-runtime/src/shell.ts`, or a `shell/` directory beside it).
+ * The configuration applies this rule to the shell interface module
+ * (`packages/client-runtime/src/shell.ts`, or a `shell/` directory beside it)
+ * and to the desktop package that implements it, its tests included, where
+ * Electron's `session` module and its event types count as the words they are.
  *
  * Definition. An imported name is a session type when one of its words, split
  * at camel-case humps, underscores and digits and compared ignoring case, is
