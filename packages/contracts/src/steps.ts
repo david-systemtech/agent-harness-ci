@@ -190,7 +190,7 @@ export const STEP_REGISTRY = [
       },
       {
         id: "your-machines.host-updater",
-        holds: "Outside a container, or the host-side updater polled in the last hour.",
+        holds: "No host-side updater manages this environment's updates, or it polled in the last hour.",
         actions: ["check-again"],
       },
     ],

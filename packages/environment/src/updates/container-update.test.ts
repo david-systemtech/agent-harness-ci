@@ -489,7 +489,14 @@ describe("the host-side updater's poll", () => {
     expect(await flags(t)).toEqual({ discovery: expect.not.arrayContaining(["self-update"]), hello: expect.not.arrayContaining(["self-update"]) });
   });
 
-  it("holds the Your machines step's host-updater check while one came in the last hour, and needs attention before the first and after an hour, offering check-again", async () => {
+  it("holds the Your machines step's host-updater check while one came in the last hour, and needs attention before the first and after an hour, offering check-again; under a launcher, in a container or not, it holds with none", async () => {
+    for (const launched of [{ containerDetector: IN_CONTAINER, launcher: testLauncher({ present: true }) }, { launcher: testLauncher({ present: true }) }]) {
+      const native = await startTestEnvironment(launched);
+      onCleanup(() => native.close());
+      const [result] = (await (await native.client()).request("setup.check", { step: "your-machines" })).results;
+      expect(result?.failing).not.toContain("your-machines.host-updater");
+    }
+
     const { t, client } = await container();
     const hostUpdaterCheck = async () => {
       const [result] = (await client.request("setup.check", { step: "your-machines" })).results;

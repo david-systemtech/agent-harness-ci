@@ -226,7 +226,7 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, in a container, the host-side updater's poll (#348)", () => {
+  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348)", () => {
     const machines = stepOf("your-machines");
     expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
     expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
@@ -241,7 +241,7 @@ describe("the step registry", () => {
         holds: "Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind.",
         actions: ["update"],
       },
-      { id: "your-machines.host-updater", holds: "Outside a container, or the host-side updater polled in the last hour.", actions: ["check-again"] },
+      { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["check-again"] },
     ]);
   });
 

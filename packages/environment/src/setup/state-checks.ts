@@ -9,7 +9,7 @@ import type { StateCheckers } from "./check.js";
 /**
  * How this environment answers every state check the step registry names
  * (#141): the Your machines step's not-root line, release channel (#346),
- * whether the machine is behind (#347) and, in a container, the host-side
+ * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348), and the Permissions step's
  * three checks, each read when it runs.
  * Not-root and the containment default are read from what
