@@ -308,8 +308,8 @@ export interface ForgeService extends ForgeOperations {
    * which is primary, the variables and API base of each, what each cannot
    * do and what was left out, from the read model and never a clock; for a
    * run denied injection, who denied it in place of the variables (#714).
-   * Undefined, as `processEnvironment` is, when runs are given no forge
-   * variables.
+   * Undefined, as `processEnvironment` is, when the service was given no
+   * `harnessCommand` for git to name.
    */
   readonly orientation: OrientationSection | undefined;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
