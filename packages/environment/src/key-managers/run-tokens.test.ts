@@ -243,9 +243,9 @@ describe("a run token", () => {
     expect(bao.issued(forTerminal)).toMatchObject({ parent: bao.minted.at(-1), meta: { session: session.id, holder: "terminal" } });
   });
 
-  it("lives the login's remaining life when that is shorter than an hour", async () => {
+  it("lives what is left of the login's maximum life when that is shorter than an hour", async () => {
     const { t, bao, client } = await withOpenBao();
-    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 30 * 60 });
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 30 * 60, explicitMaxTtlSeconds: 30 * 60 });
     await connected(client, bao);
     const session = await create(client);
     t.clock.advance(10 * 60_000);

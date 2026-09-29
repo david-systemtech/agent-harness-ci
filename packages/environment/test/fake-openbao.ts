@@ -17,10 +17,16 @@ import { join } from "node:path";
  * `auth/token/lookup-self` looks a minted token up, or one the test gave
  * (`token`, `root`), and `auth/token/revoke-self` revokes it. A token lives
  * from when it was issued for its time to live on the fake's clock, past
- * which OpenBao knows it no more: a token login's maximum life. Sealed on
+ * which OpenBao knows it no more. `auth/token/renew-self` (#369) gives a
+ * token its time to live again from now, as the increment asks or as it was
+ * created, or its period for a periodic one, never past its maximum life:
+ * the role's (`token_max_ttl`, which its lookup does not name) or its
+ * explicit one (`explicit_max_ttl`, which it does), from when it was issued.
+ * A test revokes a token on demand, as an operator would. Sealed on
  * demand, it answers 503 to everything but `sys/seal-status` and a route
  * the test scripted (below), as OpenBao does. A credential no script names
- * is refused as OpenBao refuses it.
+ * is refused as OpenBao refuses it, and one scripted again is refused on
+ * demand.
  *
  * Policies are texts the test gives (#366): `sys/capabilities-self` answers
  * a token's capabilities on a path from its policies' texts, and
@@ -46,8 +52,8 @@ import { join } from "node:path";
  * secret's path (version 2's under `data/`, its fields under `data` in the
  * body), replaces the secret with the fields given; the token's policies
  * must grant `create` there for a secret that is not there yet and `update`
- * for one that is, as OpenBao's existence check asks. Later tickets extend
- * it (child tokens).
+ * for one that is, as OpenBao's existence check asks. Tokens are created
+ * at the token-create paths (#368), children dying with their parent.
  */
 
 /** A login a credential answers with: its policies, and what its token's lookup says of it. */
@@ -59,6 +65,12 @@ export interface FakeLogin {
   readonly renewable?: boolean;
   /** Preset: OpenBao's for the method (`approle`, `userpass-<name>`, `token`). */
   readonly displayName?: string;
+  /** Its role's `token_max_ttl` (#369): no renewal takes it past this from its issue unless it is periodic, and its lookup does not say so. Preset: none. */
+  readonly maxTtlSeconds?: number;
+  /** Its `explicit_max_ttl` (#369), which its lookup names: no renewal takes it past this from its issue, a periodic one's included. Preset: none. */
+  readonly explicitMaxTtlSeconds?: number;
+  /** Its `period` (#369), which its lookup names: every renewal gives it this much again, whatever increment is asked. Preset: not periodic. */
+  readonly periodSeconds?: number;
 }
 
 /** A token role (#368): whether the tokens created against it are orphans, and the policies it allows, when it bounds them. */
@@ -118,7 +130,7 @@ export interface FakeOpenBao {
   approle(roleId: string, secretId: string, answer: FakeAnswer, mount?: string): void;
   /** Scripts what a userpass login as `username` with `password` answers at `mount` (preset `userpass`). */
   userpass(username: string, password: string, answer: FakeAnswer, mount?: string): void;
-  /** Makes `token` a token OpenBao knows, issued now and looked up as `login` says: it lives for its time to live, its maximum life, since it is never renewed. */
+  /** Makes `token` a token OpenBao knows, issued now and looked up as `login` says: it lives for its time to live, or as its renewals say up to its maximum life. */
   token(token: string, login: FakeLogin): void;
   /** Makes `token` a root token. */
   root(token: string): void;
@@ -150,6 +162,10 @@ export interface FakeOpenBao {
   issued(token: string): FakeIssued | undefined;
   /** Whether `token` is live: known, not revoked and within its time to live. */
   live(token: string): boolean;
+  /** When each renewal of `token` was answered (#369), on the fake's clock, in order. */
+  renewals(token: string): readonly string[];
+  /** Revokes `token` as an operator would, its children dying with it (#369). */
+  revoke(token: string): void;
   /** Every request so far, in order. */
   readonly requests: readonly FakeOpenBaoRequest[];
   close(): Promise<void>;
@@ -222,11 +238,19 @@ export const testCertificates = (): TestCertificates => {
   }
 };
 
-/** A token as the fake keeps it: what it was issued with, when on the fake's clock, until when it lives (a renewal moves it), and whether it is revoked. */
+/** A token as the fake keeps it: what it was issued with, when on the fake's clock, until when it lives (a renewal moves it), its limits, its renewals, and whether it is revoked. */
 interface FakeToken extends FakeIssued {
   readonly issuedAt: number;
   /** When it stops living; null for a token that does not expire. */
   expiresAt: number | null;
+  /** Its role's maximum life, not named by its lookup; 0 for none. */
+  readonly maxTtlSeconds: number;
+  /** Its explicit maximum life, named by its lookup; 0 for none. */
+  readonly explicitMaxTtlSeconds: number;
+  /** Its period; 0 for a token that is not periodic. */
+  readonly periodSeconds: number;
+  /** When each renewal was answered, as ISO instants. */
+  readonly renewedAt: string[];
   revoked: boolean;
 }
 
@@ -314,12 +338,45 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     return token.parent === null || living(tokens.get(token.parent));
   };
   /** A token issued now with `ttlSeconds` to live (0 for none), as a login, a test or a create gives it. */
-  const issue = (fields: Omit<FakeIssued, "meta" | "parent" | "role"> & Partial<Pick<FakeIssued, "meta" | "parent" | "role">>): FakeToken => {
+  const issue = (
+    fields: Omit<FakeIssued, "meta" | "parent" | "role"> &
+      Partial<Pick<FakeIssued, "meta" | "parent" | "role"> & Pick<FakeToken, "maxTtlSeconds" | "explicitMaxTtlSeconds" | "periodSeconds">>,
+  ): FakeToken => {
     const issuedAt = now().getTime();
-    return { meta: {}, parent: null, role: null, ...fields, issuedAt, expiresAt: fields.ttlSeconds === 0 ? null : issuedAt + fields.ttlSeconds * 1000, revoked: false };
+    return {
+      meta: {},
+      parent: null,
+      role: null,
+      maxTtlSeconds: 0,
+      explicitMaxTtlSeconds: 0,
+      periodSeconds: 0,
+      ...fields,
+      issuedAt,
+      expiresAt: fields.ttlSeconds === 0 ? null : issuedAt + fields.ttlSeconds * 1000,
+      renewedAt: [],
+      revoked: false,
+    };
   };
   const newToken = (login: FakeLogin, displayName: string): FakeToken =>
-    issue({ policies: login.policies, ttlSeconds: login.ttlSeconds ?? 3600, renewable: login.renewable ?? true, displayName: login.displayName ?? displayName });
+    issue({
+      policies: login.policies,
+      ttlSeconds: login.periodSeconds ?? login.ttlSeconds ?? 3600,
+      renewable: login.renewable ?? true,
+      displayName: login.displayName ?? displayName,
+      maxTtlSeconds: login.maxTtlSeconds ?? 0,
+      explicitMaxTtlSeconds: login.explicitMaxTtlSeconds ?? 0,
+      periodSeconds: login.periodSeconds ?? 0,
+    });
+
+  /**
+   * When a token's maximum life ends, as OpenBao's renewal reckons it from
+   * its issue: its explicit maximum, and for a token that is not periodic its
+   * role's too, the nearer; null for none.
+   */
+  const maximumEnd = (token: FakeToken): number | null => {
+    const limits = [token.explicitMaxTtlSeconds, token.periodSeconds > 0 ? 0 : token.maxTtlSeconds].filter((limit) => limit > 0);
+    return limits.length === 0 ? null : token.issuedAt + Math.min(...limits) * 1000;
+  };
 
   /**
    * A token's capabilities on `path`, from its policies' texts: in each
@@ -414,10 +471,12 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
         creation_ttl: token.ttlSeconds,
         display_name: token.displayName,
         expire_time: end === null ? null : new Date(end).toISOString(),
+        explicit_max_ttl: token.explicitMaxTtlSeconds,
         id: "[the token]",
         issue_time: new Date(token.issuedAt).toISOString(),
         meta: token.meta,
         orphan: token.parent === null,
+        ...(token.periodSeconds > 0 && { period: token.periodSeconds }),
         policies: token.policies,
         renewable: token.renewable,
         ttl: end === null ? 0 : Math.max(0, Math.floor((end - now().getTime()) / 1000)),
@@ -544,9 +603,24 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     if (method === "POST" && path === "auth/token/renew-self") {
       if (known === undefined) return send(response, 403, { errors: ["permission denied"] });
       if (!known.renewable) return send(response, 400, { errors: ["lease is not renewable"] });
-      const increment = durationOf(fields["increment"]) ?? known.ttlSeconds;
-      known.expiresAt = now().getTime() + increment * 1000;
-      return send(response, 200, { auth: { client_token: header, accessor: "accessor-for-tests", policies: known.policies, lease_duration: increment, renewable: true } });
+      // A periodic token gets its period whatever is asked; any token is held to its maximum life, the answer saying what is left of it.
+      let ttl = known.periodSeconds > 0 ? known.periodSeconds : (durationOf(fields["increment"]) ?? known.ttlSeconds);
+      const end = maximumEnd(known);
+      const warnings: string[] = [];
+      if (end !== null) {
+        const left = Math.floor((end - now().getTime()) / 1000);
+        if (left <= 0) return send(response, 400, { errors: ["past the max TTL, cannot renew"] });
+        if (ttl > left) {
+          warnings.push(`TTL of "${ttl}s" exceeded the effective max_ttl of "${left}s"; TTL value is capped accordingly`);
+          ttl = left;
+        }
+      }
+      known.expiresAt = now().getTime() + ttl * 1000;
+      known.renewedAt.push(now().toISOString());
+      return send(response, 200, {
+        auth: { client_token: header, accessor: "accessor-for-tests", policies: known.policies, lease_duration: ttl, renewable: true },
+        ...(warnings.length > 0 && { warnings }),
+      });
     }
     const create = /^auth\/token\/create(?:\/([^/]+))?$/.exec(path);
     if (method === "POST" && create !== null) {
@@ -644,6 +718,12 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       return { policies, ttlSeconds, renewable, displayName, meta, parent, role };
     },
     live: (token) => living(tokens.get(token)),
+    renewals: (token) => [...(tokens.get(token)?.renewedAt ?? [])],
+    revoke(token) {
+      const held = tokens.get(token);
+      if (held === undefined) throw new Error(`The fake OpenBao holds no token ${token}.`);
+      held.revoked = true;
+    },
     requests,
     close: () =>
       new Promise<void>((resolve, reject) => {

@@ -2,7 +2,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import type { KeyManagerLoginPolicy, KeyManagerTokenInformation } from "@agent-harness/contracts";
 import { policyWrites } from "./policy-writes.js";
-import type { ConnectionProvider, ListAnswer, LoginFailure, MintAnswer, ProviderFailure, RenewAnswer, SignInTarget, WriteAnswer, WriteCheckAnswer } from "./provider.js";
+import type { ConnectionProvider, ListAnswer, LoginFailure, MintAnswer, ProviderFailure, RenewAnswer, SignInTarget, TokenLife, WriteAnswer, WriteCheckAnswer } from "./provider.js";
 import { sameValue } from "./same-value.js";
 
 /**
@@ -10,8 +10,10 @@ import { sameValue } from "./same-value.js";
  * over the HTTP API, the same paths on both). AppRole logs in at
  * `auth/<mount>/login` with its role id and secret id, userpass at
  * `auth/<mount>/login/<username>` with its password, and a token is its own
- * login; a login's token is looked up at `auth/token/lookup-self` and
- * revoked at `auth/token/revoke-self`, each with the token itself.
+ * login; a login's token is looked up at `auth/token/lookup-self`, renewed
+ * at `auth/token/renew-self` and revoked at `auth/token/revoke-self`, each
+ * with the token itself. Its lookup names its life (#369): `issue_time`,
+ * `creation_ttl`, `period` and `explicit_max_ttl`.
  *
  * A verification (#366) reads `sys/seal-status` first, so sealed is its own
  * finding; then the token's own lookup; then its capabilities on the
@@ -245,27 +247,35 @@ const readRefusal = async (target: SignInTarget, asked: string, status: number, 
 /** A mount path as it goes into a URL: each of its names encoded. */
 const encodedPath = (path: string): string => path.split("/").map(encodeURIComponent).join("/");
 
-/** An expiry as the record keeps it, in UTC; null for none or one that is no time. */
+/** An instant as the record keeps it (an expiry, an issue time), in UTC; null for none or one that is no time. */
 const expiryOf = (value: unknown): string | null => {
   if (typeof value !== "string" || value === "") return null;
   const at = new Date(value);
   return Number.isNaN(at.getTime()) ? null : at.toISOString();
 };
 
+/** A whole number of seconds as OpenBao answers one; 0 for none or anything else. */
+const secondsOf = (value: unknown): number => (typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 0);
+
 /** What `lookup-self` answered, read: null for an answer that is not a token's. */
-const lookedUp = (body: unknown): { readonly information: KeyManagerTokenInformation; readonly root: boolean } | null => {
+const lookedUp = (body: unknown): { readonly information: KeyManagerTokenInformation; readonly life: TokenLife; readonly root: boolean } | null => {
   const data = isRecord(body) ? body["data"] : undefined;
   if (!isRecord(data)) return null;
   const policies = Array.isArray(data["policies"]) ? data["policies"].filter((policy): policy is string => typeof policy === "string" && policy !== "") : [];
-  const ttl = data["ttl"];
   return {
     root: policies.includes("root"),
     information: {
       displayName: typeof data["display_name"] === "string" ? data["display_name"] : "",
       policies: policies.filter((policy) => policy !== "root" && !/[,\p{Cc}]/u.test(policy)),
-      ttlSeconds: typeof ttl === "number" && Number.isInteger(ttl) && ttl > 0 ? ttl : 0,
+      ttlSeconds: secondsOf(data["ttl"]),
       renewable: data["renewable"] === true,
       expiresAt: expiryOf(data["expire_time"]),
+    },
+    life: {
+      issuedAt: expiryOf(data["issue_time"]),
+      creationTtlSeconds: secondsOf(data["creation_ttl"]),
+      periodSeconds: secondsOf(data["period"]),
+      explicitMaxTtlSeconds: secondsOf(data["explicit_max_ttl"]),
     },
   };
 };

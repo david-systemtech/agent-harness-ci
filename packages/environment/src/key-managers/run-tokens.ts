@@ -5,6 +5,7 @@ import type { SuppliedVariables } from "../adapter/contract.js";
 import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { MintingLogin } from "./logins.js";
 import { openBaoBlock } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
@@ -21,19 +22,24 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *   the other providers' blocks join with their tickets (#377 to #379).
  *   With none, nothing is supplied and the key is empty.
  * - **The key** names, per injected connection, its id, its credential
- *   generation and its status, never a token: a change gives the session's
- *   next run a fresh process, and a verification that changes none of them
- *   does not.
+ *   generation and its status, and while run tokens are its login's
+ *   children (no token role) its login generation (#369), never a token: a
+ *   change gives the session's next run a fresh process, and a verification
+ *   that changes none of them does not. A process that keeps its key keeps
+ *   its run token.
  * - **A run token** is minted for each holder as it starts: a renewable
  *   child of the connection's current login, with the ticked policies plus
  *   `default` (which its own renewal and revocation need), a time to live
- *   of one hour or the login's remaining life if shorter, the display name
- *   `agent-harness` and metadata naming the session and the holder kind;
- *   against the connection's token role when it has one. It is registered
- *   with the scrub registry for the holder's life, renewed every twenty
- *   minutes while the holder lives, and revoked when the holder stops (its
- *   release: the idle stop, a changed key, a rewind, drain, a terminal's
- *   close); the registration is let go once the revocation is answered.
+ *   of one hour or, for a child, what is left of the login's maximum life
+ *   if that is known and shorter, the display name `agent-harness` and
+ *   metadata naming the session and the holder kind; against the
+ *   connection's token role when it has one, whose tokens may outlive the
+ *   login. It is registered with the scrub registry for the holder's life,
+ *   renewed every twenty minutes while the holder lives, and revoked when
+ *   the holder stops (its release: the idle stop, a changed key, a rewind,
+ *   drain, a terminal's close); the registration is let go once the
+ *   revocation is answered, and with it the login's count of run tokens
+ *   held, so a login replaced meanwhile is revoked once none is (#369).
  *   A connection's sign-out or removal revokes every run token minted from
  *   it at once, whatever its token role or login made of it, and one whose
  *   mint was under way then as it lands, its holder given none.
@@ -70,17 +76,11 @@ export const KEY_MANAGER_CLI_DIRECTORY = "key-manager-cli";
 /** The harness-owned empty configuration `BAO_CONFIG_PATH` and `VAULT_CONFIG_PATH` name, in the key-manager CLI directory. */
 export const OPENBAO_CONFIG_FILE = "openbao.hcl";
 
-/** A connection that injects, as the supplier reads it: its record as it stands, and its credential generation. */
+/** A connection that injects, as the supplier reads it: its record as it stands, its credential generation, and its login generation (#369). */
 export interface InjectingConnection {
   readonly record: KeyManagerConnectionRecord;
   readonly generation: number;
-}
-
-/** A login a run token is minted from: its token, and the provider and target it signed in through. */
-export interface MintingLogin {
-  readonly token: string;
-  readonly provider: ConnectionProvider;
-  readonly target: SignInTarget;
+  readonly loginGeneration: number;
 }
 
 /** What the supplier reads of the connections. */
@@ -111,13 +111,16 @@ export interface RunTokens {
   close(): void;
 }
 
-/** A run token a holder holds. */
+/** A run token a holder holds: the login it was minted from, and whether it is that login's child, dying with it. */
 interface HeldRunToken {
   readonly connectionId: string;
   readonly token: string;
   readonly provider: ConnectionProvider;
   readonly target: SignInTarget;
-  readonly registration: ScrubRelease;
+  readonly login: MintingLogin;
+  readonly child: boolean;
+  /** Lets go of its scrub registration, and of its login's count of run tokens held: once its revocation is answered, or at the close. */
+  readonly unregister: ScrubRelease;
   readonly renewal: Timer;
   revoked: boolean;
 }
@@ -136,12 +139,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   /** The injecting connections this supplier serves: OpenBao's. */
   const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao");
 
-  /** How long a run token of the connection may live from now: an hour, or its login's remaining life if shorter. */
-  const lifeOf = (record: KeyManagerConnectionRecord): number => {
-    const expiry = record.tokenInformation?.expiresAt ?? null;
-    const left = expiry === null ? Number.POSITIVE_INFINITY : Math.floor((Date.parse(expiry) - clock.now().getTime()) / 1000);
-    return Math.min(RUN_TOKEN_TTL_SECONDS, left);
-  };
+  /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
+  const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
 
   /** Writes the harness-owned empty configuration, and answers its path: a CLI reads a missing one as empty too, so a failure is only logged. */
   const configuration = async (): Promise<string> => {
@@ -163,10 +162,9 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     }
   };
 
-  /** Renews a held run token by its connection's life for it now. */
+  /** Renews a held run token by its life from now. */
   const renew = async (run: HeldRunToken): Promise<void> => {
-    const now = source.readable(run.connectionId);
-    const increment = now === null ? RUN_TOKEN_TTL_SECONDS : lifeOf(now.record);
+    const increment = lifeOf(run.login, run.child);
     if (run.revoked || increment < 1) return;
     const answer = await run.provider.renew(run.target, run.token, increment, AbortSignal.timeout(budgetMs));
     if (answer.outcome === "renewed" || run.revoked) return;
@@ -178,15 +176,20 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     console.error(`Renewing a run token of the key-manager connection ${run.connectionId} failed; it is tried again in twenty minutes: ${scrub.scrubOutput(answer.message)}`);
   };
 
-  /** Holds a minted run token for its holder: registered for scrubbing, and renewed every twenty minutes. */
-  const hold = (connectionId: string, login: MintingLogin, token: string): HeldRunToken => {
-    const registration = scrub.register(token, { owner: `key-manager:${connectionId}:run-token` });
+  /** Holds a minted run token for its holder: registered for scrubbing, counted as held from its login (`use`, taken before the mint), and renewed every twenty minutes. */
+  const hold = (connectionId: string, login: MintingLogin, child: boolean, token: string, use: () => void): HeldRunToken => {
+    const registered = scrub.register(token, { owner: `key-manager:${connectionId}:run-token` });
     const run: HeldRunToken = {
       connectionId,
       token,
       provider: login.provider,
       target: login.target,
-      registration,
+      login,
+      child,
+      unregister: () => {
+        registered();
+        use();
+      },
       renewal: clock.setInterval(() => void renew(run).catch((error: unknown) => console.error("Renewing a run token failed:", error)), RUN_TOKEN_RENEWAL_MS),
       revoked: false,
     };
@@ -194,15 +197,15 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     return run;
   };
 
-  /** The holder's stop: renewal stopped, the token revoked unless it was already, and its registration let go once that is answered. */
+  /** The holder's stop: renewal stopped, the token revoked unless it was already, and it is unregistered once that is answered. */
   const release = (run: HeldRunToken): void => {
     run.renewal.cancel();
     held.delete(run);
-    if (run.revoked) return run.registration();
+    if (run.revoked) return run.unregister();
     run.revoked = true;
     void revoke(run)
       .catch((error: unknown) => console.error("Revoking a run token failed:", error))
-      .finally(run.registration);
+      .finally(run.unregister);
   };
 
   /** Waits up to five seconds on the environment's clock for the connection's sign-in under way, if one is. */
@@ -218,26 +221,36 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   /** The run token minted for the holder from the connection as it stands; null where none can be. */
   const mintFor = async (record: KeyManagerConnectionRecord, login: MintingLogin | null, scope: ProcessEnvironmentScope): Promise<HeldRunToken | null> => {
     if (record.status.kind !== "signed-in" || login === null || record.canMint === false) return null;
-    const ttlSeconds = lifeOf(record);
+    const child = record.tokenRole === null;
+    const ttlSeconds = lifeOf(login, child);
     if (ttlSeconds < 1) return null;
     const revoked = revocationsOf(record.id);
-    const answer = await login.provider.mint(
-      login.target,
-      login.token,
-      {
-        policies: [...new Set([...(record.ticks ?? []), "default"])],
-        ttlSeconds,
-        displayName: RUN_TOKEN_DISPLAY_NAME,
-        metadata: { session: scope.sessionId, holder: scope.holder },
-        tokenRole: record.tokenRole,
-      },
-      AbortSignal.timeout(budgetMs),
-    );
+    // Counted from before the mint, so a login replaced while it is under way is not revoked under it.
+    const use = login.use();
+    const answer = await login.provider
+      .mint(
+        login.target,
+        login.token,
+        {
+          policies: [...new Set([...(record.ticks ?? []), "default"])],
+          ttlSeconds,
+          displayName: RUN_TOKEN_DISPLAY_NAME,
+          metadata: { session: scope.sessionId, holder: scope.holder },
+          tokenRole: record.tokenRole,
+        },
+        AbortSignal.timeout(budgetMs),
+      )
+      .catch((error: unknown) => {
+        // A mint that throws lets go of the login's count as one refused does.
+        use();
+        throw error;
+      });
     if (answer.outcome !== "minted") {
+      use();
       console.error(`Minting a run token from the key-manager connection ${record.id} for session ${scope.sessionId}'s ${scope.holder} failed; it is given no run token: ${scrub.scrubOutput(answer.message)}`);
       return null;
     }
-    const run = hold(record.id, login, answer.token);
+    const run = hold(record.id, login, child, answer.token, use);
     // The environment closed, or the connection was signed out or removed, while it was minted: it is revoked, and the holder gets none.
     if (closed || revocationsOf(record.id) !== revoked) {
       release(run);
@@ -265,7 +278,11 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
 
     key() {
       const injecting = served();
-      return injecting.length === 0 ? "" : JSON.stringify(injecting.map(({ record, generation }) => ({ id: record.id, generation, status: record.status.kind })));
+      if (injecting.length === 0) return "";
+      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it.
+      return JSON.stringify(
+        injecting.map(({ record, generation, loginGeneration }) => ({ id: record.id, generation, ...(record.tokenRole === null && { login: loginGeneration }), status: record.status.kind })),
+      );
     },
 
     async supply(scope) {
@@ -303,7 +320,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       closed = true;
       for (const run of held) {
         run.renewal.cancel();
-        run.registration();
+        run.unregister();
       }
       held.clear();
     },

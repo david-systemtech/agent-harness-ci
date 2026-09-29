@@ -8,10 +8,10 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
  * reading a reference and listing names under a path (#370), checking
  * write access to a path and writing a value there (#371), and minting a
  * run token from a login and renewing it (#368), which it revokes as it
- * revokes a login, with itself; a login's own renewal and the other kinds
- * join the interface with the tickets that use them (#369, #377 to #379). A
- * provider never disables TLS verification: a pinned CA is the only trust
- * it adds.
+ * revokes a login, with itself; a login renews itself the same way, and its
+ * lookup says how long it may live (#369). The other kinds join the
+ * interface with the tickets that use them (#377 to #379). A provider never
+ * disables TLS verification: a pinned CA is the only trust it adds.
  */
 
 /** How a provider is named to people. */
@@ -59,8 +59,27 @@ export type LoginFailure = ProviderFailure<Exclude<ProviderFailureCategory, "den
 /** What a login answered: its token, and whether the login made it (AppRole, userpass) rather than being given it (a token). */
 export type LogInAnswer = { readonly outcome: "logged-in"; readonly token: string; readonly minted: boolean } | LoginFailure;
 
-/** What a token's own lookup answered: what it says of itself, and whether it holds the root policy, which is never among the policies answered. */
-export type LookUpAnswer = { readonly outcome: "found"; readonly information: KeyManagerTokenInformation; readonly root: boolean } | LoginFailure;
+/**
+ * What a token's lookup says of how long it may live (#369), beside its
+ * token information: when it was issued, the time to live it was created
+ * with (which a renewal asks for again), its period when it is periodic
+ * (each renewal gives it that much again) and its explicit maximum life
+ * from its issue. A maximum its auth method's role sets is not among them:
+ * only a renewal that answers less than it asked shows it.
+ */
+export interface TokenLife {
+  /** When it was issued; null when the lookup did not say. */
+  readonly issuedAt: string | null;
+  /** 0 for none. */
+  readonly creationTtlSeconds: number;
+  /** 0 for a token that is not periodic. */
+  readonly periodSeconds: number;
+  /** 0 for none. */
+  readonly explicitMaxTtlSeconds: number;
+}
+
+/** What a token's own lookup answered: what it says of itself and of its life, and whether it holds the root policy, which is never among the policies answered. */
+export type LookUpAnswer = { readonly outcome: "found"; readonly information: KeyManagerTokenInformation; readonly life: TokenLife; readonly root: boolean } | LoginFailure;
 
 /** What a revocation answered. */
 export type RevokeAnswer = { readonly outcome: "revoked" } | LoginFailure;
@@ -158,7 +177,7 @@ export interface ConnectionProvider {
   revoke(target: SignInTarget, token: string): Promise<RevokeAnswer>;
   /** Mints a run token with the login's token (#368): a child of the login, or what its token role makes. */
   mint(target: SignInTarget, token: string, request: RunTokenRequest, signal?: AbortSignal): Promise<MintAnswer>;
-  /** Renews a token with itself by `incrementSeconds` from now (#368: a run token, every twenty minutes while its holder lives). */
+  /** Renews a token with itself by `incrementSeconds` from now (#368: a run token, every twenty minutes while its holder lives; #369: a login, at two thirds of its time to live), never past its maximum life: the time to live answered is what it has. */
   renew(target: SignInTarget, token: string, incrementSeconds: number, signal?: AbortSignal): Promise<RenewAnswer>;
   /** Reads the value `reference` names with the login's token, now: a value is never kept, whatever the provider keeps of the key manager's shape. */
   read(target: SignInTarget, token: string, reference: KeyManagerReference, signal?: AbortSignal): Promise<ReadAnswer>;
