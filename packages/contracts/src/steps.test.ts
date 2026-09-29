@@ -286,8 +286,7 @@ describe("the step registry", () => {
   });
 
   it("fails an entry with no budget, a budget outside ADR 0031's three, no cadence, a cadence of no whole minutes, or a cadence under the hour with no reason", () => {
-    const { budgetSeconds: _budget, cadence: _cadence, ...bare } = appearance;
-    expect(stepShapeProblems([bare])).toEqual(["appearance: declares no budget", "appearance: declares no cadence"]);
+    expect(stepShapeProblems([{ ...appearance, budgetSeconds: undefined, cadence: undefined }])).toEqual(["appearance: declares no budget", "appearance: declares no cadence"]);
     expect(stepShapeProblems([{ ...appearance, budgetSeconds: 7 }])).toEqual(["appearance: a budget of 7 s is not 5, 10 or 30 s"]);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 0.5 } }])).toEqual(["appearance: a cadence of 0.5 minutes is no whole number of minutes"]);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 15 } }])).toEqual(["appearance: a cadence of 15 minutes states no reason for leaving the hour"]);

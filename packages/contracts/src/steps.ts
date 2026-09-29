@@ -18,7 +18,9 @@ import type { SetupAction } from "./setup.js";
  * Its shape is the ADR's four parts, and what #141's Permissions entry needs
  * beside them (the state it writes through a method of its own, the value it
  * confirms, a link to another step, the checks of the environment's state,
- * whether it may be skipped); phase B replaces the shape, never its entries.
+ * whether it may be skipped), and ADR 0031's budget and cadence with the
+ * state check that skips a skippable step (#308); phase B replaces the
+ * shape, never its entries.
  * Its pane and band links became a home row and links to further rows with
  * the row registry (#389), which the Set up workstream (#88) reads.
  */
