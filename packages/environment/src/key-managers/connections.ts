@@ -132,7 +132,7 @@ export interface KeyManagerConnections {
   /** Registers every credential the vault holds, and deletes the key-manager entries no connection holds; startup runs it once, before the wire opens. */
   start(): Promise<void>;
   /** After startup's gate: every connection with a credential signs in from it at once, and is verified on the clock after, then every fifteen minutes. */
-  startSigningIn(): void;
+  startSigningInAndVerifying(): void;
   /** The connections, in the order they were added, each as it stands now, with when it was last verified. */
   list(): KeyManagerConnectionRecord[];
   /** `keyManagers.connections.verify`: verifies one connection now, or every one, joining one running, and answers every record after; `not_found` for one the environment does not hold. */
@@ -821,7 +821,6 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
   /** One verification of the connection, within the budget, recording what it found; it never rejects. */
   const verifyNow = async (connectionId: string): Promise<void> => {
-    const dead: Login[] = [];
     try {
       // What the startup's sign-in records is what this verification starts from.
       await startupSignIns.get(connectionId);
@@ -832,7 +831,15 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const target = held === null ? null : targetOf(held.record);
       if (subject === null || held === null || held.credential === null || provider === undefined || target === null) return;
       const entry = held.credential;
-      const checked = await withinBudget(held.record, (signal) => ask(held.record, entry, provider, target, signal, dead));
+      const checked = await withinBudget(held.record, async (signal) => {
+        const dead: Login[] = [];
+        try {
+          return await ask(held.record, entry, provider, target, signal, dead);
+        } finally {
+          // Once the work ends, past the budget or not: every line it made is scrubbed by then.
+          for (const login of dead) login.release();
+        }
+      });
       const verifiedAt = clock.now().toISOString();
       // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
       const taken = !closed && recordFound(connectionId, subject, checked);
@@ -842,8 +849,6 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       else await letGo(connectionId, checked.login);
     } catch (error) {
       console.error(`Verifying the key-manager connection ${connectionId} failed:`, error);
-    } finally {
-      for (const login of dead) login.release();
     }
   };
 
@@ -870,7 +875,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       }
     },
 
-    startSigningIn() {
+    startSigningInAndVerifying() {
       for (const { record, credential } of listConnections(reader)) {
         const provider = PROVIDERS[record.provider];
         const target = targetOf(record);

@@ -1083,7 +1083,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   forge.startVerifying();
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
   // verifications (#366), on the clock, and every fifteen minutes.
-  keyManagerConnections.startSigningIn();
+  keyManagerConnections.startSigningInAndVerifying();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
   // The release channel's checks: two minutes from now, then hourly (#346).

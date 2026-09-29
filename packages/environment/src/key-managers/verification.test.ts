@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, KeyManagerLoginPolicy } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, type ManualClock } from "../../test/clock.js";
@@ -79,7 +79,7 @@ const withOpenBao = async (options: TestEnvironmentOptions = {}) => {
 };
 
 /** The login's policies as the fake's policies make them. */
-const FLAGGED = [
+const FLAGGED: KeyManagerLoginPolicy[] = [
   { name: "default", writes: "possibly" },
   { name: "agent-read", writes: "no" },
   { name: "agent-write", writes: "yes" },
