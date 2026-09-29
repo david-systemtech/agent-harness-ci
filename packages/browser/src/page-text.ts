@@ -18,16 +18,14 @@ const UNSEEN = new Set(["script", "style", "template", "noscript", "head"]);
  */
 export const shownText = (root: Node, leaveOut: (element: Element) => boolean = () => false): string => {
   const parts: string[] = [];
+  const shown = (element: Element): boolean => !UNSEEN.has(element.localName) && !element.hasAttribute("hidden") && !leaveOut(element);
   const walk = (node: Node): void => {
     if (node.nodeType === TEXT_NODE) parts.push(node.nodeValue ?? "");
-    if (node.nodeType !== ELEMENT_NODE && node !== root) return;
-    if (node.nodeType === ELEMENT_NODE) {
-      const element = node as Element;
-      if (UNSEEN.has(element.localName) || element.hasAttribute("hidden") || leaveOut(element)) return;
+    else if (node.nodeType === ELEMENT_NODE ? shown(node as Element) : node === root) {
       // An element's edge separates words, as a block's does on the page: `<p>a</p><p>b</p>` reads `a b`.
       parts.push(" ");
+      for (const child of Array.from(node.childNodes)) walk(child);
     }
-    for (const child of Array.from(node.childNodes)) walk(child);
   };
   walk(root);
   return parts.join("").replace(/\s+/g, " ").trim();

@@ -82,31 +82,36 @@ export const CHALLENGE_MARKERS: readonly ChallengeMarkers[] = [
  */
 const INTERSTITIAL_TEXT_CHARS = 200;
 
-/** A form's or a field's name for a challenge. */
-const NAMES_A_CHALLENGE = /challenge|captcha/i;
+/** The words by which a form or its field names a challenge. */
+const CHALLENGE_WORDS = ["challenge", "captcha"] as const;
 
-/** Whether a form names a challenge: its id, name, class or action, or a field's name or id. */
-const namesAChallenge = (form: HTMLFormElement): boolean => {
-  const own = [form.id, form.getAttribute("name"), form.getAttribute("class"), form.getAttribute("action")];
-  const fields = Array.from(form.querySelectorAll("input, select, textarea, button"), (field) => [field.getAttribute("name"), field.id]).flat();
-  return [...own, ...fields].some((name) => name !== null && NAMES_A_CHALLENGE.test(name));
-};
+/** A form naming a challenge by its id, name, class or action, in any case. */
+const NAMED_FORMS = CHALLENGE_WORDS.flatMap((word) => ["id", "name", "class", "action"].map((attribute) => `form[${attribute}*="${word}" i]`)).join(", ");
+
+/** A form's field naming a challenge by its name or id, in any case. */
+const NAMED_FIELDS = CHALLENGE_WORDS.flatMap((word) =>
+  ["input", "select", "textarea", "button"].flatMap((field) => ["name", "id"].map((attribute) => `form ${field}[${attribute}*="${word}" i]`)),
+).join(", ");
 
 /**
  * A site's own challenge form (a JavaScript proof of work that submits
  * itself, as Reddit's, or a puzzle a person solves, as DuckDuckGo's): a form
- * that names a challenge or a captcha, on a page with under 200 characters
- * of text beside it. A captcha field in a comment form under an article is
- * not the page's point, and the article is readable.
+ * that names a challenge or a captcha, or holds a field that does, on a page
+ * with under 200 characters of text beside it. A captcha field in a comment
+ * form under an article is not the page's point, and the article is
+ * readable.
  */
 const challengeForm = (document: Document): boolean => {
-  const forms = Array.from(document.forms).filter(namesAChallenge);
-  if (forms.length === 0) return false;
-  const beside = shownText(document.body ?? document.documentElement, (element) => forms.includes(element as HTMLFormElement));
-  return beside.length < INTERSTITIAL_TEXT_CHARS;
+  const forms = new Set<Element>(document.querySelectorAll(NAMED_FORMS));
+  for (const field of Array.from(document.querySelectorAll(NAMED_FIELDS))) {
+    const form = field.closest("form");
+    if (form !== null) forms.add(form);
+  }
+  if (forms.size === 0) return false;
+  return shownText(document.body ?? document.documentElement, (element) => forms.has(element)).length < INTERSTITIAL_TEXT_CHARS;
 };
 
-/** The text of the page's inline scripts, each once. */
+/** The text of each of the page's inline scripts. */
 const inlineScripts = (document: Document): string[] =>
   Array.from(document.querySelectorAll("script:not([src])"), (script) => script.textContent ?? "").filter((text) => text !== "");
 
