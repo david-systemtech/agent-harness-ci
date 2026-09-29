@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillWhileActiveKey",
+  "type": "string",
+  "enum": [
+    "hooks",
+    "allowed-tools"
+  ],
+  "description": "A frontmatter key that acts while the skill is active, which a client says of the member: hooks (commands run on the provider's events) or allowed-tools (tools that may run without a prompt; the tool gate and the denylist still run first)."
+}

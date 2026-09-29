@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClickArgs",
+  "type": "object",
+  "properties": {
+    "target": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "additionalProperties": false,
+          "description": "The element with this ref, from the latest snapshot."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "selector"
+          ],
+          "additionalProperties": false,
+          "description": "The first element this CSS selector matches."
+        }
+      ],
+      "description": "An element: by ref, or by CSS selector."
+    },
+    "snapshot": {
+      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+          "type": "string",
+          "enum": [
+            "interactive",
+            "all"
+          ]
+        },
+        "depth": {
+          "description": "How many levels of the tree to read.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "ref": {
+          "description": "Read only the subtree of the element with this ref.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "maxChars": {
+          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200000
+        }
+      }
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "description": "click: scroll the element into view and click its centre."
+}

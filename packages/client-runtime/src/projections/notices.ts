@@ -38,7 +38,8 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * verification (ADR 0011) is `key-manager.connection.verified` (#366), whose
  * row is the client runtime's key-manager part (#384). `settings.changed`
  * (#391) raises none: what changed shows where the settings are read, which
- * the request cache fetches again on it.
+ * the request cache fetches again on it. `skills.updated` (#494) raises
+ * none: it refreshes the cached `skills.get`.
  */
 
 export interface EnvironmentNoticeContext {
@@ -172,6 +173,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // Settings changed (#391): the request cache reads them again; where they show says what changed.
         case "settings.changed":
+          return;
+        // The skill set changed (#494): the request cache reads skills.get again, and the Skills pane shows it.
+        case "skills.updated":
           return;
       }
     },

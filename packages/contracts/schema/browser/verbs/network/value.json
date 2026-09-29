@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NetworkValue",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "method": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "status": {
+        "description": "The response's status; absent for a request that got no answer.",
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "resourceType": {
+        "description": "document, xhr, fetch, script and so on, as the browser names it.",
+        "type": "string"
+      },
+      "durationMs": {
+        "type": "number",
+        "minimum": 0
+      },
+      "failure": {
+        "description": "Why the request failed outright: DNS, CORS, blocked, aborted.",
+        "type": "string"
+      },
+      "at": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+        "description": "An instant as an ISO 8601 UTC timestamp."
+      }
+    },
+    "required": [
+      "method",
+      "url",
+      "at"
+    ],
+    "description": "A request the page made."
+  },
+  "description": "The requests since the last network verb."
+}

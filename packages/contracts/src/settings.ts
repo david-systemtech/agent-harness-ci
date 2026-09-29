@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DefaultAccount, DefaultEffort, DefaultModelFamily } from "./accounts.js";
+import { BROWSER_SETTINGS } from "./browser-settings.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
@@ -114,7 +115,9 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * machines step's, on `environments.machines`, written through
  * `updates.settings.set` only. The theme (ADR 0023: `appearance.theme`, a
  * name and seven seeds, preset "Default") is the Appearance step's, on its
- * home row, `appearance.theme`, written by `settings.update` (#391).
+ * home row, `appearance.theme`, written by `settings.update` (#391). The
+ * browser keys (#541) are the Browser step's, on `access.browser`, written
+ * through `settings.update`.
  */
 const SESSIONS_PLACE = { id: "your-machines", row: "environments.service" } as const;
 const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
@@ -162,6 +165,7 @@ export const SETTINGS = {
     preset: DEFAULT_THEME,
     step: { id: "appearance", row: "appearance.theme" },
   }),
+  ...BROWSER_SETTINGS,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS;

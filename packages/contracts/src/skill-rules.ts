@@ -273,7 +273,7 @@ export const SkillInvocation = z.enum(SKILL_INVOCATIONS).meta({
 export type SkillInvocation = z.infer<typeof SkillInvocation>;
 
 /** What leaves a member invalid. */
-export const SKILL_MEMBER_PROBLEM_KINDS = ["name", "description"] as const;
+export const SKILL_MEMBER_PROBLEM_KINDS = ["frontmatter", "name", "description"] as const;
 export type SkillMemberProblemKind = (typeof SKILL_MEMBER_PROBLEM_KINDS)[number];
 
 /** A problem that leaves a member invalid: listed with it, and the member left out of the set. */
@@ -281,7 +281,7 @@ export const SkillMemberProblem = z
   .object({
     kind: z.enum(SKILL_MEMBER_PROBLEM_KINDS).meta({
       description:
-        "What is wrong: name (neither its frontmatter name nor its folder's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires).",
+        "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires).",
     }),
     message: z.string().min(1).meta({ description: "What is wrong, for people: the names tried and why each fails." }),
   })
@@ -310,13 +310,30 @@ export type SkillMemberWarning = z.infer<typeof SkillMemberWarning>;
  * `root`, for a folder that is itself one skill (the root-skill rule, ADR
  * 0029), the source folder's last segment (null for `.`, the repository's
  * root) and the repository's last path segment (null when there is none).
+ * A command file in the own directory's `commands/` is `file`, its name
+ * without `.md`: a command is named by its file alone, so its
+ * frontmatter's `name` is passed over.
  */
 export type SkillMemberFolder =
   | { readonly kind: "folder"; readonly name: string }
-  | { readonly kind: "root"; readonly sourceFolderSegment: string | null; readonly repositorySegment: string | null };
+  | { readonly kind: "root"; readonly sourceFolderSegment: string | null; readonly repositorySegment: string | null }
+  | { readonly kind: "file"; readonly name: string };
+
+/**
+ * The frontmatter keys that act while a skill is active (skills spec,
+ * "Further Notes", 6): `hooks`, commands run on the provider's events, and
+ * `allowed-tools`, tools that may run without a prompt. The tool gate and
+ * the denylist still run first; a client says so of a member declaring one.
+ */
+export const SKILL_WHILE_ACTIVE_KEYS = ["hooks", "allowed-tools"] as const;
+export const SkillWhileActiveKey = z.enum(SKILL_WHILE_ACTIVE_KEYS).meta({
+  description:
+    "A frontmatter key that acts while the skill is active, which a client says of the member: hooks (commands run on the provider's events) or allowed-tools (tools that may run without a prompt; the tool gate and the denylist still run first).",
+});
+export type SkillWhileActiveKey = z.infer<typeof SkillWhileActiveKey>;
 
 /** What a member's own files say of it: the fields of the member shape the reader takes from its frontmatter and folder. */
-export type SkillMemberReading = Pick<SkillMember, "name" | "description" | "invocation" | "userInvocable" | "problems" | "warnings">;
+export type SkillMemberReading = Pick<SkillMember, "name" | "description" | "invocation" | "userInvocable" | "whileActive" | "problems" | "warnings">;
 
 /** A name a member may be named after, with what it is to a person. */
 interface NameCandidate {
@@ -327,6 +344,7 @@ interface NameCandidate {
 /** The folder names a member may be named after, in the order they are tried. */
 const folderCandidates = (folder: SkillMemberFolder): NameCandidate[] => {
   if (folder.kind === "folder") return [{ what: "its folder's name", name: folder.name }];
+  if (folder.kind === "file") return [{ what: "its file's name", name: folder.name }];
   const candidates: NameCandidate[] = [];
   if (folder.sourceFolderSegment !== null) candidates.push({ what: "its source folder's last segment", name: folder.sourceFolderSegment });
   if (folder.repositorySegment !== null) candidates.push({ what: "its repository's last path segment", name: folder.repositorySegment });
@@ -373,25 +391,46 @@ const nameMember = (
   return { name, warnings };
 };
 
+/** Whether a frontmatter value says something: not absent, null, empty text, an empty list or an empty mapping. */
+const declared = (value: unknown): boolean => {
+  if (value === undefined || value === null || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return typeof value !== "object" || Object.keys(value).length > 0;
+};
+
 /**
  * Reads a member from its frontmatter, as parsed (an empty object for
- * none), and its folder (skills spec, "The skill set" and "Name"; the
- * Agent Skills spec): its name by the member-naming rule; its description,
- * a string with more than white space in it, trimmed, without which it is
- * invalid (Codex refuses such a skill too); its invocation, `slash-only`
- * exactly when `disable-model-invocation` is `true`; and whether a person
- * may invoke it, false exactly when `user-invocable` is `false`.
+ * none; null for frontmatter that does not read as a YAML mapping), and its
+ * folder (skills spec, "The skill set" and "Name"; the Agent Skills spec):
+ * its name by the member-naming rule; its description, a string with more
+ * than white space in it, trimmed, without which it is invalid (Codex
+ * refuses such a skill too); its invocation, `slash-only` exactly when
+ * `disable-model-invocation` is `true`; whether a person may invoke it,
+ * false exactly when `user-invocable` is `false`; and the keys it declares
+ * that act while it is active (`hooks`, `allowed-tools`), each flagged when
+ * it holds anything. Frontmatter that does not read is a `frontmatter`
+ * problem in place of the description's, and the member is named by its
+ * folder.
  */
-export const readSkillMember = (frontmatter: Readonly<Record<string, unknown>>, folder: SkillMemberFolder): SkillMemberReading => {
-  const naming = nameMember(frontmatter.name, folder);
-  const description = typeof frontmatter.description === "string" && frontmatter.description.trim() !== "" ? frontmatter.description.trim() : null;
-  const problems: SkillMemberProblem[] = naming.name === null ? [naming.problem] : [];
-  if (description === null) problems.push({ kind: "description", message: "The member has no description in its frontmatter, and a member needs one: it is what the model reads to choose it." });
+export const readSkillMember = (frontmatter: Readonly<Record<string, unknown>> | null, folder: SkillMemberFolder): SkillMemberReading => {
+  const fields = frontmatter ?? {};
+  // A command is named by its file alone.
+  const naming = nameMember(folder.kind === "file" ? undefined : fields.name, folder);
+  const description = typeof fields.description === "string" && fields.description.trim() !== "" ? fields.description.trim() : null;
+  const problems: SkillMemberProblem[] = [];
+  if (frontmatter === null) {
+    problems.push({ kind: "frontmatter", message: "The member's frontmatter does not read as a YAML mapping between --- lines, so nothing in it is taken: its description among them." });
+  }
+  if (naming.name === null) problems.push(naming.problem);
+  if (description === null && frontmatter !== null) {
+    problems.push({ kind: "description", message: "The member has no description in its frontmatter, and a member needs one: it is what the model reads to choose it." });
+  }
   return {
     name: naming.name,
     description,
-    invocation: frontmatter["disable-model-invocation"] === true ? "slash-only" : "model+slash",
-    userInvocable: frontmatter["user-invocable"] !== false,
+    invocation: fields["disable-model-invocation"] === true ? "slash-only" : "model+slash",
+    userInvocable: fields["user-invocable"] !== false,
+    whileActive: SKILL_WHILE_ACTIVE_KEYS.filter((key) => declared(fields[key])),
     problems,
     warnings: naming.name === null ? [] : naming.warnings,
   };

@@ -170,7 +170,9 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
  * and settings changing (`settings.changed`, appended with every
  * `settings.updated`, #391) the settings, read through `settings.get` and,
  * for the permission keys and the containment the status line shows,
- * `permissions.settings.get`.
+ * `permissions.settings.get`; and the skill set changing
+ * (`skills.updated`, a command or a read of the own directory, #494)
+ * `skills.get`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -183,6 +185,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "forge.accounts.list": Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account.")),
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
+  "skills.get": ["skills.updated"],
 };
 
 export interface RequestCache {

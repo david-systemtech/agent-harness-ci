@@ -1,3 +1,4 @@
+import type { RegisteredStepId } from "@agent-harness/contracts";
 import type { LocalStatus } from "./bootstrap.js";
 import type { CapabilityAnswer, CapabilityName } from "./capabilities.js";
 import type { DesktopUpdate } from "./desktop-update.js";
@@ -12,7 +13,7 @@ import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
 import type { EnvironmentView } from "./projections/environments.js";
-import type { Requests } from "./requests.js";
+import type { RequestAnswer, Requests } from "./requests.js";
 import type { SessionListView, SessionRow } from "./projections/session-list.js";
 import type { SessionHandle } from "./streams/session-handles.js";
 import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
@@ -24,6 +25,7 @@ import type { KnownDirectory } from "./projections/known-directories.js";
 import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
+import type { SetupView } from "./projections/setup.js";
 
 /**
  * The client runtime (docs/specs/client-runtime.md): what every client
@@ -100,6 +102,18 @@ export interface Runtime {
      * offline with it, and stored nowhere.
      */
     knownDirectories(environmentId: string): Observable<readonly KnownDirectory[]>;
+    /**
+     * The environment's Set up checklist (#570): the eleven steps in the
+     * milestone-1 order, each with its label, its home row, whether the
+     * environment registers it, its latest result with its age and whether
+     * it is stale, and whether this client's own check of it is pending;
+     * the counts over the registered steps; and whether the environment can
+     * be reached. Filled from the environment stream's snapshot and its
+     * `setup.result-changed` notices, cached with the stream's cursor, with
+     * no call of its own; an environment without the `setup` flag is asked
+     * `setup.check` of every step each time the view comes to be followed.
+     */
+    setup(environmentId: string): Observable<SetupView>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;
@@ -141,6 +155,18 @@ export interface Runtime {
   readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */
   readonly requests: Requests;
+  /** Set up beyond its projection (#570). */
+  readonly setup: {
+    /**
+     * `setup.check` of `step`, or of every step the environment registers,
+     * through the request path (a query under `read`, never queued: an
+     * environment not ready answers `unreachable` at once). Each step it
+     * asks about reads pending in `projections.setup` once half a second
+     * passes without the answer, until the answer or the failure; each
+     * result it answers is applied there.
+     */
+    check(environmentId: string, step?: RegisteredStepId): Promise<RequestAnswer<"setup.check">>;
+  };
   /** Forge accounts beyond their cached list: this computer's `gh` handed over once, and copies to other environments, direct and never queued (#320). */
   readonly forges: Forges;
   /**

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeadlessAllowRuns",
+  "type": "boolean",
+  "description": "browser.headless.allowRuns: whether runs on this environment may drive its headless browser. Preset on."
+}
