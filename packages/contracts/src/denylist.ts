@@ -54,9 +54,10 @@ const IPV6 = [
 /**
  * A domain or host pattern: a host name, an IPv4 address or an IPv6 literal,
  * with an optional leading wildcard label (`*.paypal.com`: the domain and
- * every subdomain). No scheme, port, path or other wildcard.
+ * every subdomain). No scheme, port, path or other wildcard. The browser's
+ * host lists (`browser.devSites`, `browser.internalHosts`) take it too.
  */
-const HostPattern = z
+export const HostPattern = z
   .string()
   .regex(new RegExp(`^(?:(?:\\*\\.)?${LABEL}(?:\\.${LABEL})*|${IPV6})$`))
   .meta({ description: "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path." });
@@ -878,7 +879,7 @@ const ipv4Of = (host: string): string | null | undefined => {
 };
 
 /** An IPv6 literal's eight groups, an embedded IPv4 tail read as two; null when it is not one. */
-const ipv6Groups = (literal: string): number[] | null => {
+export const ipv6Groups = (literal: string): number[] | null => {
   let text = literal.toLowerCase();
   const tail = /^(.*:)(\d+\.\d+\.\d+\.\d+)$/.exec(text);
   if (tail !== null) {
@@ -939,8 +940,8 @@ const canonicalHost = (host: string, special: boolean): string | null => {
   return v4 === undefined ? text : v4;
 };
 
-/** The IPv4 address an IPv4-mapped IPv6 host stands for (`::ffff:a9fe:a9fe`), which reaches the same machine. */
-const mappedIpv4 = (host: string): string | null => {
+/** The IPv4 address an IPv4-mapped IPv6 host stands for (`::ffff:a9fe:a9fe`), which reaches the same machine; null for any other host. */
+export const mappedIpv4 = (host: string): string | null => {
   const groups = ipv6Groups(host);
   if (groups === null || groups.slice(0, 5).some((group) => group !== 0) || groups[5] !== 0xffff) return null;
   const [high, low] = groups.slice(6) as [number, number];
@@ -1041,6 +1042,17 @@ const readAddress = (address: string): Address | null => {
  */
 export const hostOf = (address: string): string | null => readAddress(address)?.host ?? null;
 
+/**
+ * The scheme and the host of an address, as `hostOf` reads the host: the
+ * scheme lower case, null for a bare host with an optional port; the host
+ * null for an address with none. Null for no address at all (an empty
+ * string).
+ */
+export const addressOf = (address: string): { readonly scheme: string | null; readonly host: string | null } | null => {
+  const read = readAddress(address);
+  return read === null ? null : { scheme: read.scheme, host: read.host };
+};
+
 /** A host pattern read into its wildcard and its host. */
 const hostPatternOf = (pattern: string): { readonly wildcard: boolean; readonly host: string | null } => {
   const wildcard = pattern.startsWith("*.");
@@ -1053,6 +1065,14 @@ const hostMatches = ({ wildcard, host: target }: { readonly wildcard: boolean; r
   const candidates = [host, mappedIpv4(host)].filter((value): value is string => value !== null);
   return candidates.some((candidate) => candidate === target || (wildcard && candidate.endsWith(`.${target}`)));
 };
+
+/**
+ * Whether a host pattern of the browser domains' or the hosts' grammar
+ * matches a host `hostOf` read, as `matchDenylist` matches both: `*.x` is
+ * `x` and every subdomain of it, anything else the host alone, and an
+ * IPv4-mapped IPv6 host is its IPv4 address too.
+ */
+export const hostPatternMatches = (pattern: string, host: string): boolean => hostMatches(hostPatternOf(pattern), host);
 
 // The match -----------------------------------------------------------------
 

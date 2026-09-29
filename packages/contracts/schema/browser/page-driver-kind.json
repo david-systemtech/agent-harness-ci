@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PageDriverKind",
+  "type": "string",
+  "enum": [
+    "chrome",
+    "headless",
+    "dock"
+  ],
+  "description": "Which browser a page driver drives: chrome (a paired Chrome, signed in to the person's sites), headless (the run environment's headless browser, signed in to nothing) or dock (the desktop window's browser dock)."
+}

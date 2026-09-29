@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserDeepReadEverywhere",
+  "type": "boolean",
+  "description": "browser.deepReadEverywhere: a Chrome reads cookie values and storage on every site, not only dev sites. Preset off."
+}

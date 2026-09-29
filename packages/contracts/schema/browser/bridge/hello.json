@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgeHello",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "hello"
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "The bridge protocol version the extension speaks: served when it is the environment's or the one before."
+    },
+    "extensionVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The extension's version: the harness version it was built with."
+    },
+    "environmentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The environment the extension paired with."
+    },
+    "chromeId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "The name the Chrome paired as; a later hello never renames it."
+    }
+  },
+  "required": [
+    "type",
+    "protocolVersion",
+    "extensionVersion",
+    "environmentId",
+    "chromeId",
+    "name"
+  ],
+  "description": "hello: a paired extension opens its socket with its versions, the environment it paired with and its Chrome's id."
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgeProof",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "proof"
+    },
+    "mac": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "HMAC-SHA256 of the challenge's nonce as sent (its UTF-8 bytes), keyed by the secret's 32 bytes, in lowercase hex."
+    }
+  },
+  "required": [
+    "type",
+    "mac"
+  ],
+  "description": "proof: the answer to a challenge, which proves the secret without sending it."
+}
