@@ -83,6 +83,20 @@ describe("status line one", () => {
     expect(one).not.toContain("5hr");
   });
 
+  it("shows the clamp of a session's mode above this connection's ceiling after its badge (#402)", async () => {
+    const { app } = await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", mode: "bypassPermissions" }], hello: { ceiling: "auto" } })]);
+    await app.waitFor("⏸ auto (clamped from bypassPermissions)");
+    expect(statusLines(app)[0]).toContain("· ⏸ auto (clamped from bypassPermissions) ·");
+  });
+
+  it("shows the level another client set on the session once its stream says it, unmarked (#402)", async () => {
+    const { app, env } = await opened();
+    await app.waitFor("◐ workspace (default)");
+    env.emit(SESSION, "session.containment.set", { containment: { requested: "workspace-no-network", effective: "workspace-no-network", clamped: false } });
+    await app.waitFor("● no network");
+    expect(statusLines(app)[0]).not.toContain("(default)");
+  });
+
   it("says no session is open, beside the environment's badge, until one is", async () => {
     const app = await renderApp({ script: { environments: [desk()] } });
     apps.push(app);

@@ -1,5 +1,6 @@
 import {
   MODE_BADGE_WORDS,
+  clampWords,
   elapsedClock,
   formatTokens,
   formatUsd,
@@ -91,10 +92,10 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
           environmentId={environmentId}
           sessionId={sessionId}
           ceiling={ceiling}
-          value={`${MODE_BADGE_WORDS[facts.mode.mode]}${facts.mode.clampedFrom !== null ? ` clamped from ${facts.mode.clampedFrom}` : ""}`}
+          value={`${MODE_BADGE_WORDS[facts.mode.mode]}${facts.mode.clampedFrom !== null ? ` ${clampWords(facts.mode.clampedFrom)}` : ""}`}
         >
           <span className={facts.mode.mode === "bypassPermissions" ? "font-semibold text-signal" : "text-ink"}>{MODE_BADGE_WORDS[facts.mode.mode]}</span>
-          {facts.mode.clampedFrom !== null && <span className="text-amber"> clamped from {facts.mode.clampedFrom}</span>}
+          {facts.mode.clampedFrom !== null && <span className="text-amber"> {clampWords(facts.mode.clampedFrom)}</span>}
         </ModePicker>
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
         <Gauge readings={readingsOf(gaugeOf(usage.gauges, environmentId, facts.accountId))} />

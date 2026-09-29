@@ -85,7 +85,7 @@ describe("the status line", () => {
   it("shows the clamp of a session's mode above this connection's ceiling", async () => {
     await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", mode: "bypassPermissions" }], hello: { ceiling: "auto" } })]);
     const line = await screen.findByRole("region", { name: "Status line" });
-    expect(within(line).getByRole("button", { name: "Mode: ⏸ auto clamped from bypassPermissions" }).textContent).toBe("⏸ auto clamped from bypassPermissions");
+    expect(within(line).getByRole("button", { name: "Mode: ⏸ auto (clamped from bypassPermissions)" }).textContent).toBe("⏸ auto (clamped from bypassPermissions)");
   });
 
   it("shows the session's own containment level once it is set, unmarked", async () => {

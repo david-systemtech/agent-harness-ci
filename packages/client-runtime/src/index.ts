@@ -215,6 +215,7 @@ export {
   BETWEEN_ENVIRONMENTS,
   MODE_BADGE_WORDS,
   aboveCeilingWords,
+  clampWords,
   containmentWords,
   elapsedClock,
   gaugeOf,

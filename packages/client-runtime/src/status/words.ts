@@ -21,6 +21,9 @@ export const MODE_BADGE_WORDS: Readonly<Record<Mode, string>> = {
   bypassPermissions: "⏵⏵ BYPASS",
 };
 
+/** The clamp after a mode badge: the mode asked for, lowered to the one the badge shows (CONTEXT.md, "Clamp"). */
+export const clampWords = (from: Mode): string => `(clamped from ${from})`;
+
 /**
  * The containment level as a glyph and its word: the fuller the circle, the
  * less a run may reach. `isDefault` marks a level read from the

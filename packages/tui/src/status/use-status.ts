@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import {
+  clampWords,
   elapsedClock,
   formatTokens,
   formatUsd,
@@ -134,7 +135,7 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
       badge,
       label !== undefined ? { text: label, bold: true } : { text: "default account", dim: true },
       model ? { text: model.effort !== null ? `${model.model} ${model.effort}` : model.model } : { text: "default model", dim: true },
-      mode.clampedFrom === null ? modeBadge : { ...modeBadge, text: `${modeBadge.text} (clamped from ${mode.clampedFrom})` },
+      mode.clampedFrom === null ? modeBadge : { ...modeBadge, text: `${modeBadge.text} ${clampWords(mode.clampedFrom)}` },
       ...(containment ? [containmentBadge(containment.level, containment.isDefault)] : []),
     ],
     readings: readingsOf(gaugeOf(runtime.projections.usage.read().gauges, environmentId, facts.accountId), meterCells(inputs.width)),
