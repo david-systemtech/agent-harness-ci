@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { Scope } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, Scope } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { noticeEvent } from "../test/events.js";
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
+import { keyManagerRecord } from "../test/key-managers.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Shell } from "./shell.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
@@ -434,7 +435,7 @@ describe("handing this computer's gh over", () => {
 });
 
 /** A runtime paired with a scripted environment per entry, each offering `forge` and granting its scopes (every scope when absent). */
-const pairedMany = (environments: readonly { readonly name: string; readonly scopes?: readonly Scope[] }[]) => pairedManyWith(["forge"], environments);
+const pairedMany = (environments: readonly { readonly name: string; readonly scopes?: readonly Scope[] }[]) => pairedManyWith(["forge", "keyManagers"], environments);
 
 /** Answers every forge.accounts.add accepted, with the account it would add, and records what each was asked. */
 const acceptingAdds = (wire: FakeWire) => {
@@ -447,21 +448,32 @@ const acceptingAdds = (wire: FakeWire) => {
   return asked;
 };
 
+/** Answers `keyManagers.list` on `wire` with `connections`. */
+const listingConnections = (wire: FakeWire, ...connections: KeyManagerConnectionRecord[]) => wire.answer("keyManagers.list", () => ({ result: { connections } }));
+
 describe("copying a forge account to other environments", () => {
   const reference = { provider: "openbao", connectionId: randomUUID(), mount: "personal", path: "harness/forge-github", key: "token" } as const;
 
-  it("calls forge.accounts.add on each chosen environment with its origin, aliases, kind, slug, primary and source: a reference as it is, a stored token as none, gh as gh", async () => {
+  it("calls forge.accounts.add on each chosen environment with its origin, aliases, kind, slug, primary and source: a reference through that environment's own connection to its key manager, a stored token as none, gh as gh", async () => {
     const { runtime, wires, ids } = await pairedMany([{ name: "desk" }, { name: "laptop" }, { name: "server" }]);
     const [desk, laptop, server] = ids as [string, string, string];
-    const [, laptopWire, serverWire] = wires as [FakeWire, FakeWire, FakeWire];
+    const [deskWire, laptopWire, serverWire] = wires as [FakeWire, FakeWire, FakeWire];
     const onLaptop = acceptingAdds(laptopWire);
     const onServer = acceptingAdds(serverWire);
+    // Each environment's connection to the one OpenBao has an id of its own; the server holds another key manager besides.
+    listingConnections(deskWire, keyManagerRecord({ id: reference.connectionId }));
+    const laptopConnection = keyManagerRecord({ copiedFrom: { environmentId: desk, environmentName: "desk" } });
+    listingConnections(laptopWire, laptopConnection);
+    const serverConnection = keyManagerRecord();
+    listingConnections(serverWire, keyManagerRecord({ address: "https://people.example.com" }), serverConnection);
     const stored = forgeRecord({ aliases: [{ origin: "http://100.64.0.7:3000", verifiedAt: null }] });
     const forgejo = forgeRecord({ origin: "https://git.example.com", kind: "forgejo", slug: "git_example_com", primary: false, credential: { kind: "reference", reference } });
     const gh = forgeRecord({ origin: "https://ghe.example.com", slug: "ghe_example_com", primary: false, credential: { kind: "gh", login: "david" } });
 
-    const reports = await Promise.all([stored, forgejo, gh].map((account) => runtime.forges.copy(desk, account, [laptop, server])));
-    expect(reports.flat().map(({ environmentId, status }) => [environmentId, status])).toEqual([
+    // One after another, so each environment's adds arrive in the accounts' order.
+    const reports = [];
+    for (const account of [stored, forgejo, gh]) reports.push(...(await runtime.forges.copy(desk, account, [laptop, server])));
+    expect(reports.map(({ environmentId, status }) => [environmentId, status])).toEqual([
       [laptop, "copied"],
       [server, "copied"],
       [laptop, "copied"],
@@ -470,17 +482,86 @@ describe("copying a forge account to other environments", () => {
       [server, "copied"],
     ]);
     const copiedFrom = { environmentId: desk, environmentName: "desk" };
-    const expected = [
+    const expected = (connectionId: string) => [
       { url: "https://github.com", kind: "github", slug: "github", aliases: ["http://100.64.0.7:3000"], primary: true, credential: { kind: "none" }, copiedFrom },
-      { url: "https://git.example.com", kind: "forgejo", slug: "git_example_com", aliases: [], primary: false, credential: { kind: "reference", reference }, copiedFrom },
+      { url: "https://git.example.com", kind: "forgejo", slug: "git_example_com", aliases: [], primary: false, credential: { kind: "reference", reference: { ...reference, connectionId } }, copiedFrom },
       { url: "https://ghe.example.com", kind: "github", slug: "ghe_example_com", aliases: [], primary: false, credential: { kind: "gh", login: "david" }, copiedFrom },
     ];
-    for (const asked of [onLaptop, onServer]) {
-      expect(asked).toEqual(expected.map((params) => ({ ...params, commandId: expect.any(String), forgeAccountId: expect.any(String) })));
+    for (const [asked, connectionId] of [
+      [onLaptop, laptopConnection.id],
+      [onServer, serverConnection.id],
+    ] as const) {
+      expect(asked).toEqual(expected(connectionId).map((params) => ({ ...params, commandId: expect.any(String), forgeAccountId: expect.any(String) })));
       // A copy is a new forge account there: its own id, never the source's.
       expect(asked.map((params) => params["forgeAccountId"])).not.toContain(stored.id);
     }
     expect(JSON.stringify([onLaptop, onServer])).not.toContain(stored.credential.kind === "stored" ? stored.credential.entry : "");
+  });
+
+  it("refuses a reference, sending nothing, where the environment holds no connection to its key manager, and everywhere when the source cannot say which that is; the others take it", async () => {
+    const { runtime, wires, ids } = await pairedMany([{ name: "desk" }, { name: "laptop" }, { name: "server" }, { name: "attic" }]);
+    const [desk, laptop, server, attic] = ids as [string, string, string, string];
+    const [deskWire, laptopWire, serverWire, atticWire] = wires as [FakeWire, FakeWire, FakeWire, FakeWire];
+    const onLaptop = acceptingAdds(laptopWire);
+    const onServer = acceptingAdds(serverWire);
+    listingConnections(deskWire, keyManagerRecord({ id: reference.connectionId, label: "Agent box vault" }));
+    // The laptop holds OpenBao elsewhere, and another provider at the same address: neither is the key manager the reference is read through.
+    listingConnections(
+      laptopWire,
+      keyManagerRecord({ address: "https://people.example.com" }),
+      keyManagerRecord({ provider: "doppler", ca: null, method: null, mount: null, ticks: null, basePath: "harness", policies: null }),
+    );
+    listingConnections(serverWire, keyManagerRecord());
+    atticWire.discovery("unreachable");
+    atticWire.server.drop();
+    await flush();
+    const account = forgeRecord({ origin: "https://git.example.com", kind: "forgejo", slug: "git_example_com", credential: { kind: "reference", reference } });
+
+    const reports = await runtime.forges.copy(desk, account, [laptop, server, attic]);
+    expect(reports.map(({ environmentId, status }) => [environmentId, status])).toEqual([
+      [laptop, "refused"],
+      [server, "copied"],
+      [attic, "refused"],
+    ]);
+    expect(reports[0]).toEqual({
+      environmentId: laptop,
+      status: "refused",
+      error: {
+        code: "credential_source_unavailable",
+        message: "laptop holds no connection to Agent box vault at https://bao.example.com:8200: copy that key-manager connection there and sign it in, then copy again.",
+        data: { connectionId: reference.connectionId },
+      },
+    });
+    expect(reports[2]).toMatchObject({ error: { code: "unreachable" } });
+    expect(onLaptop).toEqual([]);
+    expect(onServer).toHaveLength(1);
+
+    // The source no longer holds the connection the reference names, then cannot be asked: no target can be told which key manager to read it through.
+    listingConnections(deskWire);
+    const gone = await runtime.forges.copy(desk, account, [laptop, server]);
+    const noConnection = `The reference is read through the key-manager connection ${reference.connectionId}, which desk does not hold.`;
+    expect(gone).toEqual(
+      [laptop, server].map((environmentId) => ({
+        environmentId,
+        status: "refused",
+        error: { code: "credential_source_unavailable", message: noConnection, data: { connectionId: reference.connectionId } },
+      })),
+    );
+    deskWire.answer("keyManagers.list", () => ({ error: { code: "internal", message: "The connections could not be read.", data: {} } }));
+    const unasked = await runtime.forges.copy(desk, account, [server]);
+    expect(unasked).toEqual([
+      {
+        environmentId: server,
+        status: "refused",
+        error: {
+          code: "credential_source_unavailable",
+          message: "desk could not say which key manager the reference is read through: The connections could not be read.",
+          data: { connectionId: reference.connectionId },
+        },
+      },
+    ]);
+    expect(onLaptop).toEqual([]);
+    expect(onServer).toHaveLength(1);
   });
 
   it("reports each environment on its own, going on past one that refuses it, cannot be reached, or was paired without admin", async () => {
