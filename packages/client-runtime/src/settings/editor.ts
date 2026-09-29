@@ -2,10 +2,12 @@ import {
   BYPASS_ACKNOWLEDGED_KEY,
   SETTINGS,
   SETTINGS_KEYS,
+  STEP_REGISTRY,
   isGenericSettingsKey,
   settingForm,
   settingsRow,
   type CommandReceipt,
+  type Confirmation,
   type ParamsOf,
   type SettingsKey,
   type SettingsRowId,
@@ -98,6 +100,18 @@ export const parseTyped = (key: SettingsKey, typed: string): Parsed => {
   const issue = schema.safeParse(readings[0]).error?.issues[0];
   return { ok: false, line: `${key}: ${issue?.message ?? "not a value it takes"}` };
 };
+
+/** The confirmations the registered steps' forms ask before writing a value. */
+const CONFIRMATIONS: readonly Confirmation[] = STEP_REGISTRY.flatMap((step): readonly Confirmation[] => ("confirms" in step ? step.confirms : []));
+
+/**
+ * What an editor confirms before writing `value` to `key`: the step
+ * registry's confirmation for that value (ADR 0006: choosing bypass shows
+ * one sentence), whose acknowledgement goes with the write; undefined when
+ * the value is written unasked.
+ */
+export const confirmationOf = (key: SettingsKey, value: unknown): Confirmation | undefined =>
+  CONFIRMATIONS.find((confirmation) => confirmation.key === key && confirmation.value === value);
 
 /** How a write went: the values the environment answered with (the key's among them), or the one line that says why not. */
 export type SettingSaved = { readonly ok: true; readonly values: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly line: string };

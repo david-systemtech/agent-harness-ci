@@ -65,3 +65,12 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
       }),
     ),
   );
+
+/**
+ * The home environment (docs/specs/gui.md, "Theme" and "Settings"): the
+ * local one on the desktop, else the primary one (the serving one in a
+ * browser tab arrives with milestone 2). It presets an `environment` row's
+ * picker in Settings, and the window reads its theme from it; focus never
+ * moves it.
+ */
+export const homeEnvironment = (views: readonly EnvironmentView[]): EnvironmentView | undefined => views.find((view) => view.kind === "local") ?? views[0];

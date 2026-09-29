@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CommandReceipt } from "@agent-harness/contracts";
-import { noKeysLine, parseTyped, rowKeys, saveSetting, valueWords, writerOf } from "./editor.js";
+import { BYPASS_SENTENCE, type CommandReceipt } from "@agent-harness/contracts";
+import { confirmationOf, noKeysLine, parseTyped, rowKeys, saveSetting, valueWords, writerOf } from "./editor.js";
 
 /**
  * The generic settings editor both renderers draw (docs/specs/tui.md,
@@ -74,6 +74,14 @@ const requesting = (answer: unknown) => {
 };
 
 const accepted: CommandReceipt = { status: "accepted", sequence: 4, changed: true };
+
+describe("a value confirmed before it is written", () => {
+  it("is the unattended mode's bypassPermissions, with its one sentence (ADR 0006); no other value is", () => {
+    expect(confirmationOf("permissions.unattended.mode", "bypassPermissions")).toMatchObject({ sentence: BYPASS_SENTENCE, acknowledgement: "acknowledgeBypass" });
+    expect(confirmationOf("permissions.unattended.mode", "acceptEdits")).toBeUndefined();
+    expect(confirmationOf("permissions.defaultCeiling", "bypassPermissions")).toBeUndefined();
+  });
+});
 
 describe("saving a key", () => {
   it("sends it through the method that writes it, as an admin request with its command id, and answers the values the environment holds after", async () => {

@@ -7,6 +7,7 @@ import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
 import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
+import { SettingsProvider } from "./settings/settings-window.js";
 import { osLadder, paintTheme } from "./theme/paint.js";
 import { WindowProvider } from "./window-context.js";
 
@@ -17,6 +18,8 @@ export interface AppProps {
   readonly presentation: Presentation;
   /** The platform's clock, the runtime's own. */
   readonly clock: Clock;
+  /** This client's version, the bundle's: what About pins above its picker. */
+  readonly version: string;
   /** Whether the keys' `Mod` is ⌘ (macOS) or Ctrl (everywhere else). */
   readonly macOS: boolean;
   /** The desktop's shell, the platform's own: what only a desktop can do. Absent in a browser tab. */
@@ -27,19 +30,21 @@ export interface AppProps {
  * The desktop window's renderer (docs/specs/gui.md): the frame over one
  * client runtime, painted with the theme's tokens before its first frame
  * (the preset's, until the window reads a theme of its own), its keys
- * dispatched through the GUI column of the shared action list, and the
- * command palette over it.
+ * dispatched through the GUI column of the shared action list, Settings,
+ * and the command palette over it.
  */
-export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => {
+export const App = ({ runtime, presentation, clock, version, macOS, shell }: AppProps) => {
   useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
   return (
-    <WindowProvider runtime={runtime} presentation={presentation} clock={clock} shell={shell}>
+    <WindowProvider runtime={runtime} presentation={presentation} clock={clock} version={version} shell={shell}>
       <LocalServiceProvider>
         <PairingProvider>
           <KeyDispatch macOS={macOS}>
-            <CommandPalette>
-              <Frame />
-            </CommandPalette>
+            <SettingsProvider>
+              <CommandPalette>
+                <Frame />
+              </CommandPalette>
+            </SettingsProvider>
           </KeyDispatch>
         </PairingProvider>
       </LocalServiceProvider>

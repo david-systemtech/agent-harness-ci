@@ -62,6 +62,13 @@ export interface PresentationValues {
    * pairing with an environment elsewhere.
    */
   readonly runLocalEnvironment: boolean;
+  /**
+   * The row of Settings last opened, by its id (docs/specs/gui.md,
+   * "Settings: the rail, the rows and the addresses"): kept as the id and
+   * read against the row registry when Settings opens, so an id the registry
+   * no longer holds opens Set up (ADR 0027); null until a row is opened.
+   */
+  readonly settingsRow: string | null;
 }
 
 export type PresentationKey = keyof PresentationValues;
@@ -75,6 +82,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   reasoningShown: true,
   streamingFade: true,
   runLocalEnvironment: true,
+  settingsRow: null,
 });
 
 /** The document the presentation is kept in, and the format this build writes. */
@@ -96,6 +104,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   reasoningShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
   streamingFade: (stored) => (typeof stored === "boolean" ? stored : undefined),
   runLocalEnvironment: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  settingsRow: (stored) => (stored === null || typeof stored === "string" ? stored : undefined),
 };
 
 export interface Presentation {

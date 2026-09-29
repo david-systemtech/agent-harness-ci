@@ -3,8 +3,8 @@ export { PROTOCOL_VERSION } from "@agent-harness/contracts";
 
 export { createRuntime, type Runtime } from "./runtime.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
-/** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4). */
-export { uuidv4 } from "./ids.js";
+/** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4), and for a command (version 7). */
+export { uuidv4, uuidv7 } from "./ids.js";
 export type {
   ClientIdentity,
   Clock,
@@ -73,7 +73,7 @@ export {
 } from "./pairing.js";
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
-export type { EnvironmentView } from "./projections/environments.js";
+export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export {
   COMMAND_EXPIRY_MS,
   type AcceptedReceipt,
@@ -182,6 +182,7 @@ export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
 export {
+  confirmationOf,
   describeKey,
   noKeysLine,
   parseTyped,
