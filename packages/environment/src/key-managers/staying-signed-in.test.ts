@@ -84,6 +84,30 @@ describe("a login", () => {
   });
 });
 
+describe("a login's renewal that OpenBao does not answer", () => {
+  it("is tried again at two thirds of what is left of the login, which lives on once OpenBao answers", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600 });
+    await connected(client, bao);
+    const [login = ""] = bao.minted;
+    const renewing = () => bao.requests.filter((request) => request.path === "auth/token/renew-self").length;
+    bao.answer("POST auth/token/renew-self", { status: 500, error: "internal error" });
+
+    t.clock.advance(40 * MINUTE);
+    await eventually(() => expect(errors.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("failed; it is tried again")));
+    bao.answer("POST auth/token/renew-self", null);
+    // Two thirds of the twenty minutes left: at 53:20.
+    t.clock.advance(13 * MINUTE + 19_000);
+    expect(renewing()).toBe(1);
+    t.clock.advance(1_000);
+
+    await eventually(() => expect(bao.renewals(login)).toEqual([after(53 * MINUTE + 20_000)]));
+    t.clock.advance(20 * MINUTE);
+    expect(bao.live(login)).toBe(true);
+  });
+});
+
 describe("a periodic login", () => {
   it("renewed in time is never logged into again, whatever maximum its role sets: each renewal gives it its period", async () => {
     const { t, bao, client } = await withOpenBao({ periodSeconds: 3600, maxTtlSeconds: 3600 });

@@ -66,7 +66,7 @@ export interface MintingLogin {
 }
 
 /** The soonest a renewal that failed for want of an answer is tried again. */
-export const LOGIN_RENEWAL_RETRY_MS = 60_000;
+const LOGIN_RENEWAL_RETRY_MS = 60_000;
 
 /** Lets go of a login: one the environment made is revoked first, while its token is still registered; a token a person gave is only let go. */
 export const letGo = async (connectionId: string, login: LoginToken, scrub: ScrubRegistry): Promise<void> => {

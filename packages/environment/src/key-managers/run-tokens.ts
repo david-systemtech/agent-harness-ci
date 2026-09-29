@@ -119,8 +119,8 @@ interface HeldRunToken {
   readonly target: SignInTarget;
   readonly login: MintingLogin;
   readonly child: boolean;
-  /** Lets go of its registration with the scrub registry, and of the login's count of run tokens held. */
-  readonly registration: ScrubRelease;
+  /** Lets go of its scrub registration, and of its login's count of run tokens held: once its revocation is answered, or at the close. */
+  readonly unregister: ScrubRelease;
   readonly renewal: Timer;
   revoked: boolean;
 }
@@ -186,7 +186,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       target: login.target,
       login,
       child,
-      registration: () => {
+      unregister: () => {
         registered();
         use();
       },
@@ -197,15 +197,15 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     return run;
   };
 
-  /** The holder's stop: renewal stopped, the token revoked unless it was already, and its registration let go once that is answered. */
+  /** The holder's stop: renewal stopped, the token revoked unless it was already, and it is unregistered once that is answered. */
   const release = (run: HeldRunToken): void => {
     run.renewal.cancel();
     held.delete(run);
-    if (run.revoked) return run.registration();
+    if (run.revoked) return run.unregister();
     run.revoked = true;
     void revoke(run)
       .catch((error: unknown) => console.error("Revoking a run token failed:", error))
-      .finally(run.registration);
+      .finally(run.unregister);
   };
 
   /** Waits up to five seconds on the environment's clock for the connection's sign-in under way, if one is. */
@@ -314,7 +314,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       closed = true;
       for (const run of held) {
         run.renewal.cancel();
-        run.registration();
+        run.unregister();
       }
       held.clear();
     },
