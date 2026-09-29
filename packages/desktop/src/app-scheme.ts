@@ -32,12 +32,17 @@ export const CONTENT_POLICY = [
   "form-action 'none'",
 ].join("; ");
 
+/**
+ * The media types of what the policy lets the page load (its page, scripts,
+ * stylesheets and pictures) and the source maps DevTools reads. The `gui`
+ * build bundles no font, so there is no `font-src` and no font type: a build
+ * that bundles one adds both.
+ */
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
   ".map": "application/json",
   ".svg": "image/svg+xml",
   ".png": "image/png",
@@ -46,10 +51,6 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
   ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".wasm": "application/wasm",
-  ".txt": "text/plain; charset=utf-8",
 };
 
 const answer = (status: number, body: Uint8Array | null, mediaType = "text/plain; charset=utf-8"): Response =>
