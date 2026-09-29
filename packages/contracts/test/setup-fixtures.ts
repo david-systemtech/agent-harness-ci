@@ -100,6 +100,8 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { ...needsAttention, targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "Paths" }] },
       { ...skipped, step: "forges", reason: "No forge account is on this environment." },
       forgeRejected,
+      // A step of the milestone-1 order this build does not register: a newer environment's result (#672).
+      { ...done, step: "key-manager", reason: "The key manager is reachable and its login is valid." },
     ],
     invalid: [
       { ...signedOutResult, targets: [{ ...signedOut, kind: "workspace" }] },
@@ -113,7 +115,7 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { ...done, state: "pending" },
       { ...needsAttention, actions: ["reboot"] },
       { ...done, checkedAt: "yesterday" },
-      { ...done, step: "key-manager" },
+      { ...done, step: "housekeeping" },
       { state: "done", reason: "x", failing: [], actions: [], checkedAt: "2026-09-25T08:00:00.000Z" },
     ],
   },
@@ -122,6 +124,9 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
     params: { valid: [{}, { step: "permissions" }, { step: "forges" }], invalid: [{ step: "key-manager" }, { step: "" }, { step: ["permissions"] }] },
-    result: { valid: [{ results: [] }, { results: [done, needsAttention, timedOut, signedOutResult] }], invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }] },
+    result: {
+      valid: [{ results: [] }, { results: [done, needsAttention, timedOut, signedOutResult] }, { results: [skipped, { ...skipped, step: "memory-bank", reason: "No bank is registered." }, done] }],
+      invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }, { results: [done, { ...done, step: "housekeeping" }] }],
+    },
   },
 };

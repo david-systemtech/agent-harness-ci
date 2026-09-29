@@ -1,4 +1,4 @@
-import { StepResult, type RegisteredStepId } from "@agent-harness/contracts";
+import { StepResult, type StepId } from "@agent-harness/contracts";
 import { MANUAL_CLOCK_START } from "../src/testing/in-memory-platform.js";
 
 /**
@@ -9,13 +9,13 @@ import { MANUAL_CLOCK_START } from "../src/testing/in-memory-platform.js";
  */
 
 /** A done result of `step`, checked at the manual clock's start; `fields` replace any of its own. */
-export const doneResult = (step: RegisteredStepId, fields: Partial<StepResult> = {}): StepResult =>
+export const doneResult = (step: StepId, fields: Partial<StepResult> = {}): StepResult =>
   StepResult.parse({ step, state: "done", reason: `${step} holds.`, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START, ...fields });
 
 /** A result of `step` that needs attention for the state check `failing`, offering `actions`; `fields` replace any of its own. */
-export const attentionResult = (step: RegisteredStepId, failing: string, actions: StepResult["actions"], fields: Partial<StepResult> = {}): StepResult =>
+export const attentionResult = (step: StepId, failing: string, actions: StepResult["actions"], fields: Partial<StepResult> = {}): StepResult =>
   StepResult.parse({ step, state: "needs-attention", reason: `${failing} does not hold.`, failing: [failing], actions, checkedAt: MANUAL_CLOCK_START, ...fields });
 
 /** A skipped result of `step`: nothing is set up there to check. */
-export const skippedResult = (step: RegisteredStepId, fields: Partial<StepResult> = {}): StepResult =>
+export const skippedResult = (step: StepId, fields: Partial<StepResult> = {}): StepResult =>
   StepResult.parse({ step, state: "skipped", reason: `Nothing is set up for ${step}.`, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START, ...fields });
