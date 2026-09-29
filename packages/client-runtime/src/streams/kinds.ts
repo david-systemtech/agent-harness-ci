@@ -319,15 +319,18 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "forge.account.removed":
       case "forge.origin-missing":
         return data;
-      // The key-manager connections' events (#365, #366) change no status: the connections' cache and notices are the
-      // key-managers workstream's client-runtime part (#384).
+      // The key-manager connections' events (#365, #366) and Move's (#371) change no status: the connections' cache and
+      // notices are the key-managers workstream's client-runtime part (#384).
       case "key-manager.connection.added":
       case "key-manager.connection.signed-in":
       case "key-manager.connection.signed-out":
       case "key-manager.connection.updated":
       case "key-manager.connection.policies-set":
+      case "key-manager.connection.base-path-set":
       case "key-manager.connection.verified":
       case "key-manager.connection.removed":
+      case "key-manager.moved":
+      case "key-manager.stored-value-deleted":
         return data;
       // The routines' notices (#519) change no status: the routines list refreshes on routine.updated (#532), and the
       // notices queue raises a delivered result and a failed delivery (#525, #529).

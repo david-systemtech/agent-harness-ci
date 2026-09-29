@@ -1,0 +1,119 @@
+import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
+import { FIRST_ROW, STEP_LABELS, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
+import { useId, type ReactNode } from "react";
+import { EnvironmentMark } from "../connections/environment-mark.js";
+import { THIS_MACHINE } from "../frame/sidebar-region.js";
+import { Button } from "../ui/index.js";
+import { useClientVersion, useObservable, useRuntime } from "../window-context.js";
+import { EnvironmentPicker } from "./environment-picker.js";
+import { GenericEditor, reachWords } from "./generic-editor.js";
+import { dimReason } from "./rail.js";
+import { usePickedEnvironment, useSettings } from "./settings-window.js";
+
+/** One environment's part of an `everywhere` row: its heading with its name, icon and colour, then what the row holds of it. */
+const EnvironmentGroup = ({ view, children }: { readonly view: EnvironmentView; readonly children: ReactNode }) => {
+  const heading = useId();
+  return (
+    <section aria-labelledby={heading} className="flex flex-col gap-2">
+      <header className="flex items-center gap-2">
+        <h3 id={heading} className="text-sm font-semibold text-ink">
+          {view.name ?? THIS_MACHINE}
+        </h3>
+        <EnvironmentMark view={view} />
+      </header>
+      {children}
+    </section>
+  );
+};
+
+/** Since when an environment has not been reached, where a row holds nothing else of it; nothing while it is ready. */
+const Reach = ({ view }: { readonly view: EnvironmentView }) => {
+  const runtime = useRuntime();
+  return view.phase === "ready" ? null : <p className="text-sm text-amber">{reachWords(runtime, view)}.</p>;
+};
+
+/**
+ * The keys a row holds, in the generic editor, on the environments its scope
+ * names (ADR 0027): an `environment` row's on the environment picked; an
+ * `everywhere` row's on every environment, each under its heading; a `client`
+ * row's on the home environment.
+ */
+const RowKeys = ({ row }: { readonly row: SettingsRowId }) => {
+  const { scope } = settingsRow(row);
+  const keys = rowKeys(row);
+  const environments = useObservable(useRuntime().projections.environments);
+  const picked = usePickedEnvironment();
+  if (scope === "everywhere") {
+    return (
+      <>
+        {keys.length === 0 && <p className="text-sm text-ink-faint">{noKeysLine(row)}</p>}
+        {environments.map((view) => (
+          <EnvironmentGroup key={view.environmentId} view={view}>
+            {keys.length === 0 ? <Reach view={view} /> : <GenericEditor view={view} keys={keys} />}
+          </EnvironmentGroup>
+        ))}
+      </>
+    );
+  }
+  if (keys.length === 0) return <p className="text-sm text-ink-faint">{noKeysLine(row)}</p>;
+  const view = scope === "environment" ? picked : homeEnvironment(environments);
+  return view === undefined ? null : <GenericEditor key={view.environmentId} view={view} keys={keys} />;
+};
+
+/**
+ * What a row whose feature is not built shows (docs/specs/gui.md, "Settings:
+ * the rail, the rows and the addresses"): its hint, a link to each step of
+ * Set up it belongs to, and the generic editor for its keys; a placeholder
+ * row, its hint and why it is dim.
+ */
+const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
+  const entry = settingsRow(row);
+  const { open } = useSettings();
+  const dim = dimReason(entry);
+  const steps = rowSteps(row);
+  return (
+    <>
+      <p className="text-sm text-ink-muted">{entry.hint}</p>
+      {dim !== undefined ? (
+        <p className="text-sm text-ink-faint">{dim}</p>
+      ) : (
+        <>
+          {steps.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {steps.map((step) => (
+                <Button key={step} onClick={() => open(FIRST_ROW)}>
+                  Open the {STEP_LABELS[step]} step in Set up
+                </Button>
+              ))}
+            </div>
+          )}
+          <RowKeys row={row} />
+        </>
+      )}
+    </>
+  );
+};
+
+/**
+ * A row's pane (ADR 0027): its heading, then in its header what its scope
+ * gives it (an `environment` row's picker, none for `everywhere` and
+ * `client` rows), About with this client's version pinned above its picker
+ * as the one line that belongs to no environment, then what the row holds.
+ */
+export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
+  const entry = settingsRow(row);
+  const version = useClientVersion();
+  const heading = useId();
+  return (
+    <section aria-labelledby={heading} className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
+      <header className="flex flex-col gap-2">
+        <h2 id={heading} className="text-lg font-semibold text-ink">
+          {entry.label}
+        </h2>
+        {row === "about.about" && <p className="text-sm text-ink">This client: {version}</p>}
+        {entry.scope === "environment" && <EnvironmentPicker />}
+      </header>
+      <UnbuiltRow row={row} />
+    </section>
+  );
+};

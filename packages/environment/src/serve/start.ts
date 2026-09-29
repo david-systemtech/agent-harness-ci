@@ -103,6 +103,8 @@ import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
+import { keyManagerMovesProjector } from "../key-managers/move-store.js";
+import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { routineMethods } from "../routines/methods.js";
@@ -363,6 +365,12 @@ export interface EnvironmentOptions {
    */
   readonly keyManagerTimeoutMs?: number;
   /**
+   * The Move sources registered at start (#371): each owning service's
+   * items holding a stored value. Preset: the forge's; banks (#90) and
+   * routine webhook endpoints (#92) join it. Tests script one.
+   */
+  readonly moveSources?: readonly MoveSource[];
+  /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
    * called once, the first time it is asked for. Preset: the bundled
    * binary's `--version` (`adapters/claude/version.ts`); tests script it.
@@ -502,6 +510,11 @@ export interface EnvironmentHandle {
    * reads through it; banks, routine endpoints and the skills check will.
    */
   readonly keyManagers: KeyManagerRegistry;
+  /** Move stored tokens (#371). */
+  readonly keyManagerMoves: {
+    /** Settles once this start, past the gate, has tried again to delete every stored value a Move left behind. */
+    readonly leftBehindDeleted: Promise<void>;
+  };
   /**
    * The pairing this start minted because the environment is a declared
    * container that no client has paired with yet (ADR 0025; #349): such a
@@ -617,6 +630,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       keyManagerConnectionsProjector,
+      keyManagerMovesProjector,
       routinesProjector,
       lookProjector,
       ...(options.projectors ?? []),
@@ -641,7 +655,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
   // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
   // connection's removal.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references } = await step("identity", async () => {
+  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves } = await step("identity", async () => {
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -702,6 +716,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => forgeService.close());
     await forgeService.start();
+    // Move stored tokens (#371): each owning service's items holding a stored value, the forge's first.
+    const keyManagerMoves = createKeyManagerMoves({
+      log,
+      clock,
+      environmentId: loaded.id,
+      scrub,
+      connections,
+      registry,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+    });
+    for (const source of options.moveSources ?? [forgeService.moveSource]) keyManagerMoves.register(source);
     capabilities.push("forge", "keyManagers");
     return {
       record: loaded,
@@ -712,6 +737,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagerConnections: connections,
       keyManagers: registry,
       references: keyManagerReferences,
+      moves: keyManagerMoves,
     };
   });
 
@@ -1081,7 +1107,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...accountMethods({ accounts, host }),
     ...instructionMethods({ host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections, references, options.keyManagerTimeoutMs),
+    ...keyManagerMethods(keyManagerConnections, references, moves, options.keyManagerTimeoutMs),
     // The routine store's commands and list (#521), on each routine's own stream.
     ...routineMethods({
       log,
@@ -1268,6 +1294,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
   // verifications (#366), on the clock, and every fifteen minutes.
   keyManagerConnections.startSigningInAndVerifying();
+  // The stored values a Move left behind, its delete having failed (#371): deleted again, now, past the gate.
+  const leftBehindDeleted = moves.deleteLeftBehind();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
   // The release channel's checks: two minutes from now, then hourly (#346).
@@ -1341,6 +1369,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     forge,
     keyManagerConnections,
     keyManagers,
+    keyManagerMoves: { leftBehindDeleted },
     startPairing,
     workspaces: {
       checkoutIndex: createCheckoutIndex(log),

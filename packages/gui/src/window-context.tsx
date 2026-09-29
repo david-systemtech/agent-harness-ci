@@ -4,24 +4,26 @@ import type { Presentation, PresentationKey, PresentationValues } from "./presen
 
 /**
  * What one window renders from (ADR 0004): its one client runtime, its
- * presentation, and its platform's clock and shell. Components read the runtime's
- * projections through `useObservable` and act through its commands,
- * requests and drafts; they keep no copy of what a projection carries
- * (ADR 0003).
+ * presentation, its platform's clock and shell, and its own version.
+ * Components read the runtime's projections through `useObservable` and act
+ * through its commands, requests and drafts; they keep no copy of what a
+ * projection carries (ADR 0003).
  */
 interface WindowHolders {
   readonly runtime: Runtime;
   readonly presentation: Presentation;
   /** The platform's clock: what the window measures a silence on, a fake one in the tests. */
   readonly clock: Clock;
+  /** This client's version: the harness version the bundle was built as. */
+  readonly version: string;
   /** The platform's shell, absent in a browser tab: a member is used only once `capability` says it is present. */
   readonly shell?: Shell | undefined;
 }
 
 const WindowContext = createContext<WindowHolders | null>(null);
 
-export const WindowProvider = ({ runtime, presentation, clock, shell, children }: WindowHolders & { readonly children: ReactNode }) => {
-  const holders = useMemo(() => ({ runtime, presentation, clock, shell }), [runtime, presentation, clock, shell]);
+export const WindowProvider = ({ runtime, presentation, clock, version, shell, children }: WindowHolders & { readonly children: ReactNode }) => {
+  const holders = useMemo(() => ({ runtime, presentation, clock, version, shell }), [runtime, presentation, clock, version, shell]);
   return <WindowContext value={holders}>{children}</WindowContext>;
 };
 
@@ -36,6 +38,9 @@ export const useRuntime = (): Runtime => useWindow().runtime;
 
 /** The platform's clock. */
 export const useClock = (): Clock => useWindow().clock;
+
+/** This client's version. */
+export const useClientVersion = (): string => useWindow().version;
 
 /** The platform's shell: the desktop's, undefined in a browser tab. Ask `capability` for a member before using it. */
 export const useShell = (): Shell | undefined => useWindow().shell;

@@ -254,6 +254,10 @@ export const KeyManagerConnectionRecord = z
       description: "The policies runs receive, ticked from the login's: preset to every one at the first sign-in; null until then, unless a copy carried them.",
     }),
     basePath: KeyManagerBasePath.nullable().meta({ description: "Where Move keeps the harness's secrets; null until one is set." }),
+    suggestedBasePath: KeyManagerBasePath.nullable().meta({
+      description:
+        "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification. Null once a base path is set, and while the provider suggests none.",
+    }),
     injects: z.boolean().meta({ description: "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it." }),
     status: KeyManagerStatus,
     tokenInformation: KeyManagerTokenInformation.nullable().meta({ description: "What the login's lookup said of its token; null while it is not signed in." }),
@@ -269,7 +273,7 @@ export const KeyManagerConnectionRecord = z
   })
   .meta({
     description:
-      "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id.",
+      "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set) and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id.",
   });
 export type KeyManagerConnectionRecord = z.infer<typeof KeyManagerConnectionRecord>;
 
@@ -442,6 +446,14 @@ export const KeyManagerConnectionVerifiedPayload = z
   });
 export type KeyManagerConnectionVerifiedPayload = z.infer<typeof KeyManagerConnectionVerifiedPayload>;
 
+export const KeyManagerConnectionBasePathSetPayload = z
+  .object({
+    ...connectionPart,
+    basePath: KeyManagerBasePath.meta({ description: "Where Move keeps the harness's secrets on the connection from now on." }),
+  })
+  .meta({ description: "key-manager.connection.base-path-set: a person set where Move keeps the harness's secrets on the connection (#371)." });
+export type KeyManagerConnectionBasePathSetPayload = z.infer<typeof KeyManagerConnectionBasePathSetPayload>;
+
 export const KeyManagerConnectionRemovedPayload = z
   .object(connectionPart)
   .meta({ description: "key-manager.connection.removed: the environment no longer holds the connection; its credential is deleted." });
@@ -458,6 +470,7 @@ export const KEY_MANAGER_EVENT_PAYLOADS = {
   "key-manager.connection.signed-out": KeyManagerConnectionSignedOutPayload,
   "key-manager.connection.updated": KeyManagerConnectionUpdatedPayload,
   "key-manager.connection.policies-set": KeyManagerConnectionPoliciesSetPayload,
+  "key-manager.connection.base-path-set": KeyManagerConnectionBasePathSetPayload,
   "key-manager.connection.verified": KeyManagerConnectionVerifiedPayload,
   "key-manager.connection.removed": KeyManagerConnectionRemovedPayload,
 } as const;

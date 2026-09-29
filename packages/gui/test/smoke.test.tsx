@@ -45,7 +45,7 @@ const openWindow = async (t: TestEnvironment, opening?: { readonly sessionId: st
   const runtime = await pairedRuntime(t, platform);
   const presentation = await openPresentation(platform.documents, platform.reportError);
   onCleanup(() => presentation.close());
-  const view = render(<App runtime={runtime} presentation={presentation} clock={platform.clock} macOS={false} shell={platform.shell} />);
+  const view = render(<App runtime={runtime} presentation={presentation} clock={platform.clock} version={platform.client.version} macOS={false} shell={platform.shell} />);
   onCleanup(() => view.unmount());
 
   const environmentId = t.env.id;

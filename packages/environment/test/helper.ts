@@ -134,6 +134,8 @@ export interface TestEnvironmentOptions {
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
   /** The vault the environment holds; preset: the file vault in the data directory. */
   readonly vault?: EnvironmentOptions["vault"];
+  /** The Move sources registered at start (`test/move-sources.ts` scripts one); preset: the environment's own, the forge's. */
+  readonly moveSources?: EnvironmentOptions["moveSources"];
   /** The command git names as its credential helper, before `git-credential <slug>`; preset none. */
   readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
@@ -322,6 +324,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
     ...(options.vault !== undefined && { vault: options.vault }),
+    ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,

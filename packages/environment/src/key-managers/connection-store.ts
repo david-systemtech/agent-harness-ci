@@ -2,6 +2,7 @@ import {
   ENVIRONMENT_STREAM_KIND,
   type KeyManagerAuthMethod,
   type KeyManagerConnectionAddedPayload,
+  type KeyManagerConnectionBasePathSetPayload,
   type KeyManagerConnectionPoliciesSetPayload,
   type KeyManagerConnectionRecord,
   type KeyManagerConnectionRemovedPayload,
@@ -131,6 +132,10 @@ const policiesSet = (db: ProjectionDb, payload: KeyManagerConnectionPoliciesSetP
   db.run("UPDATE key_manager_connections SET ticks = ? WHERE id = ?", json(payload.ticks), payload.connectionId);
 };
 
+const basePathSet = (db: ProjectionDb, payload: KeyManagerConnectionBasePathSetPayload): void => {
+  db.run("UPDATE key_manager_connections SET base_path = ? WHERE id = ?", payload.basePath, payload.connectionId);
+};
+
 const verified = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnectionVerifiedPayload): void => {
   const { connectionId } = payload;
   moveStatus(db, connectionId, payload.status);
@@ -173,6 +178,8 @@ export const keyManagerConnectionsProjector: Projector = {
         return updated(db, event.payload as KeyManagerConnectionUpdatedPayload);
       case "key-manager.connection.policies-set":
         return policiesSet(db, event.payload as KeyManagerConnectionPoliciesSetPayload);
+      case "key-manager.connection.base-path-set":
+        return basePathSet(db, event.payload as KeyManagerConnectionBasePathSetPayload);
       case "key-manager.connection.verified":
         return verified(db, event, event.payload as KeyManagerConnectionVerifiedPayload);
       case "key-manager.connection.removed":
@@ -230,6 +237,8 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     policies: parsed<KeyManagerLoginPolicy[]>(row.policies),
     ticks: parsed<string[]>(row.ticks),
     basePath: row.base_path,
+    // Suggested in memory from the provider (`connections.ts`), never kept.
+    suggestedBasePath: null,
     injects: row.injects === 1,
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),
