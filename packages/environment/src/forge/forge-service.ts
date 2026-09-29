@@ -61,6 +61,8 @@ import { detectForge, type Detection } from "./detection.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 import { createForgeMoveSource } from "./move-source.js";
 import { createForgeInjection } from "./injection.js";
+import { forgesSection } from "./orientation.js";
+import type { OrientationSection } from "../instructions/orientation.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -124,6 +126,8 @@ import { createForgeInjection } from "./injection.js";
  *   process's and terminal's forge variables and credential helper
  *   (`injection.ts`), which the environment registers with its process
  *   environment.
+ * - **Runs are told of the forges** (#318): the orientation block's forges
+ *   section (`orientation.ts`), from the read model and never a clock.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -298,6 +302,14 @@ export interface ForgeService extends ForgeOperations {
    * service was given no `harnessCommand` for git to name.
    */
   readonly processEnvironment: ProcessEnvironmentSupplier | undefined;
+  /**
+   * The orientation block's forges section (#318): which forges runs reach,
+   * which is primary, the variables and API base of each, what each cannot
+   * do and what was left out, from the read model and never a clock.
+   * Undefined, as `processEnvironment` is, when runs are given no forge
+   * variables.
+   */
+  readonly orientation: OrientationSection | undefined;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -1004,6 +1016,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
             command: options.harnessCommand,
             address: options.address ?? (() => undefined),
           }),
+
+    orientation: options.harnessCommand === undefined ? undefined : forgesSection(() => listForgeAccounts(reader)),
 
     secrets,
 

@@ -216,10 +216,14 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     const { subscription } = await watcher.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
     await watcher.next((f) => f.type === "synchronized" && f.subscription === subscription);
 
-    await client.request("environment.rename", { commandId: randomUUID(), name: "SYSTEM-SERVER" });
-    await client.request("environment.setIcon", { commandId: randomUUID(), icon: "lab" });
-    await client.request("environment.setColour", { commandId: randomUUID(), colour: "lime" });
-    const look: EnvironmentLook = { name: "SYSTEM-SERVER", icon: "lab", colour: "lime" };
+    // The preset colour is a hash of the new environment's random id, so a fixed colour is already held one start in twelve:
+    // set changed false, it appends no notice for the wait below (#703).
+    const colour = (await discoveredLook(t.address)).colour === "lime" ? "teal" : "lime";
+    const changed = { receipt: { status: "accepted", changed: true } };
+    expect(await client.request("environment.rename", { commandId: randomUUID(), name: "SYSTEM-SERVER" })).toMatchObject(changed);
+    expect(await client.request("environment.setIcon", { commandId: randomUUID(), icon: "lab" })).toMatchObject(changed);
+    expect(await client.request("environment.setColour", { commandId: randomUUID(), colour })).toMatchObject(changed);
+    const look: EnvironmentLook = { name: "SYSTEM-SERVER", icon: "lab", colour };
     expect(await discoveredLook(t.address)).toEqual(look);
     expect(await helloLook(t)).toEqual(look);
     expect(t.env.name).toBe("SYSTEM-SERVER");
@@ -232,7 +236,7 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     expect(notices).toEqual([
       { type: "environment.renamed", payload: { name: "SYSTEM-SERVER" } },
       { type: "environment.icon-set", payload: { icon: "lab" } },
-      { type: "environment.colour-set", payload: { colour: "lime" } },
+      { type: "environment.colour-set", payload: { colour } },
     ]);
 
     await client.request("environment.rebuildProjections", { commandId: randomUUID() });
