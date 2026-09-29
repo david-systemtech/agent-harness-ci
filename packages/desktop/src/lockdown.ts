@@ -48,7 +48,8 @@ export interface NetworkLockdown {
  * `app` host, the preview scheme, or a WebSocket to an address the renderer
  * declared (its connections') or to loopback, where this machine's
  * environment listens. HTTP to an environment is the shell's `http`, made
- * outside Chromium.
+ * outside Chromium. DevTools' own frontend (`devtools:`) runs in the
+ * window's profile and passes too: no page can load it.
  */
 export const lockNetwork = (webRequest: { onBeforeRequest(listener: RequestListener): void }): NetworkLockdown => {
   let declared: ReadonlySet<string> = new Set();
@@ -60,7 +61,7 @@ export const lockNetwork = (webRequest: { onBeforeRequest(listener: RequestListe
       return false;
     }
     if (url.protocol === `${APP_SCHEME}:`) return isAppPage(address);
-    if (isPreview(address)) return true;
+    if (isPreview(address) || url.protocol === "devtools:") return true;
     if (url.protocol === "ws:" || url.protocol === "wss:") return LOOPBACK.test(url.hostname) || declared.has(`${url.protocol}//${url.host}`);
     return false;
   };

@@ -22,7 +22,9 @@ From a checkout, after `pnpm install`:
    main process (`packages/desktop/dist/main.js`) and the preload bundle
    (`packages/desktop/dist/preload.cjs`).
 2. `pnpm --filter @agent-harness/desktop start` runs `electron .` in the
-   package. The first run downloads Electron's binary: no install does.
+   package. The first run downloads Electron's binary: no install does. If it
+   cannot, `pnpm --filter @agent-harness/desktop exec install-electron`
+   fetches it.
 3. On Linux, if Electron stops with "The SUID sandbox helper binary was found,
    but is not configured correctly", give
    `packages/desktop/node_modules/electron/dist/chrome-sandbox` to root with
@@ -30,7 +32,9 @@ From a checkout, after `pnpm install`:
    which step 3 below proves.
 
 The steps below run in the window's DevTools console (View, Toggle Developer
-Tools) unless they say otherwise. `shell` there is `window.desktopShell`.
+Tools) unless they say otherwise. `desktopShell` there is the shell the
+preload exposes, and a member named bare is on it: `setBadge(3)` is
+`desktopShell.window.setBadge(3)`.
 
 ## Every platform
 
@@ -59,8 +63,8 @@ Tools) unless they say otherwise. `shell` there is `window.desktopShell`.
    machine, `await desktopShell.network.allow(["http://<its host>:<its port>"])`,
    then a WebSocket to `ws://<its host>:<its port>/ws` opens; allow `[]` again
    and a new one fails. A WebSocket to `ws://127.0.0.1:<port>/ws` of this
-   machine's environment opens without a declaration. Record whether DevTools
-   itself kept working under the lockdown.
+   machine's environment opens without a declaration. DevTools itself works
+   under the lockdown, its own `devtools:` frontend let through.
 7. **http.** With an environment listening,
    `await (await desktopShell.http("http://127.0.0.1:<port>/.well-known/agent-harness/environment")).json()`
    answers its discovery document; `desktopShell.http("https://example.org/")`

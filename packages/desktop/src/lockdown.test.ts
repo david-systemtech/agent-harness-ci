@@ -52,6 +52,11 @@ describe("the network lockdown", () => {
     expect(contents.cancels("agent-harness-preview://grant/3")).toBe(false);
   });
 
+  it("lets DevTools' own frontend load, which runs in the window's profile and which no page can reach", async () => {
+    const { electron } = await start();
+    expect(electron.window().webContents.cancels("devtools://devtools/bundled/devtools_app.html")).toBe(false);
+  });
+
   it("cancels every request elsewhere: the web, files, and the app scheme's other hosts", async () => {
     const { electron, shell } = await start();
     await shell().network.allow(["http://desk.lan:4777"]);
