@@ -90,7 +90,7 @@ export {
   type DesktopUpdateFailure,
   type DesktopUpdateView,
 } from "./desktop-update.js";
-export type { EnvironmentView } from "./projections/environments.js";
+export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
   COMMAND_EXPIRY_MS,
