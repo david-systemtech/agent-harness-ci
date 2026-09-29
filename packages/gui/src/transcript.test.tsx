@@ -260,16 +260,17 @@ describe("delegated work and plans", () => {
     expect(screen.queryByRole("list", { name: "Delegated work" })).toBeNull();
   });
 
-  it("renders a plan in place, as markdown, with how it was answered", async () => {
+  it("renders a plan in place once answered, as markdown, with how it was answered; while parked it is the card's", async () => {
     const { env, transcript, session } = await opened();
     env.startRun(session, "Plan the fix");
     const promptId = env.openPrompt(session, { kind: "plan", summary: "A plan to approve", plan: "## Steps\n\n1. Read the parser\n2. Fix the sum", toolName: null, input: null });
+    await screen.findByRole("region", { name: "Parked prompt" });
+    expect(within(transcript).queryByRole("article", { name: "Plan" })).toBeNull();
+    env.answerElsewhere(session, promptId, { decision: "deny" });
     const plan = await within(transcript).findByRole("article", { name: "Plan" });
     expect(within(plan).getByRole("heading", { name: "Steps" })).toBeDefined();
     expect(within(plan).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Read the parser", "Fix the sum"]);
-    expect(plan.textContent).toContain("Waiting for an answer");
-    env.answerElsewhere(session, promptId, { decision: "deny" });
-    await waitFor(() => expect(plan.textContent).toContain("Kept planning"));
+    expect(plan.textContent).toContain("Kept planning");
   });
 });
 
