@@ -25,6 +25,7 @@ import {
   verify,
 } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import { refusal } from "../../test/sessions.js";
 import { fileVault, VAULT_FILE } from "../serve/vault.js";
 
@@ -360,7 +361,8 @@ describe("forge.accounts.list", () => {
     await client.apply("environment.rebuildProjections", { commandId: randomUUID() });
     expect(await list(client)).toEqual(before);
     await t.close();
-    const again = await start({ dataDir });
+    // With no Set up step, whose Forges check would verify the forge account as the environment starts (#571).
+    const again = await start({ dataDir, setupSteps: NO_SETUP_STEPS });
     expect(await list(await again.client())).toEqual(before);
   });
 });

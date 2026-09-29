@@ -129,6 +129,7 @@ import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods } from "../setup/methods.js";
+import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
@@ -488,6 +489,11 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /** Set up's in-process seams (#571). */
+  readonly setup: {
+    /** Settles once this start's pass (#571), run past the settle, has checked every registered step: what a routines start pass (#535) and a test wait on. */
+    readonly startPass: Promise<void>;
+  };
   /** The workspaces' in-process seams (#329). */
   readonly workspaces: {
     /** For a repository identity, the directory a session on it works from here, else scratch: what a routine's move (#92) and hand-off re-resolve through. */
@@ -1041,27 +1047,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
-  const setup = createSetupService({
-    log,
-    clock,
-    presets: settingsPresets(),
-    stream: environmentStream,
-    steps: options.setupSteps ?? {
-      steps: STEP_REGISTRY,
-      stateChecks: environmentStateChecks({
-        log,
-        containment,
-        isRoot,
-        dataDir,
-        releaseChannel: () => channelChecks.releaseChannelHolds(),
-        updates: () => updates.machineHolds(channelChecks.status().newest),
-        hostUpdater: () => hostUpdater.holds(),
-        forge,
-        clock,
-        look: () => look.read(),
-      }),
-    },
-  });
+  const setupSteps: SetupSteps = options.setupSteps ?? {
+    steps: STEP_REGISTRY,
+    stateChecks: environmentStateChecks({
+      log,
+      containment,
+      isRoot,
+      dataDir,
+      releaseChannel: () => channelChecks.releaseChannelHolds(),
+      updates: () => updates.machineHolds(channelChecks.status().newest),
+      hostUpdater: () => hostUpdater.holds(),
+      forge,
+      clock,
+      look: () => look.read(),
+    }),
+  };
+  const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
   const table = createMethodTable({
     ...lifecycle.handlers,
@@ -1263,6 +1264,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
+  // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
+  // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
+  // no client needed. The routines scheduler's start pass (#535) runs after this one's.
+  const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
+  closers.push(() => setupScheduler.stop());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
@@ -1371,6 +1377,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },
     startPairing,
+    setup: { startPass: setupScheduler.startPass },
     workspaces: {
       checkoutIndex: createCheckoutIndex(log),
       identityPass: identityPasses.resolved,

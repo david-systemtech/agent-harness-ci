@@ -4,32 +4,31 @@ import { formatActor, type EventLog, type StreamRef } from "../event-log/event-l
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
-import { checkStep, type CheckedStep, type StateChecker } from "./check.js";
+import { checkStep, type CheckContext, type CheckedStep, type StateChecker } from "./check.js";
 
 /**
- * The SetupService (the Set up specification, "Modules" and "Results, the
- * cache and the subscription"; ADR 0031; #141, #308, #569): runs a
- * registered step's health check on this environment now, or every
- * registered step's at once, reading the settings as they are and asking
- * the state checks the environment was started with, and answers once each
- * step has answered or run out of its budget, in the registry's order. It
- * keeps each step's last good result since the start, for a result that
- * timed out or could not check to carry.
+ * The SetupService (the Set up specification, "Modules", "Results, the
+ * cache and the subscription" and "Running checks"; ADR 0031; #141, #308,
+ * #569, #571): runs a registered step's health check on this environment
+ * now, or every registered step's at once, reading the settings as they are
+ * and asking the state checks the environment was started with, and answers
+ * once each step has answered or run out of its budget, in the registry's
+ * order. A step's check never runs twice at once: asked for while it runs,
+ * by `setup.check` or by the scheduler (`scheduler.ts`), a step takes that
+ * run's result.
  *
  * Each result is kept in the result cache (`result-table.ts`), one row per
  * step beside the event log, which survives a restart with its checked-at
  * and which no check reads; `cached` reads it back for
- * `environment.subscribe`'s snapshot. A step's first result, and one that
- * differs from the cached one in anything but its checked-at, appends
- * `setup.result-changed` with the result on the environment stream, as
- * `system:setup` and in the transaction that writes the row; one that only
- * refreshes its checked-at updates the row and appends nothing. The cache
- * holds the latest check's result: one from a check that started before
- * the one whose result the cache holds, and answered after it, is answered
- * to its caller and kept nowhere.
- *
- * Not built here, and the Set up specification's (#571): the runs on
- * start, on a feature's events and on each step's cadence.
+ * `environment.subscribe`'s snapshot and the scheduler's cadence. A step's
+ * first result, and one that differs from the cached one in anything but its
+ * checked-at, appends `setup.result-changed` with the result on the
+ * environment stream, as `system:setup` and in the transaction that writes
+ * the row; one that only refreshes its checked-at updates the row and
+ * appends nothing. A result that timed out or could not check carries the
+ * last good result the cache holds: the cached result when it passed, done
+ * or skipped, else the one the cached result carried, so it survives a
+ * restart.
  */
 
 /** Who appends `setup.result-changed`: Set up itself, whoever asked for the check. */
@@ -53,8 +52,15 @@ export interface SetupServiceOptions {
 }
 
 export interface SetupService {
-  /** Checks `step` now, or every registered step when none is named; answers the results in the registry's order, each kept in the cache first. */
+  /**
+   * Checks `step` now, or every registered step when none is named; answers
+   * the results in the registry's order, each kept in the cache first. A
+   * step whose check is running is not checked again: it answers that run's
+   * result.
+   */
   check(step?: RegisteredStepId): Promise<StepResult[]>;
+  /** Whether `step`'s check is running now. */
+  checking(step: RegisteredStepId): boolean;
   /** Every registered step's cached result, in the registry's order: a step never checked, or whose row this build cannot read, is absent. */
   cached(): StepResult[];
 }
@@ -73,41 +79,59 @@ const readResult = (json: string | undefined): StepResult | undefined => {
 /** Whether two results of a step differ in nothing but when they were checked. */
 const sameButCheckedAt = (a: StepResult, b: StepResult): boolean => isDeepStrictEqual({ ...a, checkedAt: "" }, { ...b, checkedAt: "" });
 
+/** The last good result a step's cached result leaves for one that timed out or could not check: it, when it passed; else the one it carried. */
+const lastGoodOf = (cached: StepResult | undefined): LastGood | undefined => {
+  if (cached === undefined) return undefined;
+  if (cached.state === "needs-attention") return cached.lastGood;
+  return { state: cached.state, reason: cached.reason, checkedAt: cached.checkedAt };
+};
+
 export const createSetupService = (options: SetupServiceOptions): SetupService => {
   const { log, clock, steps, stream } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  const lastGood = new Map<RegisteredStepId, LastGood>();
-  /** How many checks have started since the environment did: each check's number is its place in that order. */
-  let started = 0;
-  /** The number of the check whose result each step's row holds, for rows written since the start. */
-  const keptFrom = new Map<RegisteredStepId, number>();
+  /** Each step's check that is running, which a call for the step while it runs takes the result of. */
+  const running = new Map<RegisteredStepId, Promise<StepResult>>();
 
-  /** Writes `result` to its step's row, and appends its notice when it changed, unless a later check's result is there. */
-  const keep = (result: StepResult, check: number): void => {
-    if ((keptFrom.get(result.step) ?? 0) > check) return;
-    keptFrom.set(result.step, check);
+  const cachedResult = (step: RegisteredStepId): StepResult | undefined => readResult(log.setupResults.read(step));
+
+  /** Writes `result` to its step's row, and appends its notice when it changed. */
+  const keep = (result: StepResult): void => {
     log.atomically((tx) => {
-      const cached = readResult(log.setupResults.read(result.step));
+      const cached = cachedResult(result.step);
       log.setupResults.write(tx, result.step, JSON.stringify(result));
       if (cached !== undefined && sameButCheckedAt(cached, result)) return;
       log.append(stream, [{ type: "setup.result-changed", payload: result }], { actor: SETUP_ACTOR, tx });
     });
   };
 
-  const run = async (step: CheckedStep, values: SettingsValues, checkedAt: string, check: number): Promise<StepResult> => {
-    const result = await checkStep(step, { values, stateChecks: steps.stateChecks, clock, checkedAt, lastGood: lastGood.get(step.id) });
-    if (result.state !== "needs-attention") lastGood.set(step.id, { state: result.state, reason: result.reason, checkedAt: result.checkedAt });
-    keep(result, check);
-    return result;
+  /** Checks `step`, or takes the result of its check that is running; it reads the settings and the clock as it is called. */
+  const checkOne = (step: CheckedStep): Promise<StepResult> => {
+    const underway = running.get(step.id);
+    if (underway !== undefined) return underway;
+    const context: CheckContext = {
+      values: readSettings(reader, options.presets),
+      stateChecks: steps.stateChecks,
+      clock,
+      checkedAt: clock.now().toISOString(),
+      lastGood: lastGoodOf(cachedResult(step.id)),
+    };
+    let settle!: (run: Promise<StepResult>) => void;
+    const current = new Promise<StepResult>((resolve) => (settle = resolve)).finally(() => running.delete(step.id));
+    // Recorded as running before its state checks are asked, so an event one of them appends at once finds it so.
+    running.set(step.id, current);
+    settle(
+      checkStep(step, context).then((result) => {
+        keep(result);
+        return result;
+      }),
+    );
+    return current;
   };
 
   return {
-    check(id) {
-      const values = readSettings(reader, options.presets);
-      const checkedAt = clock.now().toISOString();
-      const check = ++started;
-      return Promise.all(steps.steps.filter((entry) => id === undefined || entry.id === id).map((entry) => run(entry, values, checkedAt, check)));
-    },
+    // Async, so a read that throws as a check starts rejects the call rather than throwing at its caller.
+    check: async (id) => Promise.all(steps.steps.filter((entry) => id === undefined || entry.id === id).map(checkOne)),
+    checking: (id) => running.has(id),
     cached() {
       const rows = new Map(log.setupResults.all().map((row) => [row.step, row.result]));
       return steps.steps.flatMap((entry) => readResult(rows.get(entry.id)) ?? []);

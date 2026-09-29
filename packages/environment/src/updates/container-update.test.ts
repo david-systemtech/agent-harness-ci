@@ -214,7 +214,8 @@ describe("updates.begin's refusals", () => {
     // Ready now, but another update's id is still not the ready one.
     t.clock.advance(24 * HOUR);
     expect((await begin(client, randomUUID())).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "not_ready" } } });
-    expect(t.env.log.head()).toBe(head);
+    // Nothing but the Set up results the day's checks changed (#571).
+    expect(new Set(t.env.log.read<{ type: string }>("SELECT type FROM events WHERE sequence > ?", head).map((row) => row.type))).toEqual(new Set(["setup.result-changed"]));
     expect(t.env.readiness()).toBe("ready");
   });
 
