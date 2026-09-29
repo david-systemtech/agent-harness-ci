@@ -780,7 +780,9 @@ export const createOutbox = (host: OutboxHost): Outbox => {
    */
   const handOffDraft = (environmentId: string, sessionId: string): string | null => {
     const held = host.held(environmentId, sessionId);
-    const own = host.shown(environmentId)?.sessions.get(sessionId.toLowerCase())?.draft ?? held.draft;
+    // The list's, which lays a waiting draft over as the held session's does; the held session's only for one the list lacks.
+    const listed = host.shown(environmentId)?.sessions.get(sessionId.toLowerCase());
+    const own = listed !== undefined ? listed.draft : held.draft;
     if (own !== null && own.length > 0) return own;
     return held.runs.length > 0 ? null : (branches.get(sessionKey(environmentId, sessionId)) ?? null);
   };

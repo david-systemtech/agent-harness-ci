@@ -148,8 +148,13 @@ describe("commands.fork", () => {
     const fork = runtime.projections.session(env, branch.sessionId);
     onTestFinished(fork.subscribe(() => undefined));
     await vi.waitFor(() => expect(fork.read().draft).toBe("Then the tests"), EVENTUALLY);
-    // The composer emptied to type the hand-off: the branch's own draft is empty now.
+    // The composer emptied to type the hand-off, and the environment has it: the branch's own draft is empty, so only the
+    // prompt it was made at can be carried.
     runtime.drafts.set(env, branch.sessionId, null);
+    runtime.drafts.flush();
+    await settled();
+    expect(events(branch.sessionId).at(-1)).toMatchObject({ type: "session.draft-set", payload: { draft: null } });
+    await vi.waitFor(() => expect(fork.read().draft).toBeNull(), EVENTUALLY);
 
     const handedOff = await runtime.commands.fork(env, branch.sessionId, { account: WORK });
     expect(handedOff.answer).toMatchObject({ ok: true });
