@@ -217,8 +217,8 @@ describe("the resolved pass", () => {
 
     const since = (id: string) => again.env.log.readStream({ kind: "session", id }, from);
     for (const { id } of [scratch, deleted, identified]) expect(since(id), id).toEqual([]);
-    // The availability watcher's pass runs beside this one after the start and marks the gone directory missing (#328),
-    // before this pass settles or after it: that mark alone is left out.
+    // The availability watcher marks the gone directory missing (#328), by the look this pass has it make (#699) or by its
+    // own pass beside this one, before this pass settles or after it: that mark alone is left out.
     const missingMark = ({ type, payload }: { type: string; payload: Record<string, unknown> }): boolean =>
       type === "session.workspace-status-changed" && payload["status"] === "missing";
     expect(since(gone.id).filter((event) => !missingMark(event)), gone.id).toEqual([]);
