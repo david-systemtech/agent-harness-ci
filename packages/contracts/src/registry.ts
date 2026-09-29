@@ -120,6 +120,7 @@ import {
   updatesStatus,
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
+import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -267,6 +268,8 @@ export const methods = [
   filesRead,
   diffsWorkingTree,
   diffsSession,
+  workspacesBrowse,
+  workspacesInspect,
   updatesStatus,
   updatesCheck,
   updatesApply,

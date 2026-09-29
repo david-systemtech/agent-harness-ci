@@ -25,6 +25,7 @@ import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtu
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
+import { workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -510,6 +511,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...keyManagerMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
+  ...workspaceMethodFixtures,
   ...updateMethodFixtures,
   ...routineMethodFixtures,
 };
@@ -888,6 +890,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...themeSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
+  ...workspaceSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
   ...routineSchemaFixtures,
