@@ -426,7 +426,8 @@ describe("a workspace of any kind", () => {
     expect((await client.request("diffs.workingTree", { sessionId: id })).diff).toContain("+# hello");
 
     await client.apply("runs.start", { commandId: randomUUID(), sessionId: id, text: "Review it" });
-    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(1));
+    // The run is launched once the start's transaction commits, before its answer is sent: asked once, never polled on a clock (#612).
+    expect(t.adapter.runs).toHaveLength(1);
     expect(t.adapter.lastRun().input.workspace).toEqual(worktree);
   });
 });
