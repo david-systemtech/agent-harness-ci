@@ -178,6 +178,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
 
   /** Holds the forge account's scheduled verifications until `until`, as the forge asked of `account`'s credential; a credential replaced since draws none. */
   const pause = (account: ForgeAccountRecord, until: Date): void => {
+    // Nothing is scheduled once closed, and the event log may be closed too.
+    if (closed) return;
     const current = liveForgeAccount(reader, account.id);
     if (current === null || credentialOf(current) !== credentialOf(account)) return;
     pausedUntil.set(account.id, Math.max(pausedUntil.get(account.id) ?? 0, until.getTime()));

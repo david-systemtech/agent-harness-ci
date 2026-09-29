@@ -493,4 +493,16 @@ describe("rate limits", () => {
     const verified = (await forgeEvents(client, from)).filter((event) => event.type === "forge.account.verified");
     expect(verified.map((event) => event.occurredAt)).toEqual(["2026-09-24T01:00:00.000Z"]);
   });
+  it("one the forge answers after the environment closed pauses nothing, and the operation still answers it", async () => {
+    const { t, forge } = await withAccount();
+    let answer = (): void => undefined;
+    forge.answer(TOKEN, "GET /api/v1/repos/david/bank", { status: 429, headers: { "retry-after": "3600" }, after: new Promise<void>((resolve) => (answer = resolve)) });
+    const reading = t.env.forge.repositories.get({ repository: "david/bank", purpose: "check a bank" });
+    await vi.waitFor(() => expect(forge.requests.at(-1)?.path).toBe("/api/v1/repos/david/bank"));
+
+    await t.close();
+    answer();
+
+    expect(await reading).toMatchObject({ outcome: "unreachable", message: expect.stringContaining("rate-limiting this token until 2026-09-24T01:00:00.000Z") });
+  });
 });
