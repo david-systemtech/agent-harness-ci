@@ -405,7 +405,7 @@ describe("the forges section in the orientation block", () => {
   const manifestOf = (t: TestEnvironment, sessionId: string) =>
     (t.env.log.readStream({ kind: "session", id: sessionId }).findLast((event) => event.type === "run.instructions.composed")?.payload as RunInstructionsComposedPayload | undefined)?.manifest;
 
-  it("is registered third, after this environment's section, in the user layer's orientation part", async () => {
+  it("is registered after this environment's and the key managers' sections, in the user layer's orientation part", async () => {
     const forge = await fakeForge();
     const t = await start(forge);
     const client = await t.client();
@@ -416,7 +416,7 @@ describe("the forges section in the orientation block", () => {
     const text = await runTo(t, client, session.id);
 
     expect(text.startsWith("# Orientation\n\n## This environment\n\n")).toBe(true);
-    expect(text.match(/^## .+$/gm)).toEqual(["## This environment", "## Forges"]);
+    expect(text.match(/^## .+$/gm)).toEqual(["## This environment", "## Key managers", "## Forges"]);
     expect(text).toContain(`## Forges\n\n- home: ${hostOf(forge)} (Forgejo)`);
     expect(manifestOf(t, session.id)).toMatchObject({ layers: [{ layer: "user", parts: [{ id: "orientation", characters: text.length }] }], unreadRegistries: [] });
   });

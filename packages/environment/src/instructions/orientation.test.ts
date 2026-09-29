@@ -135,7 +135,8 @@ describe("the OrientationRenderer", () => {
 
     const text = await runTo(t, client, session.id);
 
-    expect(headings(text)).toEqual(["## This environment", "## Banks"]);
+    // No forge is reachable without a harness command, and no provider is registered for the other environments.
+    expect(headings(text)).toEqual(["## This environment", "## Key managers", "## Banks"]);
     expect(text.endsWith("## Banks\n\ncortex: a memory bank")).toBe(true);
   });
 

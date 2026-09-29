@@ -1,3 +1,4 @@
+import type { InjectionLevel } from "../adapter/process-environment.js";
 import type { InstructionScope } from "../adapter/seams.js";
 import type { Clock } from "../serve/clock.js";
 import type { OrientationAnswer, OrientationSeam } from "./composer.js";
@@ -48,6 +49,21 @@ export interface OrientationRenderer {
   /** The composer's orientation seam: the block for a run, and the sections it could not read. */
   readonly seam: OrientationSeam;
 }
+
+/**
+ * An instant as the block states it (key-managers spec, "The orientation
+ * block"): in UTC to the minute, `2026-09-28 09:14 UTC`, the time a status
+ * last changed and never when it was last verified.
+ */
+export const utcMinute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
+
+/**
+ * Who denied a run injection, as every deny line in the block names them
+ * (#714, #381): this environment's setting, or the account, routine or bot
+ * by the id the run's instruction scope carries. #722 asks David whether a
+ * label or name should replace the id; this is the one place that changes.
+ */
+export const injectionDenier = (level: InjectionLevel): string => (level.kind === "environment" ? "this environment's setting" : `the ${level.kind} ${level.id}`);
 
 /** The block's heading, over its sections. */
 const BLOCK_HEADING = "# Orientation";

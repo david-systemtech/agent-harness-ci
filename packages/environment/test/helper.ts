@@ -106,7 +106,7 @@ export interface TestEnvironmentOptions {
   readonly launcher?: TestLauncher;
   /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
-  /** Sections registered with the OrientationRenderer after the environment's own (#380); preset: none. */
+  /** Sections registered with the OrientationRenderer beside the environment's own, each in place of the environment's own of its name (#380, #381); preset: none. */
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
