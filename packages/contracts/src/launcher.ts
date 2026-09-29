@@ -231,6 +231,17 @@ export const parseEnvironmentMessage = (value: unknown): EnvironmentMessage | un
 };
 
 /**
+ * Where a release's server artefact, unpacked, holds its own Node runtime:
+ * where Node's archive for the platform puts it once unpacked into the
+ * artefact's `node` folder. The launcher runs each installed version with it,
+ * and the desktop runs the `service` verbs of the artefact it carries with it.
+ */
+export const artefactNode = (platform: string): readonly string[] => (platform === "win32" ? ["node", "node.exe"] : ["node", "bin", "node"]);
+
+/** Where a release's server artefact, unpacked, holds its CLI's entry script. */
+export const ARTEFACT_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
+
+/**
  * The database, a file in the data directory: the environment's SQLite event
  * log, with its `-wal` and `-shm` files beside it. The launcher snapshots all
  * three before an update and copies them back when it rolls one back.

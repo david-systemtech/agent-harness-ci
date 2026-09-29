@@ -4,11 +4,10 @@ import { standardWebSocketFactory, writable, type Clock, type DocumentStore, typ
  * What the runtime needs from a window, from what every browser has
  * (docs/specs/gui.md, "The desktop platform"): the system clock, the network
  * signal from the online and visibility events, the browser's WebSocket and
- * `fetch`. The desktop platform (#395) keeps its documents in IndexedDB and
- * its client session tokens through the shell's `secrets`, and reaches HTTP
- * through the shell's `http`; the browser tab's is milestone 2's. Until then
- * the bundle's own platform keeps its documents and tokens in memory, so a
- * reload forgets them.
+ * `fetch`. The desktop platform (`desktop-platform.ts`) is built on the
+ * first two. A browser tab's platform is milestone 2's; until then the
+ * bundle opened outside the desktop keeps its documents and tokens in
+ * memory, so a reload forgets them.
  */
 
 /** The system's time and timers. */

@@ -220,6 +220,7 @@ describe("the method registry", () => {
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
+      "keyManagers.connections.setPolicies",
       "keyManagers.connections.signOut",
       "keyManagers.connections.remove",
       "settings.update",
@@ -399,8 +400,11 @@ describe("the method registry", () => {
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"
       | "keyManagers.connections.update"
+      | "keyManagers.connections.setPolicies"
       | "keyManagers.connections.signOut"
       | "keyManagers.connections.remove"
+      | "keyManagers.connections.verify"
+      | "keyManagers.certificate.preview"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

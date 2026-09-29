@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { EventEnvelope, EventFrame, KeyManagerConnectionRecord, ParamsOf, ResponseOf } from "@agent-harness/contracts";
+import type { EventEnvelope, EventFrame, KeyManagerConnectionRecord, ParamsOf, ResponseOf, ResultOf } from "@agent-harness/contracts";
 import type { WireClient } from "./wire-client.js";
 
 /**
@@ -46,7 +46,17 @@ export const signOut = (client: WireClient, connectionId: string): Promise<Respo
 export const remove = (client: WireClient, connectionId: string): Promise<ResponseOf<"keyManagers.connections.remove">> =>
   client.request("keyManagers.connections.remove", { commandId: randomUUID(), connectionId });
 
+export const setPolicies = (client: WireClient, connectionId: string, ticks: readonly string[]): Promise<ResponseOf<"keyManagers.connections.setPolicies">> =>
+  client.request("keyManagers.connections.setPolicies", { commandId: randomUUID(), connectionId, ticks: [...ticks] });
+
 export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> => (await client.request("keyManagers.list", {})).connections;
+
+/** `keyManagers.connections.verify` of one connection, or every one: the records it answers. */
+export const verify = async (client: WireClient, connectionId?: string): Promise<KeyManagerConnectionRecord[]> =>
+  (await client.request("keyManagers.connections.verify", connectionId === undefined ? {} : { connectionId })).connections;
+
+/** `keyManagers.certificate.preview` of `address`. */
+export const preview = (client: WireClient, address: string): Promise<ResultOf<"keyManagers.certificate.preview">> => client.request("keyManagers.certificate.preview", { address });
 
 /** The key-manager events a client reads on `environment.subscribe` after `afterSequence`, up to where it is synchronized. */
 export const keyManagerEvents = async (client: WireClient, afterSequence: number): Promise<EventEnvelope[]> => {

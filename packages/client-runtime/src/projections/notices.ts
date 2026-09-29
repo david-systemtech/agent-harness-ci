@@ -32,9 +32,10 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * An update's pending, started and cancelled notices (#335) raise none:
  * they change the card and About, which follow `updates.status` as the
  * request cache fetches it again on every update notice (#344). A
- * routine's client-notice delivery (ADR 0008) and a key manager's failed
- * verification (ADR 0011) are owed: no event on the environment's stream
- * carries them yet (#92, #91).
+ * routine's client-notice delivery (ADR 0008) is owed: no event on the
+ * environment's stream carries it yet (#92). A key manager's failed
+ * verification (ADR 0011) is `key-manager.connection.verified` (#366), whose
+ * row is the client runtime's key-manager part (#384).
  */
 
 export interface EnvironmentNoticeContext {
@@ -153,11 +154,13 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "forge.account.removed":
         case "forge.origin-missing":
           return;
-        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) arrive with its verification (#366).
+        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) are the client runtime's key-manager part (#384).
         case "key-manager.connection.added":
         case "key-manager.connection.signed-in":
         case "key-manager.connection.signed-out":
         case "key-manager.connection.updated":
+        case "key-manager.connection.policies-set":
+        case "key-manager.connection.verified":
         case "key-manager.connection.removed":
           return;
       }

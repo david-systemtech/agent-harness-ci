@@ -110,6 +110,43 @@
           ],
           "description": "The token role run tokens are created against; null for none."
         },
+        "policies": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                    "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+                  },
+                  "writes": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no",
+                      "possibly"
+                    ],
+                    "description": "Whether a login's policy can write: yes (its text grants create, update, patch or delete on a path outside auth/, sys/, cubbyhole/ and identity/), no (it grants none there) or possibly (its text could not be read with the login)."
+                  }
+                },
+                "required": [
+                  "name",
+                  "writes"
+                ],
+                "description": "One of the login's policies, as its lookup names it (never root), and whether it can write, read from its text where the login may."
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The login's policies from its lookup, each flagged when it can write, as the last verification read them; null until one has."
+        },
         "ticks": {
           "anyOf": [
             {
@@ -245,11 +282,25 @@
           "description": "What the login's lookup said of its token; null while it is not signed in."
         },
         "canMint": {
-          "description": "Whether the login can mint run tokens; null until a verification has read its capabilities.",
+          "description": "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them.",
           "type": [
             "boolean",
             "null"
           ]
+        },
+        "verifiedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the connection was last verified, whatever that found; null until it has been. It moves with every verification, where the status's since-time moves only when the status changes."
         },
         "copiedFrom": {
           "anyOf": [
@@ -312,17 +363,19 @@
         "mount",
         "username",
         "tokenRole",
+        "policies",
         "ticks",
         "basePath",
         "injects",
         "status",
         "tokenInformation",
         "canMint",
+        "verifiedAt",
         "copiedFrom",
         "importedFrom",
         "createdAt"
       ],
-      "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the ticked policies, base path and whether it injects; its status, token information and whether it can mint; where it came from, and when it was added. Never a secret or a token id."
+      "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
     }
   },
   "required": [

@@ -1,7 +1,8 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
-import type { KeyManagerTokenInformation } from "@agent-harness/contracts";
-import type { ConnectionProvider, ProviderFailure, SignInTarget } from "./provider.js";
+import type { KeyManagerLoginPolicy, KeyManagerTokenInformation } from "@agent-harness/contracts";
+import { policyWrites } from "./policy-writes.js";
+import type { ConnectionProvider, LoginFailure, ProviderFailure, SignInTarget } from "./provider.js";
 
 /**
  * The OpenBao provider (key-managers spec, "Providers": OpenBao and Vault
@@ -9,12 +10,26 @@ import type { ConnectionProvider, ProviderFailure, SignInTarget } from "./provid
  * `auth/<mount>/login` with its role id and secret id, userpass at
  * `auth/<mount>/login/<username>` with its password, and a token is its own
  * login; a login's token is looked up at `auth/token/lookup-self` and
- * revoked at `auth/token/revoke-self`, each with the token itself. A 503 is
- * read against `sys/seal-status`, so a sealed OpenBao is told apart from one
- * that cannot answer. Every request verifies the certificate of an `https`
- * address, against the pinned CA when there is one and the system's trusted
- * CAs otherwise, whatever the process's environment says: TLS verification
- * is never turned off.
+ * revoked at `auth/token/revoke-self`, each with the token itself.
+ *
+ * A verification (#366) reads `sys/seal-status` first, so sealed is its own
+ * finding; then the token's own lookup; then its capabilities on the
+ * token-create path, or its token role's (`sys/capabilities-self`): it can
+ * mint run tokens with `update` there, the one operation OpenBao's ACL
+ * checks on those paths, which register no existence check; then each of
+ * its policies' texts (`sys/policies/acl/<name>`), a policy it may not read
+ * possibly writing.
+ *
+ * An answer other than a success falls into one of the provider's
+ * categories: a 503 read against the seal status, sealed or not; a 429
+ * rate-limited; any other server error unreachable; on a login's own paths
+ * any other refusal is the credential refused; elsewhere a 404 is
+ * not-found and any other refusal denied. Every request verifies the
+ * certificate of an `https` address, against the pinned CA when there is
+ * one, which is then the only trust anchor (a pinned leaf or intermediate
+ * anchors the chain itself), and the system's trusted CAs otherwise,
+ * whatever the process's environment says: TLS verification is never
+ * turned off.
  */
 
 /** How long one call may take (ADR 0031's budget), past which OpenBao counts as unreachable. */
@@ -49,12 +64,12 @@ const CERTIFICATE_ERRORS = new Set([
 ]);
 
 /** What a call came back with: OpenBao's status and its JSON answer, or why there was none. */
-type Reply = { readonly outcome: "answered"; readonly status: number; readonly body: unknown } | ProviderFailure;
+type Reply = { readonly outcome: "answered"; readonly status: number; readonly body: unknown } | LoginFailure;
 
-const unreachable = (target: SignInTarget, reason: string): ProviderFailure => ({ outcome: "unreachable", message: `OpenBao at ${target.address} could not be reached: ${reason}.` });
+const unreachable = (target: SignInTarget, reason: string): LoginFailure => ({ outcome: "unreachable", message: `OpenBao at ${target.address} could not be reached: ${reason}.` });
 
 /** What a request that failed before an answer comes to: a certificate that does not verify, or no answer at all. */
-const failureOf = (target: SignInTarget, error: NodeJS.ErrnoException): ProviderFailure => {
+const failureOf = (target: SignInTarget, error: NodeJS.ErrnoException): LoginFailure => {
   const code = error.code ?? "";
   if (CERTIFICATE_ERRORS.has(code)) {
     const message =
@@ -89,13 +104,24 @@ const readBody = (response: IncomingMessage): Promise<string> =>
     response.on("error", reject);
   });
 
+/** How one call is made: with the token, a JSON body, and until `signal` aborts. */
+interface CallOptions {
+  readonly token?: string;
+  readonly body?: unknown;
+  readonly signal?: AbortSignal | undefined;
+}
+
 /**
  * One call to OpenBao's API under `/v1/`: `X-Vault-Token` carries the token
  * when there is one, and a JSON body the request's fields. The certificate is
  * verified against the pinned CA, or the system's with none, always.
  */
-const call = (target: SignInTarget, method: "GET" | "POST", path: string, options: { readonly token?: string; readonly body?: unknown } = {}): Promise<Reply> =>
+const call = (target: SignInTarget, method: "GET" | "POST", path: string, options: CallOptions = {}): Promise<Reply> =>
   new Promise((resolve) => {
+    if (options.signal?.aborted === true) {
+      resolve(unreachable(target, "the verification's time ran out"));
+      return;
+    }
     const url = new URL(`/v1/${path}`, target.address);
     const body = options.body === undefined ? undefined : JSON.stringify(options.body);
     const headers: Record<string, string> = { accept: "application/json" };
@@ -107,7 +133,9 @@ const call = (target: SignInTarget, method: "GET" | "POST", path: string, option
       timeout: OPENBAO_CALL_TIMEOUT_MS,
       // Never off, whatever NODE_TLS_REJECT_UNAUTHORIZED says: the pinned CA is the only trust added.
       rejectUnauthorized: true,
-      ...(target.ca !== null && { ca: target.ca }),
+      // A pinned CA is the trust anchor as it is, root or not: a person may pin the leaf or intermediate a preview answered.
+      ...(target.ca !== null && { ca: target.ca, allowPartialTrustChain: true }),
+      ...(options.signal !== undefined && { signal: options.signal }),
     };
     const answered = (response: IncomingMessage): void => {
       readBody(response).then(
@@ -130,22 +158,36 @@ const firstError = (body: unknown): string => {
   return first === undefined ? "" : first.replace(/\s+/g, " ").trim();
 };
 
+const sealedFailure = (target: SignInTarget): LoginFailure => ({ outcome: "sealed", message: `OpenBao at ${target.address} is sealed: unseal it to sign in.` });
+
 /**
- * What an answer other than a success comes to: a 503 read against the
- * seal status, sealed or not; any other server error or a rate limit is
- * unreachable; the rest is the credential refused.
+ * What an answer other than a success to a login's own call comes to: a 503
+ * read against the seal status, sealed or not; a 429 rate-limited; any
+ * other server error unreachable; the rest is the credential refused.
  */
-const refusal = async (target: SignInTarget, status: number, body: unknown): Promise<ProviderFailure> => {
+const refusal = async (target: SignInTarget, status: number, body: unknown, signal?: AbortSignal): Promise<LoginFailure> => {
   const said = firstError(body);
   const detail = `HTTP ${status}${said === "" ? "" : `: ${said}`}`;
   if (status === 503) {
-    const seal = await call(target, "GET", "sys/seal-status");
-    if (seal.outcome === "answered" && isRecord(seal.body) && seal.body["sealed"] === true) {
-      return { outcome: "sealed", message: `OpenBao at ${target.address} is sealed: unseal it to sign in.` };
-    }
+    const seal = await call(target, "GET", "sys/seal-status", { signal });
+    if (seal.outcome === "answered" && isRecord(seal.body) && seal.body["sealed"] === true) return sealedFailure(target);
   }
-  if (status >= 500 || status === 429) return { outcome: "unreachable", message: `OpenBao at ${target.address} could not answer (${detail}).` };
+  if (status === 429) return { outcome: "rate-limited", message: `OpenBao at ${target.address} asked the harness to slow down (${detail}).` };
+  if (status >= 500) return { outcome: "unreachable", message: `OpenBao at ${target.address} could not answer (${detail}).` };
   return { outcome: "credential-rejected", message: `OpenBao at ${target.address} refused the credential (${detail}).` };
+};
+
+/**
+ * What an answer other than a success to any other call, which `asked`
+ * names (`read the policy agents`), comes to: as a login's, except that a
+ * 404 is not-found and any other refusal denied.
+ */
+const readRefusal = async (target: SignInTarget, asked: string, status: number, body: unknown, signal?: AbortSignal): Promise<ProviderFailure> => {
+  if (status === 429 || status >= 500) return refusal(target, status, body, signal);
+  const said = firstError(body);
+  const detail = `HTTP ${status}${said === "" ? "" : `: ${said}`}`;
+  if (status === 404) return { outcome: "not-found", message: `OpenBao at ${target.address} found nothing to ${asked} (${detail}).` };
+  return { outcome: "denied", message: `OpenBao at ${target.address} did not let the login ${asked} (${detail}).` };
 };
 
 /** A mount path as it goes into a URL: each of its names encoded. */
@@ -176,28 +218,94 @@ const lookedUp = (body: unknown): { readonly information: KeyManagerTokenInforma
   };
 };
 
+/** The path a login's run tokens are created at: its token role's, or the token store's own. */
+const createPath = (tokenRole: string | null): string => (tokenRole === null ? "auth/token/create" : `auth/token/create/${tokenRole}`);
+
+/** What `sys/capabilities-self` answered for `path`: its capabilities, read where OpenBao puts them (under `data` and beside it); empty for none. */
+const capabilitiesIn = (body: unknown, path: string): string[] => {
+  const data = isRecord(body) && isRecord(body["data"]) ? body["data"] : body;
+  const listed = isRecord(data) ? (data[path] ?? data["capabilities"]) : undefined;
+  return Array.isArray(listed) ? listed.filter((capability): capability is string => typeof capability === "string") : [];
+};
+
+/** A policy's text as `sys/policies/acl/<name>` answers it; null for an answer holding none. */
+const policyTextIn = (body: unknown): string | null => {
+  const data = isRecord(body) && isRecord(body["data"]) ? body["data"] : body;
+  const text = isRecord(data) ? data["policy"] : undefined;
+  return typeof text === "string" ? text : null;
+};
+
+/** A category a verification cannot go on past: the key manager did not answer, is sealed, rejects its certificate or asks it to slow down. */
+const stopsVerification = (failure: ProviderFailure): failure is LoginFailure => failure.outcome !== "denied" && failure.outcome !== "not-found" && failure.outcome !== "credential-rejected";
+
+const logIn: ConnectionProvider["logIn"] = async (target, credential, signal) => {
+  if (credential.method === "token") return { outcome: "logged-in", token: credential.token, minted: false };
+  const reply =
+    credential.method === "approle"
+      ? await call(target, "POST", `auth/${encodedPath(target.mount)}/login`, { body: { role_id: credential.roleId, secret_id: credential.secretId }, signal })
+      : await call(target, "POST", `auth/${encodedPath(target.mount)}/login/${encodeURIComponent(target.username ?? "")}`, { body: { password: credential.password }, signal });
+  if (reply.outcome !== "answered") return reply;
+  if (reply.status < 200 || reply.status > 299) return refusal(target, reply.status, reply.body, signal);
+  const auth = isRecord(reply.body) ? reply.body["auth"] : undefined;
+  const token = isRecord(auth) ? auth["client_token"] : undefined;
+  if (typeof token !== "string" || token === "") return unreachable(target, "its login answered no token");
+  return { outcome: "logged-in", token, minted: true };
+};
+
+const lookUp: ConnectionProvider["lookUp"] = async (target, token, signal) => {
+  const reply = await call(target, "GET", "auth/token/lookup-self", { token, signal });
+  if (reply.outcome !== "answered") return reply;
+  if (reply.status !== 200) return refusal(target, reply.status, reply.body, signal);
+  const found = lookedUp(reply.body);
+  return found === null ? unreachable(target, "its token lookup answered no token") : { outcome: "found", ...found };
+};
+
+const readPolicy: ConnectionProvider["readPolicy"] = async (target, token, name, signal) => {
+  const path = `sys/policies/acl/${encodeURIComponent(name)}`;
+  const reply = await call(target, "GET", path, { token, signal });
+  if (reply.outcome !== "answered") return reply;
+  if (reply.status !== 200) return readRefusal(target, `read the policy ${name}`, reply.status, reply.body, signal);
+  const text = policyTextIn(reply.body);
+  return text === null ? { outcome: "not-found", message: `OpenBao at ${target.address} answered no text for the policy ${name}.` } : { outcome: "read", text };
+};
+
 export const openBaoProvider: ConnectionProvider = {
-  async logIn(target, credential) {
-    if (credential.method === "token") return { outcome: "logged-in", token: credential.token, minted: false };
-    const reply =
-      credential.method === "approle"
-        ? await call(target, "POST", `auth/${encodedPath(target.mount)}/login`, { body: { role_id: credential.roleId, secret_id: credential.secretId } })
-        : await call(target, "POST", `auth/${encodedPath(target.mount)}/login/${encodeURIComponent(target.username ?? "")}`, { body: { password: credential.password } });
-    if (reply.outcome !== "answered") return reply;
-    if (reply.status < 200 || reply.status > 299) return refusal(target, reply.status, reply.body);
-    const auth = isRecord(reply.body) ? reply.body["auth"] : undefined;
-    const token = isRecord(auth) ? auth["client_token"] : undefined;
-    if (typeof token !== "string" || token === "") return unreachable(target, "its login answered no token");
-    return { outcome: "logged-in", token, minted: true };
+  logIn,
+
+  lookUp,
+
+  async verify(target, token, { tokenRole, signal }) {
+    const seal = await call(target, "GET", "sys/seal-status", { signal });
+    if (seal.outcome !== "answered") return seal;
+    if (seal.status !== 200) return refusal(target, seal.status, seal.body, signal);
+    if (isRecord(seal.body) && seal.body["sealed"] === true) return sealedFailure(target);
+
+    const found = await lookUp(target, token, signal);
+    if (found.outcome !== "found") return found;
+
+    const path = createPath(tokenRole);
+    const asked = await call(target, "POST", "sys/capabilities-self", { token, body: { paths: [path] }, signal });
+    if (asked.outcome !== "answered") return asked;
+    let canMint = false;
+    if (asked.status === 200) {
+      const capabilities = capabilitiesIn(asked.body, path);
+      canMint = capabilities.includes("update") || capabilities.includes("root");
+    } else {
+      // A login that may not ask its own capabilities cannot be shown to mint.
+      const refused = await readRefusal(target, "ask its capabilities", asked.status, asked.body, signal);
+      if (stopsVerification(refused)) return refused;
+    }
+
+    const policies: KeyManagerLoginPolicy[] = [];
+    for (const name of found.information.policies) {
+      const text = await readPolicy(target, token, name, signal);
+      if (text.outcome !== "read" && stopsVerification(text)) return text;
+      policies.push({ name, writes: text.outcome === "read" ? policyWrites(text.text) : "possibly" });
+    }
+    return { outcome: "verified", information: found.information, root: found.root, canMint, policies };
   },
 
-  async lookUp(target, token) {
-    const reply = await call(target, "GET", "auth/token/lookup-self", { token });
-    if (reply.outcome !== "answered") return reply;
-    if (reply.status !== 200) return refusal(target, reply.status, reply.body);
-    const found = lookedUp(reply.body);
-    return found === null ? unreachable(target, "its token lookup answered no token") : { outcome: "found", ...found };
-  },
+  readPolicy,
 
   async revoke(target, token) {
     const reply = await call(target, "POST", "auth/token/revoke-self", { token });
