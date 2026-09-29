@@ -202,6 +202,23 @@ describe("compacting an old session", () => {
     expect(readModels(log)).toEqual(before);
   });
 
+  it("keeps an identity pass's session.repository-identified, so a rebuild after it gives the session its identity again (#329)", () => {
+    const clock = manualClock();
+    const log = open(clock);
+    log.append(stream(old), [created], { actor });
+    log.append(stream(old), [{ type: "session.repository-identified", payload: { repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", reason: "resolved" } }], {
+      actor: "system:workspaces",
+    });
+    log.append(stream(old), wholeRun(runIds[0], [messageIds[0], messageIds[1]]), { actor: "adapter:fake", correlationId: runIds[0] });
+    clock.advance(THRESHOLD + 1);
+
+    expect(createCompactionSweep({ log, clock }).sweep()).toEqual({ compacted: [old], failed: [] });
+    log.rebuildProjections();
+
+    expect(typesOf(log, old).slice(0, 2)).toEqual(["session.created", "session.repository-identified"]);
+    expect(log.read("SELECT repository_identity FROM sessions WHERE id = ?", old)).toEqual([{ repository_identity: "https://git.systemtech.dev/david/agent-harness" }]);
+  });
+
   it("folds on from the snapshot when a compacted session runs again and is left again: the fold is the whole session's", () => {
     const clock = manualClock();
     const log = open(clock);

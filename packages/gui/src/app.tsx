@@ -5,6 +5,7 @@ import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
 import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
+import { RunChoicesProvider } from "./status/run-choices.js";
 import { WindowTheme } from "./theme/window-theme.js";
 import { WindowProvider } from "./window-context.js";
 
@@ -26,7 +27,8 @@ export interface AppProps {
  * client runtime, painted with the home environment's theme from its first
  * frame (the one cached, until the window reads it again), its keys
  * dispatched through the GUI column of the shared action list, and the
- * command palette over it.
+ * command palette over it. What the window chose for a session's next runs
+ * is held for the life of the window (`RunChoicesProvider`).
  */
 export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => (
   <WindowProvider runtime={runtime} presentation={presentation} clock={clock} shell={shell}>
@@ -35,7 +37,9 @@ export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) =>
       <PairingProvider>
         <KeyDispatch macOS={macOS}>
           <CommandPalette>
-            <Frame />
+            <RunChoicesProvider>
+              <Frame />
+            </RunChoicesProvider>
           </CommandPalette>
         </KeyDispatch>
       </PairingProvider>

@@ -14,6 +14,7 @@ import {
   type SessionModeSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
+  type SessionRepositoryIdentifiedPayload,
   type SessionSummary,
   type SessionTaggedPayload,
   type SessionTitleGeneratedPayload,
@@ -116,6 +117,10 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     setColumns(event, db, {
       workspace_missing_since: (event.payload as SessionWorkspaceStatusChangedPayload).status === "missing" ? event.occurredAt : null,
     }),
+  // An identity pass's finding (#329): the identity resolved again, or moved to a forge account's canonical host. The
+  // system's, not an organisation change, so `updatedAt` stays.
+  "session.repository-identified": (event, db) =>
+    setColumns(event, db, { repository_identity: (event.payload as SessionRepositoryIdentifiedPayload).repositoryIdentity }),
   // The mode the permissions workstream gave the session (#129, #179); not an organisation change, so `updatedAt` stays.
   "session.mode.set": (event, db) => setColumns(event, db, { mode: (event.payload as SessionModeSetPayload).mode.effective }),
   "session.title-set": (event, db) => {
