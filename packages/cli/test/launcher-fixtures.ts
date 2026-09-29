@@ -27,7 +27,7 @@ export const CHILD_REPORT_FILE = "child-report.jsonl";
 
 /**
  * What the scripted child does at one start:
- * - `serve`: says `prepared`, and once committed reports `committed` with the service state it then finds, asks `versions?`, answers `idle?`, and drains on `drain?` or SIGTERM
+ * - `serve`: says `prepared`, and once committed reports `committed` with the service state it then finds, asks `versions?`, answers `idle?` (idle, unless its start says `busyFor`), and drains on `drain?` or SIGTERM
  * - `drain`: as `serve`, but drains by itself as soon as it is committed, as `environment.drain` does
  * - `crash-after-commit`: as `serve`, but exits 3 as soon as it is committed
  * - `deaf-once`: as `serve`, but passes over the first `drain?`, as a child not yet answering queries does
@@ -62,6 +62,8 @@ export interface ScriptedStart {
    * whether the staged folder is still there. It goes on serving.
    */
   readonly install?: { readonly version: string; readonly staged: string };
+  /** How many of the launcher's `idle?` it answers busy with a run running before it answers idle. Preset: none. */
+  readonly busyFor?: number;
 }
 
 export type ChildStart = ChildBehaviour | ScriptedStart;
@@ -237,12 +239,20 @@ export interface FakeTimer extends LauncherTimer {
   advance(ms: number): void;
   /** Runs the earliest-asked pending wait, moving the clock on by its length; throws when none is pending. */
   runNext(): void;
+  /** Runs the earliest-asked pending wait of `ms`, moving the clock on by it, whatever was asked before it; throws when none is pending. */
+  run(ms: number): void;
 }
 
 export const fakeTimer = (start = Date.parse("2026-09-28T12:00:00.000Z")): FakeTimer => {
   let now = start;
   const waits: { readonly ms: number; readonly run: () => void; done: boolean }[] = [];
   const live = () => waits.filter((wait) => !wait.done);
+  const runWait = (wait: (typeof waits)[number] | undefined, missing: string) => {
+    if (wait === undefined) throw new Error(missing);
+    wait.done = true;
+    now += wait.ms;
+    wait.run();
+  };
   return {
     now: () => now,
     after(ms, run) {
@@ -254,12 +264,11 @@ export const fakeTimer = (start = Date.parse("2026-09-28T12:00:00.000Z")): FakeT
     advance(ms) {
       now += ms;
     },
-    runNext() {
-      const wait = live()[0];
-      if (wait === undefined) throw new Error("No wait is pending.");
-      wait.done = true;
-      now += wait.ms;
-      wait.run();
-    },
+    runNext: () => runWait(live()[0], "No wait is pending."),
+    run: (ms) =>
+      runWait(
+        live().find((wait) => wait.ms === ms),
+        `No wait of ${ms} ms is pending.`,
+      ),
   };
 };
