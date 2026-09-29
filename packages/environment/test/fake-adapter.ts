@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
 import {
@@ -99,6 +100,8 @@ export interface ScriptControls {
   readonly signal: AbortSignal;
   /** Whether this run is a turn the fake opened on its own. */
   readonly adopted: boolean;
+  /** Settles with the variables the spawn of the run's process was supplied (#307). */
+  environment(): Promise<Readonly<Record<string, string>>>;
 }
 
 /** A run's script: the events it plays, in order, ending (or not, or throwing) as a test needs. */
@@ -476,6 +479,44 @@ export async function* toolCall(
   };
 }
 
+/** What a scripted command answered: its exit code (null when it could not run or a signal ended it), and what it printed. */
+export interface CommandResult {
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * Runs `command` as a provider's shell tool does (#307): `tool.started` for
+ * `Bash`, the gate asked about it as a shell command, then, allowed, the
+ * command run by `/bin/sh` in the run's workspace, in the variables the
+ * spawn of the run's process was supplied over this process's PATH and
+ * `env`; then `tool.ended` with what it printed, `ok` on exit code 0, or
+ * with the gate's denial. #315's git tests run git through it.
+ */
+export async function* runCommand(
+  controls: ScriptControls,
+  command: string,
+  options: { readonly env?: Readonly<Record<string, string>> } = {},
+): AsyncGenerator<AdapterEvent, CommandResult> {
+  const toolCallId = `toolu_${randomUUID()}`;
+  const access = { kind: "shell", command } as const;
+  yield { type: "tool.started", payload: { toolCallId, name: "Bash", input: { command }, title: command, agentId: null, parentToolCallId: null } };
+  const decision = await controls.context.gate.check({ toolCallId, tool: "Bash", summary: toolCallSummary("Bash", access), access, input: { command } }, controls.signal);
+  if (decision.decision === "deny") {
+    yield { type: "tool.ended", payload: { toolCallId, status: "error", output: decision.message, durationMs: 1 } };
+    return { code: null, stdout: "", stderr: decision.message };
+  }
+  const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...options.env, ...(await controls.environment()) };
+  const result = await new Promise<CommandResult>((resolve) => {
+    execFile("/bin/sh", ["-c", command], { cwd: controls.input.workspace.path, env, signal: controls.signal }, (error, stdout, stderr) =>
+      resolve({ code: error === null ? 0 : typeof error.code === "number" ? error.code : null, stdout, stderr }),
+    );
+  });
+  yield { type: "tool.ended", payload: { toolCallId, status: result.code === 0 ? "ok" : "error", output: `${result.stdout}${result.stderr}`, durationMs: 1 } };
+  return result;
+}
+
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
 
@@ -705,6 +746,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       context: gated,
       signal: abort.signal,
       adopted,
+      environment: () => process.supplied,
       nextSent: () =>
         new Promise((resolve) => {
           const ready = untaken.shift();

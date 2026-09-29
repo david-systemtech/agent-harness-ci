@@ -49,6 +49,7 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { createProcessEnvironments, type ProcessEnvironments } from "../adapter/process-environment.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -497,6 +498,12 @@ export interface EnvironmentHandle {
    */
   readonly keyManagers: KeyManagerRegistry;
   /**
+   * Where the harness's services register what they put into every provider
+   * process and terminal the environment starts (#307): the forge's (#315),
+   * the key managers' (#91). None is registered by default.
+   */
+  readonly processEnvironments: Pick<ProcessEnvironments, "register">;
+  /**
    * The pairing this start minted because the environment is a declared
    * container that no client has paired with yet (ADR 0025; #349): such a
    * container pairs from its own log, so `serve` prints it there, as `pair`
@@ -747,6 +754,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
   const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
+  // What the harness's services put into every provider process and terminal (#307): none registered until one does.
+  const processEnvironments = createProcessEnvironments();
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -830,6 +839,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       containmentDirectories: sessionDirectories,
+      processEnvironment: processEnvironments.of,
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
@@ -1317,6 +1327,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     forge,
     keyManagerConnections,
     keyManagers,
+    processEnvironments,
     startPairing,
     workspaces: {
       checkoutIndex: createCheckoutIndex(log),
