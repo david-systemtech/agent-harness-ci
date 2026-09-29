@@ -60,6 +60,46 @@ const actionsOn = async (app: RenderedApp, transcript: HTMLElement, text: string
   return within(transcript).getByRole("toolbar", { name: `Fork or rewind: ${text}` });
 };
 
+/** The requests sent for `method`, their params alone. */
+const sent = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
+
+/** The session the pane shows, as presentation holds it. */
+const inPane = (app: RenderedApp) => app.presentation.values.read().paneLayout.session;
+
+/** The composer's box. */
+const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+
+/** The fold a rewind left, by what its button says. */
+const fold = (transcript: HTMLElement, name: string) => within(transcript).getByRole("button", { name });
+
+/** The rewound strip over the composer; null while it is not drawn. */
+const strip = () => screen.queryByRole("region", { name: "Latest rewind" });
+
+/** Keys typed into the composer's box, focused first. */
+const write = async (app: RenderedApp, keys: string) => {
+  act(() => box().focus());
+  await app.user.keyboard(keys);
+};
+
+/** Whether the control is drawn dim: there, and saying it cannot be used now. */
+const dim = (control: HTMLElement) => control.getAttribute("aria-disabled") === "true";
+
+/** What the control's tooltip says, once it has the focus as a person tabbing to it gives it. */
+const tooltipOf = async (control: HTMLElement) => {
+  act(() => control.focus());
+  const tooltip = await screen.findByRole("tooltip");
+  const said = tooltip.textContent;
+  act(() => control.blur());
+  await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+  return said;
+};
+
+/** The line said under the user message holding `text`; undefined while there is none. */
+const lineUnder = (transcript: HTMLElement, text: string) => within(message(transcript, text).parentElement as HTMLElement).queryByRole("status")?.textContent;
+
+/** The pane's one line, under the composer. */
+const paneLine = () => within(screen.getByRole("region", { name: "Session pane" })).queryAllByRole("status").at(-1)?.textContent;
+
 describe("the actions under a user message", () => {
   it("are revealed by hovering over a message a run has read: Fork, Fork onto another account and Rewind", async () => {
     const { app, env, transcript, session } = await opened();
@@ -85,15 +125,6 @@ describe("the actions under a user message", () => {
   });
 });
 
-/** The requests sent for `method`, their params alone. */
-const sent = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
-
-/** The session the pane shows, as presentation holds it. */
-const inPane = (app: RenderedApp) => app.presentation.values.read().paneLayout.session;
-
-/** The composer's box. */
-const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
-
 describe("Fork", () => {
   it("forks before the message with commands.fork, and opens the fork in the pane on its forked row, the message its draft", async () => {
     const { app, env, transcript, session } = await opened();
@@ -116,6 +147,24 @@ describe("Fork", () => {
   });
 });
 
+describe("the forked row", () => {
+  it("names the source alone for a fork of the whole session, as the status line's hand-off makes, and is drawn only on the fork", async () => {
+    const { app, env, transcript, session } = await opened();
+    await converse(env, session, transcript, "Fix the receipts");
+    expect(within(transcript).queryByRole("button", { name: /^Forked from/ })).toBeNull();
+    await write(app, "/handoff{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "Hand off Receipts on desk" });
+    expect(dialog.textContent).not.toContain("Forks before");
+    await app.user.click(within(dialog).getByRole("button", { name: /^personal/ }));
+
+    await waitFor(() => expect(sent(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: session, account: "account-2" })]));
+    expect(sent(env, "sessions.fork")[0]).not.toHaveProperty("atMessageId");
+    await waitFor(() => expect(inPane(app)?.sessionId).toBe(String(sent(env, "sessions.fork")[0]?.["id"])));
+    const pane = await screen.findByRole("region", { name: "Transcript" });
+    expect(await within(pane).findByRole("button", { name: "Forked from Receipts" })).toBeTruthy();
+  });
+});
+
 describe("Fork onto another account", () => {
   it("opens the hand-off picker anchored at the message: the account chosen gets a fork taken before it, opened with the message as its draft", async () => {
     const { app, env, transcript, session } = await opened();
@@ -134,9 +183,6 @@ describe("Fork onto another account", () => {
     await waitFor(() => expect(box().value).toBe("Add the tests"));
   });
 });
-
-/** The fold a rewind left, by what its button says. */
-const fold = (transcript: HTMLElement, name: string) => within(transcript).getByRole("button", { name });
 
 describe("Rewind", () => {
   it("rewinds to the message with commands.rewind: one fold at the rewind point names it and counts the prompts cut, and its text comes back to the composer", async () => {
@@ -174,9 +220,6 @@ describe("Rewind", () => {
   });
 });
 
-/** The rewound strip over the composer; null while it is not drawn. */
-const strip = () => screen.queryByRole("region", { name: "Latest rewind" });
-
 /** A session of three prompts, rewound to the second: the fold and the strip standing. */
 const rewoundToSecond = async (more: Partial<ScriptedEnvironment> = {}) => {
   const opening = await opened(more);
@@ -186,12 +229,6 @@ const rewoundToSecond = async (more: Partial<ScriptedEnvironment> = {}) => {
   await within(transcript).findByRole("button", { name: "Rewound: Add the tests · 2 prompts cut" });
   await waitFor(() => expect(box().value).toBe("Add the tests"));
   return opening;
-};
-
-/** Keys typed into the composer's box, focused first. */
-const write = async (app: RenderedApp, keys: string) => {
-  act(() => box().focus());
-  await app.user.keyboard(keys);
 };
 
 describe("Undo rewind", () => {
@@ -235,22 +272,6 @@ describe("Undo rewind", () => {
     expect(strip()).toBeNull();
   });
 });
-
-/** Whether the control is drawn dim: there, and saying it cannot be used now. */
-const dim = (control: HTMLElement) => control.getAttribute("aria-disabled") === "true";
-
-/** What the control's tooltip says, once it has the focus as a person tabbing to it gives it. */
-const tooltipOf = async (control: HTMLElement) => {
-  act(() => control.focus());
-  const tooltip = await screen.findByRole("tooltip");
-  const said = tooltip.textContent;
-  act(() => control.blur());
-  await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
-  return said;
-};
-
-/** The line said under the user message holding `text`; undefined while there is none. */
-const lineUnder = (transcript: HTMLElement, text: string) => within(message(transcript, text).parentElement as HTMLElement).queryByRole("status")?.textContent;
 
 /** Two prompts answered, then a third whose run is still live. */
 const withLiveRun = async (more: Partial<ScriptedEnvironment> = {}) => {
@@ -305,9 +326,6 @@ describe("Stop and rewind here", () => {
     expect(env.requests("sessions.rewind")).toEqual([]);
   });
 });
-
-/** The pane's one line, under the composer. */
-const paneLine = () => within(screen.getByRole("region", { name: "Session pane" })).queryAllByRole("status").at(-1)?.textContent;
 
 describe("a rewind to the first message", () => {
   it("opens the session the runtime starts instead (use_new_session), in the same workspace with the message as its draft, saying why", async () => {
