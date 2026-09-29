@@ -279,11 +279,15 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return since === undefined ? record : { ...record, status: { kind: "signing-in", since, message: `Signing in to ${PROVIDER_NAMES[record.provider]} at ${record.address}.` } };
   };
 
-  const recordOf = (connectionId: string): KeyManagerConnectionRecord => {
+  /** The record a command left: a sign-in, a sign-out or a new address settles the connection, whatever sign-in from the kept credential still runs. */
+  const settledRecordOf = (connectionId: string): KeyManagerConnectionRecord => {
     const held = liveConnection(reader, connectionId);
     if (held === null) throw new Error(`The key-manager connection ${connectionId} is not in the store after a command applied to it.`);
-    return standing(held.record);
+    return held.record;
   };
+
+  /** The record a command left, as it stands now. */
+  const recordOf = (connectionId: string): KeyManagerConnectionRecord => standing(settledRecordOf(connectionId));
 
   const notFound = (connectionId: string) =>
     ({ code: "not_found", message: `No key-manager connection ${connectionId} is on this environment.`, data: { kind: "key_manager_connection", connectionId } }) as const;
@@ -295,7 +299,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     const holder = addressHolder(reader, provider, address);
     return holder === null || holder === except
       ? null
-      : conflict("connection_exists", `A ${PROVIDER_NAMES[provider]} connection to ${address} is on this environment already.`, { provider, address, connectionId: holder });
+      : conflict("connection_exists", `${PROVIDER_NAMES[provider]} at ${address} is connected on this environment already.`, { provider, address, connectionId: holder });
   };
 
   /** Why an add cannot go ahead as the store is now: an id used before, or the provider and address held; null when it can. */
@@ -491,7 +495,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           holdLogin(connectionId, result.login);
           if (current.credential !== null) deleteEntry(current.credential);
         });
-        return { aggregate: stream, result: { connection: recordOf(connectionId) } };
+        return { aggregate: stream, result: { connection: settledRecordOf(connectionId) } };
       };
     },
   };
@@ -549,6 +553,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
               moved(connectionId);
               holdLogin(connectionId, signed.login);
             });
+            return { aggregate: stream, result: { connection: settledRecordOf(connectionId) } };
           }
           return { aggregate: stream, result: { connection: recordOf(connectionId) } };
         };
@@ -654,7 +659,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const status = statusNow("awaiting-sign-in", "Signed out: sign in again in Set up, Key manager.");
       log.append(stream, [{ type: "key-manager.connection.signed-out", payload: { connectionId, status } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
       command.tx.afterCommit(() => forget(connectionId, held.credential));
-      return { aggregate: stream, result: { connection: recordOf(connectionId) } };
+      return { aggregate: stream, result: { connection: settledRecordOf(connectionId) } };
     },
 
     remove(params, command) {

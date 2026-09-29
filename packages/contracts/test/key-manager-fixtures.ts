@@ -73,7 +73,7 @@ const added = {
   mount: "approle",
   username: null,
   tokenRole: null,
-  ticks: ["default"],
+  ticks: ["default", "agent-read"],
   basePath: null,
   injects: true,
   status: signedIn,
@@ -138,7 +138,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     valid: [
       { connectionId, status: signedIn, tokenInformation },
       { connectionId, status: { ...signedIn, kind: "unreachable" }, tokenInformation: null },
-      { connectionId, status: signedIn, tokenInformation, credential: entry, method: "userpass", mount: "userpass", username: "david", ticks: ["default"], injects: true },
+      { connectionId, status: signedIn, tokenInformation, credential: entry, method: "userpass", mount: "userpass", username: "david", ticks: ["default", "agent-read"], injects: true },
       { connectionId, status: signedIn, tokenInformation, method: "token", mount: "token", username: null },
     ],
     invalid: [{ connectionId, status: signedIn }, { connectionId, status: signedIn, tokenInformation, credential: token }, { connectionId, status: signedIn, tokenInformation, injects: false }],

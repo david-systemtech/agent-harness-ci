@@ -220,7 +220,8 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       known.revoked = true;
       return send(response, 204);
     }
-    const login = /^auth\/(.+)\/login(?:\/([^/]+))?$/.exec(path);
+    // Split at the first `/login`, as OpenBao routes by the mount's prefix: a user named login is still a userpass login.
+    const login = /^auth\/(.+?)\/login(?:\/([^/]+))?$/.exec(path);
     const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
     if (method === "POST" && login !== null) {
       const [, mount = "", username] = login;

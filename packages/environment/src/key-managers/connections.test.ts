@@ -411,6 +411,34 @@ describe("the startup sign-in", () => {
     expect(await saidBack(again, [bao.minted[1] ?? ""])).toEqual([REDACTED]);
   });
 
+  it("gives way to a person's sign-in while it runs: the command is answered signed in, and the startup's login is let go unrecorded", async () => {
+    const dataDir = dataDirectory();
+    const { t, bao, client } = await withOpenBao({ dataDir });
+    const connection = await added(client, { address: bao.address, ca: bao.ca, credential: approle() });
+    await t.close();
+
+    let answer = (): void => undefined;
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "agent-read"], after: new Promise<void>((resolve) => (answer = resolve)) });
+    bao.approle(ROLE_ID, OTHER_SECRET_ID, { policies: ["default"] });
+    const again = await start({ dataDir });
+    const reader = await again.client();
+    expect((await list(reader))[0]?.status.kind).toBe("signing-in");
+
+    const signed = await signIn(reader, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
+    expect(signed.result?.connection).toMatchObject({ status: { kind: "signed-in" }, tokenInformation: { policies: ["default"] } });
+    expect((await list(reader))[0]).toEqual(signed.result?.connection);
+    const from = again.env.log.head();
+    answer();
+
+    // The startup's login, made with the credential replaced meanwhile, is revoked and records nothing; the person's stands.
+    await vi.waitFor(() => expect(bao.minted).toHaveLength(3));
+    const [, persons = "", startups = ""] = bao.minted;
+    await vi.waitFor(() => expect(bao.live(startups)).toBe(false));
+    expect(bao.live(persons)).toBe(true);
+    expect(await keyManagerEvents(reader, from)).toEqual([]);
+    expect((await list(reader))[0]).toEqual(signed.result?.connection);
+  });
+
   it("stands a connection whose kept credential is refused now as credential-rejected, with the line to sign in again", async () => {
     const dataDir = dataDirectory();
     const { t, bao, client } = await withOpenBao({ dataDir });
