@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerReferenceDisplay",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "enum": [
+        "openbao",
+        "doppler",
+        "onepassword",
+        "bitwarden"
+      ],
+      "description": "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager)."
+    },
+    "label": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[^\\p{Cc}]+$",
+          "description": "A key-manager connection's label, which people know it by: 1 to 100 characters on one line."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The label of the connection the reference is read through; null when this environment holds no connection by its id."
+    },
+    "locator": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where the value sits, on one line: OpenBao's mount and path with the key (personal/harness/forge-github (key token)), a Doppler name with its project and config, 1Password's op:// reference, a Bitwarden key with its secret id. Never the value."
+    }
+  },
+  "required": [
+    "provider",
+    "label",
+    "locator"
+  ],
+  "description": "A key-manager reference as a person reads it: the provider, the connection's label and the locator, never the value."
+}

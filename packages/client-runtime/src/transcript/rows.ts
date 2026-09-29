@@ -2,12 +2,14 @@ import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import type {
   AssistantEntry,
   CommandEntry,
+  ForkedEntry,
   OpaqueEntry,
   PromptEntry,
   RewoundEntry,
   SessionProjection,
   SubagentEntry,
   ToolCallEntry,
+  TranscriptEntry,
   UserMessageEntry,
 } from "../projections/session.js";
 import { isLiveTask } from "./tasks.js";
@@ -47,6 +49,11 @@ import { isLiveTask } from "./tasks.js";
  *   rewind (#232): the rows it holds are made as these are, and drawn under
  *   it only when it is unfolded; a fold an earlier rewind made among them is
  *   a fold again inside it.
+ * - **A fork opens on where it came from** (the runtime's `forked` entry,
+ *   #390): one row naming its source and the message it was taken before,
+ *   which opens the source; `forkedFrom` finds the source's title and the
+ *   message's text in the source's own projection, so both renderers name
+ *   them alike.
  *
  * Pure: the projection goes in, plain data comes out.
  */
@@ -60,6 +67,8 @@ export type TranscriptRow =
   | { readonly kind: "subagent"; readonly id: string; readonly runId: string; readonly entry: SubagentEntry }
   | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
   | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry }
+  /** A fork's first row: the session it was forked from and the message it was taken before, which opening the row opens. */
+  | { readonly kind: "forked"; readonly id: string; readonly runId: null; readonly entry: ForkedEntry }
   /** The branch a rewind cut, folded where it was cut: the rows it holds, drawn under it when unfolded. */
   | { readonly kind: "rewound"; readonly id: string; readonly runId: null; readonly entry: RewoundEntry; readonly rows: readonly TranscriptRow[] };
 
@@ -145,6 +154,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
       case "opaque":
         push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
         break;
+      case "forked":
+        push({ kind: "forked", id: `forked:${entry.sequence}`, runId: null, entry });
+        break;
       case "rewound":
         // The cut branch's rows are its own: what its runs read opens them inside the fold, and its turns close them there.
         push({ kind: "rewound", id: rewoundRowId(entry.sequence), runId: null, entry, rows: transcriptRows({ items: entry.items, runs: view.runs }) });
@@ -178,6 +190,40 @@ const withTurns = (rows: readonly TranscriptRow[], runs: readonly RunSummary[]):
     }
   });
   return out;
+};
+
+/** What a fork's row names of its source: the source's title, and the text of the message the fork was taken before; each null while not known. */
+export interface ForkedFrom {
+  readonly title: string | null;
+  readonly anchor: string | null;
+}
+
+/**
+ * What a fork's `forked` entry names, read from its source's projection
+ * (`projections.session` for `entry.fromSessionId`): the source's title
+ * while the runtime holds its summary, and the text of the message the fork
+ * was taken before, wherever the source shows it (a later rewind of the
+ * source may have cut it into a fold). Neither for a source not held (or
+ * gone), nor the text for a message the source does not hold: a fork of a
+ * fork no run had continued is anchored at its source's own anchor, a
+ * message of the source's source.
+ */
+export const forkedFrom = (
+  entry: ForkedEntry,
+  source: { readonly summary: { readonly title: string } | null; readonly items: readonly TranscriptEntry[] } | undefined,
+): ForkedFrom => {
+  const messageId = entry.atMessageId?.toLowerCase();
+  const find = (items: readonly TranscriptEntry[]): string | null => {
+    for (const item of items) {
+      if (item.kind === "user-message" && item.messageId.toLowerCase() === messageId) return item.text;
+      if (item.kind === "rewound") {
+        const found = find(item.items);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  };
+  return { title: source?.summary?.title ?? null, anchor: messageId === undefined || source === undefined ? null : find(source.items) };
 };
 
 /** Whether a call is folded into its run's count: it finished, and nothing about it went wrong. */

@@ -121,6 +121,9 @@ export const flush = (): Promise<void> =>
 
 const later = (step: () => void) => void Promise.resolve().then(step);
 
+/** The harness version a fake environment's discovery names, unless a test changes it. */
+export const FAKE_HARNESS_VERSION = "0.0.0-fake";
+
 const TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface FakeSocket {
@@ -148,7 +151,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const document = (): DiscoveryDocument => ({
     environmentId,
     environmentName: name,
-    harnessVersion: "0.0.0-fake",
+    harnessVersion: FAKE_HARNESS_VERSION,
     protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
     capabilities: [...(options.capabilities ?? [])],
     authPolicy: "tailnet",

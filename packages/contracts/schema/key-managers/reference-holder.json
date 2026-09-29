@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerReferenceHolder",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "forge-account"
+      ],
+      "description": "What holds the reference: forge-account."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The holder's id: a forge account's."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What people know the holder by: a forge account's origin."
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "name"
+  ],
+  "description": "Something holding a reference to a key-manager connection, as the connection's removal names it: its kind, id and name."
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrastRatio, cssColour, hueDistance, inGamut, toHex } from "./index.js";
+import { contrastRatio, cssColour, hueDistance, inGamut, readCssColour, toHex } from "./index.js";
 
 const white = { l: 100, c: 0, h: 0 };
 const black = { l: 0, c: 0, h: 0 };
@@ -37,5 +37,13 @@ describe("OKLCH", () => {
     expect(cssColour({ l: 15.5, c: 0, h: 0 })).toBe("oklch(15.5% 0 0)");
     expect(cssColour({ l: 52, c: 0.21, h: 264 })).toBe("oklch(52% 0.21 264)");
     expect(cssColour({ l: 96, c: 0, h: 0, alpha: 0.07 })).toBe("oklch(96% 0 0 / 0.07)");
+  });
+
+  it("reads back the CSS it writes, as a renderer reads a token off the root to hand what cannot read it (xterm.js) as hex", () => {
+    expect(readCssColour("oklch(15.5% 0 0)")).toEqual({ l: 15.5, c: 0, h: 0 });
+    expect(readCssColour(" oklch(52% 0.21 264) ")).toEqual({ l: 52, c: 0.21, h: 264 });
+    expect(readCssColour("oklch(96% 0 0 / 0.07)")).toEqual({ l: 96, c: 0, h: 0, alpha: 0.07 });
+    expect(readCssColour("#265adf")).toBeUndefined();
+    expect(readCssColour("")).toBeUndefined();
   });
 });

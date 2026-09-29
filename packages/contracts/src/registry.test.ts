@@ -159,10 +159,8 @@ describe("the method registry", () => {
     });
   });
 
-  it("owes each updates method's handler not yet served to the launcher ticket that builds it (#335 registered them with none; #342, #343, #346 and #348 serve theirs)", () => {
-    expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("updates.")))).toEqual({
-      "updates.desktop.stage": "#354",
-    });
+  it("owes no updates method's handler: #335 registered them with none, and #342, #343, #346, #348 and #354 serve them all", () => {
+    expect(Object.keys(OWED_HANDLERS).filter((name) => name.startsWith("updates."))).toEqual([]);
   });
 
   it("owes a handler only for a registered method, each to a named ticket", () => {
@@ -217,6 +215,8 @@ describe("the method registry", () => {
       "forge.accounts.update",
       "forge.accounts.remove",
       "forge.accounts.setPrimary",
+      "forge.pullRequests.link",
+      "forge.pullRequests.unlink",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
@@ -399,6 +399,9 @@ describe("the method registry", () => {
       | "forge.gh.probe"
       | "forge.detect"
       | "forge.orgs.list"
+      | "forge.pullRequests.link"
+      | "forge.pullRequests.unlink"
+      | "forge.pullRequests.refresh"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"
@@ -408,6 +411,8 @@ describe("the method registry", () => {
       | "keyManagers.connections.remove"
       | "keyManagers.connections.verify"
       | "keyManagers.certificate.preview"
+      | "keyManagers.references.check"
+      | "keyManagers.references.browse"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

@@ -6,6 +6,7 @@ import type {
   ShellDeepLinks,
   ShellDialogs,
   ShellGh,
+  ShellInstaller,
   ShellNetwork,
   ShellNotifications,
   ShellPreview,
@@ -46,8 +47,9 @@ export interface ShellFunctions {
   "webView.navigate": ShellWebView["navigate"];
   "webView.destroy": ShellWebView["destroy"];
   "preview.grant": ShellPreview["grant"];
-  "update.check": ShellUpdate["check"];
-  "update.install": ShellUpdate["install"];
+  "installer.bundledServer": ShellInstaller["bundledServer"];
+  "update.current": ShellUpdate["current"];
+  "update.apply": ShellUpdate["apply"];
   "service.install": ShellService["install"];
   "service.start": ShellService["start"];
   "service.status": ShellService["status"];
@@ -118,8 +120,10 @@ export const fakeShell = (): FakeShell => {
     "webView.navigate": async () => undefined,
     "webView.destroy": () => undefined,
     "preview.grant": async () => `${PRODUCT_NAME}-preview://fake/${++previews}`,
-    "update.check": async () => ({ available: false }),
-    "update.install": async () => undefined,
+    // Carries no server artefact, as a desktop run from a checkout; runs a build that updates itself, and applies one when asked.
+    "installer.bundledServer": async () => null,
+    "update.current": async () => ({ version: "0.0.0-test", platform: "linux", arch: "x64", format: "pacman" }),
+    "update.apply": async () => ({ outcome: "applied" }),
     "service.install": async () => undefined,
     "service.start": async () => undefined,
     "service.status": async () => ({ installed: true, running: true, ready: true }),
@@ -170,9 +174,8 @@ export const fakeShell = (): FakeShell => {
       destroy: recorded("webView.destroy"),
     },
     preview: { grant: recorded("preview.grant") },
-    // The installer's members are the launcher workstream's to define (#354); it has none yet.
-    installer: {},
-    update: { check: recorded("update.check"), install: recorded("update.install") },
+    installer: { bundledServer: recorded("installer.bundledServer") },
+    update: { current: recorded("update.current"), apply: recorded("update.apply") },
     service: { install: recorded("service.install"), start: recorded("service.start"), status: recorded("service.status") },
     clipboard: { readText: recorded("clipboard.readText"), writeText: recorded("clipboard.writeText"), readImage: recorded("clipboard.readImage") },
     openExternal: recorded("openExternal"),

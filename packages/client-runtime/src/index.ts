@@ -29,9 +29,13 @@ export {
   hasShellMember,
   type FileFilter,
   type Shell,
+  type ShellApplyOutcome,
+  type ShellApplyWhen,
+  type ShellBundledServer,
   type ShellClipboard,
   type ShellContent,
   type ShellDeepLinks,
+  type ShellDesktopBuild,
   type ShellDialogs,
   type ShellFile,
   type ShellGh,
@@ -43,6 +47,7 @@ export {
   type ShellPlatform,
   type ShellPreview,
   type ShellService,
+  type ShellStagedBuild,
   type ShellSystem,
   type ShellTray,
   type ShellUpdate,
@@ -77,18 +82,30 @@ export {
 } from "./pairing.js";
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
+export {
+  DESKTOP_CHECK_INTERVAL_MS,
+  type BundledServerView,
+  type DesktopBuildView,
+  type DesktopUpdate,
+  type DesktopUpdateFailure,
+  type DesktopUpdateView,
+} from "./desktop-update.js";
 export type { EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
   COMMAND_EXPIRY_MS,
+  STOP_WAIT_MS,
   type AcceptedReceipt,
   type CommandParams,
   type Commands,
   type DispatchAnswer,
   type DispatchFailure,
   type DispatchFailureCode,
+  type ForkAnswer,
+  type ForkOptions,
   type RejectedReceipt,
   type RewindAnswer,
+  type RewindOptions,
 } from "./outbox/outbox.js";
 export { DRAFT_DEBOUNCE_MS, type Drafts } from "./outbox/drafts.js";
 export {
@@ -106,6 +123,7 @@ export {
 export type {
   AssistantEntry,
   CommandEntry,
+  ForkedEntry,
   OpaqueEntry,
   PromptEntry,
   PromptState,
@@ -130,7 +148,7 @@ export {
   type SessionRun,
   type SessionRunsView,
 } from "./projections/runs.js";
-export type { QueuedMessage, SessionVerbs, VerbAvailability, VerbMethod, VerbReason } from "./projections/verbs.js";
+export { stopFirstOffer, type QueuedMessage, type SessionVerbs, type StopFirstOffer, type VerbAvailability, type VerbMethod, type VerbReason } from "./projections/verbs.js";
 export type { Attention, AttentionEvent } from "./projections/attention.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
@@ -148,7 +166,19 @@ export type {
 } from "./projections/session-list.js";
 export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
-export { callsRowId, folded, lastReply, liveRun, liveTasks, rewoundRowId, transcriptRows, undoableFold, type TranscriptRow } from "./transcript/rows.js";
+export {
+  callsRowId,
+  folded,
+  forkedFrom,
+  lastReply,
+  liveRun,
+  liveTasks,
+  rewoundRowId,
+  transcriptRows,
+  undoableFold,
+  type ForkedFrom,
+  type TranscriptRow,
+} from "./transcript/rows.js";
 export {
   TOOL_CATEGORIES,
   classifyTool,
@@ -170,6 +200,7 @@ export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
 export { matchCommands } from "./composer/commands.js";
+export { shellLine } from "./composer/shell-line.js";
 export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
 export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";
 export {
@@ -191,5 +222,20 @@ export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.j
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
+export {
+  ONE_OFF_MAX_LINES,
+  ONE_OFF_TIMEOUT_MS,
+  clipOutput,
+  closeTerminal,
+  oneOffMessage,
+  reusableTerminal,
+  runOneOff,
+  shownEnv,
+  type OneOffDeps,
+  type OneOffResult,
+  type OneOffTarget,
+} from "./terminals/one-off.js";
+export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, type Xterm } from "./terminals/text-screen.js";
+export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";

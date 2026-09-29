@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import type { SidePane } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
+import { TerminalPane } from "../terminal/terminal-pane.js";
+import { useTerminalPanes } from "../terminal/terminal-panes.js";
 import { Button, Tooltip } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -29,8 +31,11 @@ export interface SideColumnViewProps {
  * connection cannot call is dim in the strip, and says the capability's line
  * in its place.
  *
- * It wires the slash commands that open its panes, `/files [path]`, `/diff`
- * and `/tasks`, for as long as the session is open in the pane.
+ * It wires the slash commands that open its panes, `/terminal`, `/files
+ * [path]`, `/diff` and `/tasks`, for as long as the session is open in the
+ * pane. The Terminal pane stays drawn while the connection cannot open a
+ * terminal, keeping the one it draws, and its close button closes that
+ * terminal too (#409).
  */
 export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps) => {
   const runtime = useRuntime();
@@ -40,8 +45,23 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
   const [column, change] = useSideColumn({ environmentId, sessionId });
   const [files, goFiles] = useState<FilesPlace>(WORKSPACE_TOP);
   const [, say] = usePaneLine();
+  const terminals = useTerminalPanes();
   const capabilityOf = (pane: SidePane) => paneCapability(runtime, environmentId, pane);
   const show = (pane: SidePane) => change((held) => showPane(held, pane));
+  const close = (pane: SidePane) => {
+    // Only the pane's close button closes its terminal: hiding it, or the column, leaves the terminal running.
+    if (pane === "terminal") terminals.ask({ environmentId, sessionId }, { kind: "close" });
+    change((held) => closePane(held, pane));
+  };
+
+  useSlashCommand(
+    "terminal",
+    () => {
+      show("terminal");
+      terminals.ask({ environmentId, sessionId }, { kind: "shell", focus: true });
+    },
+    capabilityOf("terminal"),
+  );
 
   useSlashCommand(
     "files",
@@ -86,7 +106,7 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
             );
           })}
         </nav>
-        <Button aria-label={`Close ${PANES[shown].label}`} className="h-7 w-7 px-0 text-sm text-ink-muted" onClick={() => change((held) => closePane(held, shown))}>
+        <Button aria-label={`Close ${PANES[shown].label}`} className="h-7 w-7 px-0 text-sm text-ink-muted" onClick={() => close(shown)}>
           ×
         </Button>
         <Button aria-label="Hide the side column" className="h-7 w-7 px-0 text-sm text-ink-muted" onClick={() => change((held) => hideColumn(held, true))}>
@@ -97,7 +117,7 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
         const capability = capabilityOf(pane);
         return (
           <section key={pane} aria-label={PANES[pane].label} hidden={pane !== shown} className="flex min-h-0 flex-1 flex-col">
-            {capability.status === "absent" ? (
+            {capability.status === "absent" && !PANES[pane].drawnWhileAbsent ? (
               <p className="px-3 py-2 text-sm text-ink-faint">{capability.message}</p>
             ) : (
               <PaneBody pane={pane} environmentId={environmentId} sessionId={sessionId} onScreen={pane === shown && !column.hidden} files={files} goFiles={goFiles} />
@@ -121,6 +141,8 @@ interface PaneBodyProps extends SideColumnViewProps {
 /** What one pane draws. */
 const PaneBody = ({ pane, environmentId, sessionId, onScreen, files, goFiles }: PaneBodyProps) => {
   switch (pane) {
+    case "terminal":
+      return <TerminalPane environmentId={environmentId} sessionId={sessionId} onScreen={onScreen} />;
     case "files":
       return <FilesPane environmentId={environmentId} sessionId={sessionId} place={files} go={goFiles} />;
     case "diff":

@@ -118,6 +118,13 @@ describe("what a rewind cut, in /export (#232)", () => {
     expect(text).toContain("> > Then the docs");
   });
 
+  it("writes a fork's first row as a line naming where it came from", () => {
+    const forked: TranscriptEntry = { kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2" };
+    const header = { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z"), forked: { title: "Receipts", anchor: "Add the tests" } };
+    expect(exportMarkdown({ items: [forked, said(5, "Carry on")], runs: [], summary: null }, header)).toContain("_Forked from Receipts at Add the tests._\n\n### You · ");
+    expect(exported([forked])).toContain("_Forked from another session._");
+  });
+
   it("writes only the line for a cut with nothing in it", () => {
     const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [])]);
     expect(text.trimEnd().endsWith("_Rewound to Add the tests: what the rewind cut follows._")).toBe(true);

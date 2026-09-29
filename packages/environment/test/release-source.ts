@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, RELEASE_MANIFEST_FILE, type ReleaseManifest, type ReleaseSource } from "@agent-harness/contracts";
+import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, RELEASE_MANIFEST_FILE, type ReleaseAsset, type ReleaseManifest, type ReleaseSource } from "@agent-harness/contracts";
 import { MIGRATIONS } from "../src/event-log/migrations.js";
 import { RUNNING_PLATFORM } from "../src/updates/channel.js";
 import { startFakeForge, type FakeForge, type FakeForgeRequest } from "./fake-forge.js";
@@ -11,7 +11,8 @@ import type { WireClient } from "./wire-client.js";
  * the fake forge answering the Gitea API's release list, releases by tag and
  * the web route an asset downloads from, as a Forgejo release source does,
  * with a manifest and assets per release, and this platform's artefact's
- * bytes where a release is given them (#347). It answers the test's token, as
+ * bytes where a release is given them (#347), and the desktop builds a
+ * release is given (#354). It answers the test's token, as
  * the forge account for its origin holds it; any other token is refused
  * 401, as the fake forge refuses one it does not know.
  */
@@ -42,6 +43,18 @@ export interface FakeRelease {
    * and not served.
    */
   readonly artefact?: Uint8Array;
+  /** Desktop builds the release publishes and serves, each listed in its manifest (after the assets it names otherwise). */
+  readonly desktop?: readonly FakeDesktopBuild[];
+}
+
+/** A desktop build a release publishes: its name, platform, format and bytes, listed in the manifest with their size and SHA-256 unless `listed` says otherwise. */
+export interface FakeDesktopBuild {
+  readonly name: string;
+  readonly platform: string;
+  readonly format: string;
+  readonly bytes: Uint8Array;
+  /** Fields of its manifest entry over those its bytes give: a SHA-256 its bytes do not have, say. */
+  readonly listed?: Partial<ReleaseAsset>;
 }
 
 export interface FakeReleaseSource {
@@ -83,6 +96,17 @@ export const manifestOf = (version: string, fields: Partial<ReleaseManifest> = {
   ...fields,
 });
 
+/** A desktop build as a manifest lists it: kind `desktop`, its platform and format, the size and SHA-256 of its bytes. */
+export const desktopEntry = (build: FakeDesktopBuild): ReleaseAsset => ({
+  name: build.name,
+  kind: "desktop",
+  platform: build.platform,
+  format: build.format,
+  size: build.bytes.byteLength,
+  sha256: sha256Of(build.bytes),
+  ...build.listed,
+});
+
 const REPOSITORY = "david/agent-harness";
 const API = `/api/v1/repos/${REPOSITORY}/releases`;
 const DOWNLOAD = `/${REPOSITORY}/releases/download`;
@@ -102,14 +126,24 @@ export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
       for (const release of releases) {
         const id = published.length + 1;
         const tag = release.tag ?? `v${release.version}`;
-        const manifest =
+        const desktop = release.desktop ?? [];
+        const described =
           release.manifest === null ? null : typeof release.manifest === "string" ? release.manifest : manifestOf(release.version, release.manifest, release.artefact);
+        const manifest =
+          described === null || typeof described === "string"
+            ? described
+            : { ...described, assets: [...described.assets, ...desktop.map((build) => desktopEntry(build))] };
         const text = manifest === null ? null : typeof manifest === "string" ? manifest : JSON.stringify(manifest);
         const names = [...(text === null ? [] : [RELEASE_MANIFEST_FILE]), ...(manifest === null || typeof manifest === "string" ? [ARTEFACT] : manifest.assets.map((asset) => asset.name))];
         const assets = names.map((name, index) => ({
           id: id * 100 + index,
           name,
-          size: name === RELEASE_MANIFEST_FILE && text !== null ? Buffer.byteLength(text) : name === ARTEFACT && release.artefact !== undefined ? release.artefact.byteLength : 12,
+          size:
+            name === RELEASE_MANIFEST_FILE && text !== null
+              ? Buffer.byteLength(text)
+              : name === ARTEFACT && release.artefact !== undefined
+                ? release.artefact.byteLength
+                : (desktop.find((build) => build.name === name)?.bytes.byteLength ?? 12),
           uuid: randomUUID(),
           browser_download_url: `${forge.origin}${DOWNLOAD}/${encodeURIComponent(tag)}/${name}`,
         }));
@@ -126,6 +160,7 @@ export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
         forge.answer(caller, `GET ${API}/tags/${encodeURIComponent(tag)}`, { status: 200, body });
         if (text !== null) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${RELEASE_MANIFEST_FILE}`, { status: 200, raw: text });
         if (release.artefact !== undefined) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${ARTEFACT}`, { status: 200, raw: release.artefact });
+        for (const build of desktop) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${build.name}`, { status: 200, raw: build.bytes });
       }
     },
     absent(version) {

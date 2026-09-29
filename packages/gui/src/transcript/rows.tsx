@@ -68,6 +68,9 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
     case "rewound":
       // The fold at the rewind point is #403's to draw; what the rewind cut stays out of the transcript until then.
       return null;
+    case "forked":
+      // A fork's first row, naming its source and opening it, is #403's to draw.
+      return null;
   }
 };
 

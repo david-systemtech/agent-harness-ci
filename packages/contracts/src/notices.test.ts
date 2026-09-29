@@ -13,7 +13,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' (#365, #366) and the routines' (#519), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' (#365, #366), the routines' (#519) and settings changed (#391), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -48,6 +48,7 @@ describe("environment notices", () => {
       "routine.delivery-failed",
       "routine.endpoint-set",
       "routine.endpoint-removed",
+      "settings.changed",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
@@ -58,6 +59,25 @@ describe("environment notices", () => {
       type: "environment.started",
       payload: { harnessVersion: "0.1.0", protocolVersion: 1 },
     });
+  });
+});
+
+/** Settings changed (GUI spec, "Live"; #391): beside every settings.updated, naming the keys, never the values. */
+describe("the settings.changed notice", () => {
+  const notice = (payload: unknown) => EnvironmentNotice.safeParse({ type: "settings.changed", payload });
+
+  it("names the keys that changed, each a setting and each once, at least one", () => {
+    expect(notice({ keys: ["appearance.theme"] }).data).toEqual({ type: "settings.changed", payload: { keys: ["appearance.theme"] } });
+    expect(notice({ keys: ["permissions.containment.default", "sessions.autoSettleOnMerge"] }).success).toBe(true);
+    for (const bad of [{}, { keys: [] }, { keys: ["theme"] }, { keys: ["appearance.theme", "appearance.theme"] }, { keys: "appearance.theme" }]) {
+      expect(notice(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("goes on the environment stream, never in the session list, beside the access log's type of the same name on the access stream", () => {
+    expect(eventTypeEntry("environment", "settings.changed")).toMatchObject({ list: false });
+    expect(eventTypeEntry("access", "settings.changed")).toBeDefined();
+    expect(eventTypeEntry("settings", "settings.changed")).toBeUndefined();
   });
 });
 
