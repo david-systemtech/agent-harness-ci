@@ -22,7 +22,7 @@ import { createForgeNotices } from "./projections/forge-notices.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
-import { createSetup } from "./projections/setup.js";
+import { SETUP_CHECK_TIMEOUT_MS, createSetup } from "./projections/setup.js";
 import { createRequestCache, createRequests, type Requests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
@@ -246,7 +246,13 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   };
   const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
   // Set up (#570): each environment's results from its own stream and this client's checks through the request path.
-  const setup = createSetup({ clock: platform.clock, records: registry.list, environments: made.environments, call, now: (environmentId) => made.now(environmentId) });
+  const setup = createSetup({
+    clock: platform.clock,
+    records: registry.list,
+    environments: made.environments,
+    call: createRequests({ clock: platform.clock, capability, request: registry.seams.request, timeoutMs: SETUP_CHECK_TIMEOUT_MS }).call,
+    now: (environmentId) => made.now(environmentId),
+  });
   registry.seams.onForget((environmentId) => setup.forget(environmentId));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>

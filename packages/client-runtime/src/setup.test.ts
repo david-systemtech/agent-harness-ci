@@ -249,6 +249,26 @@ describe("this client's own check", () => {
     expect(resultOf(runtime, env, "account")).toMatchObject({ state: "done", checkedAt: after(0) });
   });
 
+  it("waits for its answer past the request path's thirty seconds, as long as the longest check budget and those thirty seconds, then fails as timed out", async () => {
+    const { runtime, wire, clock, env } = await withResults();
+    const checks = heldChecks(wire);
+    const slow = runtime.setup.check(env, "permissions");
+    clock.advance(45_000);
+    await flush();
+    expect(pending(runtime, env)).toEqual(["permissions"]);
+    checks.answer([doneResult("permissions", { checkedAt: after(45_000) })]);
+    expect(await slow).toMatchObject({ ok: true });
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "done", checkedAt: after(45_000) });
+
+    const unanswered = runtime.setup.check(env, "account");
+    clock.advance(59_999);
+    await flush();
+    expect(pending(runtime, env)).toEqual(["account"]);
+    clock.advance(1);
+    expect(await unanswered).toMatchObject({ ok: false, error: { code: "timeout" } });
+    expect(pending(runtime, env)).toEqual([]);
+  });
+
   it("asks about every step when it names none, and an answer that comes within half a second never reads pending", async () => {
     const { runtime, wire, clock, env } = await withResults();
     const checks = heldChecks(wire);

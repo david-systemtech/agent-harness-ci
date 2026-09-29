@@ -1,4 +1,5 @@
 import {
+  CHECK_BUDGET_SECONDS,
   DEFAULT_CADENCE_MINUTES,
   SETTINGS_ROWS,
   STEP_LABELS,
@@ -12,7 +13,7 @@ import {
 import type { ConnectionPhase, ConnectionRecord } from "../connections/records.js";
 import { derived, writable, type Observable } from "../observable.js";
 import type { Clock, Timer } from "../platform.js";
-import type { RequestAnswer, Requests } from "../requests.js";
+import { REQUEST_TIMEOUT_MS, type RequestAnswer, type Requests } from "../requests.js";
 import type { EnvironmentData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 
@@ -29,6 +30,16 @@ import type { StreamState } from "../streams/stream.js";
 
 /** How long this client's own check waits for its answer before its steps read pending (ADR 0031's half second). */
 export const SETUP_PENDING_MS = 500;
+
+/**
+ * How long this client's own check waits for its answer: the longest check
+ * budget (a git probe's thirty seconds), past which the environment
+ * answers that the check timed out, then the request path's own
+ * `REQUEST_TIMEOUT_MS` for the rest of the round trip. A chosen default:
+ * the request path's thirty seconds alone would give up on a check the
+ * environment is about to answer.
+ */
+export const SETUP_CHECK_TIMEOUT_MS = CHECK_BUDGET_SECONDS.git * 1000 + REQUEST_TIMEOUT_MS;
 
 /**
  * How often a result's age is counted again once it is older than its
@@ -131,7 +142,7 @@ export interface SetupHost {
   readonly records: Observable<readonly ConnectionRecord[]>;
   /** Each environment's own stream, which carries its Set up results. */
   readonly environments: Observable<ReadonlyMap<string, StreamState<EnvironmentData>>>;
-  /** The request path `setup.check` goes through. */
+  /** The request path `setup.check` goes through, waiting `SETUP_CHECK_TIMEOUT_MS` for its answer. */
   readonly call: Requests["call"];
   /** The environment's time now, as this client reckons it from `hello`: what a result's age is counted against. */
   now(environmentId: string): Date;
