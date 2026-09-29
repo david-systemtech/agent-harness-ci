@@ -90,10 +90,19 @@ export const handedOffAlreadyWords = (from: string, account: Pick<AccountRecord,
  * (`runs.start` takes none), so the hand-off is a fork of the whole session
  * onto the account (`commands.fork` with `account`), which carries the
  * source's draft onto it once the fork is accepted; the source stays as it
- * is.
+ * is. With `anchor`, a user message of the session, the fork is taken
+ * before it instead, the message its draft (the window's Fork onto another
+ * account, #403).
  */
-export const handOff = async (runtime: Runtime, environmentId: string, sessionId: string, account: Pick<AccountRecord, "id" | "label">, from: string): Promise<HandOff> => {
-  const { sessionId: forked, answer } = await runtime.commands.fork(environmentId, sessionId, { account: account.id });
+export const handOff = async (
+  runtime: Runtime,
+  environmentId: string,
+  sessionId: string,
+  account: Pick<AccountRecord, "id" | "label">,
+  from: string,
+  anchor?: string,
+): Promise<HandOff> => {
+  const { sessionId: forked, answer } = await runtime.commands.fork(environmentId, sessionId, { account: account.id, ...(anchor !== undefined && { anchor }) });
   if (!answer.ok) return { ok: false, line: `Not handed off: ${answer.error.message}` };
   return { ok: true, sessionId: forked, line: `Handed off to ${account.label}: a new session forked from ${from} runs on it; ${from} stays as it is.` };
 };
