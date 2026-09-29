@@ -479,11 +479,12 @@ describe("a connection without a credential", () => {
       const request: ParamsOf<"keyManagers.connections.add"> = { commandId: randomUUID(), connectionId, provider: "openbao", label: "Imported", address: bao.address, method: "token", importedFrom: "secret-manager-1" };
       const handler = await t.env.keyManagerConnections.add.prepare(request, { clientSession, onUndo: () => undefined });
       const actor = `client_session:${clientSession.id}`;
-      return t.env.log.command({ actor, commandId: request.commandId }, (tx) => {
+      const run = t.env.log.command({ actor, commandId: request.commandId }, (tx) => {
         const answer = handler(request, { clientSession, commandId: request.commandId, actor, tx });
         if (answer.rejected !== undefined) throw new Error(JSON.stringify(answer.rejected));
         return answer;
       });
+      return { receipt: run.receipt, connection: run.replayed ? undefined : run.result?.connection };
     };
     const first = randomUUID();
 
@@ -492,9 +493,9 @@ describe("a connection without a credential", () => {
     const again = await importOnce(randomUUID());
 
     expect(made.receipt.status).toBe("accepted");
-    expect(made.result?.connection).toMatchObject({ id: first, importedFrom: "secret-manager-1", status: { kind: "awaiting-sign-in" } });
+    expect(made.connection).toMatchObject({ id: first, importedFrom: "secret-manager-1", status: { kind: "awaiting-sign-in" } });
     expect(again.receipt).toMatchObject({ status: "accepted", changed: false });
-    expect(again.result?.connection.id).toBe(first);
+    expect(again.connection?.id).toBe(first);
     expect((await list(client)).map((connection) => connection.id)).toEqual([first]);
     expect(await keyManagerEvents(client, from)).toEqual([]);
     expect(bao.requests).toEqual([]);
