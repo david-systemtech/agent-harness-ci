@@ -1,6 +1,6 @@
 import { forgeCopyCredential, normaliseRemote, type ForgeAccountRecord, type MethodName, type ParamsOf } from "@agent-harness/contracts";
 import { noShellMessage, type CapabilityAnswer } from "./capabilities.js";
-import { copyToEach, type CopyOutcome, type CopyReport } from "./copies.js";
+import { copyOutcome, copyToEach, type CopyReport } from "./copies.js";
 import { uuidv4, uuidv7 } from "./ids.js";
 import type { Clock } from "./platform.js";
 import type { RequestAnswer, Requests } from "./requests.js";
@@ -64,14 +64,6 @@ const failed = (code: string, message: string) => ({ ok: false, error: { code, m
 /** The host `gh` names a forge by: an origin's host, with its port when it has one. */
 const ghHost = (origin: string): string => origin.replace(/^https?:\/\//, "");
 
-/** What an add answered, as a copy reports it: the forge account it added (null for an answer from its stored receipt), or why it was refused. */
-const copyOutcome = (answer: RequestAnswer<"forge.accounts.add">): CopyOutcome<ForgeAccountRecord | null> => {
-  if (!answer.ok) return { status: "refused", error: answer.error };
-  const { receipt, result } = answer.result;
-  if (receipt.status === "rejected") return { status: "refused", error: { code: receipt.reason, message: receipt.error.message, data: receipt.error.data } };
-  return { status: "copied", result: result?.account ?? null };
-};
-
 export const createForges = (host: ForgesHost): Forges => ({
   async handOverGh(environmentId, params) {
     const add = host.capability(environmentId, "forge.accounts.add");
@@ -98,8 +90,8 @@ export const createForges = (host: ForgesHost): Forges => ({
   },
   async copy(fromEnvironmentId, account, toEnvironmentIds) {
     const environmentName = host.name(fromEnvironmentId);
-    return copyToEach(toEnvironmentIds, async (environmentId) => {
-      if (environmentName === null) return { status: "refused", error: { code: "unreachable", message: "This client has no connection to the environment the copy is from." } };
+    const from = environmentName === null ? null : { environmentId: fromEnvironmentId, environmentName };
+    return copyToEach(from, toEnvironmentIds, async (environmentId, copiedFrom) => {
       const answer = await host.call(environmentId, "forge.accounts.add", {
         commandId: uuidv7(host.clock.now()),
         forgeAccountId: uuidv4(),
@@ -110,9 +102,9 @@ export const createForges = (host: ForgesHost): Forges => ({
         aliases: account.aliases.map((alias) => alias.origin),
         primary: account.primary,
         credential: forgeCopyCredential(account.credential),
-        copiedFrom: { environmentId: fromEnvironmentId, environmentName },
+        copiedFrom,
       });
-      return copyOutcome(answer);
+      return copyOutcome(answer, (result) => result.account);
     });
   },
 });

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Scope } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { noticeEvent } from "../test/events.js";
-import { subscription, type Scripted } from "../test/scripted.js";
+import { usePaired } from "../test/paired.js";
+import { subscription } from "../test/scripted.js";
 import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Shell } from "./shell.js";
@@ -15,33 +16,10 @@ import { fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-pl
  * request cache, fetched again on every `forge.account.*` notice.
  */
 
+const { paired: pairedWith, pairedMany: pairedManyWith } = usePaired();
+
 /** A runtime paired with one scripted environment offering the `forge` flag, its environment stream synchronized and held by the test. */
-const paired = async (options: { readonly capabilities?: readonly string[]; readonly shell?: Shell } = {}) => {
-  const clock = manualClock();
-  const wire: FakeWire = fakeWire({ clock, name: "desk", capabilities: [...(options.capabilities ?? ["forge"])] });
-  wire.answer("sessions.subscribe", () => undefined);
-  wire.answer("environment.subscribe", () => undefined);
-  const secrets = new Map<string, string>();
-  const platform = inMemoryPlatform({
-    clock,
-    fetch: wire.fetch,
-    webSocket: wire.webSocket,
-    secrets: { get: async (name) => secrets.get(name), set: async (name, value) => void secrets.set(name, value), delete: async (name) => void secrets.delete(name) },
-    ...(options.shell !== undefined && { kind: "desktop", label: "David's laptop", shell: options.shell }),
-  });
-  const { runtime } = createRuntimeWithSeams(platform);
-  onTestFinished(() => runtime.close());
-  await runtime.start();
-  const adding = runtime.connections.add({ link: wire.link });
-  await wire.server.accept();
-  (await subscription(wire, "sessions.subscribe")).synchronized(0);
-  const environment: Scripted = await subscription(wire, "environment.subscribe");
-  environment.synchronized(0);
-  expect(await adding).toMatchObject({ status: "paired" });
-  /** Everything this client keeps: its documents and its secrets, as text, to look for a token in. */
-  const kept = () => JSON.stringify({ documents: platform.documents.entries(), secrets: [...secrets.values()] });
-  return { clock, wire, platform, runtime, env: wire.environmentId, environment, kept };
-};
+const paired = (options: { readonly capabilities?: readonly string[]; readonly shell?: Shell } = {}) => pairedWith({ capabilities: ["forge"], ...options });
 
 /** A token as a person pastes one: nothing a secret scanner takes for a real one. */
 const TOKEN = "token-for-tests";
@@ -456,25 +434,7 @@ describe("handing this computer's gh over", () => {
 });
 
 /** A runtime paired with a scripted environment per entry, each offering `forge` and granting its scopes (every scope when absent). */
-const pairedMany = async (environments: readonly { readonly name: string; readonly scopes?: readonly Scope[] }[]) => {
-  const clock = manualClock();
-  const wires = environments.map(({ name }, index) => fakeWire({ clock, name, capabilities: ["forge"], address: { host: `env-${index}.test`, port: 7433 } }));
-  const route = (url: string) => wires.find((_, index) => url.includes(`env-${index}.test`)) ?? (wires[0] as FakeWire);
-  const platform = inMemoryPlatform({ clock, fetch: (url, request) => route(url).fetch(url, request), webSocket: (url, handlers) => route(url).webSocket(url, handlers) });
-  const { runtime } = createRuntimeWithSeams(platform);
-  onTestFinished(() => runtime.close());
-  await runtime.start();
-  for (const [index, wire] of wires.entries()) {
-    for (const method of ["sessions.subscribe", "environment.subscribe"]) wire.answer(method, () => undefined);
-    const adding = runtime.connections.add({ link: wire.link });
-    const scopes = environments[index]?.scopes;
-    await wire.server.accept(scopes === undefined ? {} : { scopes: [...scopes] });
-    (await subscription(wire, "sessions.subscribe")).synchronized(0);
-    (await subscription(wire, "environment.subscribe")).synchronized(0);
-    expect(await adding).toMatchObject({ status: "paired" });
-  }
-  return { clock, runtime, wires, ids: wires.map((wire) => wire.environmentId) };
-};
+const pairedMany = (environments: readonly { readonly name: string; readonly scopes?: readonly Scope[] }[]) => pairedManyWith(["forge"], environments);
 
 /** Answers every forge.accounts.add accepted, with the account it would add, and records what each was asked. */
 const acceptingAdds = (wire: FakeWire) => {
