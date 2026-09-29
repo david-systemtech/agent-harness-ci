@@ -51,7 +51,7 @@ Every rule cites its decision; a rule marked chosen default was left open by the
 
 - **Contracts**: the connection record, provider kinds, auth methods, reference shapes and their display form; the Managed tools table as a data module (tools, minimums, version and verify commands, the closed command table); the scrub shape rules as data; the methods, errors, events and notices below; the settings keys; the Key manager registry entry.
 - **Environment**: the **KeyManagerRegistry** (connection store, vault entries, the login scheduler, verifier, **run-token minter**, **resolver**, Move), one **provider** per kind behind one interface; the **ScrubRegistry**; the **OrientationRenderer**, which fills the composer's orientation seam; the **Managed tools registry** (prober, latest fetcher, runner); the step's checks. The core audit named this seam: a registry with `resolve(reference)` answering a value and its release, an injected vault, and a scrub registry shared with logging.
-- **Client runtime**: `keyManagers.list`, `keyManagers.move.list` and `tools.list` in the request cache, refreshed on the notices below; the bulk copy gains connections; the known-environments report.
+- **Client runtime**: `keyManagers.list`, `keyManagers.move.list` and `tools.list` in the request cache, refreshed on the notices below; the bulk copy gains connections; the known-environments report. As built (#384): the cache, the `keyManagers` and `managedTools` flags gating their methods, a connection's status rows, and `keyManagers.copy` over `projections.copyTargets`; the client-runtime spec's notes on #384 hold their rules. The known-environments report is still owed.
 
 ### The connection record
 
@@ -184,6 +184,7 @@ The registry gains `key-manager`, fifth (ADR 0034), in #141's shape (ADR 0016, A
 ### Copies and the state import
 
 - **Same on every environment** (ADR 0028): the client runtime's bulk copy calls `keyManagers.connections.add` on each chosen environment with address, CA, method, mount, username, ticks and base path and `copiedFrom`, never the credential; each target asks for it once.
+- **Chosen (#384)**: the copy also carries the provider, label and token role, each field only when the source holds one, and is a new connection there under an id of its own, so a second copy after a removal is not refused for its id; a target holding the provider and address already reports `conflict` reason `connection_exists`, and the others go on. A connection coming to stand in any status but `signed-in` of another kind than the client last heard raises one client notice, "<label> on <environment>: <the status's line>", offering the Key manager step; an add awaiting its sign-in is one, so each target of a copy asks for its credential once, and a person's sign-out and a return to `signed-in` raise none. `keyManagers.move.list` is fetched again on a forge account's add, update and removal as well as on every key-manager event.
 - **The state import** (ADR 0036, this ticket's third comment) calls the add in process without a credential, with `importedFrom` naming the source connection, for address, CA, auth method and username; references carry as they are, mapped to the new connection's id. Encrypted tokens are never read and plaintext ones never copied.
 
 ### What this workstream does not decide
