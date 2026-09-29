@@ -67,6 +67,7 @@ describe("the JSON Schema export", () => {
       { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
       { path: "data/settings-addresses.json", title: "Settings addresses", schema: "settings/address-row.json" },
+      { path: "data/managed-tools.json", title: "Managed tools", schema: "managed-tools/tool.json" },
     ]);
     const tablePaths = new Set([...index.cases, ...index.data].map((c) => c.path));
     expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !tablePaths.has(p)));
@@ -196,6 +197,18 @@ describe("the JSON Schema export", () => {
     expect(tables["data/settings-addresses.json"]).toHaveLength(16);
     expect(tables["data/settings-addresses.json"]).toContainEqual({ address: "secrets", row: "access.key-managers" });
     expect(tables["data/settings-addresses.json"]).toEqual(contracts.SETTINGS_ADDRESSES.map((address) => ({ address, row: contracts.rowOfAddress(address) })));
+  });
+
+  it("publishes the Managed tools table as data, each tool valid against the tool schema", () => {
+    const ajv = validator();
+    for (const path of filesOnDisk().filter((p) => p !== "index.json" && !p.startsWith("data/"))) ajv.addSchema(readJson(path), path);
+    const table = readJson("data/managed-tools.json") as { description: string; schema: string; entries: unknown[] };
+    const validate = ajv.getSchema(table.schema);
+    if (validate === undefined) throw new Error(`data/managed-tools.json names ${table.schema}, which is not published`);
+    for (const entry of table.entries) expect(validate(entry), JSON.stringify(entry)).toBe(true);
+    expect(table.entries).toEqual(contracts.MANAGED_TOOLS);
+    expect(table.description).toContain("claude in your terminal");
+    expect(validate({ name: "vault", label: "Vault CLI", minimum: null, verify: ["token", "lookup"], requiredFor: { kind: "key-manager", provider: "openbao" } })).toBe(false);
   });
 
   it("publishes the row, scope and address shapes", () => {

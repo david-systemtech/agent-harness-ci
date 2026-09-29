@@ -433,6 +433,7 @@ describe("the method registry", () => {
       | "keyManagers.move.list"
       | "keyManagers.move"
       | "keyManagers.move.copyValue"
+      | "tools.list"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

@@ -1215,6 +1215,38 @@
       "title": "AddressUnreachableError"
     },
     {
+      "path": "managed-tools/name.json",
+      "title": "ManagedToolName"
+    },
+    {
+      "path": "managed-tools/version.json",
+      "title": "ManagedToolVersion"
+    },
+    {
+      "path": "managed-tools/tool.json",
+      "title": "ManagedTool"
+    },
+    {
+      "path": "managed-tools/install-method.json",
+      "title": "ManagedToolInstallMethod"
+    },
+    {
+      "path": "managed-tools/status.json",
+      "title": "ManagedToolStatus"
+    },
+    {
+      "path": "managed-tools/action.json",
+      "title": "ManagedToolAction"
+    },
+    {
+      "path": "managed-tools/row.json",
+      "title": "ManagedToolRow"
+    },
+    {
+      "path": "managed-tools/events/tools.updated.json",
+      "title": "ToolsUpdatedPayload"
+    },
+    {
       "path": "scrub/shape-rule-id.json",
       "title": "ShapeRuleId"
     },
@@ -4171,6 +4203,18 @@
       "title": "keyManagers.move.copyValue error"
     },
     {
+      "path": "methods/tools.list/params.json",
+      "title": "tools.list params"
+    },
+    {
+      "path": "methods/tools.list/result.json",
+      "title": "tools.list result"
+    },
+    {
+      "path": "methods/tools.list/error.json",
+      "title": "tools.list error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -4968,6 +5012,11 @@
       "path": "data/settings-addresses.json",
       "title": "Settings addresses",
       "schema": "settings/address-row.json"
+    },
+    {
+      "path": "data/managed-tools.json",
+      "title": "Managed tools",
+      "schema": "managed-tools/tool.json"
     }
   ],
   "methods": [
@@ -5896,6 +5945,15 @@
       "result": "methods/keyManagers.move.copyValue/result.json",
       "response": "methods/keyManagers.move.copyValue/response.json",
       "error": "methods/keyManagers.move.copyValue/error.json"
+    },
+    {
+      "name": "tools.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/tools.list/params.json",
+      "result": "methods/tools.list/result.json",
+      "error": "methods/tools.list/error.json"
     },
     {
       "name": "settings.get",
