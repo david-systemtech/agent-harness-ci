@@ -307,7 +307,7 @@ describe("the alias pass", () => {
     expect(event).toMatchObject({ streamId: id, type: "session.repository-identified", payload: { repositoryIdentity: IDENTITY, reason: "alias" } });
   });
 
-  it("gives the rule the verified aliases at creation and in the resolved pass", async () => {
+  it("gives the rule the verified aliases at creation, in workspaces.inspect and in the resolved pass", async () => {
     const dataDir = dataDirectory();
     const { t, client, forgeFetch } = await withForge({ dataDir });
     await added(client, { url: CANONICAL, kind: "forgejo", aliases: [TAILNET] });
@@ -316,6 +316,7 @@ describe("the alias pass", () => {
     const worktree = await created(client, { kind: "worktree", repository: repository({ origin: `${TAILNET}/david/bank` }) });
     expect(made.summary.repositoryIdentity).toBe(IDENTITY);
     expect(worktree.summary.repositoryIdentity).toBe("https://git.systemtech.dev/david/bank");
+    expect((await client.request("workspaces.inspect", { path: made.summary.workspace.path })).repository).toMatchObject({ repositoryIdentity: IDENTITY });
 
     const later = repository();
     const { id } = await created(client, { kind: "directory", path: later });
