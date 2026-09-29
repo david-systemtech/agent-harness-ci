@@ -33,6 +33,7 @@ export {
   type ShellContent,
   type ShellDeepLinks,
   type ShellDialogs,
+  type ShellFile,
   type ShellInstaller,
   type ShellMember,
   type ShellNetwork,

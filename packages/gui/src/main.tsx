@@ -17,5 +17,5 @@ if (container === null) throw new Error("The page has no #root to mount the wind
 const platform = browserPlatform(window, __HARNESS_VERSION__);
 const runtime = createRuntime(platform);
 const presentation = await openPresentation(platform.documents, platform.reportError);
-createRoot(container).render(<App runtime={runtime} presentation={presentation} clock={platform.clock} macOS={onMacOS(navigator)} />);
+createRoot(container).render(<App runtime={runtime} presentation={presentation} clock={platform.clock} macOS={onMacOS(navigator)} shell={platform.shell} />);
 runtime.start().catch(platform.reportError);
