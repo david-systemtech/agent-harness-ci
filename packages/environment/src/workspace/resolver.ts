@@ -10,6 +10,7 @@ import { readSummary, type Reader } from "../sessions/session-reads.js";
 import { readRepositoryIdentity } from "./identity.js";
 import { isInside } from "./paths.js";
 import type { WorkspaceRoots } from "./roots.js";
+import { worktreeSession } from "./session.js";
 import { makeWorktree } from "./worktrees.js";
 
 /**
@@ -70,6 +71,28 @@ export interface WorkspaceResolver {
   resolve(request: WorkspaceRequest, sessionId: string): Resolution | Promise<Resolution>;
 }
 
+/**
+ * The directory rules of the environment's resolver, which browsing and
+ * inspecting its directories (#331) read a path by, so the picker and
+ * `sessions.create` never disagree about one. None makes anything.
+ */
+export interface DirectoryRules {
+  /**
+   * `path` as a directory request records it: `~`, and `~/` or `~\` with
+   * what follows, from the environment's home, then `.` and `..` resolved
+   * as written. Thrown `invalid_params` when this operating system does not
+   * read it as absolute.
+   */
+  recorded(path: string): string;
+  /** Why a directory request for `path` (as recorded) is refused `workspace_unusable`; null when a session can work there. */
+  problemWith(path: string): Promise<WorkspaceProblem | null>;
+  /** The repository identity a session working at `path` (as recorded) gets; null outside a repository. */
+  identityAt(path: string): Promise<string | null>;
+}
+
+/** The environment's resolver: the one `createWorkspaceResolver` makes, whose directory rules the picker reads too. */
+export type EnvironmentResolver = WorkspaceResolver & DirectoryRules;
+
 /** What an environment's resolver reads beyond its data directory and log; each has a preset. */
 export interface WorkspaceSettings {
   /** The roots later workstreams declare beside the data directory's scratch and worktrees (bank checkouts, #90); preset: none. */
@@ -110,9 +133,9 @@ const unusable = (path: string, problem: WorkspaceProblem): Resolution => ({
 });
 
 /** The errors a `stat` answers for a path with no directory there: nothing, a file on the way, a link loop, a name too long. */
-const NOT_THERE = new Set(["ENOENT", "ENOTDIR", "ELOOP", "ENAMETOOLONG"]);
+export const NOT_THERE: ReadonlySet<string> = new Set(["ENOENT", "ENOTDIR", "ELOOP", "ENAMETOOLONG"]);
 
-const errorCode = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | null)?.code;
+export const errorCode = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | null)?.code;
 
 /** Whether the running user can list and enter the directory at `path`. */
 const accessible = async (path: string): Promise<boolean> => {
@@ -141,7 +164,7 @@ const folded = (path: string): string => (CASE_INSENSITIVE ? path.toLowerCase() 
 const followed = async (path: string): Promise<string> => realpath(path).catch(() => path);
 
 /** The environment's resolver. */
-export const createWorkspaceResolver = (options: WorkspaceResolverOptions): WorkspaceResolver => {
+export const createWorkspaceResolver = (options: WorkspaceResolverOptions): EnvironmentResolver => {
   const { dataDir, roots } = options;
   const home = options.home ?? homedir();
   const readable = options.readable ?? accessible;
@@ -237,16 +260,10 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions): Work
     return { workspace, repositoryIdentity };
   };
 
-  /** The session whose recorded workspace is the worktree at `path`: the first made there, a deleted one in its grace included. */
-  const sessionAt = (path: string): string | null => {
-    const [row] = reader.all<{ id: string }>(
-      "SELECT id FROM sessions WHERE json_extract(workspace, '$.kind') = 'worktree' AND json_extract(workspace, '$.path') = ? ORDER BY created_at, id LIMIT 1",
-      path,
-    );
-    return row?.id ?? null;
-  };
-
   return {
+    recorded,
+    problemWith,
+    identityAt,
     resolve: (request, sessionId) => {
       switch (request.kind) {
         case "directory":
@@ -254,7 +271,7 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions): Work
         case "worktree":
           return makeWorktree(request, sessionId, {
             root: roots.worktrees,
-            sessionAt,
+            sessionAt: (path) => worktreeSession(options.log, path),
             identityAt,
             ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }),
           });

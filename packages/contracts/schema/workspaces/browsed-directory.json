@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowsedDirectory",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The subdirectory's name in the directory browsed."
+    },
+    "repository": {
+      "type": "boolean",
+      "description": "True when it is the root of a git repository: a checkout (it holds .git) or a bare repository."
+    }
+  },
+  "required": [
+    "name",
+    "repository"
+  ],
+  "description": "A subdirectory of the directory browsed, marked when it is a repository's root."
+}

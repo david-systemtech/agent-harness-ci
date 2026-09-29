@@ -347,6 +347,14 @@
       "title": "RepositoryIdentifiedReason"
     },
     {
+      "path": "sessions/absolute-path.json",
+      "title": "AbsolutePath"
+    },
+    {
+      "path": "sessions/requested-directory.json",
+      "title": "RequestedDirectory"
+    },
+    {
       "path": "sessions/activity-state.json",
       "title": "ActivityState"
     },
@@ -1673,6 +1681,26 @@
     {
       "path": "diffs/session-diff-file.json",
       "title": "SessionDiffFile"
+    },
+    {
+      "path": "workspaces/browsed-directory.json",
+      "title": "BrowsedDirectory"
+    },
+    {
+      "path": "workspaces/inspected-commit.json",
+      "title": "InspectedCommit"
+    },
+    {
+      "path": "workspaces/inspected-branch.json",
+      "title": "InspectedBranch"
+    },
+    {
+      "path": "workspaces/inspected-repository.json",
+      "title": "InspectedRepository"
+    },
+    {
+      "path": "workspaces/workspace-inspection.json",
+      "title": "WorkspaceInspection"
     },
     {
       "path": "actions/action-context.json",
@@ -4059,6 +4087,30 @@
       "title": "diffs.session error"
     },
     {
+      "path": "methods/workspaces.browse/params.json",
+      "title": "workspaces.browse params"
+    },
+    {
+      "path": "methods/workspaces.browse/result.json",
+      "title": "workspaces.browse result"
+    },
+    {
+      "path": "methods/workspaces.browse/error.json",
+      "title": "workspaces.browse error"
+    },
+    {
+      "path": "methods/workspaces.inspect/params.json",
+      "title": "workspaces.inspect params"
+    },
+    {
+      "path": "methods/workspaces.inspect/result.json",
+      "title": "workspaces.inspect result"
+    },
+    {
+      "path": "methods/workspaces.inspect/error.json",
+      "title": "workspaces.inspect error"
+    },
+    {
       "path": "methods/updates.status/params.json",
       "title": "updates.status params"
     },
@@ -5552,6 +5604,24 @@
       "params": "methods/diffs.session/params.json",
       "result": "methods/diffs.session/result.json",
       "error": "methods/diffs.session/error.json"
+    },
+    {
+      "name": "workspaces.browse",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/workspaces.browse/params.json",
+      "result": "methods/workspaces.browse/result.json",
+      "error": "methods/workspaces.browse/error.json"
+    },
+    {
+      "name": "workspaces.inspect",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/workspaces.inspect/params.json",
+      "result": "methods/workspaces.inspect/result.json",
+      "error": "methods/workspaces.inspect/error.json"
     },
     {
       "name": "updates.status",

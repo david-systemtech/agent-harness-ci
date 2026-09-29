@@ -13,9 +13,11 @@ import {
   isOutcomeRecord,
   parseEnvironmentMessage,
   parseLauncherMessage,
+  parsePreflightReport,
   type EnvironmentMessage,
   type LauncherMessage,
   type OutcomeRecord,
+  type PreflightReport,
 } from "./launcher.js";
 
 /** A message as it arrives on the other side of the IPC channel, which carries JSON. */
@@ -164,6 +166,50 @@ describe("the launcher channel's messages", () => {
     for (const statement of imports) expect(statement).toMatch(/^(import|export) type\b/);
     expect(source).not.toMatch(/^import\s*["']/m);
     expect(source).not.toMatch(/\bimport\(/);
+  });
+});
+
+describe("a version's preflight report, as the launcher reads it", () => {
+  const report: PreflightReport = {
+    version: "0.5.0",
+    protocolVersion: 1,
+    launcherProtocol: 1,
+    databaseSchemaVersion: 14,
+    bundledClaudeCodeVersion: "2.1.283",
+  };
+  const printed = (value: unknown): string => `${JSON.stringify(value)}\n`;
+
+  it("is the one JSON document preflight prints, its line feed or none", () => {
+    expect(parsePreflightReport(printed(report))).toEqual(report);
+    expect(parsePreflightReport(JSON.stringify(report))).toEqual(report);
+    // A database with no migrations yet is schema 0.
+    expect(parsePreflightReport(printed({ ...report, databaseSchemaVersion: 0 }))).toEqual({ ...report, databaseSchemaVersion: 0 });
+  });
+
+  it("drops the fields it does not define, so a newer version's additions are read as the report both know", () => {
+    expect(parsePreflightReport(printed({ ...report, loaded: ["sqlite"] }))).toEqual(report);
+  });
+
+  it("is nothing when the output is not one report: missing a part, a part of the wrong kind, or more than one document", () => {
+    for (const key of Object.keys(report)) {
+      const partial: Record<string, unknown> = { ...report };
+      delete partial[key];
+      expect(parsePreflightReport(printed(partial)), key).toBeUndefined();
+    }
+    const others = [
+      "",
+      "preflight failed",
+      printed(null),
+      printed([report]),
+      `${printed(report)}${printed(report)}`,
+      printed({ ...report, version: "v0.5.0" }),
+      printed({ ...report, protocolVersion: 0 }),
+      printed({ ...report, launcherProtocol: 1.5 }),
+      printed({ ...report, launcherProtocol: "1" }),
+      printed({ ...report, databaseSchemaVersion: -1 }),
+      printed({ ...report, bundledClaudeCodeVersion: "" }),
+    ];
+    for (const text of others) expect(parsePreflightReport(text), text).toBeUndefined();
   });
 });
 

@@ -42,13 +42,14 @@ const check = async (client: WireClient, step: StepResult["step"]): Promise<Step
 };
 
 describe("setup.check", () => {
-  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, with its line and the environment's clock", async () => {
+  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Forges, skipped with no forge account, with its line and the environment's clock", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
     expect(results.map((result) => [result.step, result.state, result.failing, result.actions])).toEqual([
       ["account", "done", [], []],
       ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
+      ["forges", "skipped", [], []],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],
     ]);
@@ -73,7 +74,7 @@ describe("setup.check", () => {
     expect((await reader.request("setup.check", { step: "permissions" })).results).toHaveLength(1);
     const driver = await t.client({ token: (await t.pair({ scopes: ["runs:drive"] })).token });
     expect(await refusal(driver.request("setup.check", {}))).toMatchObject({ code: "forbidden", data: { scope: "read" } });
-    expect(await refusal(reader.request("setup.check", { step: "forges" } as never))).toMatchObject({ code: "invalid_params" });
+    expect(await refusal(reader.request("setup.check", { step: "key-manager" } as never))).toMatchObject({ code: "invalid_params" });
   });
 });
 
@@ -165,11 +166,12 @@ describe("the Permissions step's check", () => {
     expect(await check(admin, "permissions")).toMatchObject({ state: "done", failing: [] });
   });
 
-  it("is never skipped: every result is done or needs attention", async () => {
+  it("is never skipped, even on a fresh environment where Forges, with no forge account, is", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
-    expect(results.every((result) => result.state !== "skipped")).toBe(true);
+    const stateOf = (step: StepResult["step"]) => results.find((result) => result.step === step)?.state;
+    expect([stateOf("permissions"), stateOf("forges")]).toEqual(["done", "skipped"]);
   });
 });
 

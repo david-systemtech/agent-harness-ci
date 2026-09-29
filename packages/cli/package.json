@@ -1,6 +1,7 @@
 {
   "name": "agent-harness",
   "version": "0.0.0",
+  "launcherProtocol": 1,
   "private": true,
   "type": "module",
   "bin": {

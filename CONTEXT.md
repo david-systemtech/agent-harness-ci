@@ -216,6 +216,10 @@ _Avoid_: wrapper, alias, the launcher entry (what the service definition runs)
 The folder in the data directory holding one folder per installed version, named by the version; a folder counts as a version only once its sentinel, written last, is in it.
 _Avoid_: install folder, releases folder, runtime
 
+**Preflight**:
+A staged version's own check of itself, which the launcher runs before it installs the version: the version loads SQLite, `node-pty` and the bundled Claude binary's `--version` within 30 seconds and prints what it is (its version, protocol, launcher protocol and database schema), or it is never installed.
+_Avoid_: smoke test, health check (ADR 0031's, of a running environment), trial (a version's first start after a switch)
+
 **Service state**:
 The launcher's file in the data directory naming the active, previous and launcher versions, the pending-update record and the watch deadline; every write is durable, and a service state the launcher cannot read or trust stops it starting anything.
 _Avoid_: service record (what `service install` wrote, for `status` and `uninstall`), launcher state

@@ -46,10 +46,20 @@ export const makeDirectory = (path: string, workspace: Workspace): Resolution =>
   return { workspace, repositoryIdentity: null, undo: () => rmSync(path, { recursive: true, force: true }) };
 };
 
-/** Runs git in `cwd` as a test user, with no global or system configuration; answers what it printed. */
-export const git = (cwd: string, ...args: string[]): string =>
+/** What `gitWith` gives git beyond `git`'s: variables over its environment (a commit's `GIT_COMMITTER_DATE`), and its standard input. */
+export interface GitWith {
+  readonly env?: Readonly<Record<string, string>>;
+  readonly input?: string;
+}
+
+/** Runs git in `cwd` as `git` does, with `env` and `input` as given; answers what it printed. */
+export const gitWith = ({ env = {}, input }: GitWith, cwd: string, ...args: string[]): string =>
   execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...env },
+    ...(input !== undefined && { input }),
   });
+
+/** Runs git in `cwd` as a test user, with no global or system configuration; answers what it printed. */
+export const git = (cwd: string, ...args: string[]): string => gitWith({}, cwd, ...args);

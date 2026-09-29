@@ -946,8 +946,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
+  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
   const forgeAccounts = () => verifiedOrigins(forge.list());
-  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -997,6 +999,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           releaseChannel: () => channelChecks.releaseChannelHolds(),
           updates: () => updates.machineHolds(channelChecks.status().newest),
           hostUpdater: () => hostUpdater.holds(),
+          forge,
+          clock,
         }),
       },
     }),
@@ -1016,7 +1020,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
-    ...workspaceMethods({ log }),
+    // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
+    ...workspaceMethods({
+      log,
+      directoryRules: environmentResolver,
+      worktreesRoot: roots.worktrees,
+      ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+    }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,

@@ -148,7 +148,7 @@ export type SettledBy = z.infer<typeof SettledBy>;
  * from the root (`/`), a drive (`C:\` or `C:/`) or a share (`\\`). A
  * workspace is never relative to a client.
  */
-const AbsolutePath = z
+export const AbsolutePath = z
   .string()
   .regex(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/)
   .meta({ description: "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)." });
@@ -237,14 +237,21 @@ const WorktreeRequest = z
     not: { required: ["branch", "newBranch"], properties: { branch: true, newBranch: true } },
   });
 
-/** A directory as a request names it: an absolute path, or one from the environment's home (`~`, `~/code`), which the environment expands. */
+/**
+ * A directory as a request names it: an absolute path, or one from the
+ * environment's home (`~`, `~/code`), which the environment expands; a
+ * directory request and the picker's browse and inspect take it alike.
+ */
+export const RequestedDirectory = z
+  .string()
+  .regex(/^(?:~(?:[\\/]|$)|\/|[A-Za-z]:[\\/]|\\\\)/)
+  .meta({ description: "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home." });
+export type RequestedDirectory = z.infer<typeof RequestedDirectory>;
+
 const DirectoryRequest = z
   .object({
     kind: z.literal("directory"),
-    path: z
-      .string()
-      .regex(/^(?:~(?:[\\/]|$)|\/|[A-Za-z]:[\\/]|\\\\)/)
-      .meta({ description: "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home." }),
+    path: RequestedDirectory,
   })
   .meta({
     description:

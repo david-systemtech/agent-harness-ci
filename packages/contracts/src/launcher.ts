@@ -4,8 +4,9 @@ import type { BusyReason, DrainStarted, DrainTrigger, EnvironmentStatus } from "
 /**
  * What the environment and its launcher share (launcher-update spec, "The
  * channel" and "Versions and the launcher"): the messages on the IPC channel
- * the launcher spawns the environment with, and the files in the data
- * directory both of them touch. This is their one definition. It is plain
+ * the launcher spawns the environment with, the files in the data directory
+ * both of them touch, and the report a version's `preflight` prints for the
+ * launcher. This is their one definition. It is plain
  * data and loads nothing at run time (every import above is a type), so the
  * launcher, which runs on Node's built-ins, reads it alone through
  * `@agent-harness/contracts/launcher`.
@@ -240,6 +241,43 @@ export const artefactNode = (platform: string): readonly string[] => (platform =
 
 /** Where a release's server artefact, unpacked, holds its CLI's entry script. */
 export const ARTEFACT_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
+
+/**
+ * What a version's `preflight` verb prints on its standard output once it
+ * has loaded what it needs (SQLite, `node-pty`, the bundled Claude binary):
+ * one JSON document, the version's identity under the release manifest's
+ * names. The launcher runs a staged version's `preflight` before it installs
+ * it and reads this; a later version only ever adds to it.
+ */
+export interface PreflightReport {
+  readonly version: string;
+  readonly protocolVersion: number;
+  readonly launcherProtocol: number;
+  /** The number of the version's last database migration. */
+  readonly databaseSchemaVersion: number;
+  /** What the bundled Claude binary's `--version` printed. */
+  readonly bundledClaudeCodeVersion: string;
+}
+
+/**
+ * The report a `preflight` printed as `text`, or undefined when it printed
+ * anything but one report: a part missing or of the wrong kind, or more than
+ * one document. Fields it does not define are dropped.
+ */
+export const parsePreflightReport = (text: string): PreflightReport | undefined => {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isFields(value)) return undefined;
+  const { version, protocolVersion, launcherProtocol, databaseSchemaVersion, bundledClaudeCodeVersion } = value;
+  if (typeof version !== "string" || !RELEASE_VERSION_PATTERN.test(version)) return undefined;
+  if (!isCount(protocolVersion) || !isCount(launcherProtocol) || !isText(bundledClaudeCodeVersion)) return undefined;
+  if (!Number.isSafeInteger(databaseSchemaVersion) || (databaseSchemaVersion as number) < 0) return undefined;
+  return { version, protocolVersion, launcherProtocol, databaseSchemaVersion: databaseSchemaVersion as number, bundledClaudeCodeVersion };
+};
 
 /**
  * The database, a file in the data directory: the environment's SQLite event
