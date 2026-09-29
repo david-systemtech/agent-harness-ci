@@ -166,14 +166,15 @@ export const createLogins = (options: LoginsOptions): Logins => {
   /** When the connection is told its current login is due; null for a retired login, or one it has been told of. */
   const dueAt = (entry: Held): number | null => (!entry.current || entry.told ? null : dueTime(entry));
 
-  /** Arms the login's next renewal or due time, whichever comes first. */
+  /** Arms the login's next renewal or due time, whichever comes first; one reached already (a renewal that showed its maximum life) is acted on at once. */
   const schedule = (entry: Held): void => {
     entry.timer?.cancel();
     entry.timer = undefined;
     const times = [renewalAt(entry), dueAt(entry)].filter((time) => time !== null);
     if (times.length === 0) return;
-    const next = Math.min(...times);
-    entry.timer = clock.setTimeout(() => fire(entry), Math.max(0, next - now()));
+    const wait = Math.min(...times) - now();
+    if (wait <= 0) fire(entry);
+    else entry.timer = clock.setTimeout(() => fire(entry), wait);
   };
 
   const tell = (entry: Held): void => {

@@ -716,14 +716,16 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
   /**
    * What a verification of the connection verifies now: its credential, the
-   * commands that changed its login or address since, and its token role;
-   * null for one that is not verified (no credential, or a provider this
-   * version cannot sign in to).
+   * commands that changed its login or address since, its token role, and
+   * the login held and whether it is due (#369), so a verification asked for
+   * a login due waits for one running for it before and asks again; null for
+   * one that is not verified (no credential, or a provider this version
+   * cannot sign in to).
    */
   const subjectOf = (connectionId: string): string | null => {
     const held = liveConnection(reader, connectionId);
     if (held === null || held.credential === null || providers[held.record.provider] === undefined || targetOf(held.record) === null) return null;
-    return JSON.stringify([held.credential, epochOf(connectionId), held.record.tokenRole]);
+    return JSON.stringify([held.credential, epochOf(connectionId), held.record.tokenRole, logins.generation(connectionId), logins.isDue(connectionId)]);
   };
 
   /**

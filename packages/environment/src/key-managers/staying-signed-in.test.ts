@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
+import { registry } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeOpenBao, type FakeLogin, type FakeOpenBao } from "../../test/fake-openbao.js";
-import { startTestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { ROLE_ID, SECRET_ID, added, approle } from "../../test/key-manager-connections.js";
+import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list } from "../../test/key-manager-connections.js";
+import { create } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
@@ -45,6 +48,23 @@ const withOpenBao = async (login: Omit<FakeLogin, "policies">, options: TestEnvi
 /** A connection signed in by AppRole on `bao`, with its CA pinned. */
 const connected = (client: WireClient, bao: FakeOpenBao) => added(client, { address: bao.address, ca: bao.ca, credential: approle() });
 
+const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
+
+/** Starts a run on the session and waits for its end. */
+const runTo = async (t: TestEnvironment, client: WireClient, sessionId: string, text = "Fix the receipts"): Promise<void> => {
+  const before = ended(t, sessionId).length;
+  const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text }));
+  if (answer.result === undefined) throw new Error(`runs.start was refused: ${JSON.stringify(answer.receipt)}`);
+  await eventually(() => expect(ended(t, sessionId)).toHaveLength(before + 1));
+};
+
+/** The run token the session's latest process was spawned with. */
+const tokenOf = async (t: TestEnvironment, sessionId: string): Promise<string> => {
+  const process = t.adapter.processesOf(sessionId).at(-1);
+  if (process === undefined) throw new Error(`Session ${sessionId} has no process.`);
+  return (await process.supplied)["BAO_TOKEN"] ?? "";
+};
+
 describe("a login", () => {
   it("is renewed at two thirds of its time to live, each time by the time to live it was created with, and so outlives it", async () => {
     const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600 });
@@ -58,5 +78,32 @@ describe("a login", () => {
 
     expect(bao.live(login)).toBe(true);
     expect(bao.minted).toEqual([login]);
+  });
+});
+
+describe("a login the environment made", () => {
+  it("is signed in again from the kept credential once a third of its maximum life is left, as the environment's own sign-in, and new holders' run tokens are minted from the new login", async () => {
+    // A one-hour AppRole login: its renewal at forty minutes gives it the twenty minutes left of its maximum life.
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 3600 });
+    const connection = await connected(client, bao);
+    const [first = ""] = bao.minted;
+    const from = t.env.log.head();
+
+    t.clock.advance(40 * MINUTE);
+
+    await eventually(() => expect(bao.minted).toHaveLength(2));
+    const second = bao.minted[1] ?? "";
+    await eventually(async () =>
+      expect((await list(client)).find((each) => each.id === connection.id)).toMatchObject({ status: { kind: "signed-in" }, tokenInformation: { expiresAt: after(100 * MINUTE) } }),
+    );
+    expect((await keyManagerEvents(client, from)).filter((event) => event.type === "key-manager.connection.signed-in").map((event) => [event.actor, event.commandId])).toEqual([
+      [{ kind: "system", id: "key-manager" }, null],
+    ]);
+    expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    const run = await tokenOf(t, session.id);
+    expect(bao.issued(run)?.parent).toBe(second);
+    expect(bao.live(run)).toBe(true);
   });
 });
