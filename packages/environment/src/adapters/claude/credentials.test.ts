@@ -179,6 +179,39 @@ describe("a Claude process's environment", () => {
     expect(ambientConfigDirectory({ CLAUDE_CONFIG_DIR: "", HOME: "" })).toBe(join(homedir(), ".claude"));
   });
 
+  it("puts the process-only git configuration its spawn was supplied after the host's own entries, which it keeps (#315)", () => {
+    const inherited = { PATH: "/usr/bin", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.editor", GIT_CONFIG_VALUE_0: "vi" };
+    const supplied = {
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
+      GIT_CONFIG_VALUE_0: "",
+      GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+      GIT_CONFIG_VALUE_1: "!/opt/agent-harness git-credential github",
+    };
+    const env = composeRunEnvironment(inherited, "/data/accounts/work", {}, supplied);
+    expect(Object.fromEntries(Object.entries(env).filter(([name]) => name.startsWith("GIT_")))).toEqual({
+      GIT_CONFIG_COUNT: "3",
+      GIT_CONFIG_KEY_0: "core.editor",
+      GIT_CONFIG_VALUE_0: "vi",
+      GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
+      GIT_CONFIG_VALUE_1: "",
+      GIT_CONFIG_KEY_2: "credential.https://github.com.helper",
+      GIT_CONFIG_VALUE_2: "!/opt/agent-harness git-credential github",
+    });
+    // With nothing inherited, the supplied entries are as they came.
+    expect(composeRunEnvironment({ PATH: "/usr/bin" }, "/data/accounts/work", {}, supplied)).toMatchObject(supplied);
+  });
+
+  it("removes every inherited FORGE_ variable, so a run's forge variables are the harness's alone (#315)", () => {
+    const env = composeRunEnvironment(
+      { PATH: "/usr/bin", FORGE_URL: "https://stale.example", FORGE_KIND: "gitea", FORGE_HOME_URL: "https://stale.example", GH_TOKEN: "token-for-tests" },
+      "/data/accounts/work",
+      {},
+      { FORGE_GITHUB_URL: "https://github.com", FORGE_GITHUB_TOKEN: "token-for-tests" },
+    );
+    expect(Object.keys(env).filter((name) => name.startsWith("FORGE_") || name === "GH_TOKEN")).toEqual(["FORGE_GITHUB_URL", "FORGE_GITHUB_TOKEN"]);
+  });
+
   it("does not touch the host's environment", () => {
     const before = { ...host };
     composeRunEnvironment(host, "/data/accounts/work", { EXTRA: "1" });

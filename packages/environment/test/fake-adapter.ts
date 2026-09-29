@@ -28,6 +28,7 @@ import {
   type UsageReading,
   type UsageWindow,
 } from "../src/adapter/contract.js";
+import { afterInheritedGitConfig } from "../src/adapter/process-environment.js";
 import { CLIENT_TOOL_SERVER } from "../src/completions/passthrough.js";
 import type { Clock } from "../src/serve/clock.js";
 import { MANUAL_CLOCK_START } from "./clock.js";
@@ -495,8 +496,10 @@ export interface CommandResult {
  * `Bash`, the gate asked about it as a shell command, then, allowed, the
  * command run by `/bin/sh` in the run's workspace, in the variables the
  * spawn of the run's process was supplied over this process's PATH and
- * `env`; then `tool.ended` with what it printed, `ok` on exit code 0, or
- * with the gate's denial. #315's git tests run git through it.
+ * `env`, the machine's own as a Claude process inherits them (supplied git
+ * configuration numbered after theirs, as Claude's adapter layers it); then
+ * `tool.ended` with what it printed, `ok` on exit code 0, or with the gate's
+ * denial. #315's git tests run git through it.
  */
 export async function* runCommand(
   controls: ScriptControls,
@@ -511,7 +514,8 @@ export async function* runCommand(
     yield { type: "tool.ended", payload: { toolCallId, status: "error", output: decision.message, durationMs: 1 } };
     return { code: null, stdout: "", stderr: decision.message };
   }
-  const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...options.env, ...(await controls.environment()) };
+  const inherited = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...options.env };
+  const env = { ...inherited, ...afterInheritedGitConfig(inherited, await controls.environment()) };
   const result = await new Promise<CommandResult>((resolve) => {
     execFile("/bin/sh", ["-c", command], { cwd: controls.input.workspace.path, env, signal: controls.signal }, (error, stdout, stderr) =>
       resolve({ code: error === null ? 0 : typeof error.code === "number" ? error.code : null, stdout, stderr }),
