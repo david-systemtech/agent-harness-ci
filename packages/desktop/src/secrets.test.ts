@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeElectron } from "../test/fake-electron.js";
@@ -88,6 +88,15 @@ describe("secrets", () => {
     electron.safeStorage.changeKey();
     expect(await shell().secrets.get(DESK)).toBeUndefined();
     expect(reported.map(String)).toEqual([expect.stringMatching(/cannot read the token kept for 0199aa00/), expect.stringMatching(/cannot read the token kept for 0199aa00/)]);
+  });
+
+  it("answers none for a token file it cannot read at all, saying why", async () => {
+    const reported: unknown[] = [];
+    const platform = platformOn("linux");
+    const { shell } = await start({ platform, reportError: (error) => reported.push(error) });
+    mkdirSync(join(platform.paths.data, "secrets", `${DESK}.secret`), { recursive: true });
+    expect(await shell().secrets.get(DESK)).toBeUndefined();
+    expect(reported.map(String)).toEqual([expect.stringMatching(/cannot read the token kept for 0199aa00.*EISDIR/)]);
   });
 
   it("refuses a name or a token that is not text", async () => {

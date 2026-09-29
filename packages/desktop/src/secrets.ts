@@ -56,18 +56,14 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
   return {
     async get(name) {
       const file = fileOf(name);
-      let kept: Buffer;
+      // A token that cannot be read is none, never a rejection the runtime has no answer for: it blocks the connection as
+      // revoked, and pairing again replaces the token.
       try {
-        kept = await readFile(file);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-        throw error;
-      }
-      // A token that cannot be read is none: the runtime blocks its connection as revoked, and pairing again replaces it.
-      try {
+        const kept = await readFile(file);
         if (!encrypts()) throw new Error("the OS keeps no key for this app now");
         return safeStorage.decryptString(kept);
       } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         report(new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}): pair that environment again.`));
         return undefined;
       }
