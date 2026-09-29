@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgeAnnounce",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "announce"
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "The bridge protocol version the extension speaks: served when it is the environment's or the one before."
+    },
+    "extensionVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The extension's version: the harness version it was built with."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "The name the Chrome pairs as (Work, Personal), as the person typed it; the environment trims and cleans it."
+    }
+  },
+  "required": [
+    "type",
+    "protocolVersion",
+    "extensionVersion",
+    "name"
+  ],
+  "description": "announce: an extension that holds no credential opens its socket with its versions and the name it would pair as."
+}

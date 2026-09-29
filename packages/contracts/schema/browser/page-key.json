@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PageKey",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 256,
+  "description": "A session's page: the run environment's id and the session id, which the browser reads as an opaque name; one tab or browser context per key."
+}

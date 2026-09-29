@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeadlessExecutable",
+  "anyOf": [
+    {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    {
+      "type": "null"
+    }
+  ],
+  "description": "browser.headless.executable: the Chromium or Chrome the environment launches when no endpoint is set; null to look in the platform's usual install locations and PATH. Preset null."
+}

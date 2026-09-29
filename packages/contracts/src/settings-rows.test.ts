@@ -154,6 +154,7 @@ describe("keys and steps on rows", () => {
       ["account", "accounts.accounts"],
       ["your-machines", "environments.machines"],
       ["forges", "access.forges"],
+      ["browser", "access.browser"],
       ["permissions", "access.permissions"],
       ["appearance", "appearance.theme"],
     ]);

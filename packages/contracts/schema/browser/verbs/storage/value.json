@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StorageValue",
+  "type": "object",
+  "properties": {
+    "origin": {
+      "type": "string"
+    },
+    "local": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "localStorage, by key."
+    },
+    "session": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "sessionStorage, by key."
+    }
+  },
+  "required": [
+    "origin",
+    "local",
+    "session"
+  ],
+  "description": "The page origin's local and session storage."
+}

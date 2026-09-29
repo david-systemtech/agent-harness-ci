@@ -1,0 +1,1154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgeFromEnvironment",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "announced"
+        },
+        "environmentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+        },
+        "environmentName": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "environmentId",
+        "environmentName"
+      ],
+      "description": "announced: the environment's answer to announce, its id and name; the socket is kept for pair."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "paired"
+        },
+        "chromeId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+        },
+        "secret": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The Chrome's secret: 32 random bytes as 64 lowercase hex characters, kept by the extension and never sent again."
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "devSites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+                "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+              },
+              "description": "browser.devSites: the hosts being developed, as host patterns, where cookie values, storage and evaluate are allowed; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names count without being listed, a cloud metadata address never."
+            },
+            "evaluateEverywhere": {
+              "type": "boolean",
+              "description": "browser.evaluateEverywhere: evaluate is allowed on every site, not only dev sites."
+            },
+            "deepReadEverywhere": {
+              "type": "boolean",
+              "description": "browser.deepReadEverywhere: cookie values and storage are read on every site, not only dev sites."
+            },
+            "browserDomains": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The pattern, in its section's grammar."
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "Why the entry is there, for people; empty for none."
+                  },
+                  "preset": {
+                    "type": "boolean",
+                    "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Whether it matches: a disabled entry never does."
+                  }
+                },
+                "required": [
+                  "id",
+                  "pattern",
+                  "note",
+                  "preset",
+                  "enabled"
+                ],
+                "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+              },
+              "description": "The enabled entries of the denylist's browser section, in its order: where no verb goes unasked. A disabled entry never matches."
+            }
+          },
+          "required": [
+            "devSites",
+            "evaluateEverywhere",
+            "deepReadEverywhere",
+            "browserDomains"
+          ],
+          "description": "The page policy a paired Chrome enforces: the dev sites, the two everywhere switches and the enabled entries of the denylist's browser section. The Chrome Web Store is refused under every policy."
+        }
+      },
+      "required": [
+        "type",
+        "chromeId",
+        "secret",
+        "policy"
+      ],
+      "description": "paired: the code was good; the Chrome's id, its secret and the page policy."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "challenge"
+        },
+        "environmentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "The environment on this port: an extension paired with another does not prove to it."
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "A nonce good for one proof: 32 random bytes as 64 lowercase hex characters."
+        }
+      },
+      "required": [
+        "type",
+        "environmentId",
+        "nonce"
+      ],
+      "description": "challenge: the environment's answer to hello, a nonce to prove the secret on."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ready"
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "devSites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+                "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+              },
+              "description": "browser.devSites: the hosts being developed, as host patterns, where cookie values, storage and evaluate are allowed; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names count without being listed, a cloud metadata address never."
+            },
+            "evaluateEverywhere": {
+              "type": "boolean",
+              "description": "browser.evaluateEverywhere: evaluate is allowed on every site, not only dev sites."
+            },
+            "deepReadEverywhere": {
+              "type": "boolean",
+              "description": "browser.deepReadEverywhere: cookie values and storage are read on every site, not only dev sites."
+            },
+            "browserDomains": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The pattern, in its section's grammar."
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "Why the entry is there, for people; empty for none."
+                  },
+                  "preset": {
+                    "type": "boolean",
+                    "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Whether it matches: a disabled entry never does."
+                  }
+                },
+                "required": [
+                  "id",
+                  "pattern",
+                  "note",
+                  "preset",
+                  "enabled"
+                ],
+                "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+              },
+              "description": "The enabled entries of the denylist's browser section, in its order: where no verb goes unasked. A disabled entry never matches."
+            }
+          },
+          "required": [
+            "devSites",
+            "evaluateEverywhere",
+            "deepReadEverywhere",
+            "browserDomains"
+          ],
+          "description": "The page policy a paired Chrome enforces: the dev sites, the two everywhere switches and the enabled entries of the denylist's browser section. The Chrome Web Store is refused under every policy."
+        }
+      },
+      "required": [
+        "type",
+        "policy"
+      ],
+      "description": "ready: the proof was good; the socket is live, under this page policy."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "policy"
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "devSites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+                "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+              },
+              "description": "browser.devSites: the hosts being developed, as host patterns, where cookie values, storage and evaluate are allowed; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names count without being listed, a cloud metadata address never."
+            },
+            "evaluateEverywhere": {
+              "type": "boolean",
+              "description": "browser.evaluateEverywhere: evaluate is allowed on every site, not only dev sites."
+            },
+            "deepReadEverywhere": {
+              "type": "boolean",
+              "description": "browser.deepReadEverywhere: cookie values and storage are read on every site, not only dev sites."
+            },
+            "browserDomains": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The pattern, in its section's grammar."
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "Why the entry is there, for people; empty for none."
+                  },
+                  "preset": {
+                    "type": "boolean",
+                    "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Whether it matches: a disabled entry never does."
+                  }
+                },
+                "required": [
+                  "id",
+                  "pattern",
+                  "note",
+                  "preset",
+                  "enabled"
+                ],
+                "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+              },
+              "description": "The enabled entries of the denylist's browser section, in its order: where no verb goes unasked. A disabled entry never matches."
+            }
+          },
+          "required": [
+            "devSites",
+            "evaluateEverywhere",
+            "deepReadEverywhere",
+            "browserDomains"
+          ],
+          "description": "The page policy a paired Chrome enforces: the dev sites, the two everywhere switches and the enabled entries of the denylist's browser section. The Chrome Web Store is refused under every policy."
+        }
+      },
+      "required": [
+        "type",
+        "policy"
+      ],
+      "description": "policy: the page policy changed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "pageKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "A session's page: the run environment's id and the session id, which the browser reads as an opaque name; one tab or browser context per key."
+        },
+        "command": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "open"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "description": "Where to open the page; absent, the session's page as it is.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 8192
+                    },
+                    "snapshot": {
+                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                      "type": "object",
+                      "properties": {
+                        "filter": {
+                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                          "type": "string",
+                          "enum": [
+                            "interactive",
+                            "all"
+                          ]
+                        },
+                        "depth": {
+                          "description": "How many levels of the tree to read.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "ref": {
+                          "description": "Read only the subtree of the element with this ref.",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "maxChars": {
+                          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200000
+                        }
+                      }
+                    }
+                  },
+                  "description": "open: the session's page, made when it has none, at an address or as it is."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "navigate"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 8192,
+                      "description": "An address to open: an http or https URL, or a bare host with an optional port and path."
+                    },
+                    "snapshot": {
+                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                      "type": "object",
+                      "properties": {
+                        "filter": {
+                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                          "type": "string",
+                          "enum": [
+                            "interactive",
+                            "all"
+                          ]
+                        },
+                        "depth": {
+                          "description": "How many levels of the tree to read.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "ref": {
+                          "description": "Read only the subtree of the element with this ref.",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "maxChars": {
+                          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200000
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "description": "navigate: go to an address and let the load settle."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "snapshot"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "filter": {
+                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                      "type": "string",
+                      "enum": [
+                        "interactive",
+                        "all"
+                      ]
+                    },
+                    "depth": {
+                      "description": "How many levels of the tree to read.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "ref": {
+                      "description": "Read only the subtree of the element with this ref.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "maxChars": {
+                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 200000
+                    }
+                  },
+                  "description": "What a snapshot reads: its filter, depth, focus and length."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "click"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "ref": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                            }
+                          },
+                          "required": [
+                            "ref"
+                          ],
+                          "additionalProperties": false,
+                          "description": "The element with this ref, from the latest snapshot."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "selector": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "selector"
+                          ],
+                          "additionalProperties": false,
+                          "description": "The first element this CSS selector matches."
+                        }
+                      ],
+                      "description": "An element: by ref, or by CSS selector."
+                    },
+                    "snapshot": {
+                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                      "type": "object",
+                      "properties": {
+                        "filter": {
+                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                          "type": "string",
+                          "enum": [
+                            "interactive",
+                            "all"
+                          ]
+                        },
+                        "depth": {
+                          "description": "How many levels of the tree to read.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "ref": {
+                          "description": "Read only the subtree of the element with this ref.",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "maxChars": {
+                          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200000
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "target"
+                  ],
+                  "description": "click: scroll the element into view and click its centre."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "clickAt"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Pixels from the screenshot's left edge."
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Pixels from the screenshot's top edge."
+                    },
+                    "snapshot": {
+                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                      "type": "object",
+                      "properties": {
+                        "filter": {
+                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                          "type": "string",
+                          "enum": [
+                            "interactive",
+                            "all"
+                          ]
+                        },
+                        "depth": {
+                          "description": "How many levels of the tree to read.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "ref": {
+                          "description": "Read only the subtree of the element with this ref.",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "maxChars": {
+                          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200000
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "description": "clickAt: click at a point of the latest screenshot."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "type"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "ref": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                            }
+                          },
+                          "required": [
+                            "ref"
+                          ],
+                          "additionalProperties": false,
+                          "description": "The element with this ref, from the latest snapshot."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "selector": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            }
+                          },
+                          "required": [
+                            "selector"
+                          ],
+                          "additionalProperties": false,
+                          "description": "The first element this CSS selector matches."
+                        }
+                      ],
+                      "description": "An element: by ref, or by CSS selector."
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 65536,
+                      "description": "What the field holds afterwards: typing replaces its contents."
+                    },
+                    "snapshot": {
+                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                      "type": "object",
+                      "properties": {
+                        "filter": {
+                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                          "type": "string",
+                          "enum": [
+                            "interactive",
+                            "all"
+                          ]
+                        },
+                        "depth": {
+                          "description": "How many levels of the tree to read.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "ref": {
+                          "description": "Read only the subtree of the element with this ref.",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "maxChars": {
+                          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 200000
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "text"
+                  ],
+                  "description": "type: replace an input's, a textarea's or an editable element's contents."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "read"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "offset": {
+                      "description": "Where the page of text starts, in characters; preset 0.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "links": {
+                      "description": "Keep link targets in the Markdown; preset false, the link text kept.",
+                      "type": "boolean"
+                    }
+                  },
+                  "description": "read: the page's readable text, paged."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "screenshot"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
+                  "description": "No arguments."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "scroll"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "direction": {
+                              "type": "string",
+                              "enum": [
+                                "up",
+                                "down",
+                                "left",
+                                "right"
+                              ],
+                              "description": "Which way to scroll."
+                            },
+                            "amount": {
+                              "description": "How far, in viewports; preset 1.",
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "maximum": 100
+                            }
+                          },
+                          "required": [
+                            "direction"
+                          ],
+                          "additionalProperties": false,
+                          "description": "A direction and an amount."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "ref": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                            }
+                          },
+                          "required": [
+                            "ref"
+                          ],
+                          "additionalProperties": false,
+                          "description": "Scroll the element with this ref into view."
+                        }
+                      ],
+                      "description": "Where to scroll: a direction and an amount in viewports, or to an element."
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "description": "scroll: by a direction and an amount, or to an element."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "waitFor"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "until": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4096
+                            },
+                            "timeoutMs": {
+                              "description": "How long to wait, in milliseconds; preset 10000, clamped to 30000.",
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "description": "Until this text appears on the page."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "ref": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                            },
+                            "timeoutMs": {
+                              "description": "How long to wait, in milliseconds; preset 10000, clamped to 30000.",
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "ref"
+                          ],
+                          "additionalProperties": false,
+                          "description": "Until an element with this ref exists."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "ms": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991,
+                              "description": "Milliseconds, clamped to 30000."
+                            }
+                          },
+                          "required": [
+                            "ms"
+                          ],
+                          "additionalProperties": false,
+                          "description": "For this long."
+                        }
+                      ],
+                      "description": "What to wait for: text, a ref, or a number of milliseconds."
+                    }
+                  },
+                  "required": [
+                    "until"
+                  ],
+                  "description": "waitFor: text, a ref or a number of milliseconds."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "console"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
+                  "description": "No arguments."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "network"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "failedOnly": {
+                      "description": "Only the requests that failed; preset false.",
+                      "type": "boolean"
+                    }
+                  },
+                  "description": "network: the requests since the last network verb."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "cookies"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
+                  "description": "No arguments."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "storage"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
+                  "description": "No arguments."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "evaluate"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {
+                    "expression": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 65536
+                    }
+                  },
+                  "required": [
+                    "expression"
+                  ],
+                  "description": "evaluate: run a JavaScript expression in the page."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "verb": {
+                  "type": "string",
+                  "const": "close"
+                },
+                "args": {
+                  "type": "object",
+                  "properties": {},
+                  "description": "No arguments."
+                }
+              },
+              "required": [
+                "verb",
+                "args"
+              ]
+            }
+          ],
+          "description": "A verb and its arguments."
+        },
+        "allowance": {
+          "description": "A person's allow of a denylisted host on this call: it opens that host once.",
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "description": "The host the person allowed, in any spelling the denylist's matcher reads."
+            }
+          },
+          "required": [
+            "host"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "const": "call"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The call's id, chosen by the environment and echoed by its result."
+        }
+      },
+      "required": [
+        "pageKey",
+        "command",
+        "type",
+        "id"
+      ],
+      "description": "call: one verb for one session's page, with a one-time allowance when a person allowed a denylisted address."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ping"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "ping: either side, to keep the socket and the extension's worker alive."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pong"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "pong: the answer to a ping."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "refused"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Why, as a sentence for a person."
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ],
+      "description": "refused: either side, the socket is refused or ending, and why."
+    }
+  ],
+  "description": "A message the environment sends, told apart by its type."
+}

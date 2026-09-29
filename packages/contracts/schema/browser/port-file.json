@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PortFile",
+  "type": "object",
+  "properties": {
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "The port the environment's listener is bound to on loopback."
+    },
+    "environmentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+    },
+    "environmentName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The environment's name, for the extension's options page."
+    },
+    "harnessVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The harness version the environment runs, which the folder's extension was built with."
+    }
+  },
+  "required": [
+    "port",
+    "environmentId",
+    "environmentName",
+    "harnessVersion"
+  ],
+  "description": "The port file in the extension's folder: the listener's port, the environment's id and name, and the harness version."
+}
