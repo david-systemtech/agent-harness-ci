@@ -81,6 +81,26 @@ describe("a login", () => {
   });
 });
 
+describe("a periodic login", () => {
+  it("renewed in time is never logged into again, whatever maximum its role sets: each renewal gives it its period", async () => {
+    const { t, bao, client } = await withOpenBao({ periodSeconds: 3600, maxTtlSeconds: 3600 });
+    const connection = await connected(client, bao);
+    const [login = ""] = bao.minted;
+
+    const renewedAt: string[] = [];
+    for (let round = 1; round <= 7; round += 1) {
+      t.clock.advance(40 * MINUTE);
+      renewedAt.push(after(round * 40 * MINUTE));
+      await eventually(() => expect(bao.renewals(login)).toEqual(renewedAt));
+    }
+
+    expect(bao.minted).toEqual([login]);
+    expect(bao.requests.filter((request) => request.path === "auth/approle/login")).toHaveLength(1);
+    expect(bao.live(login)).toBe(true);
+    expect((await list(client)).find((each) => each.id === connection.id)?.status.kind).toBe("signed-in");
+  });
+});
+
 describe("a login the environment made", () => {
   it("is signed in again from the kept credential once a third of its maximum life is left, as the environment's own sign-in, and new holders' run tokens are minted from the new login", async () => {
     // A one-hour AppRole login: its renewal at forty minutes gives it the twenty minutes left of its maximum life.
