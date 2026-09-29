@@ -36,6 +36,7 @@ export * from "./repository-identity.js";
 export * from "./shape-rules.js";
 export * from "./skill-rule-cases.js";
 export * from "./skill-rules.js";
+export * from "./skills.js";
 export {
   METHOD_KINDS,
   commandParams,

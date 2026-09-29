@@ -54,7 +54,13 @@ describe("the JSON Schema export", () => {
       methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; response?: string; error: string }[];
     };
     expect(index.protocolVersion).toBe(contracts.PROTOCOL_VERSION);
-    expect(index.cases).toEqual([{ path: "cases/repository-identity.json", title: "Repository identity" }]);
+    expect(index.cases).toEqual([
+      { path: "cases/repository-identity.json", title: "Repository identity" },
+      { path: "cases/skill-name.json", title: "Skill name" },
+      { path: "cases/skill-member.json", title: "Skill member" },
+      { path: "cases/skill-source-url.json", title: "Skill source URL" },
+      { path: "cases/skill-source-folder.json", title: "Skill source folder" },
+    ]);
     expect(index.data).toEqual([
       { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
@@ -98,6 +104,47 @@ describe("the JSON Schema export", () => {
       identity: "https://git.systemtech.dev/david/agent-harness",
     });
     for (const entry of published.cases) expect(contracts.repositoryIdentityOf(entry.remote, entry.forgeAccounts), entry.note).toBe(entry.identity);
+  });
+
+  it("publishes the skill rules' cases, which a client reading only the files can run the rules against", () => {
+    const table = <C>(path: string, description: string): C[] => {
+      const published = readJson(path) as { description: string; cases: C[] };
+      expect(published.description, path).toContain(description);
+      return published.cases;
+    };
+    const names = table<{ note: string; name: string; reason: string | null }>("cases/skill-name.json", "checkSkillName");
+    expect(names).toEqual(contracts.SKILL_NAME_CASES);
+    expect(names).toContainEqual({ note: "a doubled hyphen", name: "to--spec", reason: "doubled_hyphen" });
+    for (const entry of names) {
+      const check = contracts.checkSkillName(entry.name);
+      expect(check.ok ? null : check.refusal.reason, entry.note).toBe(entry.reason);
+    }
+
+    const members = table<{ note: string; frontmatter: Record<string, unknown>; folder: contracts.SkillMemberFolder; problems: string[]; warnings: string[] }>(
+      "cases/skill-member.json",
+      "readSkillMember",
+    );
+    expect(members).toEqual(contracts.SKILL_MEMBER_CASES);
+    for (const { note, frontmatter, folder, ...answer } of members) {
+      const reading = contracts.readSkillMember(frontmatter, folder);
+      expect({ ...reading, problems: reading.problems.map((p) => p.kind), warnings: reading.warnings.map((w) => w.kind) }, note).toEqual(answer);
+    }
+
+    const urls = table<{ note: string; url: string; reason: string | null }>("cases/skill-source-url.json", "checkSourceUrl");
+    expect(urls).toEqual(contracts.SOURCE_URL_CASES);
+    expect(urls).toContainEqual({ note: "a user alone in https, which a forge takes as a token", url: "https://token-for-tests@github.com/david/agent-skills", reason: "credential" });
+    for (const entry of urls) {
+      const check = contracts.checkSourceUrl(entry.url);
+      expect(check.ok ? null : check.refusal.reason, entry.note).toBe(entry.reason);
+    }
+
+    const folders = table<{ note: string; folder: string; normalised: string | null; reason: string | null }>("cases/skill-source-folder.json", "checkSourceFolder");
+    expect(folders).toEqual(contracts.SOURCE_FOLDER_CASES);
+    expect(folders).toContainEqual({ note: "backslashes", folder: "skills\\engineering", normalised: "skills/engineering", reason: null });
+    for (const entry of folders) {
+      const check = contracts.checkSourceFolder(entry.folder);
+      expect(check.ok ? { normalised: check.value, reason: null } : { normalised: null, reason: check.refusal.reason }, entry.note).toEqual({ normalised: entry.normalised, reason: entry.reason });
+    }
   });
 
   it("publishes the bands, the row registry and the address table as data, each entry valid against the schema the file names", () => {

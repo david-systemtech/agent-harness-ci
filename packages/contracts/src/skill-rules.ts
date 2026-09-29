@@ -15,10 +15,6 @@ import { normaliseRemote } from "./forge.js";
 
 // Refusals ----------------------------------------------------------------------
 
-/** The rules, as a refusal names them. */
-export const SKILL_RULES = ["skill-name", "source-url", "source-folder"] as const;
-export type SkillRule = (typeof SKILL_RULES)[number];
-
 /** Why the skill-name rule refuses a name, in the order it checks. */
 export const SKILL_NAME_REASONS = ["character", "length", "leading_hyphen", "trailing_hyphen", "doubled_hyphen"] as const;
 export type SkillNameReason = (typeof SKILL_NAME_REASONS)[number];
@@ -31,24 +27,31 @@ export type SourceUrlReason = (typeof SOURCE_URL_REASONS)[number];
 export const SOURCE_FOLDER_REASONS = ["empty", "malformed", "absolute", "parent"] as const;
 export type SourceFolderReason = (typeof SOURCE_FOLDER_REASONS)[number];
 
-/** Why a rule refused, by rule. */
-interface SkillRuleReasons {
-  readonly "skill-name": SkillNameReason;
-  readonly "source-url": SourceUrlReason;
-  readonly "source-folder": SourceFolderReason;
-}
+/**
+ * The params of an `invalid_params` issue a skill rule raised (skills spec,
+ * "Wire summary"): the rule and its reason. The issue's path names the
+ * field and its message says why, for people.
+ */
+export const SkillRuleIssueParams = z
+  .discriminatedUnion("rule", [
+    z.object({ rule: z.literal("skill-name"), reason: z.enum(SKILL_NAME_REASONS).meta({ description: "Why the skill-name rule refused the name." }) }),
+    z.object({ rule: z.literal("source-url"), reason: z.enum(SOURCE_URL_REASONS).meta({ description: "Why the source URL rule refused the URL." }) }),
+    z.object({ rule: z.literal("source-folder"), reason: z.enum(SOURCE_FOLDER_REASONS).meta({ description: "Why the source folder rule refused the folder." }) }),
+  ])
+  .meta({
+    description:
+      "The params of an invalid_params issue a skill rule raised: the rule (skill-name, source-url or source-folder) and its reason. The issue's path names the field; its message says why. The published cases (cases/skill-name.json, cases/skill-source-url.json, cases/skill-source-folder.json) give each reason's inputs.",
+  });
+export type SkillRuleIssueParams = z.infer<typeof SkillRuleIssueParams>;
 
-/** A rule's refusal: the rule, why, and a sentence for people. */
-export interface SkillRuleRefusal<R extends SkillRule = SkillRule> {
-  readonly rule: R;
-  readonly reason: SkillRuleReasons[R];
-  readonly message: string;
-}
+/** The rules, as a refusal names them. */
+export type SkillRule = SkillRuleIssueParams["rule"];
+
+/** A rule's refusal: the rule, its reason, and a sentence for people. */
+export type SkillRuleRefusal<R extends SkillRule = SkillRule> = Extract<SkillRuleIssueParams, { rule: R }> & { readonly message: string };
 
 /** What a rule answers: the value it takes (normalised where the rule normalises), or its refusal. */
 export type SkillRuleCheck<R extends SkillRule> = { readonly ok: true; readonly value: string } | { readonly ok: false; readonly refusal: SkillRuleRefusal<R> };
-
-const refuse = <R extends SkillRule>(rule: R, reason: SkillRuleReasons[R], message: string): SkillRuleCheck<R> => ({ ok: false, refusal: { rule, reason, message } });
 
 // The skill-name rule -------------------------------------------------------------
 
@@ -72,7 +75,7 @@ const skillNameFault = (name: string): { readonly reason: SkillNameReason; reado
  */
 export const checkSkillName = (name: string): SkillRuleCheck<"skill-name"> => {
   const fault = skillNameFault(name);
-  return fault === null ? { ok: true, value: name } : refuse("skill-name", fault.reason, `The skill name ${JSON.stringify(name)} ${fault.why}.`);
+  return fault === null ? { ok: true, value: name } : { ok: false, refusal: { rule: "skill-name", reason: fault.reason, message: `The skill name ${JSON.stringify(name)} ${fault.why}.` } };
 };
 
 // The source URL rule ------------------------------------------------------------------
@@ -136,7 +139,7 @@ const sourceUrlParts = (url: string, scheme: "https" | "ssh" | null): SourceUrlP
  * The message never repeats the URL, which may hold a credential.
  */
 export const checkSourceUrl = (url: string): SkillRuleCheck<"source-url"> => {
-  const refused = (reason: SourceUrlReason, message: string) => refuse("source-url", reason, message);
+  const refused = (reason: SourceUrlReason, message: string): SkillRuleCheck<"source-url"> => ({ ok: false, refusal: { rule: "source-url", reason, message } });
   if (url === "") return refused("malformed", "Give the repository's URL.");
   if (url.startsWith("-")) return refused("leading_hyphen", "A URL cannot begin with a hyphen, which git would read as an option.");
   const scheme = URL_SCHEME.exec(url)?.[1]?.toLowerCase() ?? null;
@@ -185,7 +188,7 @@ const ABSOLUTE = /^(?:[/\\]|[a-z]:)/i;
  * drive; and `parent`, any `..` segment, even one that comes back in.
  */
 export const checkSourceFolder = (folder: string): SkillRuleCheck<"source-folder"> => {
-  const refused = (reason: SourceFolderReason, message: string) => refuse("source-folder", reason, message);
+  const refused = (reason: SourceFolderReason, message: string): SkillRuleCheck<"source-folder"> => ({ ok: false, refusal: { rule: "source-folder", reason, message } });
   if (folder === "") return refused("empty", "Name the folder, or . for the repository's root.");
   if (/\p{Cc}/u.test(folder)) return refused("malformed", "A folder holds no control characters.");
   if (ABSOLUTE.test(folder)) return refused("absolute", `The folder ${JSON.stringify(folder)} is absolute: name it from the repository's root, or . for the root itself.`);
@@ -193,6 +196,69 @@ export const checkSourceFolder = (folder: string): SkillRuleCheck<"source-folder
   if (segments.includes("..")) return refused("parent", `The folder ${JSON.stringify(folder)} has a .. segment: a source reads only inside its repository.`);
   return { ok: true, value: segments.length === 0 ? ROOT_FOLDER : segments.join("/") };
 };
+
+// The rules' schemas ------------------------------------------------------------------
+
+/** Adds a rule's refusal to `ctx` as a custom issue: its message, and the rule and reason as the issue's params. */
+const raise = (ctx: z.RefinementCtx, { message, ...params }: SkillRuleRefusal): void => {
+  ctx.addIssue({ code: "custom", message, params });
+};
+
+/**
+ * A skill's name, through the skill-name rule: a refusal is an
+ * `invalid_params` issue at the field, naming the rule and its reason. The
+ * export's pattern is the same rule.
+ */
+export const SkillName = z
+  .string()
+  .superRefine((name, ctx) => {
+    const check = checkSkillName(name);
+    if (!check.ok) raise(ctx, check.refusal);
+  })
+  .meta({
+    description:
+      "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+    pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    maxLength: MAX_SKILL_NAME,
+  });
+
+/**
+ * A skill source's URL, as entered, through the source URL rule: a refusal
+ * is an `invalid_params` issue at the field, naming the rule and its reason.
+ * The export's pattern holds only part of the rule (a leading hyphen, white
+ * space, a query and a fragment); its cases hold the rest.
+ */
+export const SkillSourceUrl = z
+  .string()
+  .superRefine((url, ctx) => {
+    const check = checkSourceUrl(url);
+    if (!check.ok) raise(ctx, check.refusal);
+  })
+  .meta({
+    description:
+      "A skill source's URL, as entered: https://, ssh:// or scp's [user@]host:path, naming a repository with an identity; no credential, query, fragment or leading hyphen, and no other scheme or local path. Refused as invalid_params, the issue's params naming the rule source-url and its reason; this pattern holds part of the rule, and cases/skill-source-url.json holds all of it.",
+    pattern: "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$",
+  });
+
+/**
+ * A skill source's folder, through the source folder rule, answered
+ * normalised: a refusal is an `invalid_params` issue at the field, naming
+ * the rule and its reason. The export's pattern is the same rule, over the
+ * folder as sent.
+ */
+export const SkillSourceFolder = z
+  .string()
+  .transform((folder, ctx) => {
+    const check = checkSourceFolder(folder);
+    if (check.ok) return check.value;
+    raise(ctx, check.refusal);
+    return z.NEVER;
+  })
+  .meta({
+    description:
+      "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+    pattern: "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+  });
 
 // Reading a member ------------------------------------------------------------------------
 
@@ -257,8 +323,8 @@ export interface SkillMemberReading {
   /** Whether a person may invoke it: false exactly when its frontmatter sets `user-invocable: false`. */
   readonly userInvocable: boolean;
   /** Empty for a valid member; anything here leaves it invalid. */
-  readonly problems: readonly SkillMemberProblem[];
-  readonly warnings: readonly SkillMemberWarning[];
+  readonly problems: SkillMemberProblem[];
+  readonly warnings: SkillMemberWarning[];
 }
 
 /** A name a member may be named after, with what it is to a person. */

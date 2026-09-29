@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillSourceBranch",
+  "type": "string",
+  "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+  "description": "A branch a skill source follows, as git takes a branch name: 1 to 255 characters with no white space, control character or any of ~ ^ : ? * [ \\, no .. or @{, no empty segment, none beginning with . or ending with .lock, no trailing / or ., not @, and not beginning with -."
+}

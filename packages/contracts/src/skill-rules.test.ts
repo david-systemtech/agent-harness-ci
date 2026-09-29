@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   SKILL_MEMBER_CASES,
   SKILL_NAME_CASES,
   SOURCE_FOLDER_CASES,
   SOURCE_URL_CASES,
+  SkillName,
+  SkillRuleIssueParams,
+  SkillSourceFolder,
+  SkillSourceUrl,
   checkSkillName,
   checkSourceFolder,
   checkSourceUrl,
+  invalidParams,
   readSkillMember,
   repositoryIdentityOf,
   type SkillMemberCase,
@@ -77,11 +83,17 @@ describe("the skill-name rule", () => {
   });
 });
 
-/** What a case records of a reading: its fields, with each problem and warning by its kind. */
-const answerOf = (entry: Pick<SkillMemberCase, "frontmatter" | "folder">): Omit<SkillMemberCase, "note" | "frontmatter" | "folder"> => {
+/** The answer a member case records: the reading's fields, each problem and warning by its kind. */
+type MemberAnswer = Omit<SkillMemberCase, "note" | "frontmatter" | "folder">;
+
+/** What reading the case's member answers, as the case records it. */
+const answerOf = (entry: SkillMemberCase): MemberAnswer => {
   const reading = readSkillMember(entry.frontmatter, entry.folder);
   return { ...reading, problems: reading.problems.map((problem) => problem.kind), warnings: reading.warnings.map((warning) => warning.kind) };
 };
+
+/** The answer the case expects. */
+const expectedOf = ({ name, description, invocation, userInvocable, problems, warnings }: SkillMemberCase): MemberAnswer => ({ name, description, invocation, userInvocable, problems, warnings });
 
 describe("reading a member's name, description and invocation", () => {
   /** A member folder's case, with everything but what it tests at the answer an ordinary member gets. */
@@ -149,8 +161,7 @@ describe("reading a member's name, description and invocation", () => {
 
   describe.each(Object.entries(cases))("%s", (_, table) => {
     it.each(table.map((entry) => [entry.note, entry] as const))("%s", (_note, entry) => {
-      const { note: _n, frontmatter: _f, folder: _d, ...answer } = entry;
-      expect(answerOf(entry)).toEqual(answer);
+      expect(answerOf(entry)).toEqual(expectedOf(entry));
     });
 
     it("is in the published table", () => expectPublished(table, SKILL_MEMBER_CASES, (entry) => entry.note));
@@ -167,8 +178,7 @@ describe("reading a member's name, description and invocation", () => {
   });
 
   it.each(SKILL_MEMBER_CASES.map((entry) => [entry.note, entry] as const))("holds for the published case: %s", (_note, entry) => {
-    const { note: _n, frontmatter: _f, folder: _d, ...answer } = entry;
-    expect(answerOf(entry)).toEqual(answer);
+    expect(answerOf(entry)).toEqual(expectedOf(entry));
   });
 });
 
@@ -323,5 +333,43 @@ describe("the source folder rule", () => {
   it.each(SOURCE_FOLDER_CASES.map((entry) => [entry.note, entry] as const))("holds for the published case: %s", (_note, entry) => {
     const check = checkSourceFolder(entry.folder);
     expect(check.ok ? check.value : check.refusal.reason).toBe(entry.normalised ?? entry.reason);
+  });
+});
+
+describe("a rule's refusal on the wire", () => {
+  /** A method's params as a later ticket writes them: a name, a URL and a folder, each through its rule's schema. */
+  const Params = z.object({ name: SkillName, source: z.object({ url: SkillSourceUrl, folder: SkillSourceFolder }) });
+
+  it("is invalid_params, each issue naming the field, the rule and its reason", () => {
+    const parsed = Params.safeParse({ name: "To_Spec", source: { url: "https://token-for-tests@github.com/david/agent-skills", folder: "../skills" } });
+    expect(parsed.success).toBe(false);
+    const error = invalidParams(parsed.error?.issues ?? [], "The params do not match skills.sources.add's schema.");
+    expect(error.code).toBe("invalid_params");
+    expect(error.data.issues).toEqual([
+      { code: "custom", path: ["name"], message: expect.stringContaining("To_Spec"), params: { rule: "skill-name", reason: "character" } },
+      { code: "custom", path: ["source", "url"], message: expect.stringMatching(/credential/), params: { rule: "source-url", reason: "credential" } },
+      { code: "custom", path: ["source", "folder"], message: expect.stringContaining("../skills"), params: { rule: "source-folder", reason: "parent" } },
+    ]);
+    for (const issue of error.data.issues) expect(SkillRuleIssueParams.parse(issue.params), JSON.stringify(issue)).toEqual(issue.params);
+  });
+
+  it("carries each rule's message, which never repeats a credential", () => {
+    const url = "ssh://git:token-for-tests@github.com/david/agent-skills.git";
+    const parsed = SkillSourceUrl.safeParse(url);
+    const check = checkSourceUrl(url);
+    expect(parsed.error?.issues).toEqual([expect.objectContaining({ message: check.ok ? "" : check.refusal.message })]);
+    expect(JSON.stringify(parsed.error?.issues)).not.toContain("token-for-tests");
+  });
+
+  it("takes what each rule takes, the folder normalised", () => {
+    expect(Params.parse({ name: "unslop", source: { url: "git@github.com:david/unslop.git", folder: ".\\" } })).toEqual({
+      name: "unslop",
+      source: { url: "git@github.com:david/unslop.git", folder: "." },
+    });
+    expect(SkillSourceFolder.parse("skills\\engineering\\")).toBe("skills/engineering");
+  });
+
+  it("refuses what is not text before any rule reads it", () => {
+    expect(SkillName.safeParse(7).error?.issues).toEqual([expect.objectContaining({ code: "invalid_type" })]);
   });
 });
