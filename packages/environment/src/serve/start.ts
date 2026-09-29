@@ -887,6 +887,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log,
     clock,
     ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
+    ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
   });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
   const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });

@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { command, create, get, listStream, patchOf, refusal, rename } from "../../test/sessions.js";
 import { terminalCommand } from "../../test/terminals.js";
-import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import type { WireClient } from "../../test/wire-client.js";
 import { formatActor } from "../event-log/event-log.js";
 import { createSessionIn } from "../sessions/methods.js";
 import { acceptAnyRunParameters } from "../sessions/run-parameters.js";
-import { LOOK_TIMEOUT_MS, MAX_UNANSWERED, PASS_INTERVAL_MS } from "./availability.js";
+import { MAX_UNANSWERED, PASS_INTERVAL_MS } from "./availability.js";
 
 /**
  * Missing workspaces (workspace-picker spec, "Missing workspaces"; ADR 0021;
@@ -218,8 +218,15 @@ describe("the availability pass", () => {
   });
 });
 
+/**
+ * How long a look may take in the tests of a directory that never answers:
+ * short, since only that directory's look ever reaches it, the scripted
+ * look answering every other path at once.
+ */
+const LOOK_BOUND_MS = 50;
+
 describe("a look at a directory that does not answer, as on a network mount whose server is gone", () => {
-  it("stalls neither the environment nor the run's start: the start waits out the look's bound on the environment's clock and is refused, and the path is not asked again until its call returns", async () => {
+  it("stalls neither the environment nor the run's start: the start waits out the look's bound and is refused, and the path is not asked again until its call returns", async () => {
     const dead = directory();
     /** Every path looked at, in order. */
     const asked: string[] = [];
@@ -228,6 +235,8 @@ describe("a look at a directory that does not answer, as on a network mount whos
     const lookedAtDead = new Promise<void>((resolve) => (deadAsked = resolve));
     const t = await start({
       workspaces: {
+        // Every other path answers at once; the bound is only ever reached by the one that never does.
+        lookTimeoutMs: LOOK_BOUND_MS,
         isDirectory: async (path) => {
           asked.push(path);
           if (path !== dead || answerDead !== undefined) return true;
@@ -245,7 +254,6 @@ describe("a look at a directory that does not answer, as on a network mount whos
     await lookedAtDead;
     // While that look waits, the environment answers everything else: a run on another session starts.
     expect((await run(client, "runs.start", { sessionId: other.id, text: "Here" })).receipt).toMatchObject({ status: "accepted" });
-    t.clock.advance(LOOK_TIMEOUT_MS);
 
     const refused = { status: "rejected", reason: "conflict", error: { data: { reason: "workspace_missing", sessionId: id, path: dead } } };
     expect((await starting).receipt).toMatchObject(refused);
@@ -266,6 +274,7 @@ describe("a look at a directory that does not answer, as on a network mount whos
     const asked: string[] = [];
     const t = await start({
       workspaces: {
+        lookTimeoutMs: LOOK_BOUND_MS,
         isDirectory: async (path) => {
           asked.push(path);
           return dead.includes(path) ? new Promise<boolean>(() => undefined) : true;
@@ -276,10 +285,7 @@ describe("a look at a directory that does not answer, as on a network mount whos
     const client = await t.client();
     for (const path of dead) {
       const { id } = await create(client, { workspace: { kind: "directory", path } });
-      const starting = run(client, "runs.start", { sessionId: id, text: "Go on" });
-      await vi.waitFor(() => expect(asked).toContain(path), { timeout: WAIT_MS });
-      t.clock.advance(LOOK_TIMEOUT_MS);
-      expect((await starting).receipt).toMatchObject({ status: "rejected", error: { data: { reason: "workspace_missing" } } });
+      expect((await run(client, "runs.start", { sessionId: id, text: "Go on" })).receipt).toMatchObject({ status: "rejected", error: { data: { reason: "workspace_missing" } } });
     }
     const healthy = directory();
     const { id } = await create(client, { workspace: { kind: "directory", path: healthy } });

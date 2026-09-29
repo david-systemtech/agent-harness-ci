@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { SESSION_STREAM_KIND, type Workspace, type WorkspaceStatus } from "@agent-harness/contracts";
 import type { EventLog, Tx } from "../event-log/event-log.js";
-import type { Clock, Timer } from "../serve/clock.js";
+import type { Clock } from "../serve/clock.js";
 import { WORKSPACES_ACTOR } from "./identity-passes.js";
 
 /**
@@ -23,13 +23,13 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * answer for minutes, or at all on a hard mount (the kernel holds the call).
  * Node's `stat` runs on libuv's thread pool (four threads by default), so it
  * never stalls the event loop, but a thread it holds is held until the call
- * returns. So each look has its own time bound on the environment's clock:
- * a directory that does not answer within it counts as not there (a run
- * could not start in it either), and is not asked again until its first
- * call has returned, so one dead mount holds one thread per path; and while
- * `MAX_UNANSWERED` looks are overdue, no other path is asked, leaving the
- * rest of the pool to everything else: such a look finds nothing, and the
- * mark stays as it was.
+ * returns. So each look has its own time bound, in real time as git's and
+ * a forge's are: a directory that does not answer within it counts as not
+ * there (a run could not start in it either), and is not asked again until
+ * its first call has returned, so one dead mount holds one thread per path;
+ * and while `MAX_UNANSWERED` looks are overdue, no other path is asked,
+ * leaving the rest of the pool to everything else: such a look finds
+ * nothing, and the mark stays as it was.
  */
 
 /** How long one look at a workspace directory may take before the directory counts as not there. A chosen default (#328). */
@@ -48,14 +48,14 @@ type Finding = WorkspaceStatus | "unknown";
 export interface AvailabilitySettings {
   /** Whether a directory is at `path` now. Preset: a `stat` of it; a test scripts one that never answers, as a dead mount's. */
   readonly isDirectory?: (path: string) => Promise<boolean>;
+  /** How long a look may take, in real time; preset `LOOK_TIMEOUT_MS`. */
+  readonly lookTimeoutMs?: number;
 }
 
 export interface AvailabilityOptions extends AvailabilitySettings {
   readonly log: EventLog;
-  /** The environment's clock, which bounds each look and times the hourly pass. */
+  /** The environment's clock, which times the hourly pass. */
   readonly clock: Clock;
-  /** How long a look may take; preset `LOOK_TIMEOUT_MS`. */
-  readonly timeoutMs?: number;
 }
 
 /** The passes as a start runs them. */
@@ -111,7 +111,7 @@ const statDirectory = async (path: string): Promise<boolean> => {
 export const createAvailabilityWatcher = (options: AvailabilityOptions): AvailabilityWatcher => {
   const { log, clock } = options;
   const isDirectory = options.isDirectory ?? statDirectory;
-  const timeoutMs = options.timeoutMs ?? LOOK_TIMEOUT_MS;
+  const timeoutMs = options.lookTimeoutMs ?? LOOK_TIMEOUT_MS;
   /** The paths whose look is past its time and has not returned. */
   const overdue = new Set<string>();
   /** How each look still waiting is answered finding nothing, when the watcher stops. */
@@ -156,11 +156,11 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
         if (answered) return;
         answered = true;
         waiting.delete(stop);
-        timer.cancel();
+        clearTimeout(timer);
         resolve(finding);
       };
       const stop = (): void => answer("unknown");
-      const timer: Timer = clock.setTimeout(() => {
+      const timer = setTimeout(() => {
         overdue.add(path);
         answer("missing");
       }, timeoutMs);
