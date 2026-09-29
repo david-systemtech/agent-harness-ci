@@ -52,7 +52,9 @@ import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
 import { readSessionFacts } from "../runs/run-reads.js";
+import { composeInstructions } from "../instructions/composer.js";
 import { instructionMethods } from "../instructions/methods.js";
+import { soleSection } from "../instructions/orientation.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
@@ -320,7 +322,12 @@ export interface EnvironmentOptions {
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
-    /** Composes each run's standing instructions; preset: the composer with no layer filled (`instructions/composer.ts`). */
+    /**
+     * Composes each run's standing instructions; preset: the composer
+     * (`instructions/composer.ts`) with the orientation block filled by the
+     * forges section alone (#318) where runs are given the forge's
+     * variables, and no other layer filled.
+     */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
@@ -841,6 +848,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
+  // Every run's orientation block: the forges section alone until the OrientationRenderer registers it third (#380).
+  const instructions = hostSeams.instructions ?? composeInstructions(forge.orientation === undefined ? {} : { orientation: soleSection(forge.orientation) });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper.
   const processEnvironments = createProcessEnvironments(injection);
@@ -945,6 +954,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...hostSeams,
+      instructions,
       // The seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });

@@ -66,9 +66,10 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * A script holds the process with background work through the run
  * context's port (`backgroundTask`). A process is spawned with its run's
  * process environment (#307), supplied once and reported on its record
- * (`supplied`), and a run whose key differs lets it go for a fresh one, as
- * Claude's adapter does; a script runs a command in what its process was
- * supplied (`runCommand`).
+ * (`supplied`), and with its run's instruction text (`instructions`); a run
+ * whose key or instructions differ lets it go for a fresh one, as Claude's
+ * adapter does; a script runs a command in what its process was supplied
+ * (`runCommand`).
  *
  * Accounts (#134): the status probe answers per account directory and can
  * be changed mid-test (`setStatus`), every read is recorded
@@ -125,6 +126,8 @@ export interface FakeProcessRecord {
   readonly key: string;
   /** Settles with the variables its spawn was supplied, which its scripted commands run in (`runCommand`). */
   readonly supplied: Promise<Readonly<Record<string, string>>>;
+  /** The instruction text it was spawned with, fixed for its life: a run handed other text is served by a fresh process. */
+  readonly instructions: string;
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -668,19 +671,29 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     const supplied = input.processEnvironment.supply().then((answer) => answer.variables);
     // A script that never asks for the variables leaves a failed supply unheard: it is not an unhandled rejection.
     supplied.catch(() => undefined);
-    const process: FakeProcessRecord = { sessionId: input.sessionId, runs: 0, key: input.processEnvironment.key, supplied, stopping: false, stopped: false, killed: false };
+    const process: FakeProcessRecord = {
+      sessionId: input.sessionId,
+      runs: 0,
+      key: input.processEnvironment.key,
+      supplied,
+      instructions: input.instructions,
+      stopping: false,
+      stopped: false,
+      killed: false,
+    };
     processes.push(process);
     return process;
   };
 
   /**
    * The session's process for a new run: the live one, or one started cold.
-   * A live one spawned with another process environment is let go for a
-   * fresh one, as Claude lets its process go for a run it cannot serve.
+   * A live one spawned with another process environment or other
+   * instructions is let go for a fresh one, as Claude lets its process go
+   * for a run it cannot serve.
    */
   const processFor = (input: RunInput): FakeProcessRecord => {
     let process = liveProcess(input.sessionId);
-    if (process !== undefined && process.key !== input.processEnvironment.key) {
+    if (process !== undefined && (process.key !== input.processEnvironment.key || process.instructions !== input.instructions)) {
       process.stopping = true;
       process.stopped = true;
       process = undefined;
