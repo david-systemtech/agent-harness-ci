@@ -17,7 +17,8 @@ import { dirname, join } from "node:path";
  *   under `carried/<name>/` (`<name>-2`, `-3` while another copy holds the
  *   name), so its index still reaches its own topic files, and one pointer
  *   line to it is appended to the target's `MEMORY.md`, which Claude Code
- *   reads. A copy already there, byte for byte, is left as it is.
+ *   reads. A copy already there, byte for byte, is left as it is, and gets
+ *   its pointer line if a carry cut short left it without one.
  *
  * Only regular files are copied: a link, and anything else that is not a
  * file or a directory, stays behind. The source is only read.
@@ -106,10 +107,16 @@ const copyInto = async (source: string, target: string, files: readonly string[]
 /** `text` as the text of a Markdown link: on one line, its brackets and backslashes escaped. */
 const linkText = (text: string): string => text.replace(/[\p{Cc}\p{Cf}]+/gu, " ").replace(/[\\[\]]/g, (character) => `\\${character}`);
 
-/** Appends to the target's index the line pointing at the second source under `under` (a path from the target, `/`-separated). */
-const appendPointer = async (target: string, under: string, label: string, hasIndex: boolean): Promise<void> => {
+/**
+ * Appends to the target's index the line pointing at the second source
+ * under `under` (a path from the target, `/`-separated), unless a line there
+ * points at it already: so a carry cut short between its copy and its line
+ * gets the line from the next carry of that source, and never two.
+ */
+const pointTo = async (target: string, under: string, label: string, hasIndex: boolean): Promise<void> => {
   const index = join(target, INDEX);
   const held = (await bytesAt(index))?.toString("utf8") ?? "";
+  if (held.includes(`](${under}/`)) return;
   const line = `- [Memory carried from ${linkText(label)}](${under}/${hasIndex ? INDEX : ""})\n`;
   await appendFile(index, held === "" || held.endsWith("\n") ? line : `\n${line}`);
 };
@@ -123,15 +130,17 @@ export const carryMemory = async (source: MemorySource, target: string): Promise
     return { outcome: "copied" };
   }
   if (await holdsAll(target, source.directory, files)) return { outcome: "held" };
+  const hasIndex = files.some((file) => file.length === 1 && file[0] === INDEX);
   for (let n = 1; ; n += 1) {
     const under = `${CARRIED_DIRECTORY}/${n === 1 ? source.name : `${source.name}-${n}`}`;
     const directory = join(target, ...under.split("/"));
     if (await holdsAnything(directory)) {
-      if (await holdsAll(directory, source.directory, files)) return { outcome: "held" };
-      continue;
+      if (!(await holdsAll(directory, source.directory, files))) continue;
+      await pointTo(target, under, source.label, hasIndex);
+      return { outcome: "held" };
     }
     await copyInto(source.directory, directory, files);
-    await appendPointer(target, under, source.label, files.some((file) => file.length === 1 && file[0] === INDEX));
+    await pointTo(target, under, source.label, hasIndex);
     return { outcome: "carried", under };
   }
 };
