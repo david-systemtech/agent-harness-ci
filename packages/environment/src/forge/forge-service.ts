@@ -808,10 +808,12 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
     list: listSeen,
 
-    referenceHolders: (connectionId) =>
-      listForgeAccounts(reader)
-        .filter((account) => account.credential.kind === "reference" && account.credential.reference.connectionId.toLowerCase() === connectionId)
-        .map((account) => ({ kind: "forge-account", id: account.id, name: account.origin })),
+    referenceHolders(connectionId) {
+      const id = connectionId.toLowerCase();
+      return listForgeAccounts(reader)
+        .filter((account) => account.credential.kind === "reference" && account.credential.reference.connectionId.toLowerCase() === id)
+        .map((account) => ({ kind: "forge-account", id: account.id, name: account.origin }));
+    },
 
     async resolveCredential(forgeAccountId, purpose) {
       const account = liveForgeAccount(reader, forgeAccountId.toLowerCase());

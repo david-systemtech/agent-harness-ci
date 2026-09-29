@@ -280,6 +280,9 @@ describe("keyManagers.connections.remove", () => {
     });
     expect(await list(client)).toMatchObject([{ id: connection.id }]);
 
+    // Whatever case the client writes an id in: the forge answers its holders for the connection all the same.
+    expect(t.env.forge.referenceHolders(connection.id.toUpperCase())).toEqual([{ kind: "forge-account", id: account.id, name: forge.origin }]);
+
     const forced = await client.request("keyManagers.connections.remove", { commandId: randomUUID(), connectionId: connection.id, force: true });
     expect(forced.result).toEqual({ connectionId: connection.id });
     expect(await list(client)).toEqual([]);
