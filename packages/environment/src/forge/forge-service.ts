@@ -408,7 +408,14 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     originMissing: (origin, operation) => missing.record(origin, operation),
   });
 
-  const links = createPullRequestLinks({ log, clock, reader, accounts: () => listForgeAccounts(reader), pullRequests: operations.pullRequests });
+  const links = createPullRequestLinks({
+    log,
+    clock,
+    reader,
+    accounts: () => listForgeAccounts(reader),
+    pullRequests: operations.pullRequests,
+    repositories: operations.repositories,
+  });
 
   /** Holds a stored token's registration again with its forms for the forge account as it is now: a changed login names another Basic-auth form. */
   const holdStored = async (account: ForgeAccountRecord): Promise<void> => {
