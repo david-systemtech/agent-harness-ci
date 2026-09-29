@@ -4,7 +4,7 @@ import { Command } from "cmdk";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { keyLabel } from "../keys/chords.js";
-import { KeyContext, useEveryWiredAction, useKeyAction, useMacOS, type Offer, type WiredAction } from "../keys/key-dispatch.js";
+import { KeyContext, useEveryWiredAction, useIsKeyOf, useKeyAction, useMacOS, type Offer, type WiredAction } from "../keys/key-dispatch.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
@@ -30,8 +30,9 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
  *   empty query). cmdk keeps the highlight, scrolls to it and names it to
  *   the query field only when it moves the highlight itself, so a move or a
  *   choice hands cmdk the key its list answers.
- * - **Modal**: the window under it is inert while it is open; a press
- *   outside it closes it.
+ * - **Modal**: the window under it is inert while it is open, and a key
+ *   the palette does not answer goes no further than it, but the one that
+ *   closes it (`app.palette`'s); a press outside it closes it.
  */
 
 /** The palette's words for an action whose shared-list words are the terminal's: "Stop the run" is `app.interrupt`. */
@@ -86,6 +87,7 @@ const Palette = ({ listed, close }: PaletteProps) => {
   const [page, setPage] = useState<Page>("root");
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const closes = useIsKeyOf("app.palette");
   /** Hands cmdk the key its list answers: it moves the highlight, or chooses the highlighted entry. */
   const press = (key: "ArrowUp" | "ArrowDown" | "Enter") => root.current?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   /** Back to the first page, from the sessions page; nothing to go back to from the first. */
@@ -102,6 +104,10 @@ const Palette = ({ listed, close }: PaletteProps) => {
       className="fixed inset-0 z-40 flex items-start justify-center bg-wash-strong px-4 pt-[12vh]"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) close();
+      }}
+      onKeyDown={(event) => {
+        // The window's keys would act on the window under it: only the one that closes it goes on to the window.
+        if (!closes(event.nativeEvent)) event.stopPropagation();
       }}
     >
       <Command

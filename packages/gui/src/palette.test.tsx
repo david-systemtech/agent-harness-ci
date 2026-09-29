@@ -73,6 +73,15 @@ describe("the command palette", () => {
     expect(document.activeElement).toBe(box());
   });
 
+  it("keeps the window's keys from the window under it: Mod+F finds nothing while it is open", async () => {
+    const { app } = await opened();
+    await inComposer(app, "{Control>}k{/Control}{Control>}f{/Control}");
+    expect(screen.queryByRole("search", { name: "Find in the conversation" })).toBeNull();
+    expect(document.activeElement).toBe(query());
+    await app.user.keyboard("{Escape}");
+    expect(palette()).toBeNull();
+  });
+
   it("closes on Mod+K too, and on a press outside it", async () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");

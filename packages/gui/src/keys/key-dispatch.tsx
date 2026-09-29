@@ -218,6 +218,16 @@ export const useEveryWiredAction = (): readonly WiredAction[] => {
 /** Whether the window's `Mod` is ⌘ (macOS) or Ctrl. */
 export const useMacOS = (): boolean => useDispatch().macOS;
 
+/** Whether a key pressed is one the GUI column binds to the action `id` on this platform. */
+export const useIsKeyOf = (id: KeyActionId): ((event: PressedKey) => boolean) => {
+  const dispatch = useDispatch();
+  const context = actionById(id)?.context;
+  return (event) => {
+    const chord = chordOfEvent(event, dispatch.macOS);
+    return context !== undefined && chord !== undefined && (dispatch.holders.get(holderKey(context, chord)) ?? []).some((binding) => binding.id === id);
+  };
+};
+
 /**
  * Wires the action `id` to `run` for as long as the component is mounted:
  * the nearest region of the action's context runs it on the keys the GUI
