@@ -503,3 +503,40 @@ path "auth/token/create/runs" { capabilities = ["update"] }`);
     expect(bao.live(bao.created[3] ?? "")).toBe(true);
   });
 });
+
+describe("a login's life (#369)", () => {
+  const MINUTE = 60_000;
+
+  it("is read from its lookup: when it was issued, the time to live it was created with, its period and its explicit maximum life", async () => {
+    const clock = manualClock();
+    const bao = await fakeOpenBao(clock);
+    bao.token(PERSON_TOKEN, { policies: ["default"], ttlSeconds: 1800, explicitMaxTtlSeconds: 7200 });
+    bao.token("periodic-token-for-tests", { policies: ["default"], periodSeconds: 3600 });
+    clock.advance(5 * MINUTE);
+
+    expect(await openBaoProvider.lookUp(targetOf(bao), PERSON_TOKEN)).toMatchObject({
+      outcome: "found",
+      information: { ttlSeconds: 1500, expiresAt: "2026-09-24T00:30:00.000Z" },
+      life: { issuedAt: "2026-09-24T00:00:00.000Z", creationTtlSeconds: 1800, periodSeconds: 0, explicitMaxTtlSeconds: 7200 },
+    });
+    expect(await openBaoProvider.lookUp(targetOf(bao), "periodic-token-for-tests")).toMatchObject({
+      outcome: "found",
+      life: { issuedAt: "2026-09-24T00:00:00.000Z", creationTtlSeconds: 3600, periodSeconds: 3600, explicitMaxTtlSeconds: 0 },
+    });
+  });
+
+  it("is renewed by the increment asked up to its maximum life, which the answer shows by giving less, however the maximum is set", async () => {
+    const clock = manualClock();
+    const bao = await fakeOpenBao(clock);
+    // A role's maximum, which the lookup does not name, and an explicit one, which it does.
+    bao.token(PERSON_TOKEN, { policies: ["default"], ttlSeconds: 3600, maxTtlSeconds: 90 * 60 });
+    bao.token("explicit-token-for-tests", { policies: ["default"], ttlSeconds: 3600, explicitMaxTtlSeconds: 90 * 60 });
+    clock.advance(40 * MINUTE);
+
+    for (const token of [PERSON_TOKEN, "explicit-token-for-tests"]) {
+      expect(await openBaoProvider.renew(targetOf(bao), token, 3600)).toEqual({ outcome: "renewed", ttlSeconds: 50 * 60 });
+    }
+    clock.advance(50 * MINUTE);
+    expect(bao.live(PERSON_TOKEN)).toBe(false);
+  });
+});
