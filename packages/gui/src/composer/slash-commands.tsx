@@ -1,5 +1,6 @@
 import { actionById, isCommandId } from "@agent-harness/contracts";
 import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useWindowAction, type Offer } from "../keys/key-dispatch.js";
 
 /**
  * The window's slash commands (docs/specs/gui.md, "Keyboard: the GUI
@@ -14,6 +15,9 @@ import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useSyn
  * the list (or a hidden alias of one) is the window's, never the agent's, so
  * one the window does not answer says why in one line; any other word goes
  * to the agent as typed, which is how the provider's own commands run.
+ *
+ * A wired command is listed among the window's wired actions too, which the
+ * command palette runs it from.
  */
 
 /** A slash command a surface wired: its name as typed, its usage and description from the list, and what it does. */
@@ -70,11 +74,13 @@ const useWiring = (): Wiring => {
 
 /**
  * Wires the slash command `name` to `run` for as long as the component is
- * mounted. Throws for a name the shared list does not hold or keeps absent
- * in the GUI column, and for an alias, since no key could then reach it as
+ * mounted, and lists it among the window's wired actions with `offer`,
+ * whether it can be done now, so the command palette runs it as if typed
+ * bare. Throws for a name the shared list does not hold or keeps absent in
+ * the GUI column, and for an alias, since no key could then reach it as
  * wired.
  */
-export const useSlashCommand = (name: string, run: (argument: string) => void): void => {
+export const useSlashCommand = (name: string, run: (argument: string) => void, offer?: Offer): void => {
   const wiring = useWiring();
   const action = actionById(`command.${name}`);
   if (action === undefined || action.aliasOf !== undefined || action.gui.status !== "wired" || action.usage === undefined) {
@@ -86,6 +92,7 @@ export const useSlashCommand = (name: string, run: (argument: string) => void): 
     latest.current = run;
   });
   useEffect(() => wiring.wire({ name, usage, description, run: (argument) => latest.current(argument) }), [wiring, name, usage, description]);
+  useWindowAction(action.id, () => latest.current(""), offer);
 };
 
 /** The slash commands wired now, in the order they were wired. */
