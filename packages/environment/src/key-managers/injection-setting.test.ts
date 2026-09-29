@@ -133,7 +133,7 @@ describe("an account's entry in credentials.injectionByAccount", () => {
 
   it("governs the session's terminal as it governs its runs", async () => {
     const pty = fakePty();
-    const { t, client, supplied } = await withSupplier({ terminals: { pty, shell: () => ({ file: "/bin/sh", args: [] }) } });
+    const { client, supplied } = await withSupplier({ terminals: { pty, shell: () => ({ file: "/bin/sh", args: [] }) } });
     await set(client, { "credentials.injectionByAccount": { [WORK]: "deny" } });
     const work = await create(client, { account: WORK });
     const max = await create(client, { account: "claude-max" });
