@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineIfMissed",
+  "type": "string",
+  "enum": [
+    "run-once",
+    "skip"
+  ],
+  "description": "What a routine does with due times its environment missed: run-once (the latest fires once when the environment is back, within seven days) or skip (each is skipped missed)."
+}

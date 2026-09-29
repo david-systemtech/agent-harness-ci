@@ -1,13 +1,15 @@
-import { inWorkspace, isAbsolutePath, slashed } from "../transcript/targets.js";
+import { inWorkspace, isAbsolutePath, slashed } from "./paths.js";
 
 /**
- * `/files`' picker (docs/specs/tui.md, "The composer": `/files [path]` opens
- * `files.list` as a browsable picker). The environment lists the workspace
- * flat, as paths relative to it with forward slashes, so a directory here is
- * every path under it. Without a filter the picker shows one directory: the
- * way up (below the root), its directories with how many files each holds,
- * then its files, each by name. A filter typed at it finds files anywhere
- * under the directory whose path holds it, ignoring case. Pure.
+ * Browsing `files.list` one directory at a time, as the terminal UI's
+ * `/files` picker (docs/specs/tui.md, "The composer") and the window's Files
+ * pane (docs/specs/gui.md, "The seven panes and the grid") both do. The
+ * environment lists the workspace flat, as paths relative to it with forward
+ * slashes, so a directory here is every path under it. Without a filter one
+ * directory is shown: the way up (below the root), its directories with how
+ * many files each holds, then its files, each by name. A filter typed at it
+ * finds files anywhere under the directory whose path holds it, ignoring
+ * case. Pure.
  */
 
 export type BrowseRow =

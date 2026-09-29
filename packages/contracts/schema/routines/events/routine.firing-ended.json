@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineFiringEndedPayload",
+  "type": "object",
+  "properties": {
+    "firingId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "silent",
+        "failed",
+        "cancelled"
+      ],
+      "description": "How a firing ended: succeeded (its run completed with text other than the silence marker, or none), silent (its final text was the silence marker, so nothing was delivered), failed (with its reason) or cancelled (a person interrupted it, or deleted its session or its routine)."
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "run_error",
+            "timed_out",
+            "restart",
+            "drained"
+          ],
+          "description": "Why a firing failed: run_error (its run ended in error), timed_out (its maximum duration passed and its run was interrupted), restart (its run was cut by a restart, or let go with its session still there) or drained (a drain cut its run and nothing continued it)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why it failed; null unless it did."
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 16000,
+      "description": "Its final text, at most 16,000 characters: the last firing run's result text, else its last assistant text; empty when there was none."
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheReadTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "costUsd": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the tokens cost in US dollars, when the provider says."
+              },
+              "contextWindow": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The model's context window in tokens, when the provider says."
+              }
+            },
+            "required": [
+              "model",
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "costUsd",
+              "contextWindow"
+            ],
+            "description": "One model's token spend in a run: input, output, cache reads and writes, cost and context window."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Its runs' token spend per model, when the provider reported it."
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How long it ran, from its start to its end."
+    },
+    "baselineAdvanced": {
+      "type": "boolean",
+      "description": "Whether its pre-check's output became the baseline: only a firing with a pre-check that ended succeeded or silent advances it."
+    }
+  },
+  "required": [
+    "firingId",
+    "outcome",
+    "reason",
+    "text",
+    "usage",
+    "durationMs",
+    "baselineAdvanced"
+  ],
+  "description": "routine.firing-ended: a firing ended, read from its runs' run.ended: its outcome, the failure's reason, its final text, usage and duration, and whether the baseline advanced."
+}

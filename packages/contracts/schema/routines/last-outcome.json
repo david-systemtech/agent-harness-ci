@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineLastOutcome",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "firing"
+        },
+        "entryId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "succeeded",
+            "silent",
+            "failed",
+            "cancelled"
+          ],
+          "description": "How a firing ended: succeeded (its run completed with text other than the silence marker, or none), silent (its final text was the silence marker, so nothing was delivered), failed (with its reason) or cancelled (a person interrupted it, or deleted its session or its routine)."
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "run_error",
+                "timed_out",
+                "restart",
+                "drained"
+              ],
+              "description": "Why a firing failed: run_error (its run ended in error), timed_out (its maximum duration passed and its run was interrupted), restart (its run was cut by a restart, or let go with its session still there) or drained (a drain cut its run and nothing continued it)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it failed; null unless it did."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When it ended."
+        }
+      },
+      "required": [
+        "kind",
+        "entryId",
+        "outcome",
+        "reason",
+        "at"
+      ],
+      "description": "The latest entry was a firing that ended: its outcome, and why when it failed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "skip"
+        },
+        "entryId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "no-change",
+            "pre-check-failed",
+            "cannot-start",
+            "missed",
+            "overlap"
+          ],
+          "description": "Why a due time was skipped: no-change (the pre-check's output was the baseline's), pre-check-failed (the pre-check failed; a failure), cannot-start (the firing could not start, with a reason of its own; a failure), missed (missed while the environment was down, and not caught up) or overlap (a firing of the routine was live)."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the skip was recorded."
+        }
+      },
+      "required": [
+        "kind",
+        "entryId",
+        "reason",
+        "at"
+      ],
+      "description": "The latest entry was a skip: why."
+    }
+  ],
+  "description": "How the routine's latest ended entry ended: a firing's outcome, or a skip's reason."
+}

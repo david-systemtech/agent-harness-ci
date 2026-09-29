@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineEndpointSetPayload",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,40}$",
+      "description": "A webhook endpoint's name on its environment: 1 to 40 lower-case letters, digits and hyphens, unique."
+    },
+    "url": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^https?:\\/\\/",
+      "description": "Where the endpoint's POSTs go: https, or http only to loopback, localhost, a private or tailnet address or a .ts.net name; with no userinfo, and its host off the denylist."
+    },
+    "secretKind": {
+      "type": "string",
+      "enum": [
+        "pasted",
+        "reference",
+        "missing"
+      ],
+      "description": "Where a webhook endpoint's secret is, never the secret: pasted (sent once and kept in the environment's vault), reference (a key-manager reference resolved per delivery) or missing (none, so a delivery to it fails)."
+    }
+  },
+  "required": [
+    "name",
+    "url",
+    "secretKind"
+  ],
+  "description": "routine.endpoint-set: a webhook endpoint was made or replaced: its name, URL and where its secret is, never the secret."
+}

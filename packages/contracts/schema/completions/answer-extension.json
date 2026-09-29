@@ -273,9 +273,10 @@
                 "user",
                 "read-now",
                 "restart",
-                "parked"
+                "parked",
+                "timeout"
               ],
-              "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+              "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt), timeout (a routine's firing ran past its maximum duration)."
             },
             {
               "type": "null"
