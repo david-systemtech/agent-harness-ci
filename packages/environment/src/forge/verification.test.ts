@@ -437,10 +437,12 @@ describe("closing the environment while a verification is in flight", () => {
     await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
 
     await t.close();
+    const reads = vi.spyOn(t.env.log, "read");
     await pastTheBudget();
 
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
   });
 
   it("never starts the one waiting behind it for a credential given since, and reads nothing for it", async () => {
@@ -456,10 +458,12 @@ describe("closing the environment while a verification is in flight", () => {
     t.clock.advance(0);
 
     await t.close();
+    const reads = vi.spyOn(t.env.log, "read");
     await pastTheBudget();
 
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
     // The add's identity call, the verification's, and the update's: none for the credential given.
     expect(forge.requests).toHaveLength(3);
   });
@@ -488,11 +492,13 @@ describe("closing the environment while a verification is in flight", () => {
     await vi.waitFor(() => expect(waiting).toBe(1));
 
     await t.close();
+    const reads = vi.spyOn(t.env.log, "read");
     arrive();
     await pastTheBudget();
 
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
+    expect(reads).not.toHaveBeenCalled();
     expect(scripted.requests.map((request) => request.purpose)).toEqual(["add", "verify"]);
     expect(scripted.outstanding()).toBe(0);
   });
