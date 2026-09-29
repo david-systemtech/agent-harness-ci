@@ -12,16 +12,15 @@ import type { StateCheckers } from "./check.js";
  * How this environment answers every state check the step registry names
  * (#141): the Your machines step's not-root line, release channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
- * updater's poll (#348), the Permissions step's
- * three checks, and the Appearance step's contrast (#391), each read when it
- * runs.
+ * updater's poll (#348), the Permissions step's three checks, and the
+ * Appearance step's contrast (#391), each read when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
  * denylist from its read model beside the presets for this environment's
  * data directory, the release channel from its checks (`updates/checks.ts`),
- * the updates from the update coordinator (`updates/coordinator.ts`), and
- * the host-side updater's poll from its record (`updates/host-updater.ts`),
- * and the theme from the settings, derived by the theme package
+ * the updates from the update coordinator (`updates/coordinator.ts`), the
+ * host-side updater's poll from its record (`updates/host-updater.ts`), and
+ * the theme from the settings, derived by the theme package
  * (`appearance/contrast.ts`).
  */
 

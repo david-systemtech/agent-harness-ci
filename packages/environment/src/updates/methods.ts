@@ -113,10 +113,9 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
    * `settings.updated` on the settings stream, with the notice
    * `settings.changed` beside it (`settings/changes.ts`), in the command's
    * transaction with its receipt; a command that changes nothing appends
-   * nothing. A
-   * waiting update the channel called for that the change stops calling for
-   * is withdrawn in the same transaction (#347). Once a change to a setting
-   * the target follows commits, the channel is checked again.
+   * nothing. A waiting update the channel called for that the change stops
+   * calling for is withdrawn in the same transaction (#347). Once a change
+   * to a setting the target follows commits, the channel is checked again.
    */
   const setSettings: MethodHandler<"updates.settings.set"> = ({ values: asked }, context) => {
     const held = readUpdateSettings(reader);

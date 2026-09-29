@@ -4,10 +4,10 @@ import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
+import { setOf } from "./primitives.js";
 import type { SettingsRowId } from "./settings-rows.js";
 import type { StepId } from "./steps.js";
 import { DEFAULT_THEME, Theme } from "./theme.js";
-import { setOf } from "./primitives.js";
 import { UPDATE_SETTINGS } from "./update-settings.js";
 
 /**

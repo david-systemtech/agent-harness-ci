@@ -12,8 +12,9 @@ import { readSettings } from "./settings-store.js";
  * before a handler runs. An update records the keys whose value it changes
  * as one `settings.updated` on the environment's settings stream, with the
  * notice `settings.changed` beside it (`changes.ts`), in the command's
- * transaction with its receipt; one that changes nothing appends nothing. What a change sets off (the auto-settle sweep) runs from the
- * command's commit hook, so it has run before the command is answered.
+ * transaction with its receipt; one that changes nothing appends nothing.
+ * What a change sets off (the auto-settle sweep) runs from the command's
+ * commit hook, so it has run before the command is answered.
  */
 
 export interface SettingsMethodsOptions {
