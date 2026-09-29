@@ -177,6 +177,21 @@
       ],
       "description": "Where Move keeps the harness's secrets; null until one is set."
     },
+    "suggestedBasePath": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification. Null once a base path is set, and while the provider suggests none."
+    },
     "injects": {
       "type": "boolean",
       "description": "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it."
@@ -363,6 +378,7 @@
     "policies",
     "ticks",
     "basePath",
+    "suggestedBasePath",
     "injects",
     "status",
     "tokenInformation",
@@ -372,5 +388,5 @@
     "importedFrom",
     "createdAt"
   ],
-  "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
+  "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set) and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
 }

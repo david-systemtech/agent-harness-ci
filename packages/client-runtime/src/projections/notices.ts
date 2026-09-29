@@ -158,14 +158,17 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "forge.account.removed":
         case "forge.origin-missing":
           return;
-        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) are the client runtime's key-manager part (#384).
+        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) and Move's are the client runtime's key-manager part (#384).
         case "key-manager.connection.added":
         case "key-manager.connection.signed-in":
         case "key-manager.connection.signed-out":
         case "key-manager.connection.updated":
         case "key-manager.connection.policies-set":
+        case "key-manager.connection.base-path-set":
         case "key-manager.connection.verified":
         case "key-manager.connection.removed":
+        case "key-manager.moved":
+        case "key-manager.stored-value-deleted":
           return;
         // Settings changed (#391): the request cache reads them again; where they show says what changed.
         case "settings.changed":

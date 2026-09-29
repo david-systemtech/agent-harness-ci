@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "keyManagers.connections.signOut response",
+  "title": "keyManagers.connections.setBasePath response",
   "type": "object",
   "properties": {
     "receipt": {

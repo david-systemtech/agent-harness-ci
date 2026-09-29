@@ -47,6 +47,7 @@ const record = {
   policies,
   ticks: ["default", "agent-read"],
   basePath: "personal/harness",
+  suggestedBasePath: null,
   injects: true,
   status: signedIn,
   tokenInformation,
@@ -65,6 +66,7 @@ const copy = {
   policies: null,
   ticks: null,
   basePath: null,
+  suggestedBasePath: "personal/harness",
   injects: false,
   status: awaiting,
   tokenInformation: null,
@@ -80,6 +82,14 @@ const notSignedIn = { code: "credential_source_unavailable", message: "The key-m
 const notFound = { code: "reference_not_found", message: "OpenBao holds nothing at personal/harness/forge-github.", data: { connectionId } };
 const denied = { code: "reference_denied", message: "OpenBao did not let the login read personal/harness/forge-github: check the mount first.", data: { connectionId } };
 const reference = { provider: "openbao", connectionId, mount: "personal", path: "harness/forge-github", key: "token" };
+const item = { kind: "forge-account", id: otherId };
+const storedAt = `forge:${otherId}:${commandId}`;
+const target = { connectionId, reference };
+const movable = { ...item, name: "https://git.systemtech.dev:5526", targets: [target] };
+const targetExists = { code: "conflict", message: "A different value is at personal/harness/forge-github (key token) already.", data: { reason: "target_exists", connectionId, reference } };
+const moved = { item, outcome: "moved", reference, storedValueDeleted: true, message: "Moved to personal/harness/forge-github (key token); the stored token was deleted." };
+const failed = { item, outcome: "failed", step: "write", written: false, error: targetExists };
+const swapFailed = { item, outcome: "failed", step: "swap", written: true, error: { code: "verification_failed", message: "The forge refused the credential.", data: { status: 401 } } };
 
 const added = {
   connectionId,
@@ -190,6 +200,32 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "key-managers/events/key-manager.connection.removed.json": { valid: [{ connectionId }], invalid: [{}, { connectionId: "openbao" }] },
+  "key-managers/events/key-manager.connection.base-path-set.json": {
+    valid: [{ connectionId, basePath: "personal/harness" }],
+    invalid: [{ connectionId }, { connectionId, basePath: "personal/harness/" }, { basePath: "personal/harness" }],
+  },
+  "key-managers/move-item-kind.json": { valid: ["forge-account"], invalid: ["bank-token", "", 1] },
+  "key-managers/move-item-ref.json": { valid: [item], invalid: [{ kind: "forge-account" }, { ...item, id: "" }, { ...item, kind: "session" }] },
+  "key-managers/move-target.json": { valid: [target], invalid: [{ connectionId }, { connectionId: "openbao", reference }, { connectionId, reference: { ...reference, key: "" } }] },
+  "key-managers/move-item.json": {
+    valid: [movable, { ...movable, targets: [] }],
+    invalid: [{ ...movable, name: "" }, { ...movable, targets: undefined }, { ...movable, kind: "bank" }],
+  },
+  "key-managers/move-step.json": { valid: ["read", "write", "read-back", "swap"], invalid: ["delete", "", "sign-in"] },
+  "key-managers/move-item-result.json": {
+    valid: [moved, { ...moved, storedValueDeleted: false }, failed, swapFailed],
+    invalid: [{ ...moved, reference: undefined }, { ...failed, step: "delete" }, { ...failed, written: undefined }, { item, outcome: "skipped" }],
+  },
+  "key-managers/stored-at.json": { valid: [storedAt], invalid: ["", "two\nlines"] },
+  "key-managers/errors/target_exists.json": {
+    valid: [targetExists],
+    invalid: [{ ...targetExists, data: { ...targetExists.data, reason: "referenced" } }, { ...targetExists, code: "target_exists" }, { ...targetExists, data: { reason: "target_exists", connectionId } }],
+  },
+  "key-managers/events/key-manager.moved.json": {
+    valid: [{ connectionId, item, reference, undeleted: null }, { connectionId, item, reference, undeleted: storedAt }],
+    invalid: [{ connectionId, item, reference }, { connectionId, item, reference: { ...reference, provider: "vault" }, undeleted: null }, { item, reference, undeleted: null }],
+  },
+  "key-managers/events/key-manager.stored-value-deleted.json": { valid: [{ item, storedAt }], invalid: [{ item }, { storedAt }, { item, storedAt: "" }] },
   "key-managers/errors/verification_failed.json": {
     valid: [
       { code: "verification_failed", message: "OpenBao refused the credential. Nothing was stored.", data: { connectionId, reason: "rejected" } },
@@ -320,6 +356,24 @@ export const keyManagerMethodFixtures: Record<string, { params: Fixtures; result
       valid: [{ display, problem: null }, { display, problem: denied }, { display: { ...display, label: null }, problem: notSignedIn }],
       invalid: [{ display }, { display, problem: { code: "unreachable", message: "m", data: { connectionId } } }],
     },
+  },
+  "keyManagers.connections.setBasePath": {
+    params: {
+      valid: [{ commandId, connectionId, basePath: "personal/harness" }],
+      invalid: [{ commandId, connectionId }, { commandId, connectionId, basePath: "/personal" }, { connectionId, basePath: "personal/harness" }],
+    },
+    result: { valid: [{ connection: record }], invalid: [{}, { connection: { ...record, suggestedBasePath: "/x" } }] },
+  },
+  "keyManagers.move.list": {
+    params: { valid: [{}], invalid: [[], "all"] },
+    result: { valid: [{ items: [] }, { items: [movable] }], invalid: [{}, { items: [{ ...movable, targets: "all" }] }] },
+  },
+  "keyManagers.move": {
+    params: {
+      valid: [{ commandId, connectionId, items: "all" }, { commandId, connectionId, items: [item], overwrite: true }],
+      invalid: [{ commandId, connectionId }, { commandId, connectionId, items: [] }, { commandId, connectionId, items: "some" }, { connectionId, items: "all" }],
+    },
+    result: { valid: [{ items: [] }, { items: [moved, failed, swapFailed] }], invalid: [{}, { items: [{ item, outcome: "moved" }] }] },
   },
   "keyManagers.references.browse": {
     params: {

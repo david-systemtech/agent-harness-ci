@@ -343,6 +343,17 @@ import {
   KeyManagerUsername,
   KeyManagerVaultEntry,
 } from "./key-manager-connections.js";
+import {
+  KEY_MANAGER_MOVE_EVENT_PAYLOADS,
+  KeyManagerMoveItem,
+  KeyManagerMoveItemKind,
+  KeyManagerMoveItemRef,
+  KeyManagerMoveItemResult,
+  KeyManagerMoveStep,
+  KeyManagerMoveTarget,
+  KeyManagerStoredAt,
+  KeyManagerTargetExistsError,
+} from "./key-manager-moves.js";
 import { AddressUnreachableError, CertificateRejectedError, KeyManagerVerificationFailedError, ProviderUnavailableError, SealedError, UnreachableError } from "./methods/key-managers.js";
 import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
 import {
@@ -715,6 +726,19 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/reference-holder.json", title: "KeyManagerReferenceHolder", schema: KeyManagerReferenceHolder },
   { path: "key-managers/reference-problem.json", title: "KeyManagerReferenceProblem", schema: KeyManagerReferenceProblem },
   ...Object.entries(KEY_MANAGER_EVENT_PAYLOADS).map(([type, payload]) => ({
+    path: `key-managers/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: payload as z.ZodType,
+  })),
+  { path: "key-managers/move-item-kind.json", title: "KeyManagerMoveItemKind", schema: KeyManagerMoveItemKind },
+  { path: "key-managers/move-item-ref.json", title: "KeyManagerMoveItemRef", schema: KeyManagerMoveItemRef },
+  { path: "key-managers/move-target.json", title: "KeyManagerMoveTarget", schema: KeyManagerMoveTarget },
+  { path: "key-managers/move-item.json", title: "KeyManagerMoveItem", schema: KeyManagerMoveItem },
+  { path: "key-managers/move-step.json", title: "KeyManagerMoveStep", schema: KeyManagerMoveStep },
+  { path: "key-managers/move-item-result.json", title: "KeyManagerMoveItemResult", schema: KeyManagerMoveItemResult },
+  { path: "key-managers/stored-at.json", title: "KeyManagerStoredAt", schema: KeyManagerStoredAt },
+  { path: "key-managers/errors/target_exists.json", title: "KeyManagerTargetExistsError", schema: KeyManagerTargetExistsError },
+  ...Object.entries(KEY_MANAGER_MOVE_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `key-managers/events/${type}.json`,
     title: `${pascal(type)}Payload`,
     schema: payload as z.ZodType,

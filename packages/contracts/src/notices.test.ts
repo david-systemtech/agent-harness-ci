@@ -13,7 +13,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' (#365, #366), the routines' (#519), settings changed (#391) and a Set up step's result changed (#569), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' and Move's (#365, #366, #371), the routines' (#519), settings changed (#391) and a Set up step's result changed (#569), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -41,8 +41,11 @@ describe("environment notices", () => {
       "key-manager.connection.signed-out",
       "key-manager.connection.updated",
       "key-manager.connection.policies-set",
+      "key-manager.connection.base-path-set",
       "key-manager.connection.verified",
       "key-manager.connection.removed",
+      "key-manager.moved",
+      "key-manager.stored-value-deleted",
       "routine.updated",
       "routine.delivered",
       "routine.delivery-failed",
