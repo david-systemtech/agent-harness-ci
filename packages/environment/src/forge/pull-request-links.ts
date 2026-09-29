@@ -96,8 +96,6 @@ export interface PullRequestLinks {
   readonly unlink: MethodHandler<"forge.pullRequests.unlink">;
   /** `forge.pullRequests.refresh`: reads every pull request of the session that has not merged, a stopped one too, and answers them after; `not_found` for a session not here. */
   refresh(sessionId: string): Promise<PullRequest[]>;
-  /** What a run's end owes the session: the pull requests found from its workspace's branch and in the run, and a read of each unmerged one it held. Never throws. */
-  runEnded(sessionId: string, runId: string): Promise<void>;
   /** Hears every run's end, and reads each pull request due a read now and every minute from now on; returns what stops both. */
   start(): () => void;
   /** Resolves once every read and discovery under way has ended and appended what it found. */
@@ -118,7 +116,7 @@ const CLOSED_EVERY_MS = 24 * 60 * MINUTE;
 const CLOSED_FOR_MS = 14 * CLOSED_EVERY_MS;
 
 /** The most pull-request URLs a run's end reads from the run's text (a chosen default). */
-export const MAX_URLS_PER_RUN = 20;
+const MAX_URLS_PER_RUN = 20;
 
 /** The most pull requests a run's end lists from the workspace's branch: more than a branch is ever opened as. */
 const MAX_FROM_BRANCH = 20;
@@ -151,10 +149,14 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
 
   /** The reads and discoveries under way, which `idle` waits for. */
   const underway = new Set<Promise<void>>();
+  /** Set once `start`'s stop is called: the log may close under work still under way, whose failure then says nothing. */
+  let closing = false;
   /** Runs `work` in the background, logging what it throws, and counts it under way until it ends. */
   const background = (what: string, work: () => Promise<void>): void => {
     const running = work()
-      .catch((error: unknown) => console.error(`${what} failed:`, error))
+      .catch((error: unknown) => {
+        if (!closing) console.error(`${what} failed:`, error);
+      })
       .finally(() => underway.delete(running));
     underway.add(running);
   };
@@ -395,17 +397,28 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     }
   };
 
-  const runEnded: PullRequestLinks["runEnded"] = async (sessionId, runId) => {
+  /**
+   * What a run's end owes the session: the pull requests found from its
+   * workspace's branch and in the run, which only a forge account's origin
+   * is looked at for, then a read of each it held that has not merged.
+   */
+  const runEnded = async (sessionId: string, runId: string): Promise<void> => {
     const summary = readSummary(reader, sessionId);
     if (summary === null) return;
     const unmerged = summary.pullRequests.filter((pullRequest) => pullRequest.state !== "merged" && !stopped.has(readingOf(sessionId, pullRequest.url)));
-    const found = [
-      ["Finding a session's pull requests from its workspace's branch", () => discoverFromBranch(summary)],
-      ["Finding a session's pull requests in a run", () => discoverInRun(sessionId, runId)],
+    // With no forge account, nothing is looked for: not even git is asked.
+    const looking = options.accounts().length > 0;
+    const parts = [
+      ...(looking
+        ? ([
+            ["Finding a session's pull requests from its workspace's branch", () => discoverFromBranch(summary)],
+            ["Finding a session's pull requests in a run", () => discoverInRun(sessionId, runId)],
+          ] as const)
+        : []),
       ["Reading a session's pull requests at a run's end", () => Promise.all(unmerged.map(({ url }) => sync(sessionId, url)))],
     ] as const;
     // Each part is tried even when one before it fails, and named when it does.
-    for (const [what, part] of found) {
+    for (const [what, part] of parts) {
       try {
         await part();
       } catch (error) {
@@ -424,26 +437,29 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     return last === undefined || now - last >= every;
   };
 
-  /** Reads every pull request of every session that is due a read now: one query a minute, of the columns the cadence reads. */
+  /**
+   * Reads every pull request of every session that is due a read now: one
+   * query a minute, of the columns the cadence reads. What the reads kept of
+   * a pull request no session holds now (unlinked, or its session deleted)
+   * is let go, so a link later reads it on its cadence afresh.
+   */
   const syncDue = (): void => {
     const now = clock.now();
     const rows = reader.all<Pick<SessionRow, "id" | "pull_requests" | "archived_at" | "settled_at" | "snoozed_until" | "pinned_at">>(
       `SELECT id, pull_requests, archived_at, settled_at, snoozed_until, pinned_at FROM sessions
        WHERE deleted_at IS NULL AND pull_requests <> '[]' ORDER BY created_at, id`,
     );
+    const held = new Set<string>();
     for (const row of rows) {
       const shelf = shelfOf({ archivedAt: row.archived_at, settledAt: row.settled_at, snoozedUntil: row.snoozed_until, pinnedAt: row.pinned_at }, now);
       const active = shelf === "active" || shelf === "pinned";
       for (const pullRequest of JSON.parse(row.pull_requests) as PullRequest[]) {
+        held.add(readingOf(row.id, pullRequest.url));
         if (due(row.id, pullRequest, active, now.getTime())) background("Keeping a session's pull request current", () => sync(row.id, pullRequest.url));
       }
     }
-  };
-
-  /** Forgets what the reads kept of a pull request a person unlinked. */
-  const forget = (sessionId: string, url: string): void => {
-    lastRead.delete(readingOf(sessionId, url));
-    stopped.delete(readingOf(sessionId, url));
+    for (const reading of lastRead.keys()) if (!held.has(reading)) lastRead.delete(reading);
+    for (const reading of stopped) if (!held.has(reading)) stopped.delete(reading);
   };
 
   const unlink: PullRequestLinks["unlink"] = (params, command) => {
@@ -453,7 +469,6 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     const held = heldIn(current.pullRequests, params.url);
     if (held === undefined) return { aggregate: stream, result: { summary: current } };
     log.append(stream, [{ type: "session.pull-request-unlinked", payload: { url: held.url } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-    command.tx.afterCommit(() => forget(params.sessionId, held.url));
     const summary = readSummary(reader, params.sessionId);
     if (summary === null) throw new Error(`The session ${params.sessionId} is not in the list after a pull request was unlinked from it.`);
     return { aggregate: stream, result: { summary } };
@@ -473,7 +488,6 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     link,
     unlink,
     refresh,
-    runEnded,
     start() {
       const unsubscribe = log.subscribe((event) => {
         if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "run.ended") return;
@@ -490,6 +504,7 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
       // Nothing was read before the start: every pull request due a read is read now.
       syncDue();
       return () => {
+        closing = true;
         unsubscribe();
         timer.cancel();
       };
