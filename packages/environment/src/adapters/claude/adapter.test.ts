@@ -1776,12 +1776,13 @@ describe("status, models and commands", () => {
     expect(fake.last().prompts).toEqual([]);
   });
 
-  it("describes itself: the four modes, the append channel, a provider queue that steers, containment enforced", () => {
+  it("describes itself: the four modes, the append channel, a trusted repository's instructions its own to load, a provider queue that steers, containment enforced", () => {
     expect(CLAUDE_DESCRIPTOR).toMatchObject({
       containment: true,
       provider: "claude",
       modes: ["acceptEdits", "plan", "auto", "bypassPermissions"].map((mode) => ({ mode, available: true, reason: null })),
       instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
+      nativeProjectInstructions: true,
       providerQueue: true,
       steering: true,
       planUsage: true,
@@ -2050,6 +2051,30 @@ describe("a run that joins a kept process", () => {
     const fresh = await fake.made(2);
     expect(query.closed).toBe(true);
     expect(fresh.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Composed.\n\nPersona: tidy." });
+  });
+
+  it("serves a run whose trust differs from the kept process's on a fresh process with the project settings it admits, and attaches one whose trust is the same (#500)", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput({ trusted: false });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    expect(query.options).toMatchObject({ settingSources: [], strictMcpConfig: true });
+    // Still undecided: the kept process serves it.
+    const same = adapter.createRun(runInput({ trusted: false, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [(await query.promptsPushed(2))[1]?.uuid as string]), sdk.result(PROVIDER_SESSION));
+    await drain(same);
+    same.release();
+    // Trusted since: a process that loads the repository's project settings, and never its local ones or its MCP servers.
+    adapter.createRun(runInput({ trusted: true, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    const fresh = await fake.made(2);
+    expect(query.closed).toBe(true);
+    expect(fresh.options).toMatchObject({ settingSources: ["project"], strictMcpConfig: true });
   });
 
   it("serves a run whose in-process tools differ from the kept process's on a fresh process, and attaches one whose tools are the same (#139)", async () => {

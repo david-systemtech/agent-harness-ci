@@ -68,6 +68,8 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   // `PreToolUse` hook before every call, denies the rest: a write outside the writable set, a fetch or search with no network.
   containment: true,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
+  // A trusted repository's CLAUDE.md and rules load through the `project` settings source (#500): the composer adds nothing for them.
+  nativeProjectInstructions: true,
   // Every mode is the SDK permission mode of its name (permissions spec, the Claude mapping), available to every account.
   modes: CLAUDE_MODES.map((mode) => ({ mode, available: true, reason: null })),
 };

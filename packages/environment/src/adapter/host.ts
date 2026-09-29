@@ -111,6 +111,7 @@ import {
   type PromptAutoAnswer,
   type ToolGateRule,
   type ToolServerFactory,
+  type TrustSeam,
 } from "./seams.js";
 
 /**
@@ -200,6 +201,13 @@ export interface AdapterHostOptions {
   readonly toolServers?: ToolServerFactory;
   /** Composes each run's standing instructions, and `instructions.preview`'s; preset: the composer with no layer filled (`instructions/composer.ts`). */
   readonly instructions?: InstructionComposer;
+  /**
+   * A run's trust (#500): its key and the decision recorded for it, read once
+   * as it launches, which its `trusted` and its instruction scope both take,
+   * so a decision reaches the session's next run and never a live one; and
+   * `instructions.preview`'s. Preset: every repository undecided.
+   */
+  readonly trust?: TrustSeam;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
   /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
@@ -583,6 +591,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const registry = options.runs ?? createRunRegistry({ clock });
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
+  const trustOf = options.trust ?? undecidedTrust;
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -1340,7 +1349,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, its containment level and injection answer, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and trust (read now, from the trust seam), who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
@@ -1353,8 +1362,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     sessionId: run.sessionId,
     accountId: run.account.id,
     workspace: run.workspace,
-    // The trust gate (#500) records decisions: until then every repository is undecided.
-    trust: undecidedTrust(run.workspace, run.repositoryIdentity),
+    trust: trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity }),
     origin: run.origin,
     containment: run.containment,
     injection: run.injection,
@@ -1362,6 +1370,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // The always-on layer (#507) fills a run's extra names.
     alwaysOn: [],
     channel: run.account.descriptor.instructionChannel,
+    nativeProjectInstructions: run.account.descriptor.nativeProjectInstructions,
   });
 
   /**
@@ -1475,7 +1484,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             instructions: handed.filter((part): part is string => part !== null && part.trim() !== "").join("\n\n"),
             target: plan.target,
             toolServers: toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools }),
-            trusted: false,
+            // Read once as it launched, as its instructions were composed: a decision since reaches the session's next run.
+            trusted: scope.trust.decision === "trusted",
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
             processEnvironment: processEnvironmentOf(plan, injection),

@@ -67,7 +67,7 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * context's port (`backgroundTask`). A process is spawned with its run's
  * process environment (#307), supplied once and reported on its record
  * (`supplied`), and with its run's instruction text (`instructions`); a run
- * whose key or instructions differ lets it go for a fresh one, as Claude's
+ * whose key, instructions or trust differ lets it go for a fresh one, as Claude's
  * adapter does; a script runs a command in what its process was supplied
  * (`runCommand`).
  *
@@ -128,6 +128,8 @@ export interface FakeProcessRecord {
   readonly supplied: Promise<Readonly<Record<string, string>>>;
   /** The instruction text it was spawned with, fixed for its life: a run handed other text is served by a fresh process. */
   readonly instructions: string;
+  /** Whether it was spawned for a trusted repository, fixed for its life as Claude's project settings are: a run with the other answer is served by a fresh process (#500). */
+  readonly trusted: boolean;
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -637,6 +639,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     // The fake stands in for an adapter that enforces containment, as the Claude adapter does (#140), so the gate's rules can be driven.
     containment: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
+    // Claude-shaped: a trusted repository's own instructions are the provider's to load; a test declares an adapter without.
+    nativeProjectInstructions: true,
     modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,
   };
@@ -677,6 +681,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       key: input.processEnvironment.key,
       supplied,
       instructions: input.instructions,
+      trusted: input.trusted,
       stopping: false,
       stopped: false,
       killed: false,
@@ -687,13 +692,13 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
 
   /**
    * The session's process for a new run: the live one, or one started cold.
-   * A live one spawned with another process environment or other
-   * instructions is let go for a fresh one, as Claude lets its process go
-   * for a run it cannot serve.
+   * A live one spawned with another process environment, other
+   * instructions or the other trust is let go for a fresh one, as Claude
+   * lets its process go for a run it cannot serve.
    */
   const processFor = (input: RunInput): FakeProcessRecord => {
     let process = liveProcess(input.sessionId);
-    if (process !== undefined && (process.key !== input.processEnvironment.key || process.instructions !== input.instructions)) {
+    if (process !== undefined && (process.key !== input.processEnvironment.key || process.instructions !== input.instructions || process.trusted !== input.trusted)) {
       process.stopping = true;
       process.stopped = true;
       process = undefined;
