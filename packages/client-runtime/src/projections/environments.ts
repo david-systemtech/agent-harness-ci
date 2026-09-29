@@ -73,4 +73,5 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
  * picker in Settings, and the window reads its theme from it; focus never
  * moves it.
  */
-export const homeEnvironment = (views: readonly EnvironmentView[]): EnvironmentView | undefined => views.find((view) => view.kind === "local") ?? views[0];
+export const homeEnvironment = (views: readonly EnvironmentView[]): EnvironmentView | undefined =>
+  views.find((view) => view.kind === "local") ?? views.find((view) => view.primary);

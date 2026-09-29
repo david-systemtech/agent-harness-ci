@@ -15,7 +15,7 @@ describe("the home environment", () => {
   });
 
   it("is the primary environment where there is no local one, and none where there is no environment", () => {
-    expect(homeEnvironment([view("lab", "paired", true), view("mnl", "paired")])?.environmentId).toBe("lab");
+    expect(homeEnvironment([view("mnl", "paired"), view("lab", "paired", true)])?.environmentId).toBe("lab");
     expect(homeEnvironment([])).toBeUndefined();
   });
 });
