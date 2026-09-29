@@ -1314,6 +1314,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
   const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
   closers.push(() => setupScheduler.stop());
+  // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
+  // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
+  closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code

@@ -248,8 +248,9 @@ export const STEP_REGISTRY = [
     // health line reports not-root, read from what permissions.settings.get answers as isRoot (#141), whether the
     // release channel is read (#346), whether this machine is behind (#347) and, in a container whose updates are
     // managed outside, whether the host-side updater polled in the last hour (#348); its checks reach the release
-    // channel, so its budget is a network call's. An update's notices and a settings change re-run it. The rest of its
-    // check (the discovery URL reachable and ready, the name) is Set up's (#88).
+    // channel, so its budget is a network call's. An update's notices and a settings change re-run it, and so does each
+    // check of the release channel as it ends, which appends nothing and the environment names to its scheduler (#679).
+    // The rest of its check (the discovery URL reachable and ready, the name) is Set up's (#88).
     id: "your-machines",
     home: "environments.machines",
     writes: [
