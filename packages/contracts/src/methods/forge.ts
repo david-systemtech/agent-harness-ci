@@ -4,7 +4,7 @@ import { ForgeAccountId, ForgeAccountRecord, ForgeAddCredential, ForgeCopiedFrom
 import { GhProbe } from "../forge-gh.js";
 import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage } from "../forge.js";
 import { CredentialUnavailableError } from "../git-credential.js";
-import { KeyManagerConnectionId } from "../key-managers.js";
+import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError } from "../key-managers.js";
 import { commandParams, defineMethod } from "../method.js";
 import { PullRequest, SessionId, SessionSummary } from "../sessions.js";
 
@@ -81,16 +81,6 @@ export const AliasIdentityMismatchError = errorSchema(
     "An alias was not accepted: on its own origin the credential answered as another login or user id than on the forge account's canonical origin, or was refused there, so it is not the same instance. Nothing was changed; data names the alias, both identities and the status.",
 });
 export type AliasIdentityMismatchError = z.infer<typeof AliasIdentityMismatchError>;
-
-/** A key-manager reference could not be read: no key-manager connection holds it, or it answered no value. */
-export const CredentialSourceUnavailableError = errorSchema(
-  "credential_source_unavailable",
-  z.object({ connectionId: KeyManagerConnectionId.meta({ description: "The key-manager connection the reference names." }) }),
-).meta({
-  description:
-    "The credential's key-manager reference could not be read: no key-manager connection holds it, the connection is not signed in, or it answered no value. Nothing was changed; the message says which, and data names the connection.",
-});
-export type CredentialSourceUnavailableError = z.infer<typeof CredentialSourceUnavailableError>;
 
 /**
  * A harness operation on a forge was refused on an origin no forge account
@@ -171,8 +161,10 @@ export const forgeAccountsList = defineMethod({
  * and nothing is stored; a forge that does not answer keeps the forge
  * account with problem `unreachable`; a `gh` that is missing, older than
  * 2.40 or not signed in to the host as the login keeps it with problem
- * `credential-unavailable`; a reference that cannot be read is rejected
- * `credential_source_unavailable`. Each alias is asked on its own origin
+ * `credential-unavailable`; a reference that cannot be read is rejected as
+ * its resolve refuses it: `credential_source_unavailable` (its connection
+ * not held, not signed in or not answering), `reference_not_found` or
+ * `reference_denied`. Each alias is asked on its own origin
  * with the credential and accepted only when it answers as the same login
  * and user id, else `alias_identity_mismatch`; one that does not answer, or
  * any on a forge account that has no identity yet, waits unverified until a
@@ -207,7 +199,7 @@ export const forgeAccountsAdd = defineMethod({
     copiedFrom: ForgeCopiedFrom.optional().meta({ description: "The environment a copy was made from, which the record keeps; absent for a forge account added here." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError, KindUnsupportedError, NotAForgeError, ForgeUnreachableError],
+  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, KindUnsupportedError, NotAForgeError, ForgeUnreachableError],
 });
 
 /**
@@ -220,7 +212,8 @@ export const forgeAccountsAdd = defineMethod({
  * is `conflict` (reason `origin_held`). A new credential is checked on the forge's identity
  * endpoint first: a refusal is `verification_failed`, another user id than
  * the forge account's is `identity_mismatch`, a reference that cannot be
- * read is `credential_source_unavailable`, and each changes nothing; a
+ * read is refused as its resolve refuses it (`credential_source_unavailable`,
+ * `reference_not_found`, `reference_denied`), and each changes nothing; a
  * forge that does not answer keeps the new credential with problem
  * `unreachable`, and a `gh` that cannot give a token keeps it with problem
  * `credential-unavailable`. A reference in place of a stored token is the
@@ -239,7 +232,7 @@ export const forgeAccountsUpdate = defineMethod({
     credential: ForgeCredentialInput.optional().meta({ description: "The new credential, which must answer as the forge account's identity." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError],
+  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
 });
 
 /** Removes a forge account (`forge.account.removed`); its stored token's vault entry is deleted once the removal has committed. A primary one leaves none primary until a person chooses. */

@@ -411,6 +411,8 @@ describe("the method registry", () => {
       | "keyManagers.connections.remove"
       | "keyManagers.connections.verify"
       | "keyManagers.certificate.preview"
+      | "keyManagers.references.check"
+      | "keyManagers.references.browse"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

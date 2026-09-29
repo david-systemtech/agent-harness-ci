@@ -150,11 +150,20 @@ describe("the forge account methods", () => {
     expect(add.safeParse({ ...base, credential: { kind: "gh", login: "--hostname" } }).success).toBe(false);
   });
 
-  it("errors with verification_failed, alias_identity_mismatch and credential_source_unavailable on add and update, identity_mismatch on update alone, and detection's three on add and detect", () => {
+  it("errors with verification_failed, alias_identity_mismatch and a reference's refusals on add and update, identity_mismatch on update alone, and detection's three on add and detect", () => {
     const own = (name: "forge.accounts.add" | "forge.accounts.update" | "forge.detect" | "forge.orgs.list" | "forge.pullRequests.link" | "forge.pullRequests.unlink" | "forge.pullRequests.refresh") =>
       registry[name].errors.map((member) => member.shape.code.value);
-    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable", "kind_unsupported", "not_a_forge", "unreachable"]);
-    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable"]);
+    expect(own("forge.accounts.add")).toEqual([
+      "verification_failed",
+      "alias_identity_mismatch",
+      "credential_source_unavailable",
+      "reference_not_found",
+      "reference_denied",
+      "kind_unsupported",
+      "not_a_forge",
+      "unreachable",
+    ]);
+    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable", "reference_not_found", "reference_denied"]);
     expect(own("forge.detect")).toEqual(["kind_unsupported", "not_a_forge", "unreachable"]);
     expect(own("forge.orgs.list")).toEqual(["credential_unavailable", "verification_failed", "unreachable"]);
     expect(own("forge.pullRequests.link")).toEqual(["not_a_pull_request", "forge_account_missing", "credential_unavailable", "verification_failed", "unreachable"]);

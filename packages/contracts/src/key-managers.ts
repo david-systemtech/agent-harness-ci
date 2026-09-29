@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { errorSchema } from "./errors.js";
 
 /**
  * Key-manager references (key-managers spec, "References and resolution";
@@ -7,6 +8,13 @@ import { z } from "zod";
  * and the provider's own locator. The forge's credential sources need them
  * first; the key-manager registry's tickets add the connection record, the
  * display form and the rest beside them.
+ *
+ * A reference is resolved in process, for one operation, and answers its
+ * value or one of three refusals, which every caller answers on the wire as
+ * they are (#370): `credential_source_unavailable` when its connection is
+ * not held, not signed in or cannot be asked now; `reference_not_found` when
+ * the key manager has nothing at its locator; `reference_denied` when the
+ * key manager refuses the read.
  */
 
 /** The key managers an environment connects to: OpenBao, which also covers Vault, Doppler, 1Password and Bitwarden Secrets Manager. */
@@ -97,3 +105,38 @@ export const KeyManagerReference = z
       "Where a credential sits in a key manager, never its value: the provider, the connection it is read through, and the provider's locator (OpenBao mount, path and key; a Doppler name with its project and config; a 1Password vault, item and field; a Bitwarden secret id with its key).",
   });
 export type KeyManagerReference = z.infer<typeof KeyManagerReference>;
+
+// The refusals a resolve answers ------------------------------------------------
+
+const referenceData = z.object({ connectionId: KeyManagerConnectionId.meta({ description: "The key-manager connection the reference names." }) });
+
+/** A key-manager reference could not be read: its connection is not held, not signed in, or could not be asked now. */
+export const CredentialSourceUnavailableError = errorSchema("credential_source_unavailable", referenceData).meta({
+  description:
+    "The key-manager reference could not be read: no key-manager connection on this environment holds it, the connection is not signed in, or the key manager could not be asked now. Nothing was changed; the message says which, and data names the connection.",
+});
+export type CredentialSourceUnavailableError = z.infer<typeof CredentialSourceUnavailableError>;
+
+/** The key manager holds nothing at the reference's locator: no secret at the path, or no such key in it. */
+export const ReferenceNotFoundError = errorSchema("reference_not_found", referenceData).meta({
+  description: "The key manager holds nothing at the reference's locator: no secret at its path, or no key by its name in the secret. Nothing was changed; data names the connection.",
+});
+export type ReferenceNotFoundError = z.infer<typeof ReferenceNotFoundError>;
+
+/**
+ * The key manager refused to let the connection's login read the reference.
+ * OpenBao answers a path the login may not read, a path that is not there
+ * and a mount that is not there alike, so the message says to check the
+ * mount first.
+ */
+export const ReferenceDeniedError = errorSchema("reference_denied", referenceData).meta({
+  description:
+    "The key manager refused the connection's login the read. OpenBao refuses a path the login may not read, a path that is not there and a mount that is not there alike, so the message says to check the mount first, then the path and the login's policies. Nothing was changed; data names the connection.",
+});
+export type ReferenceDeniedError = z.infer<typeof ReferenceDeniedError>;
+
+/** What a reference that does not resolve is refused with. */
+export const KeyManagerReferenceProblem = z
+  .discriminatedUnion("code", [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError])
+  .meta({ description: "Why a key-manager reference does not resolve: credential_source_unavailable, reference_not_found or reference_denied, as a resolve refuses it." });
+export type KeyManagerReferenceProblem = z.infer<typeof KeyManagerReferenceProblem>;
