@@ -3,7 +3,7 @@ import { SlashCommands } from "../composer/slash-commands.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
 import { PaneLine } from "../session/pane-line.js";
-import { SideColumn } from "../side-column/side-column.js";
+import { SideColumnView } from "../side-column/side-column.js";
 import { Transcript } from "../transcript/transcript.js";
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
@@ -61,7 +61,7 @@ export const SessionPaneRegion = () => {
                   <QueueStrip />
                   <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
                 </section>
-                <SideColumn environmentId={session.environmentId} sessionId={session.sessionId} />
+                <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
               </SlashCommands>
             </SessionQueueProvider>
           </PaneLine>
