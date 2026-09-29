@@ -1,4 +1,5 @@
 import { GITHUB_ORIGIN, forgeApiBase, type ForgeAccountRecord, type ForgeCapabilityName, type ForgeKind, type ForgeProblemKind } from "@agent-harness/contracts";
+import type { InjectionDecision, InjectionLevel } from "../adapter/process-environment.js";
 import type { OrientationContent, OrientationList, OrientationSection } from "../instructions/orientation.js";
 import { isInjected } from "./forge-store.js";
 import { servedOrigins } from "./git-helper.js";
@@ -15,6 +16,11 @@ import { readableMinute } from "./verification.js";
  * (`statusSince`), in UTC to the minute, never when it was last verified,
  * so a verification that finds nothing new leaves the text byte-identical.
  * Nothing in the text is a secret: the records hold none.
+ *
+ * It reads the run's injection answer from its instruction scope, the one
+ * its process environment is built under (#380): a run denied injection is
+ * told its forges and the primary, and that it is given no forge variables
+ * or git credential and who denied it, never what it was not given (#714).
  */
 
 const KIND_NAMES: Readonly<Record<ForgeKind, string>> = { github: "GitHub", forgejo: "Forgejo", gitea: "Gitea", gitlab: "GitLab" };
@@ -112,28 +118,35 @@ const standingLines = (injected: readonly ForgeAccountRecord[]): string => {
   return `Git over https to these origins just works, the harness's credential helper answering for it: ${listed(origins)}. ssh uses the user's own keys. Other origins have no credential here.`;
 };
 
+/** Who denied a run injection, as the deny line names them: this environment's setting, or the account, routine or bot by id. */
+const deniedBy = (level: InjectionLevel): string => (level.kind === "environment" ? "this environment's setting" : `the ${level.kind} ${level.id}`);
+
+/** A run denied injection: it is given no forge variables or git credential, who denied it, and that ssh is the user's own. */
+const deniedLine = (level: InjectionLevel): string =>
+  `This run is given no forge variables or git credential: credential injection is denied for it by ${deniedBy(level)}. ssh uses the user's own keys.`;
+
 /** With no forge account: none is connected, and where to connect one. */
 const NONE_CONNECTED =
   "No forge is connected here: git over https has no credential here, and ssh uses the user's own keys. Ask the user to connect a forge in Set up, Forges rather than searching for a token.";
 
-/** The section's paragraphs for the forge accounts the environment holds, in the order they were added; a list with no line is left out. */
-const renderForges = (accounts: readonly ForgeAccountRecord[]): OrientationContent => {
+/**
+ * The section's paragraphs for the forge accounts the environment holds, in
+ * the order they were added, for a run under `injection`; a list with no
+ * line is left out. A run denied injection keeps the forge accounts' lines
+ * and the primary, and is given the deny line in place of what runs are given.
+ */
+const renderForges = (accounts: readonly ForgeAccountRecord[], injection: InjectionDecision): OrientationContent => {
   if (accounts.length === 0) return [NONE_CONNECTED];
+  const forges = [{ items: accounts.map(accountLine) }, primaryParagraph(accounts)];
+  if (injection.answer === "deny") return [...forges, deniedLine(injection.level)];
   // What runs are given (forge spec, "The injected set"): the variables, the helper's origins and the writes they may try.
   const injected = accounts.filter(isInjected);
-  return [
-    { items: accounts.map(accountLine) },
-    primaryParagraph(accounts),
-    variablesList(injected),
-    writesList(injected),
-    leftOutList(accounts),
-    standingLines(injected),
-  ];
+  return [...forges, variablesList(injected), writesList(injected), leftOutList(accounts), standingLines(injected)];
 };
 
-/** The forges section's provider, over the forge accounts as the read model holds them now. */
+/** The forges section's provider, over the forge accounts as the read model holds them now and the run's injection answer. */
 export const forgesSection = (accounts: () => readonly ForgeAccountRecord[]): OrientationSection => ({
   name: "forges",
   title: "Forges",
-  render: () => renderForges(accounts()),
+  render: (scope) => renderForges(accounts(), scope.injection),
 });

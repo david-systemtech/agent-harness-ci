@@ -127,7 +127,8 @@ import type { OrientationSection } from "../instructions/orientation.js";
  *   (`injection.ts`), which the environment registers with its process
  *   environment.
  * - **Runs are told of the forges** (#318): the orientation block's forges
- *   section (`orientation.ts`), from the read model and never a clock.
+ *   section (`orientation.ts`), from the read model and never a clock, and
+ *   under the run's injection answer (#714).
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -305,7 +306,8 @@ export interface ForgeService extends ForgeOperations {
   /**
    * The orientation block's forges section (#318): which forges runs reach,
    * which is primary, the variables and API base of each, what each cannot
-   * do and what was left out, from the read model and never a clock.
+   * do and what was left out, from the read model and never a clock; for a
+   * run denied injection, who denied it in place of the variables (#714).
    * Undefined, as `processEnvironment` is, when runs are given no forge
    * variables.
    */
