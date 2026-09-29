@@ -135,7 +135,7 @@ describe("the prompt picker (Esc Esc)", () => {
     expect(app.frame()).not.toContain("Nothing said yet.");
     const fork = app.runtime().projections.sessionList.read().rows.find((row) => row.summary.id === forkId(env))?.summary;
     expect(fork).toMatchObject({ title: "Receipts", tags: ["billing"], groupId: GROUP, draft: "Fix the receipts" });
-    expect(app.frame()).toContain("Receipts · /home/seth/receipts");
+    expect(app.frame()).toContain("Receipts · directory receipts");
   });
 
   it("opens only on two presses of Esc heard together: one Esc, a pause, another, is two single presses", async () => {
