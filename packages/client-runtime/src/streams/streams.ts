@@ -28,6 +28,8 @@ export interface Streams {
   readonly caches: RegistryCaches;
   /** Each environment's session list stream, by environment id. */
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
+  /** Each environment's own stream, by environment id: its status and its Set up results (#570). */
+  readonly environments: Observable<ReadonlyMap<string, StreamState<EnvironmentData>>>;
   session(environmentId: string, sessionId: string): SessionHandle;
   /**
    * Holds a session as a handle does and hands its stream's state, for
@@ -83,6 +85,17 @@ export const createStreams = (options: StreamsOptions): Streams => {
   const environments = new Map<string, EnvironmentStreams>();
   let closed = false;
   const lists = writable<ReadonlyMap<string, StreamState<ListData>>>(new Map(), report);
+  const environmentStates = writable<ReadonlyMap<string, StreamState<EnvironmentData>>>(new Map(), report);
+  /** Publishes the state of `stream` when it is an environment's list or own stream, which projections read across environments. */
+  const published = (stream: LiveStream<unknown>): void => {
+    if (stream.list) {
+      const state = stream.value.read() as StreamState<ListData>;
+      lists.update((current) => new Map(current).set(stream.environmentId, state));
+    } else if (stream.name === "environment") {
+      const state = stream.value.read() as StreamState<EnvironmentData>;
+      environmentStates.update((current) => new Map(current).set(stream.environmentId, state));
+    }
+  };
 
   const held = (environmentId: string, sessionId: string): HeldSession | undefined => environments.get(environmentId)?.sessions.get(sessionId);
   const wanted = (stream: LiveStream<unknown>): boolean => {
@@ -123,11 +136,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
     cache,
     ready: (environmentId) => environments.get(environmentId)?.ready === true,
     wanted,
-    changed(stream) {
-      if (!stream.list) return;
-      const state = stream.value.read() as StreamState<ListData>;
-      lists.update((current) => new Map(current).set(stream.environmentId, state));
-    },
+    changed: published,
     // What an event means beyond its stream (the notices it raises, the caches it refreshes) is the runtime's composition's (`internal.ts`).
     applied: (stream, event, news) => options.applied?.(stream.environmentId, stream.name, event, news),
     ended(stream) {
@@ -149,7 +158,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
       const pair = await cache.read(stream.key);
       if (!pair || stream.value.read().cursor !== null || stream.attachment !== null) return;
       stream.value.set(cachedStream(pair.cursor, stream.kind.decode(pair.snapshot)));
-      if (stream.list) lists.update((current) => new Map(current).set(stream.environmentId, stream.value.read() as StreamState<ListData>));
+      published(stream as LiveStream<unknown>);
     } catch (error) {
       // A cache this build cannot read is no cache.
       report(error);
@@ -267,11 +276,13 @@ export const createStreams = (options: StreamsOptions): Streams => {
       await Promise.all(all.map((stream) => cache.remove(stream.key).catch(report)));
       // A write of a stream no longer held (a session let go, evicted or ended) may still be under way: it lands before the forget, not after.
       await cache.settle(environmentId);
-      lists.update((current) => {
+      const without = <T>(current: ReadonlyMap<string, T>): ReadonlyMap<string, T> => {
         const next = new Map(current);
         next.delete(environmentId);
         return next;
-      });
+      };
+      lists.update(without);
+      environmentStates.update(without);
     }
     await retention.forget(environmentId);
   });
@@ -322,6 +333,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
       has: (environmentId) => (environments.get(environmentId)?.list.value.read().cursor ?? null) !== null,
     },
     lists,
+    environments: environmentStates,
     session: (environmentId, sessionId) => handles.open(environmentId, sessionId),
     lease(environmentId, sessionId) {
       const handle = handles.open(environmentId, sessionId);
