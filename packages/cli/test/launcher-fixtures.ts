@@ -70,13 +70,12 @@ const tsx = createRequire(import.meta.url).resolve("tsx");
 const shellWord = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
 
 /**
- * Installs `version` complete in `dataDir`'s versions directory, laid out as
- * the launcher runs it, with `entry` (a TypeScript file) as its CLI: the
- * version's Node runtime is a shell script running this Node with tsx and the
- * workspace's source condition, so it runs on POSIX only.
+ * Lays out `version` in `folder` as a release's server artefact unpacks,
+ * with `entry` (a TypeScript file) as its CLI: the version's Node runtime is
+ * a shell script running this Node with tsx and the workspace's source
+ * condition, so it runs on POSIX only. It writes no sentinel.
  */
-export const installVersion = (dataDir: string, version: string, entry: string = SCRIPTED_CHILD): void => {
-  const folder = versionDirectory(dataDir, version);
+export const layOutVersion = (folder: string, version: string, entry: string = SCRIPTED_CHILD): void => {
   const [node, main] = versionCommand(folder, "linux");
   mkdirSync(dirname(node), { recursive: true });
   writeFileSync(node, `#!/bin/sh\nexec ${[process.execPath, "--conditions=@agent-harness/source", "--import", tsx].map(shellWord).join(" ")} "$@"\n`);
@@ -84,6 +83,12 @@ export const installVersion = (dataDir: string, version: string, entry: string =
   mkdirSync(dirname(main), { recursive: true });
   writeFileSync(main, `import ${JSON.stringify(pathToFileURL(entry).href)};\n`);
   writeFileSync(join(dirname(main), "..", "package.json"), `${JSON.stringify({ type: "module", version })}\n`);
+};
+
+/** Installs `version` complete in `dataDir`'s versions directory, laid out as the launcher runs it (`layOutVersion`), its sentinel written last. */
+export const installVersion = (dataDir: string, version: string, entry: string = SCRIPTED_CHILD): void => {
+  const folder = versionDirectory(dataDir, version);
+  layOutVersion(folder, version, entry);
   writeFileSync(join(folder, VERSION_SENTINEL), "");
 };
 

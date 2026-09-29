@@ -311,9 +311,9 @@ export interface EnvironmentOptions {
   /**
    * The command line that runs the `agent-harness` binary before its verb
    * (#314): git names it, with `git-credential <slug>`, as its credential
-   * helper. `serve` passes the one it runs as; the launcher's stable shim
-   * (#338) takes its place once it exists. Absent, the harness's git fails
-   * on an origin a forge account covers.
+   * helper. `serve` passes the launcher's `bin` shim under a launcher
+   * (#338, #459), whose path outlives every version, else the one it runs
+   * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */

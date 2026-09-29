@@ -23,10 +23,11 @@
 # Versions are unpacked into <data dir>/versions/<version>, under the
 # environment's data directory (XDG state on Linux, Application Support on
 # macOS, or --data-dir): the env spec lets nothing but the service definition
-# live outside it. ADR 0007 gives the versions directory to the launcher; this
-# layout is a stand-in until the launcher (phase B) takes it over. A version
-# already unpacked there is reused, not downloaded again; a folder for it that
-# holds no binary is replaced.
+# live outside it. That is the launcher's versions directory, where a version
+# counts only once its sentinel, .complete, is in it: the script writes it
+# last, and `service install`, run from the version, makes it the service's.
+# A complete version already there is reused, not downloaded again; a folder
+# for it without the sentinel, which an interrupted install leaves, is replaced.
 
 set -eu
 
@@ -210,7 +211,7 @@ if [ "$dry_run" = 1 ]; then
   exit 0
 fi
 
-if [ -x "$bin" ]; then
+if [ -f "$target/.complete" ]; then
   printf '%s %s is already unpacked in %s.\n' "$NAME" "$release_version" "$target"
 else
   work=$(mktemp -d)
@@ -240,10 +241,12 @@ else
   partial=$(mktemp -d "$versions/.$release_version.XXXXXX")
   tar -xzf "$work/$asset" -C "$partial" || fail "could not unpack $asset."
   [ -x "$partial/bin/$NAME" ] || fail "$asset holds no bin/$NAME."
-  # A folder for this version without a binary is what an interrupted install left: replace it.
+  # A folder for this version without the sentinel is what an interrupted install left: replace it.
   rm -rf "$target"
   mv "$partial" "$target"
   partial=""
+  # The sentinel, written last: only now is the folder a version.
+  : >"$target/.complete"
   printf 'Unpacked %s %s into %s.\n' "$NAME" "$release_version" "$target"
 fi
 

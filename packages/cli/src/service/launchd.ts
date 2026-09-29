@@ -4,16 +4,18 @@ import { writeDefinition } from "./definition.js";
 import { ServiceError } from "./errors.js";
 import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
-import { LOG_DIRECTORY, LOG_FILE, serveArguments, SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
+import { ENTRY_SHELL, LOG_DIRECTORY, LOG_FILE, SERVICE_LABEL, STOP_TIMEOUT_S, type InstallContext, type ServiceSpec } from "./spec.js";
 import { escapeXml } from "./xml.js";
 
 const string = (text: string): string => `<string>${escapeXml(text)}</string>`;
 
 /**
- * The launchd agent: `serve` with the data directory and port, loaded at
- * login and started when loaded (`RunAtLoad`), kept alive unless it exits
- * cleanly (a drain's exit is left alone), its output in the data directory's
- * log.
+ * The launchd agent: the launcher entry through `sh`, loaded at login and
+ * started when loaded (`RunAtLoad`), started again whenever it exits non-zero
+ * (a crash, or a launcher handing over to a newer one) and left alone after a
+ * clean exit, which is a stop; given `STOP_TIMEOUT_S` between the SIGTERM of a
+ * stop and the SIGKILL, so the launcher can drain its child; its output in
+ * the data directory's log.
  */
 export const renderLaunchdPlist = (spec: ServiceSpec): string => {
   const log = posix.join(spec.dataDir, LOG_DIRECTORY, LOG_FILE);
@@ -27,7 +29,8 @@ export const renderLaunchdPlist = (spec: ServiceSpec): string => {
     `\t${string(SERVICE_LABEL)}`,
     "\t<key>ProgramArguments</key>",
     "\t<array>",
-    ...serveArguments(spec).map((arg) => `\t\t${string(arg)}`),
+    `\t\t${string(ENTRY_SHELL)}`,
+    `\t\t${string(spec.entry)}`,
     "\t</array>",
     "\t<key>RunAtLoad</key>",
     "\t<true/>",
@@ -36,6 +39,8 @@ export const renderLaunchdPlist = (spec: ServiceSpec): string => {
     "\t\t<key>SuccessfulExit</key>",
     "\t\t<false/>",
     "\t</dict>",
+    "\t<key>ExitTimeOut</key>",
+    `\t<integer>${STOP_TIMEOUT_S}</integer>`,
     "\t<key>StandardOutPath</key>",
     `\t${string(log)}`,
     "\t<key>StandardErrorPath</key>",
@@ -69,13 +74,14 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
   return {
     kind: "launchd",
     definitionPath: () => path,
-    install: async (spec) => {
+    install: async (spec, { restartRunning }) => {
       const written = writeDefinition(path, renderLaunchdPlist(spec));
       let bootedOut = false;
       try {
         const print = await printed();
-        if (print !== undefined) {
-          // launchd keeps a loaded job's old definition: unload it, and load the new one only if the old one was running.
+        // launchd keeps a loaded job's old definition until it is loaded again: a running job left running loads the new
+        // one at the next login. Otherwise the job is unloaded, and the new one loaded only if the old one was running.
+        if (print !== undefined && (restartRunning || !running(print))) {
           await launchctl("bootout", target);
           bootedOut = true;
           if (running(print)) await launchctl("bootstrap", domain, path);

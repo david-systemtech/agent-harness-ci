@@ -4,7 +4,7 @@ import { DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
 import type { TuiOptions } from "@agent-harness/tui";
 import { afterEach, describe, expect, it } from "vitest";
-import { installContextAt, makeTempDir, stubRunner, type Answer } from "../test/service-helpers.js";
+import { bundledVersion, installContextAt, makeTempDir, stubRunner, type Answer } from "../test/service-helpers.js";
 import { runCli, type CliContext } from "./cli.js";
 
 /**
@@ -28,8 +28,6 @@ const tempHome = (): string => {
   cleanups.push(dir.remove);
   return dir.path;
 };
-
-const PROGRAM = ["/usr/bin/node", "/opt/agent-harness/dist/main.js"];
 
 const refused = (() => Promise.reject(new TypeError("fetch failed"))) as typeof fetch;
 const answering =
@@ -62,7 +60,7 @@ const harness = (options: { answer?: Answer; fetch?: typeof fetch; privileged?: 
     stderr: (text) => void (err += text),
     fetch: options.fetch ?? refused,
     environment: { user: { isPrivileged: () => options.privileged ?? false } },
-    service: { installContext, runner: stub.runner, program: PROGRAM },
+    service: { installContext, runner: stub.runner, cliEntry: bundledVersion(home) },
     tui: async (tuiOptions) => {
       launched.push(tuiOptions);
       return options.exitCode ?? 0;
@@ -167,7 +165,7 @@ describe("the service verbs agent-harness tui hands the terminal UI", () => {
     const { services, dataDir } = await cli.launch();
     expect(await services.install()).toMatchObject({ ok: true });
     expect(existsSync(unitPath(cli.home))).toBe(true);
-    expect(readFileSync(unitPath(cli.home), "utf8")).toContain(`--data-dir ${dataDir}`);
+    expect(readFileSync(unitPath(cli.home), "utf8")).toContain(`ExecStart=/bin/sh ${join(dataDir, "launcher-entry.sh")}\n`);
     expect(existsSync(join(dataDir, "service.json"))).toBe(true);
     expect(cli.calls).toContain("systemctl --user enable agent-harness.service");
   });

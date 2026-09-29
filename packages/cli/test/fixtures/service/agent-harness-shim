@@ -1,0 +1,18 @@
+#!/bin/sh
+# agent-harness: runs the agent-harness of the version the service state below
+# names active, with the arguments it was given. Written by
+# "agent-harness service install"; "agent-harness service uninstall" removes it.
+data_dir='/home/david/.local/state/agent-harness'
+version=$(sed -n 's/.*"activeVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$data_dir/service-state.json" 2>/dev/null | head -n 1)
+case $version in
+  '' | .* | *[!0-9A-Za-z.+-]*)
+    echo "agent-harness: the service state in $data_dir names no active version; \`agent-harness service install\` writes it." >&2
+    exit 1
+    ;;
+esac
+dir="$data_dir/versions/$version"
+if [ ! -f "$dir/.complete" ]; then
+  echo "agent-harness: the active version $version is not complete in $data_dir/versions." >&2
+  exit 1
+fi
+exec "$dir/node/bin/node" "$dir/packages/cli/dist/main.js" "$@"

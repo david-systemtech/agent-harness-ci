@@ -205,8 +205,12 @@ The stable script the service definition runs, which starts the launcher of the 
 _Avoid_: wrapper, bootstrap, the launcher (the process it starts)
 
 **Launcher version file**:
-The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by the launcher at a handover and by the entry when it falls back.
+The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by `service install` when no launcher runs, by the launcher at a handover and by the entry when it falls back.
 _Avoid_: pointer (a place in a bank), current link
+
+**Shim**:
+The `agent-harness` in the data directory's `bin` folder, which runs the CLI of the version the service state names active with the arguments it was given, so whatever a person or a helper starts from it matches its environment through every update; `service install` writes it and prints the line that puts its folder on the path.
+_Avoid_: wrapper, alias, the launcher entry (what the service definition runs)
 
 **Versions directory**:
 The folder in the data directory holding one folder per installed version, named by the version; a folder counts as a version only once its sentinel, written last, is in it.
