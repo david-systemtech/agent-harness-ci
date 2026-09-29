@@ -596,15 +596,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const settingsPresets = () => ({ "permissions.containment.default": presetContainmentDefault(containment) }) as const;
   const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) }, settingsPresets());
 
+  // The bundled Claude binary, which runs, sign-ins and the status probe use; its package is the harness's own, never a managed tool.
+  const signInProcess = options.signInProcess ?? {};
+  const bundled = signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable();
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
   // The forge accounts' store (#310) starts in this step too, after the client sessions whose labels a token handed over
   // from a client's gh records (#312): each stored token is registered with its Basic-auth form, and the vault entries of
   // forge accounts that are gone are deleted, before anything can read them. So do the key-manager connections (#365): each
   // credential the vault holds is registered, and the entries of connections that are gone deleted.
-  // The bundled Claude binary, which runs, sign-ins and the status probe use; its package is the harness's own, never a managed tool.
-  const signInProcess = options.signInProcess ?? {};
-  const bundled = signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable();
   const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, managedTools } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
