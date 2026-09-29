@@ -6,6 +6,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { bubblewrapProbe, brokenProbe } from "../../test/containment.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { refusal } from "../../test/sessions.js";
+import { lateCheck, scriptedStep } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -13,7 +14,9 @@ import type { WireClient } from "../../test/wire-client.js";
  * Permissions step"; #141): an in-process environment on a scripted
  * containment probe, driven by a real client over a real WebSocket. What is
  * asserted is what a client sees: each step's state, its line, the checks
- * that failed and the actions offered.
+ * that failed and the actions offered. Steps of the tests' own, whose state
+ * checks answer when the test says, drive the budgets on the manual clock,
+ * the last good result and the skip check (#308).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -167,5 +170,265 @@ describe("the Permissions step's check", () => {
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
     expect(results.every((result) => result.state !== "skipped")).toBe(true);
+  });
+});
+
+/** Resolves once every promise an answer settles has run: one turn of the event loop, whatever the wall clock. */
+const answersSettled = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+/** The manual clock's time `ms` after its start. */
+const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
+
+describe("setup.check on steps whose state checks answer late (#308)", () => {
+  it("awaits a state check that answers asynchronously, and takes what it answers", async () => {
+    const late = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [scriptedStep("account", { stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: ["check-again"] }] })],
+        stateChecks: { "account.late": late.checker },
+      },
+    });
+    const client = await t.client();
+    const first = check(client, "account");
+    (await late.call(1)).answer({ reason: "The late check found a problem." });
+    expect(await first).toEqual({
+      step: "account",
+      state: "needs-attention",
+      reason: "The late check found a problem.",
+      failing: ["account.late"],
+      actions: ["check-again"],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+    const second = check(client, "account");
+    (await late.call(2)).answer(true);
+    expect(await second).toEqual({ step: "account", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+  });
+
+  it("answers needs attention with check-again past the step's budget, whatever the check answers later, and never before it", async () => {
+    const late = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [scriptedStep("account", { stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] })],
+        stateChecks: { "account.late": late.checker },
+      },
+    });
+    const client = await t.client();
+
+    const first = check(client, "account");
+    await late.call(1);
+    t.clock.advance(4_999);
+    (await late.call(1)).answer(true);
+    expect(await first).toMatchObject({ state: "done", checkedAt: MANUAL_CLOCK_START });
+
+    const second = check(client, "account");
+    const call = await late.call(2);
+    t.clock.advance(5_000);
+    const timedOut = await second;
+    call.answer({ reason: "Too late to count." });
+    expect(timedOut).toEqual({
+      step: "account",
+      state: "needs-attention",
+      reason: "could not check: timed out after 5 s",
+      failing: ["account.late"],
+      actions: ["check-again"],
+      checkedAt: after(4_999),
+      lastGood: { state: "done", reason: "The late check holds.", checkedAt: MANUAL_CLOCK_START },
+    });
+  });
+
+  it("carries no last good result on a timeout when there has been none since the start, and a late answer that holds does not become one", async () => {
+    const late = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [scriptedStep("account", { stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] })],
+        stateChecks: { "account.late": late.checker },
+      },
+    });
+    const client = await t.client();
+    const first = check(client, "account");
+    const call = await late.call(1);
+    t.clock.advance(5_000);
+    const result = await first;
+    expect(result).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s" });
+    expect(result).not.toHaveProperty("lastGood");
+
+    call.answer(true);
+    const second = check(client, "account");
+    await late.call(2);
+    t.clock.advance(5_000);
+    expect(await second).not.toHaveProperty("lastGood");
+  });
+
+  it("keeps the last good result beneath a timeout: the latest that passed, skipped as well as done, with its state, line and checked-at", async () => {
+    const present = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [
+          scriptedStep("account", {
+            skippable: true,
+            skip: "account.present",
+            stateChecks: [{ id: "account.present", holds: "An account is added.", actions: [] }],
+          }),
+        ],
+        stateChecks: { "account.present": present.checker },
+      },
+    });
+    const client = await t.client();
+    const skipped = check(client, "account");
+    (await present.call(1)).answer({ reason: "No account is added." });
+    expect(await skipped).toMatchObject({ state: "skipped", reason: "No account is added." });
+
+    t.clock.advance(60_000);
+    const failing = check(client, "account");
+    (await present.call(2)).fail(new Error("the store is locked"));
+    expect(await failing).toMatchObject({
+      state: "needs-attention",
+      reason: "Could not check account.present: the store is locked.",
+      lastGood: { state: "skipped", reason: "No account is added.", checkedAt: MANUAL_CLOCK_START },
+    });
+
+    t.clock.advance(60_000);
+    const done = check(client, "account");
+    (await present.call(3)).answer(true);
+    expect(await done).toMatchObject({ state: "done", checkedAt: after(120_000) });
+
+    const timedOut = check(client, "account");
+    await present.call(4);
+    t.clock.advance(5_000);
+    expect((await timedOut).lastGood).toEqual({ state: "done", reason: "An account is added.", checkedAt: after(120_000) });
+  });
+
+  it("checks every step at once when asked for none, each within its own budget, and answers in the registry's order", async () => {
+    const slow = lateCheck();
+    const quick = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [
+          scriptedStep("account", { budgetSeconds: 10, stateChecks: [{ id: "account.slow", holds: "The slow check holds.", actions: [] }] }),
+          scriptedStep("your-machines", { stateChecks: [{ id: "your-machines.quick", holds: "The quick check holds.", actions: [] }] }),
+          scriptedStep("appearance"),
+        ],
+        stateChecks: { "account.slow": slow.checker, "your-machines.quick": quick.checker },
+      },
+    });
+    const client = await t.client();
+
+    const first = client.request("setup.check", {});
+    const [slowCall] = await Promise.all([slow.call(1), quick.call(1)]);
+    t.clock.advance(5_000);
+    slowCall.answer(true);
+    expect((await first).results.map((result) => [result.step, result.state, result.reason])).toEqual([
+      ["account", "done", "The slow check holds."],
+      ["your-machines", "needs-attention", "could not check: timed out after 5 s"],
+      ["appearance", "done", "Every setting it writes holds a valid value."],
+    ]);
+
+    const second = client.request("setup.check", {});
+    const [, quickCall] = await Promise.all([slow.call(2), quick.call(2)]);
+    quickCall.answer(true);
+    await answersSettled();
+    t.clock.advance(10_000);
+    expect((await second).results.map((result) => [result.step, result.state, result.reason])).toEqual([
+      ["account", "needs-attention", "could not check: timed out after 10 s"],
+      ["your-machines", "done", "The quick check holds."],
+      ["appearance", "done", "Every setting it writes holds a valid value."],
+    ]);
+  });
+
+  it("answers needs attention saying it could not check when a state check rejects, as when one throws", async () => {
+    const late = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [
+          scriptedStep("permissions", {
+            stateChecks: [
+              { id: "permissions.late", holds: "The late check holds.", actions: ["restore"] },
+              { id: "permissions.throws", holds: "The throwing check holds.", actions: [] },
+            ],
+          }),
+        ],
+        stateChecks: {
+          "permissions.late": late.checker,
+          "permissions.throws": () => {
+            throw new Error("the log is closed.");
+          },
+        },
+      },
+    });
+    const client = await t.client();
+    const result = check(client, "permissions");
+    (await late.call(1)).fail(new Error("the probe went away"));
+    expect(await result).toEqual({
+      step: "permissions",
+      state: "needs-attention",
+      reason: "Could not check permissions.late: the probe went away. Could not check permissions.throws: the log is closed.",
+      failing: ["permissions.late", "permissions.throws"],
+      actions: ["restore"],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+  });
+});
+
+describe("a skippable step's skip check (#308)", () => {
+  const skippable = () => {
+    const present = lateCheck();
+    const other = lateCheck();
+    const setupSteps = {
+      steps: [
+        scriptedStep("your-machines", {
+          skippable: true,
+          skip: "your-machines.present",
+          stateChecks: [
+            { id: "your-machines.present", holds: "A machine is set up here.", actions: [] },
+            { id: "your-machines.other", holds: "The other check holds.", actions: ["check-again" as const] },
+          ],
+        }),
+      ],
+      stateChecks: { "your-machines.present": present.checker, "your-machines.other": other.checker },
+    };
+    return { present, other, setupSteps };
+  };
+
+  it("answers skipped with the skip check's line when it fails, running no other check", async () => {
+    const { present, other, setupSteps } = skippable();
+    const t = await start({ setupSteps });
+    const result = check(await t.client(), "your-machines");
+    (await present.call(1)).answer({ reason: "Nothing is set up here." });
+    expect(await result).toEqual({ step: "your-machines", state: "skipped", reason: "Nothing is set up here.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    expect(other.calls()).toBe(0);
+  });
+
+  it("runs the other checks when it holds, the step then done or needing attention", async () => {
+    const { present, other, setupSteps } = skippable();
+    const t = await start({ setupSteps });
+    const client = await t.client();
+    const done = check(client, "your-machines");
+    (await present.call(1)).answer(true);
+    (await other.call(1)).answer(true);
+    expect(await done).toMatchObject({ state: "done", reason: "A machine is set up here. The other check holds." });
+
+    const failing = check(client, "your-machines");
+    (await present.call(2)).answer(true);
+    (await other.call(2)).answer({ reason: "The other check fails." });
+    expect(await failing).toMatchObject({ state: "needs-attention", reason: "The other check fails.", failing: ["your-machines.other"], actions: ["check-again"] });
+  });
+
+  it("needs attention, never skipped, when the skip check could not check or timed out, naming it", async () => {
+    const { present, other, setupSteps } = skippable();
+    const t = await start({ setupSteps });
+    const client = await t.client();
+    const rejected = check(client, "your-machines");
+    (await present.call(1)).fail(new Error("the store is locked"));
+    expect(await rejected).toMatchObject({
+      state: "needs-attention",
+      reason: "Could not check your-machines.present: the store is locked.",
+      failing: ["your-machines.present"],
+    });
+
+    const timedOut = check(client, "your-machines");
+    await present.call(2);
+    t.clock.advance(5_000);
+    expect(await timedOut).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s", failing: ["your-machines.present"], actions: ["check-again"] });
+    expect(other.calls()).toBe(0);
   });
 });

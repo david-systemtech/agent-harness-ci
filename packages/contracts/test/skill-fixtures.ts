@@ -1,0 +1,148 @@
+/**
+ * Fixtures for the skills schemas (skills spec, "The skill set" and "Skill
+ * sources"): a valid and an invalid instance of each schema the export
+ * writes. Each invalid one is refused by the export too, so a part of a
+ * rule the export's pattern does not hold (a credential in a URL, say) is
+ * the rules' own tests', not these. `fixtures.ts` folds them into the
+ * package's fixture table.
+ */
+
+interface Fixtures {
+  readonly valid: readonly unknown[];
+  readonly invalid: readonly unknown[];
+}
+
+const sourceId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const commit = "c".repeat(40);
+const origin = { kind: "repository", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd" };
+const manifestOrigin = { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "74ca5fe", licence: "MIT" };
+const member = {
+  name: "tdd",
+  description: "Test-driven development.",
+  invocation: "model+slash",
+  userInvocable: true,
+  origin,
+  layer: { kind: "source", sourceId },
+  size: 4210,
+  problems: [],
+  warnings: [],
+};
+const invalidMember = {
+  ...member,
+  name: null,
+  description: null,
+  origin: null,
+  layer: { kind: "own" },
+  problems: [
+    { kind: "name", message: "The member has no name that passes the skill-name rule: its frontmatter has no name; its folder's name \"TDD\" holds a character other than a-z, 0-9 and -." },
+    { kind: "description", message: "The member has no description in its frontmatter." },
+  ],
+};
+const source = {
+  id: sourceId,
+  url: "git@github.com:mattpocock/skills.git",
+  identity: "https://github.com/mattpocock/skills",
+  folder: "skills/engineering",
+  follow: { kind: "branch", branch: null },
+  position: 1,
+  addedBy: { kind: "client_session", id: "cs-1" },
+  addedAt: "2026-09-29T04:40:00.000Z",
+};
+
+export const skillSchemaFixtures: Record<string, Fixtures> = {
+  "repository-identity.json": {
+    valid: ["https://github.com/mattpocock/skills", "https://git.systemtech.dev/david/agent-harness", "https://[fd7a:115c:a1e0::1]/david/agent-harness", "https://gitlab.com/group/subgroup/skills"],
+    invalid: ["https://github.com/skills", "https://GitHub.com/mattpocock/skills", "http://github.com/mattpocock/skills", "git@github.com:mattpocock/skills.git", "https://github.com/mattpocock/skills/", ""],
+  },
+  "skills/name.json": {
+    valid: ["tdd", "a", "7", "setup-matt-pocock-skills", "a".repeat(64)],
+    invalid: ["", "Tdd", "to_spec", "-tdd", "tdd-", "to--spec", "a".repeat(65), 7],
+  },
+  "skills/source-url.json": {
+    valid: ["https://github.com/mattpocock/skills", "ssh://git@git.systemtech.dev:2222/david/agent-skills.git", "git@github.com:mattpocock/skills.git"],
+    invalid: ["", "-oProxyCommand=touch", "https://github.com/mattpocock/skills?tab=readme", "https://github.com/mattpocock/skills#readme", "https://github.com/mattpocock/my skills", null],
+  },
+  "skills/source-folder.json": {
+    valid: [".", "skills", "skills/engineering", "skills\\engineering", "./skills/", "..."],
+    invalid: ["", "/skills", "\\skills", "C:\\skills", "c:skills", "..", "../skills", "skills/../skills", "skills\\..", "skills\n", 3],
+  },
+  "skills/rule-issue-params.json": {
+    valid: [
+      { rule: "skill-name", reason: "doubled_hyphen" },
+      { rule: "source-url", reason: "credential" },
+      { rule: "source-folder", reason: "parent" },
+    ],
+    invalid: [{ rule: "skill-name", reason: "credential" }, { rule: "source-url" }, { rule: "readiness", reason: "malformed" }, {}],
+  },
+  "skills/invocation.json": {
+    valid: ["model+slash", "slash-only"],
+    invalid: ["model", "slash", ""],
+  },
+  "skills/member-problem.json": {
+    valid: invalidMember.problems,
+    invalid: [{ kind: "size", message: "m" }, { kind: "name", message: "" }, { kind: "name" }],
+  },
+  "skills/member-warning.json": {
+    valid: [
+      { kind: "name-unlike-folder", message: "The name \"test-driven\" is unlike its folder's, \"tdd\"." },
+      { kind: "frontmatter-name-invalid", message: "m" },
+      { kind: "sidecar-invalid", message: "m" },
+    ],
+    invalid: [{ kind: "name", message: "m" }, { kind: "sidecar-invalid", message: "" }, { message: "m" }],
+  },
+  "skills/origin.json": {
+    valid: [origin, manifestOrigin, { ...manifestOrigin, commit: null, licence: null }, { ...origin, path: "." }],
+    invalid: [
+      { ...origin, path: "../tdd" },
+      { ...origin, repository: "git@github.com:mattpocock/skills.git" },
+      { ...manifestOrigin, commit: "main" },
+      { ...manifestOrigin, licence: "" },
+      { kind: "copy", repository: origin.repository, path: origin.path },
+      { ...manifestOrigin, commit: undefined },
+    ],
+  },
+  "skills/layer.json": {
+    valid: [{ kind: "source", sourceId }, { kind: "own" }, { kind: "repository", root: ".claude/skills", directory: "." }, { kind: "repository", root: ".agents/skills", directory: "packages/gui" }],
+    invalid: [{ kind: "source", sourceId: "s-1" }, { kind: "repository", root: ".codex/skills", directory: "." }, { kind: "repository", root: ".claude/skills", directory: "/repo" }, { kind: "plugin" }],
+  },
+  "skills/member.json": {
+    valid: [member, invalidMember, { ...member, invocation: "slash-only", userInvocable: false, origin: manifestOrigin, layer: { kind: "own" }, size: 0 }],
+    invalid: [
+      { ...member, name: "Test Driven" },
+      { ...member, description: "" },
+      { ...member, invocation: "model" },
+      { ...member, size: -1 },
+      { ...member, size: 1.5 },
+      { ...member, problems: [{ kind: "size", message: "m" }] },
+      { ...member, layer: undefined },
+    ],
+  },
+  "skills/source-id.json": {
+    valid: [sourceId],
+    invalid: ["s-1", "0f8fad5b-d9cb-169f-a165-70867728950e", ""],
+  },
+  "skills/git-commit.json": {
+    valid: [commit, "d".repeat(64)],
+    invalid: ["74ca5fe", "C".repeat(40), "c".repeat(41), "main", ""],
+  },
+  "skills/source-branch.json": {
+    valid: ["main", "release/2026-09", "feature/x.y", "v1.0"],
+    invalid: ["", "-f", "main:refs/heads/x", "main~1", "a..b", "main@{1}", "a b", "/main", "main/", ".hidden", "main.lock", "@", "x".repeat(256)],
+  },
+  "skills/follow.json": {
+    valid: [{ kind: "branch", branch: null }, { kind: "branch", branch: "main" }, { kind: "pinned", commit }],
+    invalid: [{ kind: "branch" }, { kind: "branch", branch: "-f" }, { kind: "pinned", commit: "74ca5fe" }, { kind: "pinned", commit: null }, { kind: "tag", tag: "v1" }],
+  },
+  "skills/source.json": {
+    valid: [source, { ...source, folder: ".", follow: { kind: "pinned", commit }, position: 20, addedBy: { kind: "system", id: "state-import" } }],
+    invalid: [
+      { ...source, url: "-oProxyCommand=touch" },
+      { ...source, identity: "git@github.com:mattpocock/skills.git" },
+      { ...source, folder: "../skills" },
+      { ...source, follow: { kind: "branch", branch: "a b" } },
+      { ...source, position: 0 },
+      { ...source, addedAt: "yesterday" },
+      { ...source, id: undefined },
+    ],
+  },
+};

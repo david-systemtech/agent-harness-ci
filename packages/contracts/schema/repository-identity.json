@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RepositoryIdentity",
+  "type": "string",
+  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+  "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+}

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { forgeAccountOnHost, forgeOriginHost, normaliseRemote, type ForgeAccountOrigins } from "./forge.js";
 
 /**
@@ -43,6 +44,20 @@ export const repositoryIdentityOf = (remote: string, forgeAccounts: readonly For
   if (path.split("/").length < 2) return null;
   return `https://${account === null ? host : forgeOriginHost(account.origin)}/${path}`;
 };
+
+/**
+ * A repository identity, as `repositoryIdentityOf` answers one: `https://`,
+ * a host without a port, and a path of two segments or more, all in lower
+ * case, with no empty segment, query or fragment.
+ */
+export const RepositoryIdentity = z
+  .string()
+  .regex(/^https:\/\/[^/\s?#A-Z]+(?:\/[^/\s?#A-Z]+){2,}$/)
+  .meta({
+    description:
+      "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link.",
+  });
+export type RepositoryIdentity = z.infer<typeof RepositoryIdentity>;
 
 /** One published case of the rule: a remote and the environment's forge accounts in, the identity out. */
 export interface RepositoryIdentityCase {

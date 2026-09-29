@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillRuleIssueParams",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "rule": {
+          "type": "string",
+          "const": "skill-name"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "character",
+            "length",
+            "leading_hyphen",
+            "trailing_hyphen",
+            "doubled_hyphen"
+          ],
+          "description": "Why the skill-name rule refused the name."
+        }
+      },
+      "required": [
+        "rule",
+        "reason"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "rule": {
+          "type": "string",
+          "const": "source-url"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "leading_hyphen",
+            "scheme",
+            "local_path",
+            "credential",
+            "query",
+            "fragment",
+            "malformed"
+          ],
+          "description": "Why the source URL rule refused the URL."
+        }
+      },
+      "required": [
+        "rule",
+        "reason"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "rule": {
+          "type": "string",
+          "const": "source-folder"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "empty",
+            "malformed",
+            "absolute",
+            "parent"
+          ],
+          "description": "Why the source folder rule refused the folder."
+        }
+      },
+      "required": [
+        "rule",
+        "reason"
+      ]
+    }
+  ],
+  "description": "The params of an invalid_params issue a skill rule raised: the rule (skill-name, source-url or source-folder) and its reason. The issue's path names the field; its message says why. The published cases (cases/skill-name.json, cases/skill-source-url.json, cases/skill-source-folder.json) give each reason's inputs."
+}
