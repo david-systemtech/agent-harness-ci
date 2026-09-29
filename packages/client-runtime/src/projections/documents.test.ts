@@ -21,11 +21,11 @@ const LATER = "2026-09-29T11:30:00.000Z";
 const run = (runId: string, startedAt: string): RunSummary => ({
   runId,
   state: "ended",
-  origin: "user",
+  origin: "client",
   accountId: "account-1",
   model: "opus",
   effort: null,
-  mode: "default",
+  mode: { requested: null, effective: "acceptEdits", clamped: false },
   promptMessageId: null,
   queuedMessageIds: [],
   startedAt,
