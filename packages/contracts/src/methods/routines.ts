@@ -30,9 +30,10 @@ import {
  * until then an environment answers it as not served yet.
  *
  * A routine the environment does not hold is `not_found`. A name another
- * routine holds, ignoring case, is `conflict` with reason `name_taken`, and a
- * run now while a firing of the routine is live `conflict` with reason
- * `firing_running` (`ROUTINE_CONFLICT_REASONS`). A structural problem is
+ * routine holds, ignoring case, is `conflict` with reason `name_taken`, a
+ * create under an id a routine was made under already `conflict` with reason
+ * `exists`, and a run now while a firing of the routine is live `conflict`
+ * with reason `firing_running` (`ROUTINE_CONFLICT_REASONS`). A structural problem is
  * `invalid_params` with its path; what the environment lacks (an account, a
  * script, an endpoint) refuses nothing, and shows as attention.
  */
