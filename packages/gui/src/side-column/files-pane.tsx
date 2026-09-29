@@ -69,7 +69,12 @@ export const FilesPane = ({ environmentId, sessionId, place, go }: FilesPaneProp
                 onClick={() => go(row.kind === "file" ? { directory: place.directory, file: row.path } : { directory: row.path, file: null })}
               >
                 <span className={row.kind === "file" ? "truncate" : "truncate text-beam-text"}>{row.name}</span>
-                {row.kind === "dir" && <span className="shrink-0 text-ink-faint">{` ${String(row.files)} ${row.files === 1 ? "file" : "files"}`}</span>}
+                {row.kind === "dir" && (
+                  <>
+                    {" "}
+                    <span className="shrink-0 text-ink-faint">{`${String(row.files)} ${row.files === 1 ? "file" : "files"}`}</span>
+                  </>
+                )}
               </button>
             </li>
           ))}
@@ -124,7 +129,12 @@ const FileView = ({ environmentId, sessionId, path, back, directory }: FileViewP
       </div>
       <h3 className="shrink-0 truncate px-3 pb-1 font-mono text-xs text-ink">
         <span className="font-semibold">{path}</span>
-        {answer?.ok === true && <span className="text-ink-muted">{` · ${fileMarks(answer.result).join(" · ")}`}</span>}
+        {answer?.ok === true && (
+          <>
+            {" · "}
+            <span className="text-ink-muted">{fileMarks(answer.result).join(" · ")}</span>
+          </>
+        )}
       </h3>
       {answer === null ? (
         <p className="px-3 py-1 text-sm text-ink-faint">Reading…</p>
