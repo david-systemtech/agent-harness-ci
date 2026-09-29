@@ -16,8 +16,8 @@ afterEach(cleanUp);
  */
 
 const STATUS = ["service", "status", "--json"];
-/** Waits a few milliseconds between looks, and half a second in all, where the desktop waits a second and a minute. */
-const QUICK = { everyMs: 5, forMs: 500 };
+/** Looks every few milliseconds where the desktop looks every second; still waits a minute, so a loaded runner's slow spawns never run it out. */
+const QUICK = { everyMs: 5, forMs: 60_000 };
 
 /** The desktop on `os`, carrying `artefact`. */
 const carrying = (os: ShellPlatform, artefact: FakeArtefact): DesktopPlatform => {
@@ -79,6 +79,7 @@ describe("service", () => {
     expect(stopped.state()).toMatchObject({ installed: true, running: false });
   });
 
+  // The one test whose wait runs out: it runs out whatever the runner's load, and what it asserts is the giving up.
   it("stops waiting when the environment does not answer, and says where to look", async () => {
     const artefact = fakeArtefact("linux", { startsAs: null });
     const { shell } = await start({ platform: carrying("linux", artefact), serviceWait: { everyMs: 5, forMs: 60 } });
