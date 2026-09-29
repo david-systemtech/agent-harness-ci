@@ -6,7 +6,8 @@ import { end, say, type Script } from "../../test/fake-adapter.js";
 import { MERGED_OR_CLOSED_AT, startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added, rejection } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, get, listStream, patchOf } from "../../test/sessions.js";
+import { command, create, get, listStream, patchOf } from "../../test/sessions.js";
+import { updateSettings } from "../../test/shelf.js";
 import { git } from "../../test/workspaces.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -93,6 +94,19 @@ const runToEnd = async (t: TestEnvironment, client: WireClient, sessionId: strin
   await client.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
   await t.env.forge.links.idle();
 };
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** Moves the environment's clock on by `ms`, then waits for the reads its timers began to end. */
+const after = async (t: TestEnvironment, ms: number): Promise<void> => {
+  t.clock.advance(ms);
+  await t.env.forge.links.idle();
+};
+
+/** How many times the fake forge was asked for the pull request `number` of `david/bank` by number. */
+const readsOf = (forge: FakeForge, number: number): number => forge.requests.filter((request) => request.path === `/api/v1/repos/david/bank/pulls/${number}`).length;
 
 /** The session's pull-request events a client reads on `sessions.subscribeSession` after `afterSequence`, up to where it is synchronized. */
 const pullRequestEvents = async (client: WireClient, sessionId: string, afterSequence = 0): Promise<EventEnvelope[]> => {
@@ -352,6 +366,107 @@ describe("at a run's end", () => {
     const linked = await Promise.all(sessions.map(async (id) => (await get(client, id)).pullRequests));
     expect(linked).toEqual([[pull(`${forge.origin}/david/bank/pulls/9`)], [], [], []]);
     expect(other.requests).toEqual([]);
+  });
+});
+
+describe("the sync", () => {
+  it("reads an open pull request every five minutes while its session is in the active list and hourly once it is not, appending only a change, and a merged one never again", async () => {
+    const { t, forge, client } = await withAccount();
+    forge.pullRequest(TOKEN, "david/bank", 3);
+    const { id } = await create(client);
+    const url = `${forge.origin}/david/bank/pulls/3`;
+    await link(client, id, url);
+    expect(readsOf(forge, 3)).toBe(1);
+
+    await after(t, 4 * MINUTE + 59_000);
+    expect(readsOf(forge, 3)).toBe(1);
+    await after(t, 1000);
+    expect(readsOf(forge, 3)).toBe(2);
+    await after(t, 5 * MINUTE);
+    expect(readsOf(forge, 3)).toBe(3);
+    expect(await pullRequestEvents(client, id)).toHaveLength(1);
+
+    // Pinned is in the active list; archived is not.
+    await command(client, "sessions.pin", { sessionId: id });
+    await after(t, 5 * MINUTE);
+    expect(readsOf(forge, 3)).toBe(4);
+    await command(client, "sessions.archive", { sessionId: id });
+    await after(t, 55 * MINUTE);
+    expect(readsOf(forge, 3)).toBe(4);
+    forge.pullRequest(TOKEN, "david/bank", 3, { state: "merged", mergedAt: "2026-09-24T00:30:00Z", closedAt: "2026-09-24T00:30:00Z" });
+    await after(t, 5 * MINUTE);
+    expect(readsOf(forge, 3)).toBe(5);
+    expect((await get(client, id)).pullRequests).toEqual([pull(url, "merged", { mergedAt: "2026-09-24T00:30:00.000Z", closedAt: "2026-09-24T00:30:00.000Z" })]);
+
+    // Open on the archived session, it would be read an hour on.
+    await after(t, 2 * HOUR);
+    expect(readsOf(forge, 3)).toBe(5);
+    expect((await pullRequestEvents(client, id)).map((event) => [event.type, event.actor])).toEqual([
+      ["session.pull-request-linked", { kind: "client_session", id: client.hello.clientSessionId }],
+      ["session.pull-request-synced", { kind: "system", id: "forge" }],
+    ]);
+  });
+
+  it("reads a closed pull request daily for fourteen days after it closed, then no more", async () => {
+    const { t, forge, client } = await withAccount();
+    // Closed thirteen days before the clock's start: its fourteenth day is the first day after it.
+    forge.pullRequest(TOKEN, "david/bank", 4, { state: "closed", closedAt: "2026-09-11T00:00:00Z" });
+    const { id } = await create(client);
+    await link(client, id, `${forge.origin}/david/bank/pulls/4`);
+
+    await after(t, DAY - MINUTE);
+    expect(readsOf(forge, 4)).toBe(1);
+    await after(t, MINUTE);
+    expect(readsOf(forge, 4)).toBe(2);
+    await after(t, DAY);
+    expect(readsOf(forge, 4)).toBe(2);
+  });
+
+  it("reads each pull request that has not merged at a run's end, a merged one never, and keeps the last state on a 404, which stops its reads until a refresh", async () => {
+    const { t, forge, client } = await withAccount();
+    forge.pullRequest(TOKEN, "david/bank", 5);
+    forge.pullRequest(TOKEN, "david/bank", 6, { state: "closed" });
+    forge.pullRequest(TOKEN, "david/bank", 7, { state: "merged" });
+    const { id } = await create(client);
+    for (const number of [5, 6, 7]) await link(client, id, `${forge.origin}/david/bank/pulls/${number}`);
+    const held = (await get(client, id)).pullRequests;
+
+    await runToEnd(t, client, id);
+    expect([5, 6, 7].map((number) => readsOf(forge, number))).toEqual([2, 2, 1]);
+
+    forge.answer(TOKEN, "GET /api/v1/repos/david/bank/pulls/5", { status: 404, body: { message: "Not Found" } });
+    await after(t, 5 * MINUTE);
+    expect(readsOf(forge, 5)).toBe(3);
+    await after(t, HOUR);
+    await runToEnd(t, client, id);
+    expect(readsOf(forge, 5)).toBe(3);
+    expect((await get(client, id)).pullRequests).toEqual(held);
+
+    // A refresh reads it again, and its reads go on from there.
+    forge.pullRequest(TOKEN, "david/bank", 5);
+    expect(await client.request("forge.pullRequests.refresh", { sessionId: id })).toEqual({ pullRequests: held });
+    expect(readsOf(forge, 5)).toBe(4);
+    await after(t, 5 * MINUTE);
+    expect(readsOf(forge, 5)).toBe(5);
+  });
+
+  it("settles a session with auto-settle on merge once the pull request its run's end found merges on the forge", async () => {
+    const { t, forge, client } = await withAccount();
+    await updateSettings(client, { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true });
+    forge.repository(TOKEN, "david/bank");
+    forge.pullRequest(TOKEN, "david/bank", 6);
+    const repository = repositoryOn({ origin: `${forge.origin}/david/bank.git` }, "feature");
+    const { id } = await create(client, { workspace: { kind: "directory", path: repository } });
+    await runToEnd(t, client, id);
+    expect((await get(client, id)).pullRequests).toEqual([pull(`${forge.origin}/david/bank/pulls/6`)]);
+
+    await after(t, 10 * MINUTE);
+    expect((await get(client, id)).settledAt).toBeNull();
+    forge.pullRequest(TOKEN, "david/bank", 6, { state: "merged", mergedAt: "2026-09-24T00:12:00Z", closedAt: "2026-09-24T00:12:00Z" });
+    await after(t, 5 * MINUTE);
+    expect((await get(client, id)).pullRequests[0]?.state).toBe("merged");
+    await after(t, 5 * MINUTE);
+    expect(await get(client, id)).toMatchObject({ settledBy: "auto-merge", settledAt: "2026-09-24T00:20:00.000Z" });
   });
 });
 

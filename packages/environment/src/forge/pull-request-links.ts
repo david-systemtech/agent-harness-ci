@@ -4,6 +4,7 @@ import {
   SESSION_STREAM_KIND,
   normaliseRemote,
   parsePullRequestUrl,
+  shelfOf,
   pullRequestUrl,
   type ErrorOf,
   type ForgeAccountRecord,
@@ -19,7 +20,7 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, MethodHandler, PreparedCommand } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
 import { readSummary } from "../sessions/session-reads.js";
-import type { Reader } from "../sessions/session-tables.js";
+import type { Reader, SessionRow } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 import { servingAccount } from "./git-helper.js";
 import type { ForgeAnswer, ForgeOperations } from "./operations.js";
@@ -51,7 +52,11 @@ import { readWorkspaceBranch } from "./workspace-branch.js";
  *   account serves in the run's tool outputs and assistant text, the first
  *   twenty not linked yet, each read first. A pull request whose latest
  *   link event is an unlink is never linked again this way.
- * - **Kept current** as `system:forge`: a read appends
+ * - **Kept current** as `system:forge`: an open pull request is read every
+ *   five minutes while its session is in the active list (active or
+ *   pinned) and hourly otherwise, a closed one daily for fourteen days from
+ *   when it closed, a merged one never; one that has not merged is read at
+ *   each run's end and on refresh too. A read appends
  *   `session.pull-request-synced` only when the state, merged-at or
  *   closed-at changed; a read that fails keeps what the session holds, and
  *   a 404 (or an anonymous read's refusal, behind which a private
@@ -93,13 +98,24 @@ export interface PullRequestLinks {
   refresh(sessionId: string): Promise<PullRequest[]>;
   /** What a run's end owes the session: the pull requests found from its workspace's branch and in the run, and a read of each unmerged one it held. Never throws. */
   runEnded(sessionId: string, runId: string): Promise<void>;
-  /** Hears every run's end from now on; returns what stops it. */
+  /** Hears every run's end, and reads each pull request due a read now and every minute from now on; returns what stops both. */
   start(): () => void;
   /** Resolves once every read and discovery under way has ended and appended what it found. */
   idle(): Promise<void>;
 }
 
 type LinkRefusal = CommandRejection<ErrorOf<"forge.pullRequests.link">["code"]>;
+
+const MINUTE = 60_000;
+
+/** How often the sync looks for the pull requests due a read. */
+const SYNC_EVERY_MS = MINUTE;
+/** How often an open pull request is read while its session is in the active list, and while it is not. */
+const OPEN_ACTIVE_EVERY_MS = 5 * MINUTE;
+const OPEN_SHELVED_EVERY_MS = 60 * MINUTE;
+/** How often a closed pull request is read, and for how long after it closed. */
+const CLOSED_EVERY_MS = 24 * 60 * MINUTE;
+const CLOSED_FOR_MS = 14 * CLOSED_EVERY_MS;
 
 /** The most pull-request URLs a run's end reads from the run's text (a chosen default). */
 export const MAX_URLS_PER_RUN = 20;
@@ -270,13 +286,17 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     });
   };
 
-  /** Reads the session's pull request `url` now and appends what changed; a 404, or an anonymous read's refusal, stops its reads. */
+  /**
+   * Reads the session's pull request `url` now and appends what changed; a
+   * 404, or an anonymous read's refusal, stops its reads. Its next read on
+   * the cadence counts from when this one was asked.
+   */
   const sync = async (sessionId: string, url: string): Promise<void> => {
     const reading = readingOf(sessionId, url);
     const located = locate(url);
     if (located === null) return void stopped.add(reading);
-    const answer = await read(located, "keep a session's pull request current");
     lastRead.set(reading, clock.now().getTime());
+    const answer = await read(located, "keep a session's pull request current");
     if (answer.outcome === "done") return synced(sessionId, url, kept(located, answer.value));
     if ((answer.outcome === "failed" && answer.status === 404) || (answer.outcome === "refused" && answer.error.code === "forge_account_missing")) stopped.add(reading);
   };
@@ -394,6 +414,32 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     }
   };
 
+  /** Whether the session's pull request is due a read at `now` on its cadence, `active` saying whether the session is in the active list. */
+  const due = (sessionId: string, pullRequest: PullRequest, active: boolean, now: number): boolean => {
+    const reading = readingOf(sessionId, pullRequest.url);
+    if (pullRequest.state === "merged" || stopped.has(reading)) return false;
+    if (pullRequest.state === "closed" && (pullRequest.closedAt === null || now - Date.parse(pullRequest.closedAt) > CLOSED_FOR_MS)) return false;
+    const every = pullRequest.state === "closed" ? CLOSED_EVERY_MS : active ? OPEN_ACTIVE_EVERY_MS : OPEN_SHELVED_EVERY_MS;
+    const last = lastRead.get(reading);
+    return last === undefined || now - last >= every;
+  };
+
+  /** Reads every pull request of every session that is due a read now: one query a minute, of the columns the cadence reads. */
+  const syncDue = (): void => {
+    const now = clock.now();
+    const rows = reader.all<Pick<SessionRow, "id" | "pull_requests" | "archived_at" | "settled_at" | "snoozed_until" | "pinned_at">>(
+      `SELECT id, pull_requests, archived_at, settled_at, snoozed_until, pinned_at FROM sessions
+       WHERE deleted_at IS NULL AND pull_requests <> '[]' ORDER BY created_at, id`,
+    );
+    for (const row of rows) {
+      const shelf = shelfOf({ archivedAt: row.archived_at, settledAt: row.settled_at, snoozedUntil: row.snoozed_until, pinnedAt: row.pinned_at }, now);
+      const active = shelf === "active" || shelf === "pinned";
+      for (const pullRequest of JSON.parse(row.pull_requests) as PullRequest[]) {
+        if (due(row.id, pullRequest, active, now.getTime())) background("Keeping a session's pull request current", () => sync(row.id, pullRequest.url));
+      }
+    }
+  };
+
   /** Forgets what the reads kept of a pull request a person unlinked. */
   const forget = (sessionId: string, url: string): void => {
     lastRead.delete(readingOf(sessionId, url));
@@ -429,11 +475,24 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     refresh,
     runEnded,
     start() {
-      return log.subscribe((event) => {
+      const unsubscribe = log.subscribe((event) => {
         if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "run.ended") return;
         const { runId } = event.payload as RunEndedPayload;
         background(`What the run ${runId}'s end owes its session's pull requests`, () => runEnded(event.streamId, runId));
       });
+      const timer = clock.setInterval(() => {
+        try {
+          syncDue();
+        } catch (error) {
+          console.error("Finding the pull requests due a read failed; the next minute tries again:", error);
+        }
+      }, SYNC_EVERY_MS);
+      // Nothing was read before the start: every pull request due a read is read now.
+      syncDue();
+      return () => {
+        unsubscribe();
+        timer.cancel();
+      };
     },
     async idle() {
       while (underway.size > 0) await Promise.all(underway);
