@@ -11,7 +11,7 @@ import { create } from "../../test/sessions.js";
 import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent } from "./contract.js";
-import { presetInjection, type InjectionAnswer, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "./process-environment.js";
+import { presetInjection, type InjectionAnswer, type InjectionScope, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "./process-environment.js";
 
 /**
  * The process environment through the primary seam (forge spec, "Per
@@ -201,7 +201,7 @@ describe("a run's process environment", () => {
 
 describe("the injection answer", () => {
   it("is asked once per run, of a seam whose preset allows, for the run's session, account and origin", async () => {
-    const answered: ProcessEnvironmentScope[] = [];
+    const answered: InjectionScope[] = [];
     const t = await start({}, { adapterSeams: { injection: (scope) => (answered.push(scope), presetInjection(scope)) } });
     const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
     t.env.processEnvironments.register(supplier);

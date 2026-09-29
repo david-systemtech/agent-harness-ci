@@ -8,8 +8,9 @@ import { bubblewrapProbe } from "../../test/containment.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create } from "../../test/sessions.js";
+import { create, workspace } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import type { InstructionScope } from "../adapter/seams.js";
 import type { OrientationSection } from "./orientation.js";
 
 /**
@@ -159,8 +160,8 @@ describe("the OrientationRenderer", () => {
     expect(ended(t, session.id).at(-1)?.payload).not.toMatchObject({ reason: "error" });
     expect(errors.mock.calls.map((call) => String(call[0]))).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("The orientation block's key-managers section could not be read"),
-        expect.stringContaining("The orientation block's other-environments section could not be read"),
+        expect.stringContaining("The orientation block's key-managers section failed; the block shows it as could not be read"),
+        expect.stringContaining("The orientation block's other-environments section failed; the block shows it as could not be read"),
       ]),
     );
   });
@@ -336,13 +337,13 @@ describe("the environment section", () => {
   it("is in instructions.preview as a run is handed it: at the session's own level, and at the default for a new session", async () => {
     const t = await start({ containment: bubblewrapProbe() });
     const client = await t.client();
-    const workspace = { kind: "directory", path: realpathSync(tempDir("agent-harness-workspace-")) } as const;
-    const session = await create(client, { workspace });
+    const directory = { kind: "directory", path: realpathSync(tempDir("agent-harness-workspace-")) } as const;
+    const session = await create(client, { workspace: directory });
     const set = await client.request("permissions.containment.set", { commandId: randomUUID(), sessionId: session.id, level: "workspace-no-network" });
     expect(set.receipt).toMatchObject({ status: "accepted" });
 
     const previewed = await client.request("instructions.preview", { sessionId: session.id });
-    const fresh = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+    const fresh = await client.request("instructions.preview", { accountId: "claude-max", workspace: directory });
     const handed = await runTo(t, client, session.id);
 
     expect(environmentOf(previewed.text)).toContain("This run's containment is workspace-no-network: ");
@@ -363,5 +364,56 @@ describe("the environment section", () => {
     expect(environmentOf(before)).toMatch(/^This environment is mnl, on /);
     expect(environmentOf(after)).toMatch(/^This environment is mnl-2, on /);
     expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+  });
+});
+
+describe("the instruction scope", () => {
+  it("carries the run's injection answer with the level that decided it, asked once and the answer its process environment is built under", async () => {
+    const forge = await fakeForge();
+    let answer: "allow" | "deny" = "deny";
+    const asked: (string | null)[] = [];
+    const scopes: InstructionScope[] = [];
+    const t = await start({
+      forgeFetch: forge.fetch,
+      harnessCommand: HELPER,
+      adapterSeams: {
+        injection: (scope) => {
+          asked.push(scope.sessionId);
+          return answer;
+        },
+      },
+      orientationSections: [
+        {
+          name: "key-managers",
+          title: "Key managers",
+          render: (scope) => {
+            scopes.push(scope);
+            return [`This run's injection answer is ${scope.injection.answer}, decided at the ${scope.injection.level.kind}'s level.`];
+          },
+        },
+      ],
+    });
+    const client = await t.client();
+    const session = await create(client);
+
+    const denied = await runTo(t, client, session.id);
+    answer = "allow";
+    const allowed = await runTo(t, client, session.id, "Allowed now");
+    const fresh = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+
+    expect(denied).toContain("This run's injection answer is deny, decided at the environment's level.");
+    expect(allowed).toContain("This run's injection answer is allow, decided at the environment's level.");
+    expect(fresh.text).toContain("This run's injection answer is allow, decided at the environment's level.");
+    // One answer per run, asked as it launched; a new session's preview asks for a run in no session yet.
+    expect(asked).toEqual([session.id, session.id, null]);
+    expect(scopes.map((scope) => scope.injection)).toEqual([
+      { answer: "deny", level: { kind: "environment" } },
+      { answer: "allow", level: { kind: "environment" } },
+      { answer: "allow", level: { kind: "environment" } },
+    ]);
+    // Each process was built under its run's answer: a denied one is supplied nothing.
+    const processes = t.adapter.processesOf(session.id);
+    expect(processes.map((process) => (JSON.parse(process.key) as { injection: string }).injection)).toEqual(["deny", "allow"]);
+    expect(processes.map((process) => process.instructions)).toEqual([denied, allowed]);
   });
 });

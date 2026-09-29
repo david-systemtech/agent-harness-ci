@@ -367,6 +367,7 @@ describe("the forges section in the orientation block", () => {
       trust: undecidedTrust(workspace, null),
       origin: "client",
       containment: "off",
+      injection: { answer: "allow", level: { kind: "environment" } },
       bot: null,
       alwaysOn: [],
       channel: { kind: "system-prompt-append", maxCharacters: null },

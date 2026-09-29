@@ -11,10 +11,13 @@ import type { ProcessEnvironment, SuppliedVariables } from "./contract.js";
  * run's provider process or a session's terminal.
  *
  * One injection answer is asked for each holder (ADR 0011's setting,
- * #91's; until then the seam's preset, `allow`, ADR 0028), and on `deny`
- * no supplier is asked anything. A seam that throws denies, logged. The key
- * is empty while no supplier is registered. Otherwise it names the answer
- * and, on `allow`, each supplier's part, in the order they were
+ * #91's; until then the seam's preset, `allow`, ADR 0028), with the level
+ * that decided it, and on `deny` no supplier is asked anything. A run's is
+ * asked once, as it launches, and both its instructions and its process
+ * environment are built under it (#380), so the orientation block never
+ * tells a run of what it was not given. A seam that throws denies, logged.
+ * The key is empty while no supplier is registered. Otherwise it names the
+ * answer and, on `allow`, each supplier's part, in the order they were
  * registered, so a changed answer or a changed part is a changed key.
  *
  * A supplier's variables are asked at each spawn, every supplier at once;
@@ -31,15 +34,33 @@ export interface ProcessEnvironmentScope {
   readonly origin: RunActorKind;
 }
 
+/** Who an injection answer is asked for: a holder, or a run in no session yet (a new session's `instructions.preview`), whose session is null. */
+export type InjectionScope = Omit<ProcessEnvironmentScope, "sessionId"> & { readonly sessionId: string | null };
+
 /** Whether a holder's suppliers are asked for its variables (ADR 0011). */
 export type InjectionAnswer = "allow" | "deny";
+
+/**
+ * The level that decided a holder's injection answer (key-managers spec,
+ * "Injection"): the environment's `credentials.injection`, an account's
+ * entry, or the run's own override, a routine's (later a bot's), each by its
+ * id. Until #367 reads the setting's levels, every answer is the
+ * environment's.
+ */
+export type InjectionLevel = { readonly kind: "environment" } | { readonly kind: "account"; readonly id: string } | { readonly kind: "routine" | "bot"; readonly id: string };
+
+/** A holder's injection answer, and the level that decided it. */
+export interface InjectionDecision {
+  readonly answer: InjectionAnswer;
+  readonly level: InjectionLevel;
+}
 
 /**
  * Answers a holder's injection (ADR 0011, ADR 0028): #91's setting, the
  * environment's `credentials.injection`, outranked by the account's and
  * then a routine's or a bot's. Preset: `allow`, the setting's preset.
  */
-export type InjectionSeam = (scope: ProcessEnvironmentScope) => InjectionAnswer;
+export type InjectionSeam = (scope: InjectionScope) => InjectionAnswer;
 
 export const presetInjection: InjectionSeam = () => "allow";
 
@@ -57,8 +78,10 @@ export interface ProcessEnvironmentSupplier {
 export interface ProcessEnvironments {
   /** Adds a supplier, asked from the next holder built on; a name registered already is refused. */
   register(supplier: ProcessEnvironmentSupplier): void;
-  /** The process environment of one holder, built now. */
-  of(scope: ProcessEnvironmentScope): ProcessEnvironment;
+  /** The injection answer for `scope`, asked of the seam now, with the level that decided it; `deny` when the seam fails. */
+  decide(scope: InjectionScope): InjectionDecision;
+  /** The process environment of one holder, built now under `decision`, the answer its run was launched with; asked now when none is given (a terminal). */
+  of(scope: ProcessEnvironmentScope, decision?: InjectionDecision): ProcessEnvironment;
 }
 
 /** git's process-only configuration: how many entries, then a key and a value each. */
@@ -138,25 +161,32 @@ const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope
   };
 };
 
+/** The environment's level: its setting decided. */
+const ENVIRONMENT_LEVEL: InjectionLevel = { kind: "environment" };
+
 /** The holder's injection answer: the seam's, or `deny` when the seam fails. */
-const answerOf = (injection: InjectionSeam, scope: ProcessEnvironmentScope): InjectionAnswer => {
+const answerOf = (injection: InjectionSeam, scope: InjectionScope): InjectionAnswer => {
   try {
     return injection(scope) === "allow" ? "allow" : "deny";
   } catch (error) {
-    console.error(`The injection answer for session ${scope.sessionId} could not be read; nothing is injected: ${describe(error)}`);
+    const holder = scope.sessionId === null ? "a new session" : `session ${scope.sessionId}`;
+    console.error(`The injection answer for ${holder} could not be read; nothing is injected: ${describe(error)}`);
     return "deny";
   }
 };
 
 export const createProcessEnvironments = (injection: InjectionSeam = presetInjection): ProcessEnvironments => {
   const suppliers: ProcessEnvironmentSupplier[] = [];
+  // The seam stands for the environment's setting until #367 answers each level.
+  const decide = (scope: InjectionScope): InjectionDecision => ({ answer: answerOf(injection, scope), level: ENVIRONMENT_LEVEL });
   return {
     register(supplier) {
       if (suppliers.some((registered) => registered.name === supplier.name)) throw new Error(`A process-environment supplier named ${supplier.name} is registered already.`);
       suppliers.push(supplier);
     },
-    of(scope) {
-      const answer = answerOf(injection, scope);
+    decide,
+    of(scope, decision = decide(scope)) {
+      const { answer } = decision;
       if (suppliers.length === 0) return EMPTY_PROCESS_ENVIRONMENT;
       if (answer === "deny") return { key: JSON.stringify({ injection: answer }), supply: async () => NOTHING };
       const parts = suppliers.flatMap((supplier) => {

@@ -139,14 +139,14 @@ export const SECTION_BUDGET_MS = 1000;
  */
 const read = (section: OrientationSection, scope: InstructionScope, clock: Clock): Promise<OrientationContent | null> => {
   const unread = (why: string, error?: unknown): null => {
-    console.error(`The orientation block's ${section.name} section ${why}; it is shown as could not be read.`, ...(error === undefined ? [] : [error]));
+    console.error(`The orientation block's ${section.name} section ${why}; the block shows it as could not be read.`, ...(error === undefined ? [] : [error]));
     return null;
   };
   let answered: OrientationContent | Promise<OrientationContent>;
   try {
     answered = section.render(scope);
   } catch (error) {
-    return Promise.resolve(unread("could not be read", error));
+    return Promise.resolve(unread("failed", error));
   }
   if (Array.isArray(answered)) return Promise.resolve(answered);
   return new Promise((resolve) => {
@@ -159,7 +159,7 @@ const read = (section: OrientationSection, scope: InstructionScope, clock: Clock
     };
     const timer = clock.setTimeout(() => settle(unread("did not answer within a second")), SECTION_BUDGET_MS);
     Promise.resolve(answered).then(settle, (error: unknown) => {
-      if (!settled) settle(unread("could not be read", error));
+      if (!settled) settle(unread("failed", error));
     });
   });
 };

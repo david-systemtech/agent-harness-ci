@@ -95,7 +95,7 @@ import type {
 import { composeInstructions, instructionsDigest } from "../instructions/composer.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import { createProcessEnvironments, type ProcessEnvironmentScope } from "./process-environment.js";
+import { createProcessEnvironments, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
@@ -219,12 +219,14 @@ export interface AdapterHostOptions {
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
   /**
-   * Builds each run's process environment (#307, `process-environment.ts`)
-   * from the suppliers registered with it and the injection answer, as its
-   * adapter is asked for the run. Preset: none registered, so every run's
-   * key is empty and nothing is supplied.
+   * The process environments' registry (#307, `process-environment.ts`):
+   * each run's injection answer, asked once as it launches and carried in
+   * its instruction scope (#380), and its process environment, built from
+   * the suppliers registered with it under that answer as its adapter is
+   * asked for the run. Preset: none registered, so every run's key is empty
+   * and nothing is supplied.
    */
-  readonly processEnvironment?: (scope: ProcessEnvironmentScope) => ProcessEnvironment;
+  readonly processEnvironments?: Pick<ProcessEnvironments, "decide" | "of">;
   /**
    * Where a contained run may write beside its workspace: each session's
    * scratch and temporary directories (#133). Preset: a root of the host's
@@ -600,7 +602,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
-  const processEnvironment = options.processEnvironment ?? createProcessEnvironments().of;
+  const processEnvironments = options.processEnvironments ?? createProcessEnvironments();
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -1338,7 +1340,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, its containment level, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
@@ -1346,6 +1348,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     readonly repositoryIdentity: string | null;
     readonly origin: RunActorKind;
     readonly containment: ContainmentLevel;
+    readonly injection: InjectionDecision;
   }): InstructionScope => ({
     sessionId: run.sessionId,
     accountId: run.account.id,
@@ -1354,6 +1357,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     trust: undecidedTrust(run.workspace, run.repositoryIdentity),
     origin: run.origin,
     containment: run.containment,
+    injection: run.injection,
     bot: null,
     // The always-on layer (#507) fills a run's extra names.
     alwaysOn: [],
@@ -1402,15 +1406,18 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
+  /** A run as its process environment and its injection answer are asked for: its session, its account and who started it. */
+  const holderOf = (plan: PlannedRun): ProcessEnvironmentScope => ({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+
   /**
    * A run's process environment (#307), built as every run's is when its
-   * adapter is asked for the run, which is once per run: each spawn's
-   * release is reported to the pool against the session's process as it is
-   * now, so the pool's letting it go releases it, and it runs once, whoever
-   * calls it first.
+   * adapter is asked for the run, which is once per run, under the injection
+   * answer the run launched with: each spawn's release is reported to the
+   * pool against the session's process as it is now, so the pool's letting
+   * it go releases it, and it runs once, whoever calls it first.
    */
-  const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
-    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+  const processEnvironmentOf = (plan: PlannedRun, injection: InjectionDecision): ProcessEnvironment => {
+    const built = processEnvironments.of(holderOf(plan), injection);
     const report = pool.supplied(plan.sessionId);
     return {
       key: built.key,
@@ -1437,7 +1444,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }),
     ];
     const entry = register(plan, prompt, true);
-    const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective });
+    // One injection answer for the run: what its instructions tell it and what its process is given.
+    const injection = processEnvironments.decide(holderOf(plan));
+    const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection });
     const start = (composed: ComposedInstructions): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1463,7 +1472,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             trusted: false,
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
-            processEnvironment: processEnvironmentOf(plan),
+            processEnvironment: processEnvironmentOf(plan, injection),
             prompt,
           },
           contextFor(entry),
@@ -2006,7 +2015,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
       }
       // As a run a client starts would be composed: with no extra always-on names.
-      return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment) }));
+      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client" });
+      return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment), injection }));
     },
     continueSession(sessionId) {
       if (closing || changingMode.has(sessionId)) return;
