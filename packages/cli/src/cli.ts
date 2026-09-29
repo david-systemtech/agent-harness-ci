@@ -54,7 +54,7 @@ export interface CliContext extends ProcessContext {
   readonly service?: ServiceSeams;
   /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
   readonly preflight?: PreflightSeams;
-  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment">;
+  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector">;
   /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
@@ -131,10 +131,12 @@ const pair = async (args: readonly string[], context: CliContext): Promise<numbe
 
 /**
  * `serve`: runs the environment, printing the discovery address once it is
- * ready, until a drain ends: one SIGINT or SIGTERM starts, or the launcher's
- * drain query or `environment.drain`. Everything it does is the environment
- * package's; this only refuses, parses, prints and waits. The refusal comes
- * before the arguments are read, so no argument gets past it.
+ * ready (and, in a declared container no client has paired with yet, a
+ * pairing as `pair` prints it), until a drain ends: one SIGINT or SIGTERM
+ * starts, or the launcher's drain query or `environment.drain`. Everything
+ * it does is the environment package's; this only refuses, parses, prints
+ * and waits. The refusal comes before the arguments are read, so no
+ * argument gets past it.
  */
 const serve = async (args: readonly string[], context: CliContext): Promise<number> => {
   const user = context.environment?.user ?? processUserCheck();
@@ -159,6 +161,12 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   }
   const { host, port } = environment.address;
   context.stdout(`http://${host}:${port}${DISCOVERY_PATH}\n`);
+  // A declared container no client has paired with pairs from this output, its log (ADR 0025, #349).
+  if (environment.startPairing !== undefined) {
+    context.stdout(
+      `No client has paired with this environment yet. Pair one with this code, or run ${PRODUCT_NAME} pair --data-dir ${environment.dataDir} in the container for a new one.\n${renderPairing(environment.startPairing)}`,
+    );
+  }
   // The drain's own end is awaited below, whatever started it.
   void context.stopRequested().then(() => environment.drain("signal")).catch(() => undefined);
   try {

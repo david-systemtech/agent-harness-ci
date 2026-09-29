@@ -1,10 +1,35 @@
-# The agent-harness environment in a container: the install script's compose
-# file (ADR 0007, ADR 0025; #141), for a machine that runs the environment
-# under Docker or Podman rather than as a user service. From a checkout:
+# The agent-harness environment in a container (ADR 0007, ADR 0025; #141,
+# #349), for a machine that runs the environment under Docker or Podman
+# rather than as a user service. Each release publishes this file with its
+# own image as the default below.
+#
+# The image is in the project's registry, which is private. Log in once, as
+# the user that runs docker here (the host-side updater pulls as that user
+# too), with a Forgejo access token with the read:package scope
+# (git.systemtech.dev: Settings > Applications), then start it:
+#
+#   docker login git.systemtech.dev:5526
+#   docker compose up -d
+#   docker compose logs environment
+#
+# Until a client first pairs with it, the environment prints a pairing link,
+# QR and code to its log at each start: pair from there, or mint another with
+#
+#   docker compose exec environment agent-harness pair --data-dir /data
+#
+# A container never updates itself (ADR 0007). The host-side updater,
+# host-updater.sh from the same release, carries out the environment's update
+# plan from the host: it pulls the new image, stops the container, snapshots
+# its database, recreates it and rolls it back on failure, writing the image
+# it moves to into the .env file beside this one as AGENT_HARNESS_IMAGE.
+# Installing it, with cron or a systemd timer, is in its documentation:
+# https://git.systemtech.dev:5526/david/agent-harness/src/branch/main/docs/host-updater.md
+#
+# From a checkout, where no release wrote its image in, build the image and
+# name it:
 #
 #   docker build -t agent-harness .
-#   docker compose -f scripts/compose.yaml up -d
-#   docker compose -f scripts/compose.yaml exec environment agent-harness pair
+#   AGENT_HARNESS_IMAGE=agent-harness docker compose -f scripts/compose.yaml up -d
 #
 # The environment runs as the image's non-root user, uid and gid 10001:
 # `serve` refuses root, in a container as anywhere else (ADR 0006), so this
@@ -13,13 +38,14 @@
 # named volumes, which Docker creates owned by that user, since the image's
 # /data and /work are. To mount a directory of the host instead, give it to
 # the user first: sudo chown -R 10001:10001 <directory>.
-#
-# A containerised environment never updates itself (ADR 0007): the host-side
-# updater is the launcher workstream's.
 name: agent-harness
 services:
   environment:
-    image: ${AGENT_HARNESS_IMAGE:-agent-harness:latest}
+    # AGENT_HARNESS_IMAGE when set, as the host-side updater sets it; else
+    # the image of the release that published this file, which the release
+    # workflow writes in place of the default's placeholder tag, unreleased
+    # (#358).
+    image: ${AGENT_HARNESS_IMAGE:-git.systemtech.dev:5526/david/agent-harness:unreleased}
     restart: unless-stopped
     # The image's user, by its uid and gid: the root refusal lets it start.
     user: "10001:10001"
@@ -30,13 +56,15 @@ services:
     network_mode: host
     environment:
       # Declares the container (#133): the containment report names it as the
-      # outer boundary, and updates are managed outside it.
+      # outer boundary, updates are managed outside it, and it prints its
+      # pairing to its log until a client first pairs (#349).
       AGENT_HARNESS_CONTAINER: "1"
     volumes:
       - data:/data
       - work:/work
     # SIGTERM starts the drain, which waits up to 30 minutes for the runs
     # under way (env spec, "Lifecycle"); a stop that kills sooner cuts them.
+    # The host-side updater's stop waits it out too.
     stop_grace_period: 31m
 volumes:
   data:
