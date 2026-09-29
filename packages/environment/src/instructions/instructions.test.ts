@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
   Ceiling,
   registry,
-  type EventEnvelope,
   type Mode,
   type ParamsOf,
   type ResponseOf,
@@ -17,6 +16,7 @@ import { create, refusal, workspace } from "../../test/sessions.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { InstructionScope } from "../adapter/seams.js";
+import type { EventEnvelope } from "../event-log/event-log.js";
 import { composeInstructions, instructionsDigest, type InstructionLayers } from "./composer.js";
 
 /**
