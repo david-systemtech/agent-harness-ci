@@ -44,7 +44,7 @@ export const useChecklist = (): Checklist => {
 
 /** Holds Set up as the whole window, and opens it on first launch once the home environment is ready. */
 export const ChecklistProvider = ({ children }: { readonly children: ReactNode }) => {
-  const settings = useSettings();
+  const { open: openRow } = useSettings();
   const [marked, mark] = usePresentation("firstLaunchDone");
   const home = homeEnvironment(useObservable(useRuntime().projections.environments));
   const [shown, setShown] = useState(false);
@@ -65,7 +65,6 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
     mark(true);
     setShown(false);
   }, [mark]);
-  const { open: openRow } = settings;
   const leave = useCallback(
     (row: SettingsRowId, environmentId?: string) => {
       setLeft(true);
