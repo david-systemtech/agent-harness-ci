@@ -84,8 +84,8 @@ export interface ProbeResult {
 export interface SignInProgram {
   /** The provider's binary the SDK ships, which runs use too, and sign-ins run first; null when this platform has none. */
   readonly bundled: string | null;
-  /** The managed tool (ADR 0026): the provider's CLI found on the PATH, outside the harness's own files; null when there is none. */
-  managedTool(): string | null;
+  /** The managed tool (ADR 0026): the Managed tools registry's row for the provider's CLI, outside the harness's own files; null when there is none. */
+  managedTool(): string | null | Promise<string | null>;
   /** The argv that starts a sign-in (`auth login`): never one that picks Console billing. */
   readonly argv: readonly string[];
   /** The argv that asks an executable whether it runs a sign-in. */

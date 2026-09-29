@@ -1,7 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { useCleanups } from "../../../test/cleanups.js";
 import { AUTH_HELP_WITHOUT_LOGIN, LOGIN_HELP, VERIFICATION_URL, loginBanner } from "../../../test/signin.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
 import {
@@ -10,7 +7,6 @@ import {
   claudeFallback,
   claudeSignInProgram,
   claudeVerificationUrl,
-  findManagedClaude,
   runsClaudeLogin,
 } from "./signin.js";
 
@@ -20,8 +16,6 @@ import {
  * renderings. The outputs are the bundled 2.1.281's, recorded with stdin a
  * pipe (the claude-adapter spec's Further Notes).
  */
-
-const { tempDir } = useCleanups();
 
 describe("the sign-in argv", () => {
   it("is auth login, never --console, and the probe asks for its help", () => {
@@ -90,36 +84,6 @@ describe("the fallback command", () => {
     expect(fallback.powershell).toBe("$env:CLAUDE_CONFIG_DIR = 'C:\\Users\\O\u2019\u2019Brien\\accounts\\a1'; & 'C:\\Program Files\\claude.exe' auth login");
     expect(fallback.posix).not.toContain("--console");
     expect(fallback.powershell).not.toContain("--console");
-  });
-});
-
-describe("the managed tool", () => {
-  const executable = (directory: string, name = "claude"): string => {
-    mkdirSync(directory, { recursive: true });
-    const path = join(directory, name);
-    writeFileSync(path, "#!/bin/sh\n");
-    chmodSync(path, 0o755);
-    return path;
-  };
-
-  it("is the first executable claude on the PATH", () => {
-    const root = tempDir();
-    const first = executable(join(root, "a"));
-    executable(join(root, "b"));
-    expect(findManagedClaude({ hostEnv: { PATH: [join(root, "none"), join(root, "a"), join(root, "b")].join(":") }, platform: "linux" })).toBe(first);
-  });
-
-  it("is never the bundled binary, nor a file that is not executable, nor one found through a relative entry", () => {
-    const root = tempDir();
-    const bundledDirectory = join(root, "sdk");
-    executable(bundledDirectory);
-    const plain = join(root, "plain");
-    mkdirSync(plain);
-    writeFileSync(join(plain, "claude"), "not executable");
-    const found = executable(join(root, "bin"));
-    expect(findManagedClaude({ hostEnv: { PATH: `relative:${bundledDirectory}:${plain}:${join(root, "bin")}` }, exclude: [bundledDirectory], platform: "linux" })).toBe(found);
-    expect(findManagedClaude({ hostEnv: { PATH: bundledDirectory }, exclude: [bundledDirectory], platform: "linux" })).toBeNull();
-    expect(findManagedClaude({ hostEnv: {}, platform: "linux" })).toBeNull();
   });
 });
 
