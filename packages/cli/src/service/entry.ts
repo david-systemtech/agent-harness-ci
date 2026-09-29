@@ -98,6 +98,11 @@ const renderShEntry = ({ dataDir, port, name }: EntrySpec): string => {
 
 const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
   const version = `%DATA_DIR%\\${VERSIONS_DIRECTORY}\\%VERSION%`;
+  /** Replaces the data directory's `file` with `value`, by a rename. */
+  const replace = (file: string, value: string) => [
+    `>"%DATA_DIR%\\.${file}.tmp" echo ${value}`,
+    `move /y "%DATA_DIR%\\.${file}.tmp" "%DATA_DIR%\\${file}" >nul`,
+  ];
   const [node, cli] = [versionNode("win32").join("\\"), VERSION_CLI_ENTRY.join("\\")];
   const launch = ["launch", "--data-dir", batchArgument(dataDir), "--port", String(port), ...(name === undefined ? [] : ["--name", batchArgument(name)])];
   return batchFile([
@@ -131,11 +136,11 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
     `if exist "%DATA_DIR%\\${HANDOVER_STARTS_FILE}" findstr /r /v /x "[0-9]*" "%DATA_DIR%\\${HANDOVER_STARTS_FILE}" >nul || for /f "usebackq delims=" %%N in ("%DATA_DIR%\\${HANDOVER_STARTS_FILE}") do set /a "STARTS=%%N"`,
     `if %STARTS% GEQ ${UNCONFIRMED_STARTS} goto fall_back`,
     'set /a "STARTS+=1"',
-    `>"%DATA_DIR%\\${HANDOVER_STARTS_FILE}" echo %STARTS%`,
+    ...replace(HANDOVER_STARTS_FILE, "%STARTS%"),
     "goto run",
     ":fall_back",
     '>>"%LOG%" echo launcher entry: the launcher of %TO% was started %STARTS% times without confirming that its child passed the gate, so the launcher of %FROM% starts again.',
-    `>"%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" echo %FROM%`,
+    ...replace(LAUNCHER_VERSION_FILE, "%FROM%"),
     'set "VERSION=%FROM%"',
     ":run",
     `if not exist "${version}\\${VERSION_SENTINEL}" goto not_complete`,

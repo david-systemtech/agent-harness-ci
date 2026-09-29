@@ -26,11 +26,13 @@ set "STARTS=0"
 if exist "%DATA_DIR%\launcher-handover-starts" findstr /r /v /x "[0-9]*" "%DATA_DIR%\launcher-handover-starts" >nul || for /f "usebackq delims=" %%N in ("%DATA_DIR%\launcher-handover-starts") do set /a "STARTS=%%N"
 if %STARTS% GEQ 3 goto fall_back
 set /a "STARTS+=1"
->"%DATA_DIR%\launcher-handover-starts" echo %STARTS%
+>"%DATA_DIR%\.launcher-handover-starts.tmp" echo %STARTS%
+move /y "%DATA_DIR%\.launcher-handover-starts.tmp" "%DATA_DIR%\launcher-handover-starts" >nul
 goto run
 :fall_back
 >>"%LOG%" echo launcher entry: the launcher of %TO% was started %STARTS% times without confirming that its child passed the gate, so the launcher of %FROM% starts again.
->"%DATA_DIR%\launcher-version" echo %FROM%
+>"%DATA_DIR%\.launcher-version.tmp" echo %FROM%
+move /y "%DATA_DIR%\.launcher-version.tmp" "%DATA_DIR%\launcher-version" >nul
 set "VERSION=%FROM%"
 :run
 if not exist "%DATA_DIR%\versions\%VERSION%\.complete" goto not_complete

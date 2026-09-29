@@ -62,6 +62,17 @@ describe("the launcher entry", () => {
     expect(lines[launch + 1]).toBe(":restart");
   });
 
+  it("writes the launcher version file and the start counter by a rename in both kinds, so a stop mid-write leaves the old file or the new", () => {
+    const sh = renderLauncherEntry("sh", { dataDir: "/data", port: 7433 }).split("\n");
+    const cmd = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
+    for (const file of ["launcher-version", "launcher-handover-starts"]) {
+      expect(sh.filter((line) => line.includes(`> "$data_dir/${file}"`)), file).toEqual([]);
+      expect(sh.some((line) => line.includes(`mv -f "$data_dir/.${file}.tmp" "$data_dir/${file}"`)), file).toBe(true);
+      expect(cmd.filter((line) => line.startsWith(`>"%DATA_DIR%\\${file}"`)), file).toEqual([]);
+      expect(cmd, file).toContain(`move /y "%DATA_DIR%\\.${file}.tmp" "%DATA_DIR%\\${file}" >nul`);
+    }
+  });
+
   it("refuses in the cmd entry a launcher version file with a line that is not a version, without expanding that line", () => {
     const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
     const check = lines.indexOf('if exist "%DATA_DIR%\\launcher-version" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\\launcher-version" >nul && goto no_version');
