@@ -218,7 +218,7 @@ describe("terminals.open", () => {
     expect(await subscribing).toMatchObject({ type: "subscribed" });
     expect(pty.spawned).toHaveLength(1);
     expect(pty.spawned[0]?.written).toEqual(["echo one\r"]);
-    expect(pty.spawned[0]?.resized).toEqual([[100, 30]]);
+    expect((await client.request("terminals.list", { sessionId })).terminals).toMatchObject([{ id, cols: 100, rows: 30 }]);
   });
 
   it("refuses a workspace directory that is gone conflict, reason workspace_missing", async () => {
