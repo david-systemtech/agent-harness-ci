@@ -21,6 +21,7 @@ import {
   KeyManagerConnectionVerifiedPayload,
 } from "./key-manager-connections.js";
 import { DrainStarted } from "./lifecycle.js";
+import { ToolsUpdatedPayload } from "./managed-tools.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
 import {
@@ -63,7 +64,8 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * was removed (#365, #366: the key-manager connections' own events); a
  * routine changed, a routine's result was delivered to the clients or could
  * not be delivered to its webhook, or a webhook endpoint was set or removed
- * (#519: the routines' notices); so every connected client learns of it
+ * (#519: the routines' notices); a probe changed managed-tool rows (#373:
+ * the Managed tools registry's notice); so every connected client learns of it
  * whatever else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
@@ -100,10 +102,11 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "routine.delivery-failed",
   "routine.endpoint-set",
   "routine.endpoint-removed",
+  "tools.updated",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), and the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -199,7 +202,7 @@ const UsageUpdated = z
   })
   .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
 
-/** A forge, key-manager or routine event as a notice: its type and its payload, described. */
+/** A forge, key-manager, routine or managed-tools event as a notice: its type and its payload, described. */
 const describedNotice = <const T extends string, P extends z.ZodObject>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
@@ -239,6 +242,7 @@ const RoutineDelivered = describedNotice("routine.delivered", RoutineDeliveredPa
 const RoutineDeliveryFailed = describedNotice("routine.delivery-failed", RoutineDeliveryFailedPayload, "A routine's result could not be delivered to a webhook endpoint: which, and why.");
 const RoutineEndpointSet = describedNotice("routine.endpoint-set", RoutineEndpointSetPayload, "A webhook endpoint was made or replaced: its name, URL and secret kind.");
 const RoutineEndpointRemoved = describedNotice("routine.endpoint-removed", RoutineEndpointRemovedPayload, "A webhook endpoint was removed.");
+const ToolsUpdated = describedNotice("tools.updated", ToolsUpdatedPayload, "A probe of the managed tools changed rows: those rows as they are now.");
 
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
@@ -280,6 +284,7 @@ export const EnvironmentNotice = z
     RoutineDeliveryFailed,
     RoutineEndpointSet,
     RoutineEndpointRemoved,
+    ToolsUpdated,
   ])
   .meta({
     description:

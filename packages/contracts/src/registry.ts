@@ -125,6 +125,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
+import { toolsList } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -222,6 +223,7 @@ export const methods = [
   keyManagersConnectionsRemove,
   keyManagersConnectionsVerify,
   keyManagersCertificatePreview,
+  toolsList,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,

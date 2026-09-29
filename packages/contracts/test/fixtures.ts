@@ -11,6 +11,7 @@ import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
+import { managedToolMethodFixtures, managedToolSchemaFixtures, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
@@ -506,6 +507,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...accountMethodFixtures,
   ...forgeMethodFixtures,
   ...keyManagerMethodFixtures,
+  ...managedToolMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
   ...updateMethodFixtures,
@@ -758,6 +760,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
+      toolsUpdatedNotice.valid,
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -778,6 +781,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       { type: "usage.updated", payload: { accountId: "claude-max" } },
+      toolsUpdatedNotice.invalid,
       validEnvelope,
     ],
   },
@@ -881,6 +885,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...accountSchemaFixtures,
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
+  ...managedToolSchemaFixtures,
   ...skillSchemaFixtures,
   ...themeSchemaFixtures,
   ...usageSchemaFixtures,

@@ -405,6 +405,7 @@ describe("the method registry", () => {
       | "keyManagers.connections.remove"
       | "keyManagers.connections.verify"
       | "keyManagers.certificate.preview"
+      | "tools.list"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

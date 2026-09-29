@@ -163,6 +163,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "key-manager.connection.verified":
         case "key-manager.connection.removed":
           return;
+        // A probe changing managed-tool rows raises none: a newer version is a badge, and a required tool missing or below
+        // its minimum is its step's health failure (ADR 0026); tools.list's cache follows it (#384).
+        case "tools.updated":
+          return;
       }
     },
     settled(environmentId, sessionId, promptId) {

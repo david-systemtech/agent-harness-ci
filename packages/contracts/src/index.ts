@@ -23,6 +23,7 @@ export * from "./key-managers.js";
 export * from "./key-manager-connections.js";
 export * from "./launcher.js";
 export * from "./lifecycle.js";
+export * from "./managed-tools.js";
 export * from "./notices.js";
 export * from "./one-off.js";
 export * from "./ordering.js";

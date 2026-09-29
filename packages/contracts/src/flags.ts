@@ -58,6 +58,7 @@ export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag)
  * - `containment:workspace`, `containment:no-network`: the containment levels the environment can enforce (the permissions workstream).
  * - `forge`: the environment holds forge accounts and answers the `forge.*` methods (the forge workstream); without it a client shows Forges absent-with-reason.
  * - `keyManagers`: the environment holds key-manager connections and answers the `keyManagers.*` methods (the key-managers workstream); without it a client shows Key managers absent-with-reason.
+ * - `managedTools`: the environment keeps the Managed tools registry and answers the `tools.*` methods (the key-managers workstream); without it a client shows Managed tools absent-with-reason.
  */
-export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge", "keyManagers"] as const;
+export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge", "keyManagers", "managedTools"] as const;
 export type KnownCapabilityFlag = (typeof CAPABILITY_FLAG_LIST)[number];

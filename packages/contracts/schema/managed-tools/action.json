@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManagedToolAction",
+  "type": "string",
+  "enum": [
+    "install",
+    "update",
+    "copy"
+  ],
+  "description": "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop)."
+}
