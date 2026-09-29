@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { EventEnvelope, EventFrame, PullRequest, ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import type { TranscriptEvent } from "../adapter/contract.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { end, say, type Script } from "../../test/fake-adapter.js";
 import { MERGED_OR_CLOSED_AT, startFakeForge, type FakeForge } from "../../test/fake-forge.js";
@@ -77,13 +78,16 @@ const repositoryOn = (remotes: Readonly<Record<string, string>>, branch: string,
   return directory;
 };
 
+/** A tool's output as a provider reports it: any JSON value. */
+type ToolOutput = Extract<TranscriptEvent, { type: "tool.ended" }>["payload"]["output"];
+
 /** A tool call the run makes, and what it answered: `output`, whose strings a run's end reads. */
-const toolCall = (output: unknown) => {
+const toolCall = (output: ToolOutput): TranscriptEvent[] => {
   const toolCallId = `toolu_${randomUUID()}`;
   return [
     { type: "tool.started", payload: { toolCallId, name: "Bash", input: { command: "tea pulls" }, title: null, agentId: null, parentToolCallId: null } },
     { type: "tool.ended", payload: { toolCallId, status: "ok", output, durationMs: 5 } },
-  ] as const;
+  ];
 };
 
 /** Runs the session once to its end as the fake adapter's next script plays it (preset: its reply), then waits for what the end found to be appended. */
