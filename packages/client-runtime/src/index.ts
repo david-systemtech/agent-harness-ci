@@ -178,4 +178,7 @@ export {
   type OutgoingMessage,
   type SendOutcome,
 } from "./composer/send.js";
+export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
+export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
+export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";

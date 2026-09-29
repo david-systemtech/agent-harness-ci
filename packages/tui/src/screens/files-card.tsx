@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { FILES_LIST_CAP } from "@agent-harness/contracts";
-import type { BrowseRow } from "../files/browse.js";
+import type { BrowseRow } from "@agent-harness/client-runtime";
 
 /**
  * `/files`' picker on screen (docs/specs/tui.md, "The composer"): the
