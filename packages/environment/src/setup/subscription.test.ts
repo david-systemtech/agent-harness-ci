@@ -13,17 +13,20 @@ import type { SetupSteps } from "./service.js";
  * seam (the Set up specification, "Results, the cache and the
  * subscription"; #569): an in-process environment, restarted on one data
  * directory, driven by real clients over real WebSockets, with a registry
- * of scripted steps whose checks hold, fail or throw as the test says. What
- * is asserted is what a client sees: what `setup.check` answers, the
- * `setup.result-changed` notices on the environment stream, and
- * `environment.subscribe`'s snapshot; never the cache's table.
+ * of scripted steps whose checks hold, fail or throw as the test says, each
+ * test past the start pass that checks them all as the environment starts
+ * (#571). What is asserted is what a client sees: what `setup.check`
+ * answers, the `setup.result-changed` notices on the environment stream,
+ * and `environment.subscribe`'s snapshot; never the cache's table.
  */
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** An environment past its start pass (#571), whose scripted checks here answer at once. */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
+  await t.env.setup.startPass;
   return t;
 };
 
@@ -97,16 +100,24 @@ const noticed = (client: WireClient, subscription: string): StepResult[] =>
   });
 
 describe("setup.result-changed", () => {
-  it("is appended with a step's first result, as system:setup on the environment stream, and a subscriber hears it live", async () => {
-    const { setupSteps } = scriptedRegistry();
+  it("is appended with each step's first result, as system:setup on the environment stream, and a subscriber hears a change live", async () => {
+    const { answers, setupSteps } = scriptedRegistry();
     const t = await start({ setupSteps });
     const client = await t.client();
-    const subscription = await watch(client, t.env.log.head());
+    const first = await watch(client, 0);
+    const done = { step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
+    // In the order the checks answered.
+    expect(noticed(client, first).map((result) => result.step).sort()).toEqual(["account", "appearance", "permissions"]);
+    expect(noticed(client, first).find((result) => result.step === "account")).toEqual(done);
+    for (const f of client.received.filter(isSetupNotice(first))) {
+      expect(f.event).toMatchObject({ streamKind: "environment", streamId: t.env.id, type: "setup.result-changed", actor: { kind: "system", id: "setup" } });
+    }
 
+    const subscription = await watch(client, t.env.log.head());
+    answers.account = { reason: "Work is signed out." };
     const result = await check(client, "account");
-    expect(result).toEqual({ step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
     const live = await client.next(isSetupNotice(subscription));
-    expect(live.event).toMatchObject({ streamKind: "environment", streamId: t.env.id, type: "setup.result-changed", actor: { kind: "system", id: "setup" } });
+    expect(live.event).toMatchObject({ type: "setup.result-changed", actor: { kind: "system", id: "setup" } });
     expect(noticed(client, subscription)).toEqual([result]);
   });
 
@@ -115,16 +126,17 @@ describe("setup.result-changed", () => {
     const t = await start({ setupSteps });
     const client = await t.client();
     const subscription = await watch(client, t.env.log.head());
-    const first = await check(client, "permissions");
-    await client.next(isSetupNotice(subscription));
-
-    // An hour on, nothing has changed: the check appends nothing, and the cache holds the result with its new checked-at.
-    t.clock.advance(HOUR);
     const head = t.env.log.head();
+    // The start pass noticed the first result; asked for again at once, nothing has changed.
+    const first = await check(client, "permissions");
+    expect(first).toMatchObject({ state: "done", checkedAt: MANUAL_CLOCK_START });
+
+    // An hour on, nothing has changed: neither the hour's pass nor the check appends anything, and the cache holds the result with its new checked-at.
+    t.clock.advance(HOUR);
     const same = await check(client, "permissions");
     expect(same).toEqual({ ...first, checkedAt: after(HOUR) });
     expect(t.env.log.head()).toBe(head);
-    expect((await snapshot(t, client)).setup).toEqual([same]);
+    expect((await snapshot(t, client)).setup?.find((result) => result.step === "permissions")).toEqual(same);
 
     // Then the denylist loses its presets: the new result is noticed, once.
     answers.permissions = { reason: "The paths section of the denylist is missing ~/.aws; Restore puts it back." };
@@ -132,7 +144,7 @@ describe("setup.result-changed", () => {
     const changed = await check(client, "permissions");
     expect(changed).toMatchObject({ state: "needs-attention", failing: ["permissions.denylist"], actions: ["restore"], checkedAt: after(HOUR + MINUTE) });
     await client.next(isSetupNotice(subscription));
-    expect(noticed(client, subscription)).toEqual([first, changed]);
+    expect(noticed(client, subscription)).toEqual([changed]);
     expect(t.env.log.head()).toBe(head + 1);
   });
 
@@ -162,18 +174,36 @@ describe("setup.result-changed", () => {
 const IDLE = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } as const;
 
 describe("environment.subscribe's snapshot", () => {
-  it("carries every checked step's cached result as setup, in the registry's order, a step never checked absent", async () => {
-    const { answers, setupSteps } = scriptedRegistry();
-    const t = await start({ setupSteps });
+  it("carries every step's cached result as setup, in the registry's order, a step whose first check has not answered absent", async () => {
+    const late = lateCheck();
+    const t = await startTestEnvironment({
+      setupSteps: {
+        steps: [
+          scriptedStep("account", { stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] }),
+          scriptedStep("permissions", { stateChecks: [{ id: "permissions.denylist", holds: "The denylist holds its presets.", actions: ["restore"] }] }),
+          scriptedStep("appearance"),
+        ],
+        stateChecks: {
+          "account.late": late.checker,
+          "permissions.denylist": () => {
+            throw new Error("the denylist cannot be read");
+          },
+        },
+      },
+    });
+    onCleanup(() => t.close());
     const client = await t.client();
-    expect(await snapshot(t, client)).toEqual({ status: IDLE, setup: [] });
+    // The start pass is under way: Account's check waits on its late state check.
+    await late.call(1);
+    const [permissions, appearance] = (await snapshot(t, client)).setup ?? [];
+    expect(permissions).toMatchObject({ step: "permissions", state: "needs-attention", reason: "Could not check permissions.denylist: the denylist cannot be read." });
+    expect(appearance).toMatchObject({ step: "appearance", state: "done" });
+    expect((await snapshot(t, client)).setup).toHaveLength(2);
 
-    answers.permissions = new Error("the denylist cannot be read");
-    const permissions = await check(client, "permissions");
-    expect(permissions).toMatchObject({ state: "needs-attention", reason: "Could not check permissions.denylist: the denylist cannot be read." });
-    t.clock.advance(MINUTE);
-    const account = await check(client, "account");
-    expect(await snapshot(t, client)).toEqual({ status: IDLE, setup: [account, permissions] });
+    (await late.call(1)).answer(true);
+    await t.env.setup.startPass;
+    const account = { step: "account", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
+    expect(await snapshot(t, client)).toEqual({ status: IDLE, setup: [account, permissions, appearance] });
   });
 
   it("carries every registered step's result once the step registry's checks have run, in the milestone-1 order", async () => {
@@ -184,46 +214,43 @@ describe("environment.subscribe's snapshot", () => {
     expect((await snapshot(t, client)).setup).toEqual(results);
   });
 
-  it("carries the cached results after a restart on the same data directory, with their checked-at, and a first check there that finds the same appends nothing", async () => {
+  it("carries the cached results across a restart on the same data directory, and the start pass there, finding the same, appends nothing and moves their checked-at on", async () => {
     const { answers, setupSteps } = scriptedRegistry();
     const dataDir = `${tempDir()}/data`;
     const first = await start({ dataDir, setupSteps });
     answers.account = { reason: "Work is signed out.", targets: [{ action: "sign-in-again", kind: "account", id: "account-work", label: "Work" }] };
-    first.clock.advance(HOUR);
     const { results } = await (await first.client()).request("setup.check", {});
     expect(results.map((result) => [result.step, result.state, result.checkedAt])).toEqual([
-      ["account", "needs-attention", after(HOUR)],
-      ["permissions", "done", after(HOUR)],
-      ["appearance", "done", after(HOUR)],
+      ["account", "needs-attention", MANUAL_CLOCK_START],
+      ["permissions", "done", MANUAL_CLOCK_START],
+      ["appearance", "done", MANUAL_CLOCK_START],
     ]);
     await first.close();
 
     const second = await start({ dataDir, setupSteps, clock: manualClock(after(2 * HOUR)) });
     const client = await second.client();
-    expect(await snapshot(second, client)).toEqual({ status: IDLE, setup: results });
-
-    const head = second.env.log.head();
-    expect(await check(client, "account")).toEqual({ ...results[0], checkedAt: after(2 * HOUR) });
-    expect(second.env.log.head()).toBe(head);
+    expect(await snapshot(second, client)).toEqual({ status: IDLE, setup: results.map((result) => ({ ...result, checkedAt: after(2 * HOUR) })) });
+    // Four notices at the first start (three first results, and Account's change), none at the second.
+    const subscription = await watch(client, 0);
+    expect(noticed(client, subscription)).toHaveLength(4);
   });
 
-  it("is not what a check checks: a first check after a restart answers what its state checks find now, and is noticed when that changed", async () => {
+  it("is not what a check checks: the start pass after a restart answers what its state checks find now, and is noticed when that changed", async () => {
     const { answers, setupSteps } = scriptedRegistry();
     const dataDir = `${tempDir()}/data`;
     const first = await start({ dataDir, setupSteps });
-    const done = await check(await first.client(), "permissions");
-    expect(done.state).toBe("done");
+    const cursor = first.env.log.head();
+    expect((await snapshot(first, await first.client())).setup?.map((result) => result.state)).toEqual(["done", "done", "done"]);
     await first.close();
 
     answers.permissions = { reason: "The paths section of the denylist is missing ~/.aws; Restore puts it back." };
     const second = await start({ dataDir, setupSteps });
     const client = await second.client();
-    const subscription = await watch(client, second.env.log.head());
-    const changed = await check(client, "permissions");
-    expect(changed).toMatchObject({ state: "needs-attention", failing: ["permissions.denylist"] });
-    await client.next(isSetupNotice(subscription));
+    const subscription = await watch(client, cursor);
+    const [changed] = noticed(client, subscription);
+    expect(changed).toMatchObject({ step: "permissions", state: "needs-attention", failing: ["permissions.denylist"] });
     expect(noticed(client, subscription)).toEqual([changed]);
-    expect((await snapshot(second, client)).setup).toEqual([changed]);
+    expect((await snapshot(second, client)).setup?.[1]).toEqual(changed);
   });
 });
 
@@ -233,16 +260,17 @@ describe("the setup subscription for a client", () => {
     const t = await start({ setupSteps });
     const admin = await t.client();
     const cursor = t.env.log.head();
-    const done = await check(admin, "account");
     answers.account = { reason: "Work is signed out." };
-    t.clock.advance(MINUTE);
     const signedOut = await check(admin, "account");
+    answers.account = true;
+    t.clock.advance(MINUTE);
+    const done = await check(admin, "account");
 
     const program = await t.client({ token: (await t.pair({ scopes: ["read"], kind: "program" })).token });
     expect(program.hello.scopes).toEqual(["read"]);
     const subscription = await watch(program, cursor);
-    expect(noticed(program, subscription)).toEqual([done, signedOut]);
-    expect((await snapshot(t, program)).setup).toEqual([signedOut]);
+    expect(noticed(program, subscription)).toEqual([signedOut, done]);
+    expect((await snapshot(t, program)).setup?.[0]).toEqual(done);
   });
 
   it("is offered under the setup capability flag, in hello and the discovery document", async () => {
@@ -254,30 +282,6 @@ describe("the setup subscription for a client", () => {
 });
 
 describe("the result cache", () => {
-  it("holds the latest check's result: one from a check that started earlier and answered later goes to its caller, and is neither kept nor noticed", async () => {
-    const late = lateCheck();
-    const t = await start({
-      setupSteps: {
-        steps: [scriptedStep("account", { stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: ["check-again"] }] })],
-        stateChecks: { "account.late": late.checker },
-      },
-    });
-    const client = await t.client();
-    const subscription = await watch(client, t.env.log.head());
-    const earlier = check(client, "account");
-    const earlierCall = await late.call(1);
-    t.clock.advance(1_000);
-    const later = check(client, "account");
-    (await late.call(2)).answer(true);
-    const latest = await later;
-    expect(latest).toMatchObject({ state: "done", checkedAt: after(1_000) });
-
-    earlierCall.answer({ reason: "The late check found a problem." });
-    expect(await earlier).toMatchObject({ state: "needs-attention", checkedAt: MANUAL_CLOCK_START });
-    expect((await snapshot(t, client)).setup).toEqual([latest]);
-    expect(noticed(client, subscription)).toEqual([latest]);
-  });
-
   it("counts a row this build cannot read, as another version's shape, as never checked: absent from the snapshot, and the next result noticed as a first", async () => {
     const { setupSteps } = scriptedRegistry();
     const t = await start({ setupSteps });
