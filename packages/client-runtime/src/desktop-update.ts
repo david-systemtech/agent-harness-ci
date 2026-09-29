@@ -83,7 +83,12 @@ export interface DesktopUpdate {
   readonly view: Observable<DesktopUpdateView>;
   /** "Restart to update": the staged build applied now through the shell. Answers where the update is after; nothing happens unless a build is staged. */
   restart(): Promise<DesktopBuildView>;
-  /** The card's offer: the bundled server handed to the local environment, under the idle rules. Answers where it is after; nothing happens unless it is offered or failed. */
+  /**
+   * The card's offer: the bundled server handed to the local environment,
+   * under the idle rules, once it is looked at again and still newer than
+   * the environment and its pending update. Answers where it is after;
+   * nothing happens unless it is offered or failed.
+   */
   applyBundledServer(): Promise<BundledServerView>;
 }
 
@@ -219,8 +224,13 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     }
   };
 
-  /** The bundled server against the local environment `environmentId`: none, offered, or handed over. */
-  const lookAtBundled = async (environmentId: string): Promise<BundledServerView> => {
+  /**
+   * The bundled server against the local environment `environmentId` as it
+   * is now: none, offered, or handed over. `asked` is the card's call, which
+   * hands over what would be offered; nothing else is skipped for it, so a
+   * server no longer newer than the environment is never handed over.
+   */
+  const lookAtBundled = async (environmentId: string, asked: boolean): Promise<BundledServerView> => {
     if (installer === undefined) return { state: "unchecked" };
     const bundled = await carried();
     if (bundled === null) return { state: "none" };
@@ -234,7 +244,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!settings.ok) return { state: "failed", version: bundled.version, reason: settings.error.code, message: settings.error.message };
     const { "updates.autoUpdate": autoUpdate, "updates.pinnedVersion": pinned } = settings.result.values;
     // Auto-update effective, and not a version whose update failed there: that is never retaken automatically.
-    if (autoUpdate !== true || (pinned ?? null) !== null || failedVersions.includes(bundled.version)) return { state: "offered", version: bundled.version, environmentVersion };
+    const effective = autoUpdate === true && (pinned ?? null) === null && !failedVersions.includes(bundled.version);
+    if (!effective && !asked) return { state: "offered", version: bundled.version, environmentVersion };
     return handOver(environmentId, bundled.version, bundled.path);
   };
 
@@ -275,7 +286,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     const environmentId = readyLocal();
     if (closed || bundledLooked || environmentId === undefined || installer === undefined) return;
     bundledLooked = true;
-    void lookAtBundled(environmentId).then(setBundled, (error: unknown) => host.report(error));
+    void lookAtBundled(environmentId, false).then(setBundled, (error: unknown) => host.report(error));
   };
 
   return {
@@ -296,8 +307,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       const held = view.read().bundledServer;
       const environmentId = readyLocal();
       if ((held.state !== "offered" && held.state !== "failed") || environmentId === undefined || installer === undefined) return held;
-      const bundled = await carried();
-      setBundled(bundled === null ? { state: "none" } : "state" in bundled ? bundled : await handOver(environmentId, bundled.version, bundled.path));
+      setBundled(await lookAtBundled(environmentId, true));
       return view.read().bundledServer;
     },
 

@@ -4,7 +4,7 @@ import { createRuntime } from "./runtime.js";
 import type { Shell, ShellStagedBuild } from "./shell.js";
 import { flush } from "./testing/fake-wire.js";
 import { fakeShell, inMemoryPlatform, manualClock, type FakeShell } from "./testing/in-memory-platform.js";
-import { scriptedWorld, type ScriptedEnvironment, type ScriptedUpdates } from "./testing/scripted-environment.js";
+import { scriptedWorld, type EnvironmentHandle, type ScriptedEnvironment, type ScriptedUpdates } from "./testing/scripted-environment.js";
 
 /**
  * The desktop's update flow in the client runtime (launcher-update spec,
@@ -36,6 +36,8 @@ interface LaunchOptions {
   readonly shell?: (shell: FakeShell) => void;
   /** Takes members off the shell the platform is given. */
   readonly without?: readonly (keyof Shell)[];
+  /** Scripts the environment further before the runtime starts. */
+  readonly desk?: (desk: EnvironmentHandle) => void;
 }
 
 /** A desktop runtime over the scripted local environment `desk`, started, its shell running RUNNING as an Arch package. */
@@ -52,6 +54,7 @@ const launch = async (options: LaunchOptions = {}) => {
       },
     ],
   });
+  options.desk?.(world.environment("desk"));
   const shell = fakeShell();
   shell.answer("update.current", async () => ({ version: RUNNING, platform: "linux", arch: "x64", format: "pacman" }));
   options.shell?.(shell);
@@ -77,7 +80,7 @@ const launch = async (options: LaunchOptions = {}) => {
 };
 
 /** The params of every request of `method` the environment was sent. */
-const params = (desk: ReturnType<typeof scriptedWorld>["environments"][number], method: string) => desk.requests(method).map((request) => request.params);
+const params = (desk: EnvironmentHandle, method: string) => desk.requests(method).map((request) => request.params);
 
 describe("the desktop's own update", () => {
   it("is checked at launch through the local environment, and a newer build it stages is reported ready to apply and handed to the shell for the next quit", async () => {
@@ -255,6 +258,24 @@ describe("the server artefact the desktop carries", () => {
     const pinned = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.pinnedVersion": RUNNING }, shell: carrying("0.6.0") });
     await pinned.until(() => pinned.bundled().state === "offered", "offered the bundled server");
     expect(pinned.desk.requests("updates.apply")).toEqual([]);
+  });
+
+  it("is looked at again on the card's call, so a server the environment has since passed is not handed over, and a look that failed is retried", async () => {
+    const passed = await launch({ updates: { status: { version: RUNNING } }, settings: { "updates.autoUpdate": false }, shell: carrying("0.6.0") });
+    await passed.until(() => passed.bundled().state === "offered", "offered the bundled server");
+    passed.desk.setUpdates({ status: { version: "0.6.1" } });
+    expect(await passed.runtime.desktopUpdate.applyBundledServer()).toEqual({ state: "none" });
+    expect(passed.desk.requests("updates.apply")).toEqual([]);
+
+    const unread = await launch({
+      updates: { status: { version: RUNNING } },
+      shell: carrying("0.6.0"),
+      desk: (desk) => desk.wire.answer("settings.get", () => ({ error: { code: "internal", message: "The database is busy.", data: {} } })),
+    });
+    await unread.until(() => unread.bundled().state === "failed", "failed the look");
+    expect(unread.bundled()).toMatchObject({ state: "failed", version: "0.6.0", reason: "internal" });
+    unread.desk.wire.answer("settings.get", () => ({ result: { values: { "updates.autoUpdate": false, "updates.pinnedVersion": null } } }));
+    expect(await unread.runtime.desktopUpdate.applyBundledServer()).toMatchObject({ state: "handed-over", version: "0.6.0" });
   });
 
   it("is offered rather than handed over when its version's update failed there, which is never retaken automatically", async () => {
