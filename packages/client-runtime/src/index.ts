@@ -181,3 +181,17 @@ export {
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
+export {
+  describeKey,
+  noKeysLine,
+  parseTyped,
+  rowKeys,
+  saveSetting,
+  valueWords,
+  writerOf,
+  type Parsed,
+  type SaveOptions,
+  type SettingSaved,
+  type SettingsWriter,
+} from "./settings/editor.js";
+export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, type SettingsLink } from "./settings/rows.js";
