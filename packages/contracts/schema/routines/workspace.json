@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineWorkspace",
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "directory"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:~(?:[\\\\/]|$)|\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home, . and .. resolved as written and symlinks kept; refused workspace_unusable, with its problem, when the environment cannot use it."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "worktree"
+            },
+            "repository": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "Any path inside the repository; the worktree is made from its main checkout."
+            },
+            "branch": {
+              "description": "An existing local branch to check out in the worktree.",
+              "type": "string",
+              "minLength": 1
+            },
+            "newBranch": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "description": "The new branch's name; agent-harness/ and the session id's first eight characters when absent.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "base": {
+                  "description": "The ref the branch starts from, any ref; the main checkout's HEAD when absent.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "description": "A branch the worktree is made on, made with it."
+            }
+          },
+          "required": [
+            "kind",
+            "repository"
+          ],
+          "description": "A worktree the environment makes from a repository it has: from its main checkout (or bare repository), under the environment's worktrees root, locked for the session, with the ignored files the checkout's .worktreeinclude names copied in; on an existing branch, or on a new one (the new branch with its presets when neither is named), nothing fetched. Refused with the reason git's answer gives: not_a_repository, git_unavailable, no_commits, git_filters_refused, branch_exists, branch_not_found, branch_checked_out or git_failed.",
+          "not": {
+            "required": [
+              "branch",
+              "newBranch"
+            ],
+            "properties": {
+              "branch": true,
+              "newBranch": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scratch"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "A scratch directory of the session's own."
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "repositoryIdentity": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+              "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The repository identity the workspace resolved to when the routine was saved, which a move re-resolves it by; null outside a repository, for scratch, or before the environment has resolved it."
+        }
+      },
+      "required": [
+        "repositoryIdentity"
+      ]
+    }
+  ],
+  "description": "Where a routine's firings run: a directory, a worktree made per firing, or a scratch directory made per firing, never another session's; with the repository identity it resolved to when saved."
+}

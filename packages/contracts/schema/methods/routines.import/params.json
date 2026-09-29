@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "routines.import params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "yaml": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Routine documents as YAML, one or several."
+    },
+    "routineIds": {
+      "description": "The ids the documents' routines are made under, one per document in order, each once; the environment mints them when absent.",
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+        "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+      },
+      "uniqueItems": true
+    },
+    "routineId": {
+      "description": "The routine whose definition the one document replaces; never with routineIds.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
+    "movedFrom": {
+      "description": "The routine a move copies, which the copies link to; absent for an import that is no move.",
+      "type": "object",
+      "properties": {
+        "environmentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+        },
+        "routineId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "The routine's id on that environment."
+        }
+      },
+      "required": [
+        "environmentId",
+        "routineId"
+      ]
+    }
+  },
+  "required": [
+    "commandId",
+    "yaml"
+  ],
+  "not": {
+    "required": [
+      "routineIds",
+      "routineId"
+    ],
+    "properties": {
+      "routineIds": true,
+      "routineId": true
+    }
+  }
+}

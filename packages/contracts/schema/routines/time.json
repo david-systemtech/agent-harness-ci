@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineTime",
+  "type": "string",
+  "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+  "description": "A time of day in the routine's zone: HH:MM on the 24-hour clock, 00:00 to 23:59."
+}

@@ -69,4 +69,10 @@ export const SESSION_WRITE_COMMANDS = {
   "groups.delete": { ordered: "Ends the group and ungroups its members." },
   "sessions.fork": { ordered: "Makes the fork, a session of its own, which a queued sessions.setGroup may name; it follows the source's own commands (#137)." },
   "permissions.review.seen": { ordered: "Moves the Unattended review's watermark forward to a position, never back (#131); it is about no session or group." },
+  "routines.create": { ordered: "Makes the routine, which a queued routines.update may name; refused name_taken for a name another routine holds (#519)." },
+  "routines.update": { ordered: "Writes only the fields it names, so a later update of other fields leaves this one's standing; refused name_taken for a name another routine holds." },
+  "routines.enable": { ordered: "Records the enabling client session's ceiling and clears movedTo, as the routine held it." },
+  "routines.disable": { ordered: "Links the copy a move made, which a later disable may not name; it follows the enable it undoes." },
+  "routines.delete": { ordered: "Ends the routine's life in the list." },
+  "routines.import": { ordered: "Makes routines or replaces one's definition, all or nothing; refused name_taken for a name another routine holds." },
 } as const satisfies { readonly [N in SessionWriteMethodName]: WriteCommandKind };
