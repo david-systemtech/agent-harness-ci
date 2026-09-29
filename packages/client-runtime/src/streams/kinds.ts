@@ -12,6 +12,7 @@ import {
   SessionSnapshot,
   SessionSummary,
   StandingRewind,
+  StepResult,
   SummaryPatch,
   registry,
 } from "@agent-harness/contracts";
@@ -101,7 +102,12 @@ export const undoesUnheardRewind = (snapshot: Pick<SessionSnapshotParts, "rewind
 
 const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum, event) => sum + utf8Length(JSON.stringify(event)), 0);
 
-/** The environment's own stream: its status and look as the snapshot gave them and the notices since changed them. */
+/**
+ * The environment's own stream: its status and look as the snapshot gave them
+ * and the notices since changed them, and each Set up step's latest result,
+ * from the snapshot's `setup` and each `setup.result-changed` since (#570):
+ * what `projections.setup` reads, offline too.
+ */
 export interface EnvironmentData {
   readonly status: EnvironmentStatus | null;
   /**
@@ -110,6 +116,8 @@ export interface EnvironmentData {
    * notice since. The connection descriptor follows them (`streams.ts`).
    */
   readonly look: Partial<EnvironmentLook>;
+  /** None from an environment without the `setup` flag, or before it checked anything. */
+  readonly setup: readonly StepResult[];
 }
 
 /** The notices that set a field of the environment's look (#323). */
@@ -125,6 +133,28 @@ const fieldsOf = (value: unknown, what: string): Record<string, unknown> => {
 };
 
 const EnvironmentSnapshot = registry["environment.subscribe"].result;
+/** The snapshot but its `setup`, whose results are read one by one (`readResults`). */
+const SnapshotStatus = EnvironmentSnapshot.pick({ status: true });
+/** The snapshot's look (#323), read apart from its status, so a look this build cannot read costs the snapshot nothing else. */
+const SnapshotLook = EnvironmentSnapshot.pick({ environment: true });
+
+/**
+ * The results a snapshot's `setup` carries that this build can read: one of
+ * a step this build does not register (a newer environment's) is left out,
+ * as a notice this client does not know is, and the others still read.
+ */
+const readResults = (value: unknown): StepResult[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError("The snapshot's setup is not a list.");
+  return value.flatMap((item) => {
+    const result = StepResult.safeParse(item);
+    return result.success ? [result.data] : [];
+  });
+};
+
+/** `results` with `result` in place of its step's, or added when its step had none. */
+const withResult = (results: readonly StepResult[], result: StepResult): StepResult[] =>
+  results.some((held) => held.step === result.step) ? results.map((held) => (held.step === result.step ? result : held)) : [...results, result];
 
 const byId = <T extends { readonly id: string }>(items: readonly T[]): ReadonlyMap<string, T> => new Map(items.map((item) => [item.id, item]));
 
@@ -227,20 +257,24 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * and `environment.started` (the restart after a drain, or any start) makes
  * it ready and idle, since a process that has just started runs nothing.
  * The look takes each field its notice sets, whether or not a snapshot came
- * first.
+ * first. Each `setup.result-changed` replaces its step's result (#570).
  */
 export const environmentKind = (): StreamKind<EnvironmentData> => ({
-  empty: () => ({ status: null, look: {} }),
+  empty: () => ({ status: null, look: {}, setup: [] }),
   emptyIsState: true,
-  fromSnapshot(payload) {
-    const { status, environment } = EnvironmentSnapshot.parse(payload);
-    // An environment from before #323 sends no look.
-    return { status, look: environment ?? {} };
-  },
+  fromSnapshot: (payload) => ({
+    status: SnapshotStatus.parse(payload).status,
+    // An environment from before #323 sends no look, and a look this build cannot read (a newer environment's icon) is none.
+    look: SnapshotLook.safeParse(payload).data?.environment ?? {},
+    setup: readResults(payload["setup"]),
+  }),
   apply(data, event) {
     // A notice this client does not know (a newer environment's) changes nothing it holds.
     const notice = EnvironmentNotice.safeParse(event);
     if (!notice.success) return data;
+    // A step's result replaces the one held, whether or not a snapshot gave the status: a replay from the cursor carries no
+    // snapshot, and folds every result the environment noticed (#570).
+    if (notice.data.type === "setup.result-changed") return { ...data, setup: withResult(data.setup, notice.data.payload) };
     const { status } = data;
     switch (notice.data.type) {
       case "environment.draining":
@@ -307,10 +341,6 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
       case "settings.changed":
         return data;
-      // A Set up step's result changed (#569): the status holds none of them; `projections.setup` reads the snapshot's
-      // setup and these (#570).
-      case "setup.result-changed":
-        return data;
     }
   },
   encode: (data) => data,
@@ -318,6 +348,8 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
     const stored = fieldsOf(value, "The stored environment");
     // A stored document is JSON, which holds no field as undefined: what the partial schema reads is a partial look.
     const look = StoredLook.safeParse(stored["look"]).data as Partial<EnvironmentLook> | undefined;
-    return { status: EnvironmentStatus.nullable().parse(stored["status"]), look: look ?? {} };
+    // A document from before #570 holds no results and does not read: no cache, so the stream subscribes from nothing and
+    // hears every result the environment holds, where resuming from its cursor would miss those noticed before it.
+    return { status: EnvironmentStatus.nullable().parse(stored["status"]), look: look ?? {}, setup: StepResult.array().parse(stored["setup"]) };
   },
 });
