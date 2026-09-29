@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineSkippedPayload",
+  "type": "object",
+  "properties": {
+    "skipId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "schedule",
+        "catch-up",
+        "run-now"
+      ],
+      "description": "What made an entry: schedule (a due time on time), catch-up (the latest of due times missed while the environment was down, fired once) or run-now (routines.runNow)."
+    },
+    "dueAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "The due time it skipped: the latest of those it stands for; for run now, when it was asked."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "no-change",
+        "pre-check-failed",
+        "cannot-start",
+        "missed",
+        "overlap"
+      ],
+      "description": "Why a due time was skipped: no-change (the pre-check's output was the baseline's), pre-check-failed (the pre-check failed; a failure), cannot-start (the firing could not start, with a reason of its own; a failure), missed (missed while the environment was down, and not caught up) or overlap (a firing of the routine was live)."
+    },
+    "cannotStart": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "account_missing",
+            "account_signed_out",
+            "model_unavailable",
+            "skill_unknown",
+            "workspace_unusable",
+            "start_refused"
+          ],
+          "description": "Why a firing could not start: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a skill is not in the skill set), workspace_unusable (the workspace resolver refused its workspace) or start_refused (the run's start was refused, so the whole start rolled back)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the firing could not start, when the reason is cannot-start; else null."
+    },
+    "count": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many due times it stands for: more than one when missed due times collapsed into it."
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What a person should know of a failing skip: the pre-check's failure, why the firing could not start; else null."
+    },
+    "preCheck": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "script",
+                "url"
+              ],
+              "description": "Whether a script ran or a URL was fetched."
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "exitStatus": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The script's exit status; null for a URL, or a script killed at its timeout or once its output passed 1 MiB."
+            },
+            "httpStatus": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The URL's final HTTP status; null for a script, or a URL that did not answer."
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The output's size in bytes, as far as it was read."
+            },
+            "hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "A SHA-256 digest: 64 lowercase hexadecimal digits."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The SHA-256 of the output's exact bytes, with no normalisation; null when the pre-check failed."
+            },
+            "differs": {
+              "description": "Whether the hash differs from the baseline's; null with no baseline (a first observation) or no hash.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "output": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The output, scrubbed, its first 65,536 characters (routines.testPreCheck answers its first 8,000); null where it is not kept, as for a no-change skip, whose output is the baseline's."
+            },
+            "stderr": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 8192
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The script's standard error, scrubbed, its last 8,192 characters, kept for a failure; else null."
+            },
+            "failure": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "script_missing",
+                        "script_unusable",
+                        "exit_status",
+                        "timed_out",
+                        "output_too_large",
+                        "unreachable",
+                        "http_status",
+                        "denylisted"
+                      ],
+                      "description": "Why a pre-check failed: script_missing (no file at its path in the scripts directory), script_unusable (its path leaves the scripts directory once links are followed, or names no regular executable file), exit_status (the script exited other than 0), timed_out (it ran past its timeout, and its process tree was killed), output_too_large (its output passed 1 MiB), unreachable (the URL did not answer, or redirected more than five times), http_status (the URL answered other than 2xx) or denylisted (a host it reached is on the denylist)."
+                    },
+                    "detail": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What failed, for a person: the exit status, the path's problem, the host."
+                    }
+                  },
+                  "required": [
+                    "reason",
+                    "detail"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the pre-check failed; null when it did not."
+            }
+          },
+          "required": [
+            "kind",
+            "startedAt",
+            "durationMs",
+            "exitStatus",
+            "httpStatus",
+            "bytes",
+            "hash",
+            "differs",
+            "output",
+            "stderr",
+            "failure"
+          ],
+          "description": "What one run of a pre-check found: its kind, when and how long, its exit or HTTP status, the output's size, hash and kept part, whether it differs from the baseline, and why it failed when it did."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The pre-check it ran; null when none ran."
+    }
+  },
+  "required": [
+    "skipId",
+    "trigger",
+    "dueAt",
+    "reason",
+    "cannotStart",
+    "count",
+    "detail",
+    "preCheck"
+  ],
+  "description": "routine.skipped: a due time, or a run now, was handled with no firing: why, what it stands for, and the pre-check it ran."
+}

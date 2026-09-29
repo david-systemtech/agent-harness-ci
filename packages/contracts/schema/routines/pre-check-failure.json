@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PreCheckFailure",
+  "type": "string",
+  "enum": [
+    "script_missing",
+    "script_unusable",
+    "exit_status",
+    "timed_out",
+    "output_too_large",
+    "unreachable",
+    "http_status",
+    "denylisted"
+  ],
+  "description": "Why a pre-check failed: script_missing (no file at its path in the scripts directory), script_unusable (its path leaves the scripts directory once links are followed, or names no regular executable file), exit_status (the script exited other than 0), timed_out (it ran past its timeout, and its process tree was killed), output_too_large (its output passed 1 MiB), unreachable (the URL did not answer, or redirected more than five times), http_status (the URL answered other than 2xx) or denylisted (a host it reached is on the denylist)."
+}

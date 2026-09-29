@@ -235,7 +235,7 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/title-source.json": { valid: ["user", "generated", "default"], invalid: ["prompt", "provider", ""] },
   "sessions/generated-title-source.json": { valid: ["prompt", "provider"], invalid: ["user", ""] },
   "sessions/settled-override.json": { valid: ["settled", "active"], invalid: ["archived", ""] },
-  "sessions/settled-by.json": { valid: ["user", "auto-idle", "auto-merge"], invalid: ["auto", ""] },
+  "sessions/settled-by.json": { valid: ["user", "auto-idle", "auto-merge", "routine"], invalid: ["auto", ""] },
   "sessions/unsettle-reason.json": { valid: ["user", "activity"], invalid: ["expired", ""] },
   "sessions/unsnooze-reason.json": { valid: ["user", "expired", "activity", "settled"], invalid: ["bored", ""] },
   "sessions/workspace.json": {

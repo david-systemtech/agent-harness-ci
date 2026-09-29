@@ -239,6 +239,15 @@ describe("the method registry", () => {
       "updates.cancel",
       "updates.settings.set",
       "updates.begin",
+      "routines.create",
+      "routines.update",
+      "routines.enable",
+      "routines.disable",
+      "routines.delete",
+      "routines.import",
+      "routines.runNow",
+      "routines.endpoints.set",
+      "routines.endpoints.remove",
       "skills.own.create",
       "skills.own.remove",
     ]);
@@ -430,6 +439,23 @@ describe("the method registry", () => {
       | "updates.settings.set"
       | "updates.begin"
       | "updates.desktop.stage"
+      | "routines.list"
+      | "routines.history"
+      | "routines.export"
+      | "routines.checkImport"
+      | "routines.scripts.list"
+      | "routines.endpoints.list"
+      | "routines.create"
+      | "routines.update"
+      | "routines.enable"
+      | "routines.disable"
+      | "routines.delete"
+      | "routines.import"
+      | "routines.runNow"
+      | "routines.testPreCheck"
+      | "routines.endpoints.set"
+      | "routines.endpoints.remove"
+      | "routines.endpoints.test"
       | "skills.get"
       | "skills.own.create"
       | "skills.own.remove"

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineConflictReason",
+  "type": "string",
+  "enum": [
+    "name_taken",
+    "firing_running"
+  ],
+  "description": "Why a routine method was refused in conflict: name_taken (another routine on the environment has the name, ignoring case) or firing_running (routines.runNow while a firing of the routine is live)."
+}

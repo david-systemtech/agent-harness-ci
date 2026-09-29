@@ -13,6 +13,7 @@ import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
+import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
@@ -508,6 +509,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
   ...updateMethodFixtures,
+  ...routineMethodFixtures,
   ...skillMethodFixtures,
 };
 
@@ -888,5 +890,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...terminalSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
+  ...routineSchemaFixtures,
   ...methodSchemaFixtures,
 };

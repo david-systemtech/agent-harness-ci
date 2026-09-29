@@ -353,7 +353,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   "adapter/run-suggestion.json": { valid: [{ runId, suggestion: "Now run the tests" }], invalid: [{ runId, suggestion: "" }, { suggestion: "x" }] },
   "transcript/run-origin.json": { valid: ["client", "routine", "completions", "provider", "update"], invalid: ["tui", ""] },
   "transcript/run-end-reason.json": { valid: ["completed", "error", "interrupted", "disposed", "drained"], invalid: ["cancelled", ""] },
-  "transcript/interrupt-cause.json": { valid: ["user", "read-now", "restart", "parked"], invalid: ["drain", ""] },
+  "transcript/interrupt-cause.json": { valid: ["user", "read-now", "restart", "parked", "timeout"], invalid: ["drain", ""] },
   "transcript/update-interrupt-outcome.json": { valid: ["continued", "waiting-on-prompt", "next-message"], invalid: ["dropped", ""] },
   "transcript/update-interrupt-reason.json": { valid: ["no-resume", "account", "mode", "workspace", "deleted", "completions"], invalid: ["restart", ""] },
   "transcript/attachment-kind.json": { valid: ["image", "file"], invalid: ["audio", ""] },
