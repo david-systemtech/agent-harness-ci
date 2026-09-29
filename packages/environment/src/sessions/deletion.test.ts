@@ -236,6 +236,9 @@ describe("a deleted session", () => {
     "sessions.rewind": { sessionId, messageId: randomUUID() },
     // Nor a rewind to undo (#218).
     "sessions.undoRewind": { sessionId },
+    // A deleted session is not found before the forge is asked (#317).
+    "forge.pullRequests.link": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
+    "forge.pullRequests.unlink": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
   });
 
   /**
@@ -252,6 +255,7 @@ describe("a deleted session", () => {
     "sessions.subagentTranscript": { sessionId, agentId: "a1b2c3" },
     "permissions.prompts.list": { sessionId },
     "instructions.preview": { sessionId },
+    "forge.pullRequests.refresh": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */

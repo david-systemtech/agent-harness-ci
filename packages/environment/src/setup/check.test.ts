@@ -32,6 +32,7 @@ const holding: StateCheckers = {
   "permissions.containment": () => true,
   "permissions.denylist": () => true,
   "permissions.not-root": () => true,
+  "appearance.contrast": () => true,
 };
 
 describe("a step's result", () => {
@@ -44,7 +45,7 @@ describe("a step's result", () => {
       actions: [],
       checkedAt: AT,
     });
-    expect(await check(stepOf("appearance"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
+    expect(await check(stepOf("account"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
   });
 
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {

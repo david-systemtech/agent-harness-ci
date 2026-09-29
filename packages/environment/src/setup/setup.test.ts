@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
-import { registry, type ParamsOf, type ResponseOf, type StepResult } from "@agent-harness/contracts";
+import { DEFAULT_THEME, registry, type ParamsOf, type ResponseOf, type StepResult, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { bubblewrapProbe, brokenProbe } from "../../test/containment.js";
@@ -172,6 +172,61 @@ describe("the Permissions step's check", () => {
     const { results } = await client.request("setup.check", {});
     const stateOf = (step: StepResult["step"]) => results.find((result) => result.step === step)?.state;
     expect([stateOf("permissions"), stateOf("forges")]).toEqual(["done", "skipped"]);
+  });
+});
+
+describe("the Appearance step's check (ADR 0023; #391)", () => {
+  /** The preset with some seeds replaced, under another name. */
+  const themed = (name: string, seeds: Partial<Theme["seeds"]>): Theme => ({ name, seeds: { ...DEFAULT_THEME.seeds, ...seeds } });
+  const setTheme = async (client: WireClient, theme: Theme) => {
+    const { receipt } = await client.request("settings.update", { commandId: randomUUID(), values: { "appearance.theme": theme } });
+    expect(receipt.status).toBe("accepted");
+  };
+
+  it("is done on the preset theme, both ladders meeting the rules with no seed clamped", async () => {
+    const t = await start();
+    const client = await t.client();
+    expect((await client.request("settings.get", { keys: ["appearance.theme"] })).values["appearance.theme"]).toEqual(DEFAULT_THEME);
+    expect(await check(client, "appearance")).toMatchObject({
+      state: "done",
+      reason: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.",
+      failing: [],
+      actions: [],
+    });
+  });
+
+  it("needs attention on a theme built to fail, naming each clamped seed with the rule and the ladders, and offers Restore", async () => {
+    const t = await start();
+    const client = await t.client();
+    // A red accent cannot hold 3:1 as a fill on the dark ground where its role puts it; the danger hue is moved clear of it.
+    await setTheme(client, themed("Signal", { accent: { hue: 0, chroma: 0.21 }, danger: { hue: 40, chroma: 0.15 } }));
+    expect(await check(client, "appearance")).toMatchObject({
+      state: "needs-attention",
+      reason: 'Theme "Signal" has 1 seed clamped to meet the rules: accent (component contrast, dark ladder). Restore puts back the Default theme.',
+      failing: ["appearance.contrast"],
+      actions: ["restore"],
+    });
+
+    // Chromas no screen shows, on two seeds: each is named once, in the seeds' order, its rule in both ladders.
+    await setTheme(client, themed("Loud", { success: { hue: 150, chroma: 0.4 }, accent: { hue: 264, chroma: 0.4 } }));
+    expect((await check(client, "appearance")).reason).toBe(
+      'Theme "Loud" has 2 seeds clamped to meet the rules: accent (gamut, light and dark ladders), success (gamut, light and dark ladders). Restore puts back the Default theme.',
+    );
+
+    // A tinted canvas: one seed, two rules.
+    await setTheme(client, themed("Olive", { canvas: { hue: 121, chroma: 0.15 } }));
+    expect((await check(client, "appearance")).reason).toBe(
+      'Theme "Olive" has 1 seed clamped to meet the rules: canvas (gamut, light and dark ladders; component contrast, light ladder). Restore puts back the Default theme.',
+    );
+  });
+
+  it("is done again once Restore has written the preset theme back through settings.update", async () => {
+    const t = await start();
+    const client = await t.client();
+    await setTheme(client, themed("Ember", { accent: { hue: 55, chroma: 0.19 } }));
+    expect((await check(client, "appearance")).failing).toEqual(["appearance.contrast"]);
+    await setTheme(client, DEFAULT_THEME);
+    expect((await check(client, "appearance")).state).toBe("done");
   });
 });
 

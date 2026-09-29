@@ -260,8 +260,15 @@ describe("the step registry", () => {
     for (const key of SESSION_KEYS) expect(SETTINGS[key as SettingsKey].step, key).toEqual({ id: "your-machines", row: "environments.service" });
   });
 
-  it("leaves the Appearance entry writing and linking nothing, and never skipped, until its theme key arrives (#391)", () => {
-    expect(appearance).toMatchObject({ home: "appearance.theme", writes: [], checks: [], stateChecks: [], links: [], skippable: false });
+  it("gives the Appearance entry the theme on its home row appearance.theme, the state check appearance.contrast with Restore, and never skips it (ADR 0023, ADR 0031; #391)", () => {
+    expect(appearance).toMatchObject({ home: "appearance.theme", writes: ["appearance.theme"], links: [], budget: "local", triggers: ["settings.updated"] });
+    expect(appearance.checks.map((check) => check.key)).toEqual(["appearance.theme"]);
+    expect(SETTINGS["appearance.theme"].step).toEqual({ id: "appearance", row: "appearance.theme" });
+    expect(appearance.stateChecks).toEqual([
+      { id: "appearance.contrast", holds: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.", actions: ["restore"] },
+    ]);
+    expect(appearance.skippable).toBe(false);
+    expect(appearance.skip).toBeUndefined();
   });
 
   it("puts the five permission keys under the Permissions entry, on its home row access.permissions (ADR 0027)", () => {
@@ -561,9 +568,9 @@ describe("the step registry", () => {
   });
 
   it("fails when a step writes a key that is not a setting, or writes a key it does not check", () => {
-    expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, writes: [...sessionsStep.writes, "appearance.theme"] }])).toEqual([
-      "your-machines: writes appearance.theme, which is not a setting",
-      "your-machines: needs one health check of appearance.theme",
+    expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, writes: [...sessionsStep.writes, "sessions.autoArchive"] }])).toEqual([
+      "your-machines: writes sessions.autoArchive, which is not a setting",
+      "your-machines: needs one health check of sessions.autoArchive",
     ]);
     expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, checks: [] }])).toEqual([
       "your-machines: needs one health check of sessions.autoSettleAfterIdle",

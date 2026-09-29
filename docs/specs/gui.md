@@ -259,7 +259,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 
 **Owed by this workstream's build**:
 
-- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own; drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
+- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own (paid by #390); drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
 - With 88: this build turns the step registry's pane links into home row ids and each settings key's band into a row, since the rail reads them first (paid by #389); 88 then serves the `setup` subscription and fills this frame with the step cards.
 - To 93: the browser dock as a driver and the relay's handler registration on the runtime. To 91: Managed tools rows in About.
 
@@ -348,6 +348,13 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
   - **The split addresses** open one row each, `runs` Usage and `advanced` Your machines; the row in brackets in the address table has the address as a search term instead of a second entry. Each row's terms carry every address that opens it and the names of the sections ADR 0027 says it absorbed; its hint is one line of this build's words.
   - **Published data**: `schema/data/settings-bands.json`, `settings-rows.json` and `settings-addresses.json`, listed in `index.json` under `data`, each naming the exported schema its entries are valid against.
   - **The terminal UI's `/settings`** lists only the rows that hold keys; `/settings <row id>` lists that row's keys alone, and says so when it holds none.
+
+- Chosen defaults not decided on a ticket, from the theme setting's build (#391):
+  - **The key**: `appearance.theme` is last in the settings table, written by the generic `settings.update` (`admin`), the Appearance step's on its home row; its value check passes any valid theme, and its schema is published once, as `theme/theme.json`.
+  - **Done** means the derivation clamped nothing: a gamut or hue-separation clamp counts as a contrast one does, each being a rule the theme package holds by moving a seed, so ADR 0023's own orange accent needs attention for the warning and danger hues it moves (#640 asks David whether only the contrast rules should count).
+  - **The line** names each clamped seed once, in the theme's seed order, with each rule it broke and the ladders it broke it in: `Theme "Olive" has 1 seed clamped to meet the rules: canvas (gamut, light and dark ladders; component contrast, light ladder). Restore puts back the Default theme.`
+  - **Restore** on the Appearance step is `settings.update` with the preset theme; no method is added, and the Permissions step's stays `permissions.denylist.restorePresets`.
+  - **`settings.changed`** names the keys and not their values, which a client reads back at the scope its read method asks. The one recorder the three writers share (`environment/src/settings/changes.ts`) appends it straight after the `settings.updated` in the command's transaction, as its client session; a write that changes nothing appends neither. The access log's `settings.changed` keeps its name on the access stream, the stream kind telling the two apart.
 
 - Chosen defaults not decided on a ticket, from the desktop shell's build (#394):
   - **The seam**: `startDesktop(electron, platform)` (`packages/desktop/src/desktop.ts`) takes Electron's modules as the structural subsets it uses (`src/electron.ts`; tsc checks Electron's own against them in `src/main.ts`, the entry) and the platform: the operating system, architecture, hostname and user, the launch's command line, and the paths of the data directory, the `gui` build and the preload bundle. `test/fake-electron.ts` fakes the modules on any runner; no test loads Electron, whose package downloads its binary when Node first requires it.

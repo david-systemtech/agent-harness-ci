@@ -5,6 +5,7 @@ import {
   LIST_PATCH_KEY,
   MODES,
   PAIR_PATH,
+  PROTOCOL_VERSION,
   SCOPES,
   ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
@@ -30,6 +31,7 @@ import {
   type Mode,
   type SettingsValues,
   type SignInState,
+  UpdatesStatus,
   type AttachmentInput,
   type ByeReason,
   type CapabilityFlags,
@@ -58,8 +60,9 @@ import {
   type TerminalInfo,
   type WorkspaceProblem,
 } from "@agent-harness/contracts";
+import { uuidv4 } from "../ids.js";
 import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
-import { fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
+import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
 import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
@@ -176,6 +179,22 @@ export interface ScriptedEnvironment {
   readonly oneOff?: (command: string) => { readonly output: string; readonly exitCode?: number };
   /** Whether the login shell runs a one-off's line: preset true; false is a shell that is not POSIX, which refuses the line and exits 127. */
   readonly posixShell?: boolean;
+  /** What the update methods answer (#354): preset a current environment of discovery's version under a launcher, before any check, with no desktop build published. */
+  readonly updates?: ScriptedUpdates;
+}
+
+/**
+ * The update methods' answers: `updates.status` and `updates.check` answer
+ * `status` over a current environment's; `updates.desktop.stage` the build
+ * `desktopBuild` names, whatever platform and format it is asked for, or
+ * its refusal, an error with the reason as its code; `updates.apply` is
+ * accepted, the update going to the version asked for (else the channel's
+ * newest), unless `receipts` rejects it.
+ */
+export interface ScriptedUpdates {
+  readonly status?: Partial<UpdatesStatus>;
+  /** Preset: refused `not_found`, as a release with no build for the platform and format is. */
+  readonly desktopBuild?: ResultOf<"updates.desktop.stage"> | { readonly refused: string; readonly message?: string; readonly data?: Readonly<Record<string, unknown>> };
 }
 
 /** A file as `files.read` answers it. */
@@ -287,6 +306,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   recommend(recommendation: Partial<HandoffRecommendation>): void;
   /** The settings' values the environment holds now. */
   settings(): SettingsValues;
+  /** Changes settings as another client would: the values change, and a `settings.changed` notice names the keys that did (#391). */
+  setSettings(values: Partial<SettingsValues>): void;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
   /** The terminals the environment has held, oldest first, closed ones included. */
@@ -301,6 +322,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   exitTerminal(id: string, exitCode: number, signal?: number | null): void;
   /** The terminal's scrollback loses its oldest `chunks`, as the cap drops them: a cursor before what is kept gets a truncated snapshot. */
   dropScrollback(id: string, chunks: number): void;
+  /** Changes what the update methods answer from now on, over what they answer now: a release published since, a build staged. */
+  setUpdates(changes: ScriptedUpdates): void;
 }
 
 export interface ScriptedWorld {
@@ -1373,6 +1396,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...spec.containment,
   });
   const permissionValues = () => Object.fromEntries(PERMISSION_SETTINGS_KEYS.map((key) => [key, values[key]]));
+  /** Takes some settings' values as every write does: the keys whose values change, said with one `settings.changed` notice naming them (#391). */
+  const changeSettings = (patch: Partial<SettingsValues>) => {
+    const keys = (Object.keys(patch) as (keyof SettingsValues)[]).filter((key) => JSON.stringify(values[key]) !== JSON.stringify(patch[key]));
+    values = { ...values, ...patch };
+    if (keys.length > 0) notice("settings.changed", { keys });
+  };
   wire.answer("settings.get", (params) => {
     const keys = (params["keys"] as readonly (keyof SettingsValues)[] | undefined) ?? (Object.keys(values) as (keyof SettingsValues)[]);
     return { result: { values: Object.fromEntries(keys.map((key) => [key, values[key]])) } };
@@ -1380,16 +1409,53 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("settings.update", (params) => {
     const refused = rejection("settings.update");
     if (refused) return refused;
-    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
     const refused = rejection("updates.settings.set");
     if (refused) return refused;
-    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values: Object.fromEntries(UPDATE_SETTINGS_KEYS.map((key) => [key, values[key]])) });
   });
+  // The update methods (#354), as `ScriptedUpdates` says.
+  let updates: { readonly status: UpdatesStatus; readonly desktopBuild: NonNullable<ScriptedUpdates["desktopBuild"]> } = {
+    status: checked(UpdatesStatus, {
+      version: FAKE_HARNESS_VERSION,
+      protocolVersion: spec.protocolVersion ?? PROTOCOL_VERSION,
+      bundledClaudeCodeVersion: "2.1.0-test",
+      manager: { kind: "launcher", launcherVersion: FAKE_HARNESS_VERSION },
+      releaseSource: { origin: "https://git.example.test", kind: "forgejo", repository: "david/agent-harness" },
+      newest: null,
+      lastCheck: null,
+      target: null,
+      passedOver: null,
+      pending: { state: "current" },
+      lastOutcome: null,
+      failedVersions: [],
+      installed: [FAKE_HARNESS_VERSION],
+      ...spec.updates?.status,
+    }),
+    desktopBuild: spec.updates?.desktopBuild ?? { refused: "not_found", message: "The release has no desktop build for this platform and format." },
+  };
+  const setUpdates = (changes: ScriptedUpdates) => {
+    updates = { status: checked(UpdatesStatus, { ...updates.status, ...changes.status }), desktopBuild: changes.desktopBuild ?? updates.desktopBuild };
+  };
+  wire.answer("updates.status", () => ({ result: updates.status }));
+  wire.answer("updates.check", () => ({ result: updates.status }));
+  wire.answer("updates.desktop.stage", () => {
+    const build = updates.desktopBuild;
+    if (!("refused" in build)) return { result: { ...build } };
+    return { error: { code: build.refused, message: build.message ?? `Refused: ${build.refused}.`, data: { ...build.data } } };
+  });
+  wire.answer("updates.apply", (params) => {
+    const refused = rejection("updates.apply");
+    if (refused) return refused;
+    const toVersion = (params["version"] as string | undefined) ?? updates.status.newest ?? updates.status.version;
+    return acceptedWith({ updateId: uuidv4(), toVersion });
+  });
+
   wire.answer("permissions.settings.get", () => ({
     result: { values: permissionValues(), containment, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
   }));
@@ -1397,11 +1463,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("permissions.settings.set");
     if (refused) return refused;
     const asked = params["values"] as Partial<SettingsValues>;
+    let acknowledged: Partial<SettingsValues> = {};
     if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
       if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
-      values = { ...values, "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
+      acknowledged = { "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
     }
-    values = { ...values, ...asked };
+    changeSettings({ ...asked, ...acknowledged });
     return acceptedWith({ values: permissionValues() });
   });
 
@@ -1539,6 +1606,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "accounts.signin.cancel",
     "settings.update",
     "updates.settings.set",
+    "updates.apply",
     "permissions.settings.set",
     "permissions.mode.set",
     "permissions.containment.set",
@@ -1649,12 +1717,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     events: (sessionId) => [...(logs.get(sessionId)?.events ?? [])],
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
     setUsage,
+    setUpdates,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
     holdRewinds,
     signIn: moveSignIn,
     currentSignIn: () => signIn,
     recommend,
     settings: () => values,
+    setSettings: changeSettings,
     notice,
     ...prompts,
     terminals: () => [...terminals.values()],

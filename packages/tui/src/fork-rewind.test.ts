@@ -1,18 +1,20 @@
 import { describe, afterEach, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
-import { STOP_WAIT_MS } from "./session/use-fork-rewind.js";
+import { STOP_WAIT_MS } from "@agent-harness/client-runtime";
 
 /**
  * Fork and rewind in the terminal UI (docs/specs/tui.md, "The transcript"
- * and "Shortcuts"; ADR 0022; #232): Esc Esc opens the prompt picker, whose
+ * and "Shortcuts"; ADR 0022; #232, through the runtime's commands since
+ * #390): Esc Esc opens the prompt picker, whose
  * Enter rewinds to the row (`sessions.rewind`) and whose `b` branches there
  * (`sessions.fork` anchored at it); `/rewind [n | undo]` and `/fork [n]` do
  * the same from the composer; `w` and `f` on a user row under the
  * transcript's cursor; the rewound strip and the fold, `u` on the fold and
  * `/rewind undo` dispatching `sessions.undoRewind`; stop-and-rewind while a
  * run is live; a rewind to the first prompt starting a new session through
- * the runtime; a fork opened with its draft, title, tags and group; and fork
- * and rewind drawn dim with the adapter's reason, never hidden.
+ * the runtime; a fork opened with its draft, title, tags and group, on the
+ * row naming where it came from, which opens its source; and fork and rewind
+ * drawn dim with the adapter's reason, never hidden.
  */
 
 let apps: RenderedApp[] = [];
@@ -23,8 +25,10 @@ afterEach(async () => {
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
 const GROUP = "0199bb00-0000-4000-8000-000000000001";
-/** The first session id the harness mints: a fork's, or a new session's. */
+/** A fork's id, as a test that forks through the scripted environment directly mints it. */
 const MINTED = "0199ab00-0000-4000-8000-000000000001";
+/** The ids the runtime minted, in version 4's form. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const launch = async (environment: Partial<ScriptedEnvironment> = {}) => {
   const app = await renderApp({
@@ -78,6 +82,8 @@ const composerRow = (app: RenderedApp) => app.rows().find((row) => row.startsWit
 /** The frame as a wrapped line reads: every run of white space one space. */
 const unwrapped = (app: RenderedApp) => app.frame().replace(/\s+/g, " ");
 const params = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
+/** The id the runtime minted for the `index`th fork sent. */
+const forkId = (env: EnvironmentHandle, index = 0): string => String(env.requests("sessions.fork")[index]?.params?.["id"]);
 /** The methods of the requests sent, in order, of those named. */
 const sentInOrder = (env: EnvironmentHandle, ...methods: string[]) => env.requests().flatMap((request) => (methods.includes(request.method) ? [request.method] : []));
 
@@ -121,12 +127,13 @@ describe("the prompt picker (Esc Esc)", () => {
     await app.waitFor("Files are not restored");
     await app.press(KEY.up, "b");
     await app.waitFor("Forked Receipts");
-    expect(params(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: SESSION, id: MINTED, atMessageId: idOf(env, "Fix the receipts") })]);
+    expect(params(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: SESSION, id: expect.stringMatching(UUID_V4), atMessageId: idOf(env, "Fix the receipts") })]);
     expect(params(env, "sessions.rewind")).toEqual([]);
     await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the anchored text as the fork's draft");
-    // The fork holds the history before the anchor, not its transcript: its own starts empty.
-    await app.waitFor("Nothing said yet.");
-    const fork = app.runtime().projections.sessionList.read().rows.find((row) => row.summary.id === MINTED)?.summary;
+    // The fork holds the history before the anchor, not its transcript: it opens on the row naming where it came from.
+    await app.waitFor("Forked from Receipts at Fix the receipts");
+    expect(app.frame()).not.toContain("Nothing said yet.");
+    const fork = app.runtime().projections.sessionList.read().rows.find((row) => row.summary.id === forkId(env))?.summary;
     expect(fork).toMatchObject({ title: "Receipts", tags: ["billing"], groupId: GROUP, draft: "Fix the receipts" });
     expect(app.frame()).toContain("Receipts · /home/seth/receipts");
   });
@@ -292,8 +299,8 @@ describe("/rewind and /fork", () => {
     await command(app, "/fork");
     await app.waitFor("Forked Receipts");
     expect(params(env, "sessions.fork")[0]).not.toHaveProperty("atMessageId");
-    // The fork holds the whole history, which is the provider's: its own transcript starts empty, with no draft.
-    await app.waitFor("Nothing said yet.");
+    // The fork holds the whole history, which is the provider's: its own transcript opens on where it came from, with no draft.
+    await app.waitFor("Forked from Receipts · o opens it");
     expect(composerRow(app)).not.toContain("Add the tests");
   });
 
@@ -569,6 +576,22 @@ describe("the environment's refusals", () => {
     expect(env.requests("runs.interrupt")).toEqual([]);
   });
 
+  it("says why no stop can be had, asking nothing, when the run is only starting by the time the environment refuses (PR review)", async () => {
+    const live = { rejected: "conflict", message: "A run of the session is live; interrupt it before rewinding.", data: { reason: "run_active", runId: "0199a100-0000-4000-8000-00000000ffff" } };
+    const { app, env } = await launch({ receipts: { "sessions.rewind": live } });
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    const release = env.holdRewinds();
+    await command(app, "/rewind");
+    await app.waitUntil(() => env.requests("sessions.rewind").length === 1, "the rewind sent");
+    // Another client's start, heard while the refusal is on its way: there is no run id to stop yet.
+    env.list.change(SESSION, { activity: { state: "starting", since: app.clock.now().toISOString() } });
+    await app.tick(2);
+    release();
+    await app.waitFor("Not rewound: A run is starting on this session: once it is running, a rewind offers to stop it.");
+    expect(app.frame()).not.toContain("? y/n");
+    expect(env.requests("runs.interrupt")).toEqual([]);
+  });
+
   it("says a refusal it cannot act on with the environment's message", async () => {
     const queued = { rejected: "conflict", message: "The session has queued messages the next run would read.", data: { reason: "queued_messages" } };
     const { app, env } = await launch({ receipts: { "sessions.rewind": queued } });
@@ -592,17 +615,30 @@ describe("a rewind to the first prompt", () => {
 });
 
 describe("a fork", () => {
+  it("opens on one row naming the source's title and the prompt it was taken at, and o on that row opens the source", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/fork 1");
+    await app.waitFor("Forked from Receipts at Add the tests · o opens it");
+    await cursorTo(app, "Forked from Receipts");
+    await app.waitUntil(() => unwrapped(app).includes("· o open ·"), "the open verb on the hint line");
+    await app.press("o");
+    await app.waitFor("Reply to Add the tests.");
+    expect(app.frame()).not.toContain("Forked from");
+    expect(params(env, "sessions.fork")).toHaveLength(1);
+  });
+
   it("can be handed off onto another account with /handoff on the new session", async () => {
     const { app, env } = await launch();
     await converse(app, env, "Fix the receipts", "Add the tests");
     await command(app, "/fork");
     await app.waitFor("Forked Receipts");
-    await app.waitFor("Nothing said yet.");
+    await app.waitFor("Forked from Receipts");
     await command(app, "/handoff");
     await app.waitFor("Hand off Receipts on desk");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Handed off to personal");
-    expect(params(env, "sessions.fork").at(-1)).toEqual(expect.objectContaining({ sessionId: MINTED, account: "account-2" }));
+    expect(params(env, "sessions.fork").at(-1)).toEqual(expect.objectContaining({ sessionId: forkId(env), account: "account-2" }));
   });
 });
 
@@ -620,7 +656,7 @@ describe("a branch handed off", () => {
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Handed off to personal");
     const handedOff = String(params(env, "sessions.fork").at(-1)?.["id"]);
-    expect(params(env, "sessions.fork").at(-1)).toEqual(expect.objectContaining({ sessionId: MINTED, account: "account-2" }));
+    expect(params(env, "sessions.fork").at(-1)).toEqual(expect.objectContaining({ sessionId: forkId(env), account: "account-2" }));
     await app.waitUntil(() => env.summary(handedOff).draft === "Fix the receipts", "the draft carried onto the handed-off session");
     await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the draft in the composer");
   });
