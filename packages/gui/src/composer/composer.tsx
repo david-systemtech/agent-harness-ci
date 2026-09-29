@@ -9,7 +9,7 @@ import {
   type CapabilityAnswer,
 } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
-import { KeyContext, useKeyAction } from "../keys/key-dispatch.js";
+import { KeyContext, useKeyAction, type Offer } from "../keys/key-dispatch.js";
 import { useSessionQueue } from "../queue/session-queue.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
@@ -49,6 +49,11 @@ export interface ComposerProps {
  * - **The queue** (#401): ↑ in an empty composer takes the newest queued
  *   message back (`composer.withdrawLast`), and `composer.readNow` reads the
  *   whole queue from the command palette.
+ * - **Stop the run** (`app.interrupt`) is the palette's stop of this pane's
+ *   run, Stop's own; no key stops a run until "Esc stops the run" is on.
+ *
+ * Each action it wires is offered to the palette with whether it can be
+ * done now, as the runtime says: dim there with the line while it cannot.
  */
 export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const runtime = useRuntime();
@@ -64,14 +69,16 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const menus = useMenus({ environmentId, sessionId, summary: projection.summary, provider, text: box.text, caret: box.caret });
   const walk = usePromptWalk(projection, box);
   const wired = useWiredCommands();
-  useSlashCommand("attach", attachments.choose);
+  useSlashCommand("attach", attachments.choose, attachments.dialog);
   const queue = useSessionQueue();
 
-  const lock = lockOf(runtime.capability(environmentId, "runs.send"));
+  const sending = runtime.capability(environmentId, "runs.send");
+  const lock = lockOf(sending);
   // The run a send joins and Stop interrupts, and the run this composer asked to stop: Stopping… while it is still live.
   const liveRunId = liveRunIdOf(projection, runs);
   const live = isLive(runs.state) || liveRunId !== undefined;
   const [interruptAsked, askInterrupt] = useState<string | undefined>(undefined);
+  const stoppable = stopOffer(runtime.capability(environmentId, "runs.interrupt"), live, liveRunId, interruptAsked);
 
   /** Sends `raw` as the box would: a command of the window's is run, anything else goes to the agent with the attachments. */
   const send = (raw: string) => {
@@ -154,6 +161,14 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
         paste={attachments.paste}
         withdrawLast={withdrawLast}
         readNow={queue.readNow}
+        stop={stop}
+        offers={{
+          send: sending,
+          paste: runtime.capability(environmentId, "shell.clipboard"),
+          withdrawLast: queue.runs.verbs.withdraw,
+          readNow: queue.runs.verbs.readNow,
+          stop: stoppable,
+        }}
       />
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3" onDragOver={attachments.dragging} onDrop={attachments.dropped}>
         {lock.locked && <p className="text-xs text-amber">Locked: {lock.reason}</p>}
@@ -200,6 +215,15 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   );
 };
 
+/** Whether Stop the run can stop the pane's run now: the connection's answer, then whether a run is live, has an id, and is not stopping already. */
+const stopOffer = (interrupt: CapabilityAnswer, live: boolean, liveRunId: string | undefined, interruptAsked: string | undefined): Offer => {
+  if (interrupt.status === "absent") return interrupt;
+  if (!live) return { status: "absent", message: "Nothing is running in this session." };
+  if (liveRunId === undefined) return { status: "absent", message: "The run has not started yet." };
+  if (interruptAsked === liveRunId) return { status: "absent", message: "The run is stopping." };
+  return interrupt;
+};
+
 interface ComposerKeysProps {
   readonly send: () => void;
   readonly newline: () => void;
@@ -210,22 +234,26 @@ interface ComposerKeysProps {
   readonly paste: () => false | void;
   readonly withdrawLast: () => false | void;
   readonly readNow: () => void;
+  readonly stop: () => void;
+  /** Whether each action that can be refused can be done now, as the command palette draws it. */
+  readonly offers: { readonly send: Offer; readonly paste: Offer; readonly withdrawLast: Offer; readonly readNow: Offer; readonly stop: Offer };
 }
 
 /**
  * The composer's actions from its GUI column, wired in its region; one with nothing to do declines the key.
- * `composer.readNow` has no key by default: the command palette runs it.
+ * `composer.readNow` has no key by default, and `app.interrupt`'s Esc is off: the command palette runs them.
  */
-const ComposerKeys = ({ send, newline, navigate, complete, commandMenu, fileMention, paste, withdrawLast, readNow }: ComposerKeysProps) => {
-  useKeyAction("composer.send", send);
+const ComposerKeys = ({ send, newline, navigate, complete, commandMenu, fileMention, paste, withdrawLast, readNow, stop, offers }: ComposerKeysProps) => {
+  useKeyAction("composer.send", send, offers.send);
   useKeyAction("composer.newline", newline);
   useKeyAction("composer.navigate", navigate);
   useKeyAction("composer.complete", complete);
   useKeyAction("composer.command.menu", commandMenu);
   useKeyAction("composer.file.mention", fileMention);
-  useKeyAction("composer.paste", paste);
-  useKeyAction("composer.withdrawLast", withdrawLast);
-  useKeyAction("composer.readNow", readNow);
+  useKeyAction("composer.paste", paste, offers.paste);
+  useKeyAction("composer.withdrawLast", withdrawLast, offers.withdrawLast);
+  useKeyAction("composer.readNow", readNow, offers.readNow);
+  useKeyAction("app.interrupt", stop, offers.stop);
   return null;
 };
 
