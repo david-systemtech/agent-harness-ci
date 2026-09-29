@@ -9,7 +9,7 @@ import { TaskLedger } from "./tasks.js";
 /**
  * The mapper as a pure function over SDK messages (claude-adapter spec,
  * "Testing Decisions", the lower seams): fixtures under
- * `test/fixtures/sdk/`, one recorded from the bundled binary and the rest
+ * `test/fixtures/sdk/`, two recorded from the bundled binary and the rest
  * shaped after the pinned SDK's declarations, each saying which. What is
  * asserted is the vocabulary a run reports; unknown message types stay
  * opaque: passed over, never thrown on (ADR 0001).
@@ -153,6 +153,59 @@ describe("tool use and results", () => {
     const result = messages[3];
     expect(mapSdkMessage(result, state)).toHaveLength(1);
     expect(mapSdkMessage(result, state)).toEqual([]);
+  });
+});
+
+describe("an image in a tool's result (#540)", () => {
+  const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg==";
+  const SAVED = "[Image: source: /data/accounts/work/projects/-work-repo/5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a/tool-results/mcp-browser-blob-1790663135611-95vbxb.png]";
+
+  it("is recorded as its media type and size, never its bytes, beside the text the model read, in the recorded turn", () => {
+    const { state } = setup();
+    const events = mapAll(fixture("image-tool-turn"), state);
+    expect(events.filter((event) => event.type === "tool.started" || event.type === "tool.ended")).toEqual([
+      {
+        type: "tool.started",
+        payload: { toolCallId: "toolu_shot", name: "mcp__browser__browser_screenshot", input: {}, title: null, agentId: null, parentToolCallId: null },
+      },
+      {
+        type: "tool.ended",
+        payload: {
+          toolCallId: "toolu_shot",
+          status: "ok",
+          // The tool's text, the image (a 4 by 4 PNG of 73 bytes), and the line the CLI adds naming the copy it keeps.
+          output: [{ type: "text", text: "The page at https://example.com, 4 by 4." }, { type: "image", mediaType: "image/png", size: 73 }, { type: "text", text: SAVED }],
+          durationMs: 0,
+        },
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain(PNG_BASE64);
+  });
+
+  it("is recorded the same way in a result's own content, when one message carries several results, and a result of text alone is unchanged", () => {
+    const { state } = setup();
+    for (const id of ["toolu_a", "toolu_b"]) mapSdkMessage({ type: "assistant", message: { id: `msg_${id}`, role: "assistant", content: [{ type: "tool_use", id, name: "mcp__browser__browser_screenshot", input: {} }] }, parent_tool_use_id: null, session_id: "s", uuid: `u_${id}` }, state);
+    const image = { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_BASE64 } };
+    const events = mapSdkMessage(
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_a", content: [{ type: "text", text: "First." }, image] },
+            { type: "tool_result", tool_use_id: "toolu_b", content: [{ type: "text", text: "Second." }] },
+          ],
+        },
+        parent_tool_use_id: null,
+        session_id: "s",
+        uuid: "u",
+      },
+      state,
+    );
+    expect(events.map((event) => (event.type === "tool.ended" ? event.payload.output : null))).toEqual([
+      [{ type: "text", text: "First." }, { type: "image", mediaType: "image/png", size: 73 }],
+      [{ type: "text", text: "Second." }],
+    ]);
   });
 });
 

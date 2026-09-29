@@ -1,4 +1,4 @@
-import { actionById, isCommandId } from "@agent-harness/contracts";
+import { ACTIONS, actionById, isCommandId } from "@agent-harness/contracts";
 import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { useWindowAction, type Offer } from "../keys/key-dispatch.js";
 
@@ -36,6 +36,9 @@ interface Wiring {
   wire(command: WiredCommand): () => void;
 }
 
+/** Where a command stands in the shared list: the menu lists what is wired in the list's order, as the command palette does. */
+const placeOf = (name: string): number => ACTIONS.findIndex((action) => action.id === `command.${name}`);
+
 const newWiring = (): Wiring => {
   let wired: readonly WiredCommand[] = [];
   const listeners = new Set<() => void>();
@@ -50,7 +53,7 @@ const newWiring = (): Wiring => {
       return () => void listeners.delete(listener);
     },
     wire(command) {
-      changed([...wired.filter((other) => other.name !== command.name), command]);
+      changed([...wired.filter((other) => other.name !== command.name), command].sort((a, b) => placeOf(a.name) - placeOf(b.name)));
       return () => {
         if (wired.includes(command)) changed(wired.filter((other) => other !== command));
       };
@@ -95,7 +98,7 @@ export const useSlashCommand = (name: string, run: (argument: string) => void, o
   useWindowAction(action.id, () => latest.current(""), offer);
 };
 
-/** The slash commands wired now, in the order they were wired. */
+/** The slash commands wired now, in the shared list's order. */
 export const useWiredCommands = (): readonly WiredCommand[] => {
   const wiring = useWiring();
   return useSyncExternalStore(wiring.subscribe, wiring.read);

@@ -120,6 +120,30 @@ describe("the scripted environment in a DOM", () => {
     expect(desk.summary(desk.sessionId(0)).archivedAt).toBeNull();
   });
 
+  it("reads a subagent's stored transcript while its provider declares them, and refuses as the environment does while it does not", async () => {
+    const messages = [{ type: "user", uuid: "u1", message: { role: "user", content: "Find the parser" } }];
+    const { world, runtime } = await launch({
+      environments: [
+        { name: "desk", reach: "local", sessions: [{ title: "Explore" }], provider: { subagentTranscripts: true }, subagentTranscripts: { "call-agent": messages } },
+        { name: "laptop", reach: "paired", sessions: [{ title: "Explore" }], subagentTranscripts: { "call-agent": messages } },
+      ],
+    });
+    const desk = world.environment("desk");
+    expect(await runtime.requests.call(desk.environmentId, "sessions.subagentTranscript", { sessionId: desk.sessionId(), agentId: "call-agent" })).toEqual({
+      ok: true,
+      result: { sessionId: desk.sessionId(), agentId: "call-agent", messages },
+    });
+    expect(await runtime.requests.call(desk.environmentId, "sessions.subagentTranscript", { sessionId: desk.sessionId(), agentId: "nobody" })).toMatchObject({
+      ok: true,
+      result: { messages: [] },
+    });
+    const laptop = world.environment("laptop");
+    expect(await runtime.requests.call(laptop.environmentId, "sessions.subagentTranscript", { sessionId: laptop.sessionId(), agentId: "call-agent" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_params", message: "The Claude adapter cannot read a subagent's transcript: it does not declare subagentTranscripts.", data: { reason: "unsupported" } },
+    });
+  });
+
   it("has discovery answer starting or nothing, and says bye with a reason", async () => {
     const { clock, world, runtime, until } = await launch({
       environments: [
