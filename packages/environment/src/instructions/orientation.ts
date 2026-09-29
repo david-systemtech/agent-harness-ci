@@ -38,7 +38,7 @@ export interface OrientationSection {
   readonly name: OrientationSectionName;
   /** Its heading in the block: `Forges`. */
   readonly title: string;
-  /** Its paragraphs for a run, from state and never a clock. */
+  /** Its paragraphs for a run, from state and never a clock, at once or within a second. */
   render(scope: InstructionScope): OrientationContent | Promise<OrientationContent>;
 }
 
@@ -128,7 +128,7 @@ const fitted = (sections: readonly LaidSection[]): string => {
 /** What a section whose provider failed renders in place of its paragraphs. */
 const COULD_NOT_BE_READ: OrientationContent = ["Could not be read."];
 
-/** How long a section's provider may take, on the environment's clock, before its section is could not be read. */
+/** How long a section's provider may take, on the environment's clock, before the block shows its section as could not be read. */
 export const SECTION_BUDGET_MS = 1000;
 
 /**
@@ -137,7 +137,7 @@ export const SECTION_BUDGET_MS = 1000;
  * `clock` after it was asked. A provider that answers at once is given no
  * timer.
  */
-const read = (section: OrientationSection, scope: InstructionScope, clock: Clock): Promise<OrientationContent | null> => {
+const readSection = (section: OrientationSection, scope: InstructionScope, clock: Clock): Promise<OrientationContent | null> => {
   const unread = (why: string, error?: unknown): null => {
     console.error(`The orientation block's ${section.name} section ${why}; the block shows it as could not be read.`, ...(error === undefined ? [] : [error]));
     return null;
@@ -175,7 +175,7 @@ export const createOrientationRenderer = (options: OrientationRendererOptions): 
 
   const seam: OrientationSeam = async (scope): Promise<OrientationAnswer> => {
     const registered = ORIENTATION_SECTIONS.flatMap((name) => sections.get(name) ?? []);
-    const answers = await Promise.all(registered.map(async (section) => ({ section, content: await read(section, scope, clock) })));
+    const answers = await Promise.all(registered.map(async (section) => ({ section, content: await readSection(section, scope, clock) })));
     const laid = answers.flatMap(({ section, content }) => laidOut(section.title, content ?? COULD_NOT_BE_READ) ?? []);
     return {
       text: laid.length === 0 ? "" : fitted(laid),
