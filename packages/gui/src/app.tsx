@@ -5,6 +5,7 @@ import { LocalServiceProvider } from "./connections/local-service.js";
 import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
+import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
 import { osLadder, paintTheme } from "./theme/paint.js";
 import { WindowProvider } from "./window-context.js";
@@ -26,7 +27,8 @@ export interface AppProps {
  * The desktop window's renderer (docs/specs/gui.md): the frame over one
  * client runtime, painted with the theme's tokens before its first frame
  * (the preset's, until the window reads a theme of its own), its keys
- * dispatched through the GUI column of the shared action list.
+ * dispatched through the GUI column of the shared action list, and the
+ * command palette over it.
  */
 export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => {
   useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
@@ -35,7 +37,9 @@ export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) =>
       <LocalServiceProvider>
         <PairingProvider>
           <KeyDispatch macOS={macOS}>
-            <Frame />
+            <CommandPalette>
+              <Frame />
+            </CommandPalette>
           </KeyDispatch>
         </PairingProvider>
       </LocalServiceProvider>
