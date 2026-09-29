@@ -167,8 +167,9 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
 
   /**
    * The copies offered (#372): each item a Move answered `cannot_write`, on
-   * its connection, until its value is copied. Held in memory: a start
-   * offers none, and a Move answers `cannot_write` again.
+   * its connection, until its value is copied, the item moves, or a later
+   * Move of it that writes answers otherwise. Held in memory: a start offers
+   * none until a Move answers `cannot_write` again.
    */
   const offered = new Set<string>();
   const offerOf = (connectionId: string, item: KeyManagerMoveItemRef): string => JSON.stringify([connectionId, item.kind, item.id]);
@@ -251,8 +252,8 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         }
       }
       // A copy this Move wrote is left at the target when the item goes no further; with verifyOnly it wrote none.
-      const written = !mode.verifyOnly;
-      const left = written
+      const wrote = !mode.verifyOnly;
+      const left = wrote
         ? `The copy written to ${named} and the stored token of the ${kind} ${item.name} are both left in place.`
         : "The value there and the stored token are both left as they were.";
       const back = await registry.resolve({ reference, owner: `key-manager:move:${source.kind}:${item.id}`, purpose: "read back a move" });
@@ -261,19 +262,19 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
           mode.verifyOnly && back.code === "reference_not_found"
             ? `${said(back.message)} Nothing is pasted at ${named} yet: paste the value there, then verify it again. The ${kind} ${item.name} keeps its stored token.`
             : `${said(back.message)} ${left}`;
-        return { result: failed(ref, "read-back", written, { code: back.code, message, data: { connectionId } }), event: null };
+        return { result: failed(ref, "read-back", wrote, { code: back.code, message, data: { connectionId } }), event: null };
       }
       const same = sameValue(back.value, stored.value);
       back.release();
       if (!same) {
-        const message = written
+        const message = wrote
           ? `${named} answered another value than the one written, so the ${kind} was not swapped to it. ${left}`
           : `${named} holds another value than the stored token of the ${kind} ${item.name}, so the ${kind} was not swapped to it. ${left}`;
-        return { result: failed(ref, "read-back", written, { code: "conflict", message, data: { reason: "read_back_differs", connectionId, reference } }), event: null };
+        return { result: failed(ref, "read-back", wrote, { code: "conflict", message, data: { reason: "read_back_differs", connectionId, reference } }), event: null };
       }
       const swapped = await source.swap(item.id, reference, caller);
       if (swapped.outcome !== "swapped") {
-        return { result: failed(ref, "swap", written, { code: swapped.error.code, message: `${said(swapped.error.message)} ${left}`, data: swapped.error.data }), event: null };
+        return { result: failed(ref, "swap", wrote, { code: swapped.error.code, message: `${said(swapped.error.message)} ${left}`, data: swapped.error.data }), event: null };
       }
       offered.delete(offer);
       let deleted = true;
@@ -283,7 +284,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         deleted = false;
         console.error(`Deleting the stored token of the ${kind} ${item.id} a Move took failed; the next start deletes it:`, error);
       }
-      const how = written ? `Moved to ${named}` : `Verified the value pasted at ${named} and moved to it`;
+      const how = wrote ? `Moved to ${named}` : `Verified the value pasted at ${named} and moved to it`;
       const message = `${how}; ${deleted ? "the stored token was deleted." : "deleting the stored token failed, and the next start deletes it."}`;
       return {
         result: { item: ref, outcome: "moved", reference, storedValueDeleted: deleted, message },

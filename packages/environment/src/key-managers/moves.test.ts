@@ -20,7 +20,9 @@ import { VAULT_FILE, fileVault } from "../serve/vault.js";
  * OpenBao on loopback over TLS, whose KV mounts take writes, and the fake
  * forge. The base path is set and suggested over the wire; what a Move
  * wrote is read from the fake OpenBao; whether a value is held as a secret
- * is seen in what a run's provider says back.
+ * is seen in what a run's provider says back. A login the fake's policies
+ * let read and not write is Copy the value's (#372): the test pastes what
+ * `keyManagers.move.copyValue` answered into the fake between calls.
  */
 
 const { onCleanup, tempDir } = useCleanups();

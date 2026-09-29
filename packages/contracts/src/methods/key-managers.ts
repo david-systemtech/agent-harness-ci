@@ -447,15 +447,16 @@ export const keyManagersMove = defineMethod({
  * stored tokens"; ADR 0028's Copy the value; #372): the one answer that
  * ever holds a stored value, which ADR 0020 otherwise never returns. It is
  * offered once per `cannot_write` a Move answered for the item on the
- * connection, and taken by the first copy; a repeat of the command id is
- * answered by its receipt alone, which never holds the value. Appends
+ * connection, until the first copy takes it, the item moves, or a later
+ * Move of the item that writes answers otherwise; a repeat of the command
+ * id is answered by its receipt alone, which never holds the value. Appends
  * `key-manager.value-copied`, naming the item, the target and the client
  * session, never the value. An `admin` command, sent directly and never
  * queued in a client's outbox, so a call made while the environment is
  * unreachable fails rather than a value waiting on a client. A connection
  * the environment does not hold, an item holding no stored value, or one no
- * copy is offered for (none answered `cannot_write` since the last copy or
- * this environment's start) is `not_found`.
+ * copy is offered for (a Move is run first, again after a copy or a start)
+ * is `not_found`.
  */
 export const keyManagersMoveCopyValue = defineMethod({
   name: "keyManagers.move.copyValue",
