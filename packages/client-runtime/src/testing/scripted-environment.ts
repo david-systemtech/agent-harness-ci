@@ -64,7 +64,8 @@ import { uuidv4 } from "../ids.js";
 import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
 import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
-import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./scripted-list.js";
+import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
+import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
 
 /**
@@ -157,6 +158,14 @@ export interface ScriptedEnvironment {
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
   /** The directories a new session is refused in, by the path as recorded (`~` read as the scripted home), each with its problem (`workspace_unusable`): preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
+  /**
+   * The directories `workspaces.browse` lists and `workspaces.inspect`
+   * describes, by absolute path, each one's parents and the home being
+   * directories too; the repositories among them are what a `worktree`
+   * request is made from (`scripted-folders.ts`). Preset: the home and its
+   * parents, holding nothing.
+   */
+  readonly folders?: Readonly<Record<string, ScriptedFolder>>;
   /** Whether `files.list` says the workspace holds more than it listed: preset false. */
   readonly filesTruncated?: boolean;
   /** What `files.read` answers, by path: its text, or a file too large or binary; any other path is `not_found`, and a directory of `files` is `not_a_file`. */
@@ -1002,6 +1011,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const listed = [...(spec.files ?? [])];
   const contents = new Map<string, ScriptedFile>(Object.entries(spec.fileContents ?? {}));
   wire.answer("files.list", () => ({ result: { files: [...listed], truncated: spec.filesTruncated ?? false, source: "git" } }));
+  // The directories the picker browses and inspects, and a worktree request is made from (`scripted-folders.ts`).
+  const folders = scriptedFolders({ home: SCRIPTED_HOME, now: () => clock.now().toISOString(), ...(spec.folders !== undefined && { folders: spec.folders }) });
+  wire.answer("workspaces.browse", (params) => folders.browse(params));
+  wire.answer("workspaces.inspect", (params) => folders.inspect(params));
   wire.answer("files.read", (params) => {
     const path = String(params["path"]);
     const file = contents.get(path);
@@ -1682,6 +1695,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     head: () => sequence,
     refusal: receiptFor,
     ...(spec.directories !== undefined && { directories: spec.directories }),
+    folders,
   });
 
   const fetch: HttpFetch = async (url, request) => {
