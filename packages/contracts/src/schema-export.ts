@@ -361,8 +361,24 @@ import {
   SkillRuleIssueParams,
   SkillSourceFolder,
   SkillSourceUrl,
+  SkillWhileActiveKey,
 } from "./skill-rules.js";
-import { GitCommit, SkillLayer, SkillMember, SkillOrigin, SkillSource, SkillSourceBranch, SkillSourceFollow, SkillSourceId } from "./skills.js";
+import {
+  GitCommit,
+  SkillChoice,
+  SkillLayer,
+  SkillMember,
+  SkillMemberKind,
+  SkillMemberRef,
+  SkillOrigin,
+  SkillSetMember,
+  SkillSource,
+  SkillSourceBranch,
+  SkillSourceFollow,
+  SkillSourceId,
+  SkillsUpdatedPayload,
+  SkillsView,
+} from "./skills.js";
 
 /**
  * The JSON Schema export: every schema in the package as a draft 2020-12
@@ -625,7 +641,14 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/member-warning.json", title: "SkillMemberWarning", schema: SkillMemberWarning },
   { path: "skills/origin.json", title: "SkillOrigin", schema: SkillOrigin },
   { path: "skills/layer.json", title: "SkillLayer", schema: SkillLayer },
+  { path: "skills/member-kind.json", title: "SkillMemberKind", schema: SkillMemberKind },
+  { path: "skills/while-active-key.json", title: "SkillWhileActiveKey", schema: SkillWhileActiveKey },
   { path: "skills/member.json", title: "SkillMember", schema: SkillMember },
+  { path: "skills/member-ref.json", title: "SkillMemberRef", schema: SkillMemberRef },
+  { path: "skills/set-member.json", title: "SkillSetMember", schema: SkillSetMember },
+  { path: "skills/choice.json", title: "SkillChoice", schema: SkillChoice },
+  { path: "skills/view.json", title: "SkillsView", schema: SkillsView },
+  { path: "skills/skills-updated.json", title: "SkillsUpdatedPayload", schema: SkillsUpdatedPayload },
   { path: "skills/source-id.json", title: "SkillSourceId", schema: SkillSourceId },
   { path: "skills/git-commit.json", title: "GitCommit", schema: GitCommit },
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
@@ -884,12 +907,14 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
     title: "Skill member",
     description: [
       "Reading a member, readSkillMember in the contracts package (skills spec, \"The skill set\" and \"Name\").",
-      "Each case gives a member's frontmatter as parsed and its folder, and what the reading answers: name, description, invocation and userInvocable, and each problem and warning by its kind.",
-      "The folder is {kind: folder, name}, the member's own folder, or, for a folder that is itself one skill, {kind: root, sourceFolderSegment, repositorySegment}: the source folder's last segment (null for .) and the repository's last path segment (null for none).",
-      "The name is the frontmatter name when it is text the skill-name rule takes; else the first of the folder names (the folder's; for a root, the source folder's segment, then the repository's) the rule takes; else null, with a name problem.",
+      "Each case gives a member's frontmatter as parsed (null for frontmatter that does not read as a YAML mapping) and its folder, and what the reading answers: name, description, invocation, userInvocable and whileActive, and each problem and warning by its kind.",
+      "The folder is {kind: folder, name}, the member's own folder; for a folder that is itself one skill, {kind: root, sourceFolderSegment, repositorySegment}: the source folder's last segment (null for .) and the repository's last path segment (null for none); or, for a command file, {kind: file, name}, its file's name without .md.",
+      "The name is the frontmatter name when it is text the skill-name rule takes (never for a command, which is named by its file alone); else the first of the folder names (the folder's or file's; for a root, the source folder's segment, then the repository's) the rule takes; else null, with a name problem.",
       "A frontmatter name that is present but not taken is a frontmatter-name-invalid warning when a folder name is used; a name unlike the folder the member is in (for a root, the source folder's segment, else the repository's) is a name-unlike-folder warning.",
+      "Frontmatter that does not read is a frontmatter problem, first, and the member is read as if its frontmatter were empty, with no description problem.",
       "The description is a frontmatter description that is text with more than white space, trimmed; else null, with a description problem, after any name problem.",
       "The invocation is slash-only exactly when disable-model-invocation is true, else model+slash; userInvocable is false exactly when user-invocable is false.",
+      "whileActive lists hooks, then allowed-tools, each when its key holds anything: not absent, null, empty text, an empty list or an empty mapping.",
     ].join(" "),
     cases: SKILL_MEMBER_CASES,
   },

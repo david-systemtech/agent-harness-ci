@@ -24,6 +24,7 @@ import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
 import { SessionId } from "./sessions.js";
+import { SkillsUpdatedPayload } from "./skills.js";
 import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
 
@@ -53,8 +54,10 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * account (#310: the ForgeService's own events, which its store is kept
  * from); a key-manager connection was added, signed in, signed out,
  * updated, had its policies ticked, was verified with something changed, or
- * was removed (#365, #366: the key-manager connections' own events); so
- * every connected client learns of it whatever else it is subscribed to.
+ * was removed (#365, #366: the key-manager connections' own events); the
+ * skill set changed, by a command or a read that found the own directory
+ * changed (#494); so every connected client learns of it whatever else it
+ * is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.started",
@@ -85,10 +88,11 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "key-manager.connection.policies-set",
   "key-manager.connection.verified",
   "key-manager.connection.removed",
+  "skills.updated",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), and skills.updated (the skill set changed; a client reads skills.get again).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -219,6 +223,11 @@ const KeyManagerConnectionVerified = describedNotice(
   "A verification of a key-manager connection found its status, token information, policies or whether it can mint changed.",
 );
 const KeyManagerConnectionRemoved = describedNotice("key-manager.connection.removed", KeyManagerConnectionRemovedPayload, "A key-manager connection was removed.");
+const SkillsUpdated = describedNotice(
+  "skills.updated",
+  SkillsUpdatedPayload,
+  "The skill set changed: a command changed it, or a read found the own directory changed.",
+);
 
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
@@ -255,6 +264,7 @@ export const EnvironmentNotice = z
     KeyManagerConnectionPoliciesSet,
     KeyManagerConnectionVerified,
     KeyManagerConnectionRemoved,
+    SkillsUpdated,
   ])
   .meta({
     description:

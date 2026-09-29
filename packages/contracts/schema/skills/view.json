@@ -1,0 +1,645 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsView",
+  "type": "object",
+  "properties": {
+    "ownDirectory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The own directory's absolute path on the environment's machine, holding skills/ and commands/, for a terminal pane or an editor to open."
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+          },
+          "url": {
+            "type": "string",
+            "description": "A skill source's URL, as entered: https://, ssh:// or scp's [user@]host:path, naming a repository with an identity; no credential, query, fragment or leading hyphen, and no other scheme or local path. Refused as invalid_params, the issue's params naming the rule source-url and its reason; this pattern holds part of the rule, and cases/skill-source-url.json holds all of it.",
+            "pattern": "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$"
+          },
+          "identity": {
+            "type": "string",
+            "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+            "description": "The URL's repository identity, which the source is known by with its folder."
+          },
+          "folder": {
+            "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+            "type": "string"
+          },
+          "follow": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "branch"
+                  },
+                  "branch": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+                        "description": "A branch a skill source follows, as git takes a branch name: 1 to 255 characters with no white space, control character or any of ~ ^ : ? * [ \\, no .. or @{, no empty segment, none beginning with . or ending with .lock, no trailing / or ., not @, and not beginning with -."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The branch; null for the remote's default branch, the one its HEAD names."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "branch"
+                ],
+                "description": "A branch the source syncs from, at start, every six hours and on Pull now."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "pinned"
+                  },
+                  "commit": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+                    "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "commit"
+                ],
+                "description": "A commit the source is pinned to: it never syncs until it is unpinned."
+              }
+            ],
+            "description": "What a skill source follows: a branch (null for the remote's default), or a pinned commit, which never syncs."
+          },
+          "position": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Where the source stands among the environment's sources, in the order they were added, from 1: of two sources holding one name, the earlier wins."
+          },
+          "addedBy": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client_session",
+                  "routine",
+                  "adapter",
+                  "system"
+                ],
+                "description": "What caused the event: a client session, a routine, a provider adapter or the environment itself."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The actor's id within its kind; a system component names itself."
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "description": "Who added the source: the client session a person added it from, or the environment's own importer."
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When the source was added."
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "identity",
+          "folder",
+          "follow",
+          "position",
+          "addedBy",
+          "addedAt"
+        ],
+        "description": "A skill source: a repository and folder the environment tracks for skills, following a branch or pinned to a commit. The URL is as entered and passed the source URL rule; the identity is its repository identity; the folder is . for the repository's root."
+      },
+      "description": "The skill sources the environment tracks, earliest added first."
+    },
+    "choices": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "enabled"
+              },
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "accountId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The account the choice is for; null for the whole environment, which outranks an account's choice."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether the name is on: off leaves it out of the set whichever layers hold it."
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "accountId",
+              "enabled"
+            ],
+            "description": "A name switched off, or on again, for one account or the whole environment."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "always-on"
+              },
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "accountId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "The account whose runs append the member."
+              },
+              "on": {
+                "type": "boolean",
+                "description": "Whether every run of the account appends the member's body."
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "accountId",
+              "on"
+            ],
+            "description": "A name made always-on, or not, for one account."
+          }
+        ],
+        "description": "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, which outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert."
+      },
+      "description": "Every choice made on the environment, an inert one among them."
+    },
+    "accountId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The account the set is resolved for: the session's, else the environment's default account; null when the environment holds none."
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "skill",
+              "command"
+            ],
+            "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+          },
+          "path": {
+            "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member's description, trimmed; null when it has none, a description problem saying so."
+          },
+          "invocation": {
+            "type": "string",
+            "enum": [
+              "model+slash",
+              "slash-only"
+            ],
+            "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+          },
+          "userInvocable": {
+            "type": "boolean",
+            "description": "Whether a person may invoke it: false exactly when its frontmatter sets user-invocable: false, which leaves it out of the / menu."
+          },
+          "whileActive": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hooks",
+                "allowed-tools"
+              ],
+              "description": "A frontmatter key that acts while the skill is active, which a client says of the member: hooks (commands run on the provider's events) or allowed-tools (tools that may run without a prompt; the tool gate and the denylist still run first)."
+            },
+            "description": "The keys its frontmatter declares that act while it is active, hooks before allowed-tools; empty for none."
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "repository"
+                      },
+                      "repository": {
+                        "type": "string",
+                        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                        "description": "The identity of the repository the member was read from: its source's, or the trusted repository's."
+                      },
+                      "path": {
+                        "description": "The member's folder in that repository, from its root; . when the root is itself the skill.",
+                        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "repository",
+                      "path"
+                    ],
+                    "description": "The repository the member was read from, by its identity, and the member's folder there."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "manifest"
+                      },
+                      "repository": {
+                        "type": "string",
+                        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                        "description": "The identity of the repository the manifest says the member was copied from."
+                      },
+                      "path": {
+                        "description": "The member's folder in that repository, as the manifest names it.",
+                        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                        "type": "string"
+                      },
+                      "commit": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{4,64}$",
+                            "description": "The commit the member was copied at, as the manifest names it: its object name, full or abbreviated."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "licence": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The licence the manifest names, an SPDX identifier where it gives one; null when it names none."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "repository",
+                      "path",
+                      "commit",
+                      "licence"
+                    ],
+                    "description": "What a provenance manifest beside the member names: the repository and folder it was copied from, the commit and the licence."
+                  }
+                ],
+                "description": "Where a member comes from, which the readiness overlay is keyed by (repository identity and folder path): the repository it was read from, or what a provenance manifest beside a copy names."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it comes from; null for a member of the own directory with no provenance manifest, or of a repository with no identity."
+          },
+          "layer": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "source"
+                  },
+                  "sourceId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                    "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sourceId"
+                ],
+                "description": "A tracked source's current snapshot."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "own"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "description": "The environment's own skills directory, or its commands directory."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "repository"
+                  },
+                  "root": {
+                    "type": "string",
+                    "enum": [
+                      ".claude/skills",
+                      ".agents/skills"
+                    ],
+                    "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+                  },
+                  "directory": {
+                    "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
+                    "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "root",
+                  "directory"
+                ],
+                "description": "A trusted repository's own skills."
+              }
+            ],
+            "description": "The layer a member lies in: a source, the own directory, or a trusted repository's .claude/skills or .agents/skills."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Its body's length in characters, after its frontmatter, which always-on appends to every run."
+          },
+          "tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The tokens its body approximately costs: a quarter of its size, rounded up."
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "frontmatter",
+                    "name",
+                    "description"
+                  ],
+                  "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "What is wrong, for people: the names tried and why each fails."
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+            },
+            "description": "Empty for a valid member; any problem leaves it invalid and out of the set."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "name-unlike-folder",
+                    "frontmatter-name-invalid",
+                    "sidecar-invalid"
+                  ],
+                  "description": "What the warning is: name-unlike-folder (its name is not its folder's name), frontmatter-name-invalid (its frontmatter name fails the skill-name rule, so it is named after its folder) or sidecar-invalid (its readiness sidecar does not read, and counts as none)."
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The warning, for people."
+                }
+              },
+              "required": [
+                "kind",
+                "message"
+              ],
+              "description": "A warning on a member, which stays in the skill set."
+            },
+            "description": "Warnings that leave it in the set."
+          },
+          "shadowedBy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "layer": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "source"
+                          },
+                          "sourceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                            "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "sourceId"
+                        ],
+                        "description": "A tracked source's current snapshot."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "own"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "description": "The environment's own skills directory, or its commands directory."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "repository"
+                          },
+                          "root": {
+                            "type": "string",
+                            "enum": [
+                              ".claude/skills",
+                              ".agents/skills"
+                            ],
+                            "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+                          },
+                          "directory": {
+                            "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
+                            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "root",
+                          "directory"
+                        ],
+                        "description": "A trusted repository's own skills."
+                      }
+                    ],
+                    "description": "The layer a member lies in: a source, the own directory, or a trusted repository's .claude/skills or .agents/skills."
+                  },
+                  "path": {
+                    "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+                    "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "layer",
+                  "path"
+                ],
+                "description": "A member named by where it lies: its layer and its path from that layer's folder."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member holding its name that wins over it by precedence, which leaves this one out of the set; null for a member in the set, and for an invalid one."
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "path",
+          "description",
+          "invocation",
+          "userInvocable",
+          "whileActive",
+          "origin",
+          "layer",
+          "size",
+          "tokens",
+          "problems",
+          "warnings",
+          "shadowedBy"
+        ],
+        "description": "A member as a resolved skill set lists it: the member, and the member that shadows it when one holding its name wins by precedence. In the set when it has no problem and nothing shadows it."
+      },
+      "description": "Every member of every layer, whether in the set, shadowed or invalid: by name, and within a name by precedence, highest first, so the first valid one is the one in the set; members without a name last, by precedence."
+    }
+  },
+  "required": [
+    "ownDirectory",
+    "sources",
+    "choices",
+    "accountId",
+    "members"
+  ],
+  "description": "The environment's skills as skills.get answers them: the own directory's path, the sources, the choices, and the members of the set resolved for one account, each with its layer and any member that shadows it."
+}

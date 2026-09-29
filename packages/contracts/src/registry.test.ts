@@ -239,6 +239,8 @@ describe("the method registry", () => {
       "updates.cancel",
       "updates.settings.set",
       "updates.begin",
+      "skills.own.create",
+      "skills.own.remove",
     ]);
   });
 
@@ -428,6 +430,9 @@ describe("the method registry", () => {
       | "updates.settings.set"
       | "updates.begin"
       | "updates.desktop.stage"
+      | "skills.get"
+      | "skills.own.create"
+      | "skills.own.remove"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

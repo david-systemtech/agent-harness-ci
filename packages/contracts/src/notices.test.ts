@@ -13,7 +13,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310) and the key-manager connections' (#365, #366), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' (#365, #366) and the skill set's (#494), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -43,6 +43,7 @@ describe("environment notices", () => {
       "key-manager.connection.policies-set",
       "key-manager.connection.verified",
       "key-manager.connection.removed",
+      "skills.updated",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });

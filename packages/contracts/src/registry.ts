@@ -106,6 +106,7 @@ import {
   updatesStatus,
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
+import { skillsGet, skillsOwnCreate, skillsOwnRemove } from "./methods/skills.js";
 import {
   terminalsClose,
   terminalsList,
@@ -235,6 +236,9 @@ export const methods = [
   updatesSettingsSet,
   updatesBegin,
   updatesDesktopStage,
+  skillsGet,
+  skillsOwnCreate,
+  skillsOwnRemove,
 ] as const;
 
 type Registered = (typeof methods)[number];

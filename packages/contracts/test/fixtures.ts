@@ -18,7 +18,7 @@ import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
-import { skillSchemaFixtures } from "./skill-fixtures.js";
+import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
@@ -508,6 +508,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
   ...updateMethodFixtures,
+  ...skillMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -722,8 +723,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "skills.updated",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "skills.source-added", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -756,6 +758,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
+      { type: "skills.updated", payload: {} },
       validEnvironmentStartedEvent,
     ],
     invalid: [
