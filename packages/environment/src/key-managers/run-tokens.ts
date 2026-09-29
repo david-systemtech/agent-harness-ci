@@ -35,7 +35,8 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *   release: the idle stop, a changed key, a rewind, drain, a terminal's
  *   close); the registration is let go once the revocation is answered.
  *   A connection's sign-out or removal revokes every run token minted from
- *   it at once, whatever its token role or login made of it.
+ *   it at once, whatever its token role or login made of it, and one whose
+ *   mint was under way then as it lands, its holder given none.
  * - **No token** is minted for a connection that is not signed in, holds no
  *   login, or cannot mint (`canMint` false): the holder gets the address
  *   and CA with an empty token, never the login's own. A spawn waits up to
@@ -104,7 +105,7 @@ export interface RunTokensOptions {
 
 export interface RunTokens {
   readonly supplier: ProcessEnvironmentSupplier;
-  /** Revokes every run token a holder still holds from the connection: its sign-out or removal. */
+  /** Revokes every run token a holder still holds from the connection, and any whose mint is under way as it lands: its sign-out or removal. */
   revokeAll(connectionId: string): void;
   /** Stops renewing, and lets go of every registration held: the environment's close. */
   close(): void;
@@ -126,7 +127,11 @@ const NOTHING: SuppliedVariables = { variables: {}, release: () => undefined };
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const { source, clock, scrub, budgetMs } = options;
   const held = new Set<HeldRunToken>();
+  /** How many times each connection's run tokens were all revoked (its sign-outs and removal): a mint under way across one is revoked as it lands. */
+  const revocations = new Map<string, number>();
   let closed = false;
+
+  const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
   /** The injecting connections this supplier serves: OpenBao's. */
   const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao");
@@ -215,6 +220,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     if (record.status.kind !== "signed-in" || login === null || record.canMint === false) return null;
     const ttlSeconds = lifeOf(record);
     if (ttlSeconds < 1) return null;
+    const revoked = revocationsOf(record.id);
     const answer = await login.provider.mint(
       login.target,
       login.token,
@@ -232,8 +238,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       return null;
     }
     const run = hold(record.id, login, answer.token);
-    // The environment closed while it was minted: nothing holds it.
-    if (closed) {
+    // The environment closed, or the connection was signed out or removed, while it was minted: it is revoked, and the holder gets none.
+    if (closed || revocationsOf(record.id) !== revoked) {
       release(run);
       return null;
     }
@@ -284,6 +290,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     supplier,
 
     revokeAll(connectionId) {
+      revocations.set(connectionId, revocationsOf(connectionId) + 1);
       for (const run of held) {
         if (run.connectionId !== connectionId || run.revoked) continue;
         run.revoked = true;

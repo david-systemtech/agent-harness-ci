@@ -430,6 +430,26 @@ describe("a sign-out", () => {
     await vi.waitFor(() => expect([login, child, orphan].map((each) => bao.live(each))).toEqual([false, false, false]));
   });
 
+  it("revokes a run token whose mint was under way as it signed out, and its holder is given none", async () => {
+    const { t, bao, client } = await withOpenBao();
+    bao.role("runs", { orphan: true });
+    const connection = await connected(client, bao);
+    await update(client, { connectionId: connection.id, tokenRole: "runs" });
+    let answer = (): void => undefined;
+    bao.delay("POST auth/token/create/runs", new Promise<void>((resolve) => (answer = resolve)));
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    await vi.waitFor(() => expect(bao.created).toHaveLength(1));
+
+    await signOut(client, connection.id);
+    answer();
+
+    // An orphan, so only its own revocation ends it.
+    expect(bao.issued(bao.created[0] ?? "")?.parent).toBeNull();
+    expect((await spawnedWith(t, session.id))["BAO_TOKEN"]).toBe("");
+    await vi.waitFor(() => expect(bao.live(bao.created[0] ?? "")).toBe(false));
+  });
+
   it("revokes the run tokens minted from a token a person gave, and leaves that token, theirs, unrevoked", async () => {
     const { t, bao, client } = await withOpenBao();
     bao.token(PERSON_TOKEN, { policies: ["default", "minter", "reader"], ttlSeconds: 7200 });
@@ -487,7 +507,7 @@ describe("a login that cannot mint", () => {
 
 describe("a spawn while a connection signs in", () => {
   /** A connection added and verified on an environment that has stopped, and a fake OpenBao whose AppRole login is held until `answer` is called. */
-  const heldAtRestart = async () => {
+  const heldAtRestart = async (options: TestEnvironmentOptions = {}) => {
     const dataDir = join(tempDir(), "data");
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     const { t, bao, client } = await withOpenBao({ dataDir });
@@ -495,7 +515,7 @@ describe("a spawn while a connection signs in", () => {
     await t.close();
     let answer = (): void => undefined;
     bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 7200, after: new Promise<void>((resolve) => (answer = resolve)) });
-    const again = await start({ dataDir });
+    const again = await start({ ...options, dataDir });
     const client2 = await again.client();
     expect((await list(client2))[0]?.status.kind).toBe("signing-in");
     return { t: again, bao, client: client2, answer };
@@ -515,6 +535,20 @@ describe("a spawn while a connection signs in", () => {
     const env = await spawnedWith(t, session.id);
     expect(env["BAO_TOKEN"]).toBe(bao.created[0]);
     expect(bao.issued(env["BAO_TOKEN"] ?? "")?.parent).toBe(bao.minted.at(-1));
+  });
+
+  it("revokes what it is given once its holder has stopped meanwhile: a terminal closed while it waits", async () => {
+    const { pty, terminals } = fakeTerminals();
+    const { bao, client, answer } = await heldAtRestart({ terminals });
+    const session = await create(client);
+    const terminal = await openTerminal(client, session.id);
+
+    await terminalCommand(client, "terminals.close", { id: terminal.id });
+    answer();
+
+    await vi.waitFor(() => expect(bao.created).toHaveLength(1));
+    await vi.waitFor(() => expect(bao.live(bao.created[0] ?? "")).toBe(false));
+    expect(pty.spawned).toEqual([]);
   });
 
   it("goes on with an empty token once five seconds have passed on the environment's clock", async () => {

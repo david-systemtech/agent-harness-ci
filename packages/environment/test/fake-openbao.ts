@@ -136,6 +136,8 @@ export interface FakeOpenBao {
   stored(mount: string, path: string): Record<string, unknown> | undefined;
   /** Scripts what `route` (`GET auth/token/lookup-self`, `LIST personal/metadata/`) answers from now on, in place of the fake's own answer; null to answer as the fake does. */
   answer(route: string, answer: FakeRouteAnswer | null): void;
+  /** Lets `route` do what it does, but ends its answer only once `until` settles (#368): the caller hears late of what is done already. Null answers at once again. */
+  delay(route: string, until: Promise<unknown> | null): void;
   /** Presents `which` certificate from the next handshake on, closing every connection held, as a key manager restarted with it would. Preset `leaf`. */
   present(which: FakePresented): void;
   /** How many connections the fake has accepted, a request sent over them or not. */
@@ -295,6 +297,7 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   const tokens = new Map<string, FakeToken>();
   const policies = new Map<string, string>([["default", DEFAULT_POLICY]]);
   const routes = new Map<string, FakeRouteAnswer>();
+  const delays = new Map<string, Promise<unknown>>();
   /** The KV mounts, by path, with their version and the secrets they hold by path. */
   const kvMounts = new Map<string, { readonly version: 1 | 2; readonly secrets: Map<string, Record<string, unknown>> }>();
   const minted: string[] = [];
@@ -497,6 +500,14 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     const path = url.pathname.replace(/^\/v1\//, "");
     const method = request.method === "GET" && url.searchParams.get("list") === "true" ? "LIST" : (request.method ?? "GET");
     requests.push({ method, path });
+    const delayed = delays.get(`${method} ${path}`);
+    if (delayed !== undefined) {
+      const end = response.end.bind(response) as (...args: unknown[]) => ServerResponse;
+      response.end = ((...args: unknown[]) => {
+        void delayed.then(() => end(...args));
+        return response;
+      }) as typeof response.end;
+    }
     const body = await readBody(request);
     const scripted = routes.get(`${method} ${path}`);
     if (scripted !== undefined) {
@@ -617,6 +628,7 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       return data === undefined ? undefined : { ...data };
     },
     answer: (route, answer) => void (answer === null ? routes.delete(route) : routes.set(route, answer)),
+    delay: (route, until) => void (until === null ? delays.delete(route) : delays.set(route, until)),
     present(which) {
       const { otherKey, otherCertificate } = testCertificates();
       server.setSecureContext(which === "other-ca" ? { key: otherKey, cert: otherCertificate } : { key, cert: which === "chain" ? `${certificate}${ca}` : certificate });
