@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkipReason",
+  "type": "string",
+  "enum": [
+    "no-change",
+    "pre-check-failed",
+    "cannot-start",
+    "missed",
+    "overlap"
+  ],
+  "description": "Why a due time was skipped: no-change (the pre-check's output was the baseline's), pre-check-failed (the pre-check failed; a failure), cannot-start (the firing could not start, with a reason of its own; a failure), missed (missed while the environment was down, and not caught up) or overlap (a firing of the routine was live)."
+}

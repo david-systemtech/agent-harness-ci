@@ -219,8 +219,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * and cancelled (#335), `account.updated` (the account store, #134),
  * `signin.updated` and `signin.executable-chosen` (the sign-in director,
  * #135), `prompt.parked` and `prompt.resolved` (the permission broker,
- * #130), `usage.updated` (plan usage, #136), and the forge's and the key
- * managers' events.
+ * #130), `usage.updated` (plan usage, #136), and the forge's, the key
+ * managers' and the routines' (#519) events.
  *
  * The status follows the notices: `environment.draining` makes it draining,
  * and `environment.started` (the restart after a drain, or any start) makes
@@ -292,6 +292,14 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "key-manager.connection.policies-set":
       case "key-manager.connection.verified":
       case "key-manager.connection.removed":
+        return data;
+      // The routines' notices (#519) change no status: the routines list refreshes on routine.updated (#532), and the
+      // notices queue raises a delivered result and a failed delivery (#525, #529).
+      case "routine.updated":
+      case "routine.delivered":
+      case "routine.delivery-failed":
+      case "routine.endpoint-set":
+      case "routine.endpoint-removed":
         return data;
     }
   },

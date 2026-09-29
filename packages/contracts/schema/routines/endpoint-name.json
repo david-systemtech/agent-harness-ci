@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EndpointName",
+  "type": "string",
+  "pattern": "^[a-z0-9-]{1,40}$",
+  "description": "A webhook endpoint's name on its environment: 1 to 40 lower-case letters, digits and hyphens, unique."
+}

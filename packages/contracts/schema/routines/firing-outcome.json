@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FiringOutcome",
+  "type": "string",
+  "enum": [
+    "succeeded",
+    "silent",
+    "failed",
+    "cancelled"
+  ],
+  "description": "How a firing ended: succeeded (its run completed with text other than the silence marker, or none), silent (its final text was the silence marker, so nothing was delivered), failed (with its reason) or cancelled (a person interrupted it, or deleted its session or its routine)."
+}

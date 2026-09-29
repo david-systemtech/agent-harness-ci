@@ -51,10 +51,20 @@ export const useFollowed = <T,>(observable: Observable<T> | undefined): T | unde
   return useSyncExternalStore(followed.subscribe, followed.read);
 };
 
-/** One key of the window's presentation, and the setter that keeps it. */
-export const usePresentation = <K extends PresentationKey>(key: K): readonly [PresentationValues[K], (value: PresentationValues[K]) => void] => {
+/** A presentation value to keep: the value, or how to make it from the one held when it is kept. */
+export type PresentationUpdate<V> = V | ((held: V) => V);
+
+/**
+ * One key of the window's presentation, and the setter that keeps it: given
+ * a value, or a function of the value held when it runs, so two changes made
+ * before the window draws again both land.
+ */
+export const usePresentation = <K extends PresentationKey>(key: K): readonly [PresentationValues[K], (next: PresentationUpdate<PresentationValues[K]>) => void] => {
   const { presentation } = useWindow();
   const value = useSyncExternalStore(presentation.values.subscribe, () => presentation.values.read()[key]);
-  const set = useCallback((next: PresentationValues[K]) => presentation.set(key, next), [presentation, key]);
+  const set = useCallback(
+    (next: PresentationUpdate<PresentationValues[K]>) => presentation.set(key, typeof next === "function" ? next(presentation.values.read()[key]) : next),
+    [presentation, key],
+  );
   return [value, set] as const;
 };

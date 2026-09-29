@@ -168,9 +168,10 @@
                 "enum": [
                   "user",
                   "auto-idle",
-                  "auto-merge"
+                  "auto-merge",
+                  "routine"
                 ],
-                "description": "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged)."
+                "description": "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged), routine (it is a routine's firing that ended silent, so it delivered nothing and left the active list)."
               },
               {
                 "type": "null"
