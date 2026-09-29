@@ -280,6 +280,14 @@ _Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue 
 A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
 _Avoid_: mirror, skills repo, marketplace
 
+**Own directory**:
+The environment's own folder of skills under its data directory, holding `skills/` and `commands/`, which a person writes by hand or through `skills.own.create`; read at each run's start and when a client asks, never watched.
+_Avoid_: local skills, user skills, personal plugin
+
+**Member**:
+One skill in a skill set: a folder holding `SKILL.md`, or a command file in the own directory's `commands/`, with its name, description, invocation, layer and origin; an invalid one is listed with its problem and left out, and one another layer's member of the same name wins over is listed as shadowed.
+_Avoid_: plugin skill, entry
+
 **Readiness**:
 Whether a skill can help right now on this environment: ready, setup needed (with the failing check named) or unsupported, computed by the harness from the checks the skill or its overlay declares.
 _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
