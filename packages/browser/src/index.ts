@@ -5,3 +5,4 @@
  * no environment code, so the extension can depend on it.
  */
 export { frameUntrusted } from "./frame.js";
+export { TOKEN_SHAPES, redactTokens, redactedFieldValue, secretField, type FieldAttributes, type SecretField, type TokenShapeId } from "./redaction.js";
