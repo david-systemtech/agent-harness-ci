@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_THEME } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { workspace } from "../../environment/test/sessions.js";
 import { until, useHarness } from "../test/harness.js";
 import type { ConnectionSeams } from "./connections/registry.js";
+import type { Observable } from "./observable.js";
 import type { Runtime } from "./runtime.js";
 import { SESSION_LINGER_MS } from "./streams/session-handles.js";
 import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
@@ -59,6 +61,45 @@ describe("two runtimes on one environment", () => {
     // And back the other way.
     await send(two.seams, env, "sessions.unarchive", { sessionId: archived });
     await until(() => summary(one.runtime, archived)?.archivedAt === null, "the unarchive to reach the first runtime");
+  });
+});
+
+/** Resolves once `observable` holds a value `holds` accepts: waits on the value itself, never on the wall clock. */
+const holding = <T>(observable: Observable<T>, holds: (value: T) => boolean): Promise<void> =>
+  new Promise((resolve) => {
+    if (holds(observable.read())) return resolve();
+    const stop = observable.subscribe((value) => {
+      if (!holds(value)) return;
+      stop();
+      resolve();
+    });
+  });
+
+describe("settings across two runtimes on one environment (#391)", () => {
+  it("reach the other runtime's cached settings.get and permissions.settings.get within a round trip, on the settings.changed notice, with no time passing on its clock", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const one = harness.withSeams(inMemoryPlatform());
+    // The second runtime's clock never moves: its cached answers are five minutes fresh for the whole test.
+    const two = harness.withSeams(inMemoryPlatform({ clock: manualClock() }));
+    for (const { runtime } of [one, two]) {
+      await runtime.start();
+      await runtime.connections.add({ link: (await t.createPairing()).link });
+    }
+    const env = t.env.id;
+    const settings = two.runtime.requests.cached(env, "settings.get", { keys: ["appearance.theme"] });
+    const permissions = two.runtime.requests.cached(env, "permissions.settings.get", {});
+    const stops = [settings.subscribe(() => undefined), permissions.subscribe(() => undefined)];
+    await holding(settings, (answer) => answer.result?.values["appearance.theme"]?.name === "Default");
+    await holding(permissions, (answer) => answer.result?.values["permissions.defaultCeiling"] === "acceptEdits");
+
+    const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
+    expect(await one.runtime.requests.call(env, "settings.update", { commandId: randomUUID(), values: { "appearance.theme": ember } })).toMatchObject({ ok: true });
+    await holding(settings, (answer) => answer.result?.values["appearance.theme"]?.name === "Ember");
+    expect(settings.read().result?.values["appearance.theme"]).toEqual(ember);
+
+    expect(await one.runtime.requests.call(env, "permissions.settings.set", { commandId: randomUUID(), values: { "permissions.defaultCeiling": "auto" } })).toMatchObject({ ok: true });
+    await holding(permissions, (answer) => answer.result?.values["permissions.defaultCeiling"] === "auto");
+    for (const stop of stops) stop();
   });
 });
 
