@@ -196,9 +196,10 @@ export const createLogins = (options: LoginsOptions): Logins => {
 
   const renew = async (entry: Held): Promise<void> => {
     const asked = askedOf(entry);
+    // The lease is dated from the asking, never later than the key manager dated it, however late the answer is read.
+    const at = now();
     const answer = await entry.login.provider.renew(entry.login.target, entry.login.token, asked, AbortSignal.timeout(budgetMs));
     if (!held.has(entry)) return;
-    const at = now();
     if (answer.outcome === "renewed") {
       entry.leaseStart = at;
       entry.expiresAt = at + answer.ttlSeconds * 1000;

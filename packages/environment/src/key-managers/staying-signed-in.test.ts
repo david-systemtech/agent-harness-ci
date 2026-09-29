@@ -132,6 +132,30 @@ describe("a login the environment made", () => {
     await eventually(() => expect(bao.live(first)).toBe(false));
   });
 
+  it("with an hour to live and eight at most, as the agent box's AppRole has, is signed in again when a renewal shows its end near, and the next login is planned from its start with that maximum", async () => {
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 8 * 3600 });
+    await connected(client, bao);
+    const [first = ""] = bao.minted;
+    // Renewed every forty minutes; at 7:20 its renewal gives only the forty minutes left of its eight hours.
+    for (let round = 1; round <= 11; round += 1) {
+      t.clock.advance(40 * MINUTE);
+      await eventually(() => expect(bao.renewals(first)).toHaveLength(round));
+    }
+    await eventually(() => expect(bao.minted).toHaveLength(2));
+    const second = bao.minted[1] ?? "";
+
+    for (let round = 1; round <= 7; round += 1) {
+      t.clock.advance(40 * MINUTE);
+      await eventually(() => expect(bao.renewals(second)).toHaveLength(round));
+    }
+    advanceTo(t, 12 * 60 + 39);
+    expect(bao.minted).toHaveLength(2);
+    advanceTo(t, 12 * 60 + 40);
+
+    // At 12:40, with a third of its eight hours left.
+    await eventually(() => expect(bao.minted).toHaveLength(3));
+  });
+
   it("is revoked once no run token minted from it is held, and not before", async () => {
     // Renewed at forty minutes to the end of its ninety, it is due at sixty.
     const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 90 * 60 }, { processIdleMinutes: () => 600 });
@@ -324,5 +348,38 @@ describe("a token a person gave", () => {
     const again = await signIn(client, { connectionId: connection.id, credential: token("another-person-token-for-tests") });
 
     expect(again.result?.connection.status.kind).toBe("signed-in");
+  });
+});
+
+describe("with no person present", () => {
+  it("keeps a one-hour AppRole login signed in for three hours, holders starting throughout, and every process given a working run token", async () => {
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 3600 }, { processIdleMinutes: () => 15 });
+    const connection = await connected(client, bao);
+    const from = t.env.log.head();
+    const sessions = [await create(client), await create(client), await create(client)];
+
+    for (let step = 1; step * 7 <= 182; step += 1) {
+      t.clock.advance(7 * MINUTE);
+      // The login the connection stands on has a quarter of an hour left at least: a re-login due has been made.
+      await eventually(async () => {
+        const record = (await list(client)).find((each) => each.id === connection.id);
+        expect(record?.status.kind).toBe("signed-in");
+        expect(Date.parse(record?.tokenInformation?.expiresAt ?? "")).toBeGreaterThan(t.clock.now().getTime() + 15 * MINUTE);
+      });
+      const session = sessions[step % sessions.length];
+      if (session === undefined) throw new Error("No session.");
+      await runTo(t, client, session.id, `Step ${step}`);
+      const run = await tokenOf(t, session.id);
+      expect(bao.live(run), `step ${step}, ${step * 7} minutes in`).toBe(true);
+    }
+
+    // Signed in again every forty minutes or so, by the environment alone.
+    expect(bao.minted.length).toBeGreaterThanOrEqual(5);
+    const events = await keyManagerEvents(client, from);
+    expect(events.filter((event) => event.type === "key-manager.connection.signed-in")).toHaveLength(bao.minted.length - 1);
+    expect(events.every((event) => event.commandId === null && event.actor.kind === "system")).toBe(true);
+    // Once every holder has stopped, only the current login is left.
+    for (const session of sessions) await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: session.id });
+    await eventually(() => expect(bao.minted.filter((login) => bao.live(login))).toEqual(bao.minted.slice(-1)));
   });
 });
