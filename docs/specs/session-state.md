@@ -204,7 +204,7 @@ Chosen defaults not decided on a ticket, listed for review:
 - The order-key alphabet and the sort rules of the Ordering subsection; the companion events of the Events subsection.
 - Group collapse is client-local presentation keyed by heading name, on the lint's allowlist.
 - Client-minted version 4 UUIDs for sessions and groups; no-op commands accepted with no event and `changed: false`.
-- `settings.get` and `settings.update` as the generic settings methods; the auto-settle keys under the Appearance step's entry.
+- `settings.get` and `settings.update` as the generic settings methods; the auto-settle keys under the Appearance step's entry, which the Set up spec moved to Your machines' (#568).
 - A user title mirrored to the provider's title field when the adapter can; the provider's tag never written.
 - Snooze expiry as an event; the summary patch in event metadata as the client's only reduction input.
 

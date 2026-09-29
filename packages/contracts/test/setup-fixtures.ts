@@ -45,13 +45,53 @@ const skipped = {
   checkedAt: "2026-09-25T08:00:00.000Z",
 };
 
+const signedOut = { action: "sign-in-again", kind: "account", id: "account-work", label: "Work" };
+const signedOutResult = {
+  step: "account",
+  state: "needs-attention",
+  reason: "Work and Personal are signed out.",
+  failing: ["account.signed-in"],
+  actions: ["sign-in-again"],
+  targets: [signedOut, { ...signedOut, id: "account-personal", label: "Personal" }],
+  checkedAt: "2026-09-25T08:00:00.000Z",
+};
+
 export const setupSchemaFixtures: Record<string, Fixtures> = {
   "setup/registered-step-id.json": { valid: ["account", "your-machines", "browser", "permissions", "appearance"], invalid: ["forges", "Permissions", ""] },
-  "setup/action.json": { valid: ["restore", "check-again", "set-up-this-machine"], invalid: ["Restore", "reboot", ""] },
+  "setup/action.json": {
+    valid: ["restore", "check-again", "set-up-this-machine", "start-service", "import-again", "try-again", "write-it-myself", "start-over", "revise"],
+    invalid: ["Restore", "reboot", "try again", ""],
+  },
+  "setup/target-kind.json": {
+    valid: ["account", "forge-account", "key-manager-connection", "tool", "skill-source", "chrome", "session", "bank", "denylist-section", "environment"],
+    invalid: ["Account", "forge account", "workspace", ""],
+  },
+  "setup/target.json": {
+    valid: [signedOut, { action: "pull-now", kind: "skill-source", id: "source-1", label: "team-skills" }, { action: "try-again", kind: "session", id: "session-1", label: "Set up: memory-bank (david-memory)" }],
+    invalid: [
+      { ...signedOut, kind: "workspace" },
+      { ...signedOut, action: "reboot" },
+      { ...signedOut, id: "" },
+      { ...signedOut, label: "" },
+      { kind: "account", id: "account-work", label: "Work" },
+      { action: "sign-in-again", kind: "account", id: "account-work" },
+    ],
+  },
   "setup/step-state.json": { valid: ["done", "needs-attention", "skipped"], invalid: ["needs attention", "pending", ""] },
   "setup/step-result.json": {
-    valid: [done, needsAttention, timedOut, skipped, { ...timedOut, step: "account", lastGood: { state: "skipped", reason: skipped.reason, checkedAt: skipped.checkedAt } }],
+    valid: [
+      done,
+      needsAttention,
+      timedOut,
+      skipped,
+      { ...timedOut, step: "account", lastGood: { state: "skipped", reason: skipped.reason, checkedAt: skipped.checkedAt } },
+      signedOutResult,
+      { ...needsAttention, targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "Paths" }] },
+    ],
     invalid: [
+      { ...signedOutResult, targets: [{ ...signedOut, kind: "workspace" }] },
+      { ...signedOutResult, targets: [{ ...signedOut, label: "" }] },
+      { ...signedOutResult, targets: signedOut },
       { ...timedOut, lastGood: { ...timedOut.lastGood, state: "needs-attention" } },
       { ...timedOut, lastGood: { state: "done", reason: "The environment runs as a non-root user." } },
       { ...timedOut, lastGood: { ...timedOut.lastGood, reason: "" } },
@@ -69,6 +109,6 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
     params: { valid: [{}, { step: "permissions" }], invalid: [{ step: "forges" }, { step: "" }, { step: ["permissions"] }] },
-    result: { valid: [{ results: [] }, { results: [done, needsAttention, timedOut] }], invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }] },
+    result: { valid: [{ results: [] }, { results: [done, needsAttention, timedOut, signedOutResult] }], invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }] },
   },
 };

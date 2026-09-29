@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetupTargetKind",
+  "type": "string",
+  "enum": [
+    "account",
+    "forge-account",
+    "key-manager-connection",
+    "tool",
+    "skill-source",
+    "chrome",
+    "session",
+    "bank",
+    "denylist-section",
+    "environment"
+  ],
+  "description": "The kind of item a result's action applies to: account (a provider account), forge-account, key-manager-connection, tool (a managed tool), skill-source, chrome (a paired Chrome), session (an authoring session), bank (a memory bank), denylist-section, or environment."
+}

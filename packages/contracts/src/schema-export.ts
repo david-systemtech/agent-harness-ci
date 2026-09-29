@@ -155,7 +155,7 @@ import {
   UpdateWhen,
   UpdatesStatus,
 } from "./updates.js";
-import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
+import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepState } from "./setup.js";
 import {
   ADDRESS_ROWS,
   SETTINGS_ADDRESSES,
@@ -962,6 +962,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-id.json", title: "StepId", schema: StepId },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
+  { path: "setup/target-kind.json", title: "SetupTargetKind", schema: SetupTargetKind },
+  { path: "setup/target.json", title: "SetupTarget", schema: SetupTarget },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },

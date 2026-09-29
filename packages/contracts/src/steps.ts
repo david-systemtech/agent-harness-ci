@@ -13,16 +13,14 @@ import type { SetupAction } from "./setup.js";
  * cannot add a setting without a step; a step with no home row fails the row
  * registry's (`settings-rows.test.ts`).
  *
- * This is the stub the session-state workstream (#117) needs for its two
- * auto-settle keys, written before the Set up specification (#88, phase B).
- * Its shape is the ADR's four parts, and what #141's Permissions entry needs
- * beside them (the state it writes through a method of its own, the value it
- * confirms, a link to another step, the checks of the environment's state,
- * whether it may be skipped), and ADR 0031's budget and cadence with the
- * state check that skips a skippable step (#308); phase B replaces the
- * shape, never its entries.
- * Its pane and band links became a home row and links to further rows with
- * the row registry (#389), which the Set up workstream (#88) reads.
+ * Its shape is the Set up specification's (#88, "The registry entry"; #568):
+ * the settings a step writes and the state it writes through methods of its
+ * own, the values it confirms, its home row and links (#389), the value
+ * checks of its keys and the checks of the environment's state, whether it
+ * may be skipped and the state check that skips it, and ADR 0031's budget
+ * class, cadence and triggers. It grew from the stub the session-state
+ * workstream (#117) needed, which #141 and #308 extended; the entries
+ * carried over.
  */
 
 /**
@@ -44,7 +42,25 @@ export const STEP_ORDER = [
   "permissions",
   "appearance",
 ] as const;
-export const StepId = z.enum(STEP_ORDER).meta({ description: `A step of the milestone-1 checklist, registered or not: ${STEP_ORDER.join(", ")}.` });
+
+/** What every client names each step, whether or not an environment registers it (the Set up specification, "The steps"). */
+export const STEP_LABELS: { readonly [Id in (typeof STEP_ORDER)[number]]: string } = {
+  account: "Account",
+  "carry-over": "Carry over",
+  "your-machines": "Your machines",
+  forges: "Forges",
+  "key-manager": "Key manager",
+  "memory-bank": "Memory bank",
+  skills: "Skills",
+  instructions: "Instructions",
+  browser: "Browser",
+  permissions: "Permissions",
+  appearance: "Appearance",
+};
+
+export const StepId = z.enum(STEP_ORDER).meta({
+  description: `A step of the milestone-1 checklist, registered or not, each with the label every client names it by: ${STEP_ORDER.map((id) => `${id} (${STEP_LABELS[id]})`).join(", ")}.`,
+});
 export type StepId = z.infer<typeof StepId>;
 
 /**
@@ -105,12 +121,14 @@ export interface StateCheck {
 }
 
 /**
- * The budgets a step's check may take, in seconds (ADR 0031): five for a
- * local read or version probe, ten for a network call, thirty for a git
- * probe or clone. Past its budget a check answers that it timed out.
+ * The three budget classes a step's check declares, with the seconds each
+ * gives it (ADR 0031): `local`, five, for a local read or version probe;
+ * `network`, ten, for a network call; `git`, thirty, for a git probe or
+ * clone. Past its budget a check answers that it timed out after that many
+ * seconds.
  */
-export const CHECK_BUDGETS_SECONDS = [5, 10, 30] as const;
-export type CheckBudgetSeconds = (typeof CHECK_BUDGETS_SECONDS)[number];
+export const CHECK_BUDGET_SECONDS = { local: 5, network: 10, git: 30 } as const;
+export type CheckBudget = keyof typeof CHECK_BUDGET_SECONDS;
 
 /** How often a step is checked unasked unless its entry states a reason for another cadence (ADR 0031: David set the hour). */
 export const DEFAULT_CADENCE_MINUTES = 60;
@@ -122,13 +140,22 @@ export const DEFAULT_CADENCE_MINUTES = 60;
  * orientation block reports token and sign-in freshness; each entry takes
  * it with the checks that report it (#574 for Account), and until then
  * every registered entry declares the hour. The runs on start, on the
- * cadence and on a feature's events are the Set up specification's (#88).
+ * cadence and on a step's triggers are the Set up specification's
+ * scheduler (#88).
  */
 export interface Cadence {
   readonly minutes: number;
   /** Why the step leaves the hour: required when `minutes` is not 60. */
   readonly reason?: string;
 }
+
+/**
+ * Whether an event or notice of `type` fires `trigger`: a trigger names one
+ * type, or ends in `*` and names a family, every type it prefixes
+ * (`forge.account.*`, `environment.update-*`).
+ */
+export const triggerMatches = (trigger: string, type: string): boolean =>
+  trigger.endsWith("*") ? type.startsWith(trigger.slice(0, -1)) : type === trigger;
 
 /** One step of the checklist. */
 export interface Step {
@@ -151,14 +178,23 @@ export interface Step {
   readonly skippable: boolean;
   /**
    * On a skippable step, the one of its state checks that holds when
-   * something is set up here: when it fails, the step answers skipped with
-   * that check's line and runs no other check (#308).
+   * something is set up here (`<step>.present`): when it fails, the step
+   * answers skipped with that check's line and runs no other check. Skipped
+   * is derived from state this way and never recorded (the Set up
+   * specification, "Skipped"); a skippable step names one, and no other
+   * step does.
    */
   readonly skip?: string;
-  /** How long `setup.check` awaits the step's checks before answering that they timed out, in seconds (ADR 0031). */
-  readonly budgetSeconds: CheckBudgetSeconds;
+  /** The budget class of the step's checks: how long `setup.check` awaits them before answering that they timed out (ADR 0031). */
+  readonly budget: CheckBudget;
   /** How often it is checked unasked. */
   readonly cadence: Cadence;
+  /**
+   * The event and notice types whose arrival re-runs the step's check at
+   * once (ADR 0031): each a type the log carries, or a family ending in `*`
+   * (`triggerMatches`).
+   */
+  readonly triggers: readonly string[];
 }
 
 /** A check that passes on any value the key's schema accepts: what a setting with no stronger notion of done asks. */
@@ -171,18 +207,20 @@ export const anyValidValue =
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
  * (#120); Your machines, for the update settings (#335), whose not-root line
- * #141 adds; Browser, for the browser keys (#541); Permissions (#129's
- * keys, #141's entry); and Appearance, for the auto-settle keys (session-state
- * spec, "Auto-settle: rules and settings") and the transcript compaction
- * window beside them (#123), which sit on `environments.service`. The other
- * steps arrive with Set up (#88), and Appearance gains its theme (ADR 0023)
- * there.
+ * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
+ * rules and settings") and the transcript compaction window beside them
+ * (#123), which sit on `environments.service`; Browser, for the browser
+ * keys (#541); Permissions (#129's keys, #141's entry); and Appearance, which writes nothing until its theme
+ * (ADR 0023, #391). The other steps arrive as their features are built,
+ * each with its budget class, cadence, triggers and skip check as the Set
+ * up specification tables them (#88).
  */
 export const STEP_REGISTRY = [
   {
     // The Account step (ADR 0018), at home on accounts.accounts beside Carry over: the default account, model family
     // and effort (#134) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its real
-    // health, every account signed in, reads the account store rather than a setting: Set up's to add (#88).
+    // health, every account signed in, reads the account store rather than a setting, and its fifteen-minute cadence
+    // comes with that check (#574). An account's change and the sign-in's re-run it.
     id: "account",
     home: "accounts.accounts",
     writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"],
@@ -195,26 +233,41 @@ export const STEP_REGISTRY = [
     stateChecks: [],
     links: [{ row: "accounts.default-model" }],
     skippable: false,
-    budgetSeconds: 5,
+    budget: "local",
     cadence: { minutes: 60 },
+    triggers: ["account.updated", "signin.updated"],
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:
     // environments.machines). It writes the five update keys (#335), through updates.settings.set alone (their
-    // writtenBy), and a preference step's checks pass on any valid value; its health line reports not-root, read
-    // from what permissions.settings.get answers as isRoot (#141), whether the release channel is read (#346), whether
-    // this machine is behind (#347) and, in a container whose updates are managed outside, whether the host-side
-    // updater polled in the last hour (#348). The rest of its check (the discovery URL reachable and ready, the name) is
-    // Set up's (#88).
+    // writtenBy), and the three session keys the GUI put on environments.service, which it links (moved here from
+    // Appearance, as the session-state spec allowed; #568); a preference step's checks pass on any valid value. Its
+    // health line reports not-root, read from what permissions.settings.get answers as isRoot (#141), whether the
+    // release channel is read (#346), whether this machine is behind (#347) and, in a container whose updates are
+    // managed outside, whether the host-side updater polled in the last hour (#348); its checks reach the release
+    // channel, so its budget is a network call's. An update's notices and a settings change re-run it. The rest of its
+    // check (the discovery URL reachable and ready, the name) is Set up's (#88).
     id: "your-machines",
     home: "environments.machines",
-    writes: ["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"],
+    writes: [
+      "updates.autoUpdate",
+      "updates.channel",
+      "updates.pinnedVersion",
+      "updates.idleWindowMinutes",
+      "updates.deferralCapHours",
+      "sessions.autoSettleAfterIdle",
+      "sessions.autoSettleOnMerge",
+      "sessions.transcriptCompactAfterDays",
+    ],
     checks: [
       { key: "updates.autoUpdate", check: anyValidValue("updates.autoUpdate") },
       { key: "updates.channel", check: anyValidValue("updates.channel") },
       { key: "updates.pinnedVersion", check: anyValidValue("updates.pinnedVersion") },
       { key: "updates.idleWindowMinutes", check: anyValidValue("updates.idleWindowMinutes") },
       { key: "updates.deferralCapHours", check: anyValidValue("updates.deferralCapHours") },
+      { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
+      { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
+      { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
     ],
     stateChecks: [
       { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
@@ -234,17 +287,18 @@ export const STEP_REGISTRY = [
         actions: ["check-again"],
       },
     ],
-    links: [],
+    links: [{ row: "environments.service" }],
     skippable: false,
-    budgetSeconds: 5,
+    budget: "network",
     cadence: { minutes: 60 },
+    triggers: ["environment.update-*", "settings.updated"],
   },
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's
     // Browser row, `access.browser` (ADR 0027): the nine browser keys (#541), which settings.update writes, each done on
     // any valid value, with the local budget and the hour (#559 keeps both). Its state writes (a paired Chrome, an
-    // unpairing), its state checks, its skip check and its triggers are #559's, which makes it skippable; until then it has
-    // none of them.
+    // unpairing), its state checks, its skip check and its triggers (`chrome.updated`, `extension.seen`) are #559's, which
+    // makes it skippable; until then it has none of them.
     id: "browser",
     home: "access.browser",
     writes: [
@@ -272,14 +326,16 @@ export const STEP_REGISTRY = [
     stateChecks: [],
     links: [],
     skippable: false,
-    budgetSeconds: 5,
+    budget: "local",
     cadence: { minutes: 60 },
+    triggers: [],
   },
   {
     // The Permissions step (permissions spec, "The Permissions step"; #129's keys, #141's entry): at home on the Access
     // band's Permissions row, `access.permissions` (ADR 0027), linking the Your machines step for another environment's
     // containment availability. A preference step: done once set or preset (ADR 0031), so its keys' checks pass on
-    // any valid value, and it needs attention only when the environment's state does not hold what they chose.
+    // any valid value, and it needs attention only when the environment's state does not hold what they chose. A
+    // settings change and a denylist change re-run it.
     id: "permissions",
     home: "access.permissions",
     writes: [
@@ -313,29 +369,37 @@ export const STEP_REGISTRY = [
     ],
     links: [{ step: "your-machines" }],
     skippable: false,
-    budgetSeconds: 5,
+    budget: "local",
     cadence: { minutes: 60 },
+    triggers: ["settings.updated", "denylist.changed"],
   },
   {
-    // The Appearance step (ADR 0023), at home on appearance.theme; the session keys it writes sit on
-    // environments.service, the environment's policy on its log (GUI spec), until Set up (#88) moves them.
+    // The Appearance step (ADR 0023), at home on appearance.theme. It writes nothing since its session keys moved to
+    // Your machines (#568), until #391 adds appearance.theme; a settings change re-runs it.
     id: "appearance",
     home: "appearance.theme",
-    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"],
-    checks: [
-      { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
-      { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
-      { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
-    ],
+    writes: [],
+    checks: [],
     stateChecks: [],
-    links: [{ row: "environments.service" }],
+    links: [],
     skippable: false,
-    budgetSeconds: 5,
+    budget: "local",
     cadence: { minutes: 60 },
+    triggers: ["settings.updated"],
   },
 ] as const satisfies readonly Step[];
 
 export type RegisteredStep = (typeof STEP_REGISTRY)[number];
+
+/**
+ * The steps of the milestone-1 order that `steps` (the registry unless
+ * given) does not register, in that order: none once every feature has
+ * registered its step. The switch-over's done checklist (#94) runs it and
+ * passes only on none; until then the package's own contract test checks
+ * only the ids it registers.
+ */
+export const unregisteredSteps = (steps: readonly { readonly id: string }[] = STEP_REGISTRY): StepId[] =>
+  STEP_ORDER.filter((id) => !steps.some((step) => step.id === id));
 
 /** The registered steps' ids, in the milestone-1 order (`RegisteredStepId` in `setup.ts` is their schema). */
 export const REGISTERED_STEP_IDS = STEP_REGISTRY.map((step) => step.id) as [RegisteredStep["id"], ...RegisteredStep["id"][]];

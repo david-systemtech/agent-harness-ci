@@ -183,14 +183,14 @@ describe("keys and steps on rows", () => {
   it("puts the permission keys on access.permissions and the launcher's update keys on environments.machines, their steps' homes", () => {
     for (const key of PERMISSION_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "permissions", row: "access.permissions" });
     for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", row: "environments.machines" });
-    expect(stepOf("your-machines").links).toEqual([]);
   });
 
-  it("puts the two auto-settle keys and the compaction window on environments.service, still written by the Appearance step, which links there", () => {
+  it("puts the two auto-settle keys and the compaction window on environments.service, written by the Your machines step, which links there, and no longer by Appearance", () => {
     for (const key of [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays" as const]) {
-      expect(SETTINGS[key].step, key).toEqual({ id: "appearance", row: "environments.service" });
+      expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", row: "environments.service" });
     }
-    expect(stepOf("appearance").links).toEqual([{ row: "environments.service" }]);
+    expect(stepOf("your-machines").links).toEqual([{ row: "environments.service" }]);
+    expect(stepOf("appearance").links).toEqual([]);
   });
 
   it("fails a settings key without a row, on no registered row, or on a row its step does not reach", () => {

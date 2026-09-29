@@ -634,7 +634,7 @@ describe("/settings by row (#389)", () => {
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
   });
 
-  it("opens the Service row on the session keys the Appearance step writes, and flips one there", async () => {
+  it("opens the Service row on the session keys the Your machines step writes, and flips one there", async () => {
     const { app, env } = await launch();
     await command(app, "/settings environments.service");
     await app.waitFor(/sessions\.autoSettleOnMerge\s+off/);
