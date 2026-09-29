@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustKeyKind",
+  "type": "string",
+  "enum": [
+    "identity",
+    "checkout",
+    "directory"
+  ],
+  "description": "What a trust key is: identity (the session's repository identity), checkout (its repository's main checkout, with no identity) or directory (its workspace path, in no repository)."
+}

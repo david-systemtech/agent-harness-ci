@@ -249,9 +249,9 @@ describe("the per-session snapshot", () => {
 });
 
 describe("the adapter's transport-neutral schemas", () => {
-  it("describe the capabilities descriptor with a flag per optional power, the instruction channel and the modes", () => {
+  it("describe the capabilities descriptor with a flag per optional power, the instruction channel, whether the provider loads a trusted repository's instructions itself (#500) and the modes", () => {
     for (const name of CAPABILITY_FLAGS) expect(AdapterCapabilities.shape[name], name).toBeDefined();
-    expect(Object.keys(AdapterCapabilities.shape)).toEqual(["provider", "displayName", ...CAPABILITY_FLAGS, "instructionChannel", "modes"]);
+    expect(Object.keys(AdapterCapabilities.shape)).toEqual(["provider", "displayName", ...CAPABILITY_FLAGS, "instructionChannel", "nativeProjectInstructions", "modes"]);
   });
 
   it("describe the credential spec and the status it parses, the run suggestion, the send response and the delegated-work row", () => {

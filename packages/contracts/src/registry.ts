@@ -133,6 +133,7 @@ import {
 import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import { skillsGet, skillsOwnCreate, skillsOwnRemove } from "./methods/skills.js";
+import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -322,6 +323,10 @@ export const methods = [
   skillsGet,
   skillsOwnCreate,
   skillsOwnRemove,
+  trustGet,
+  trustList,
+  trustDecide,
+  trustRevoke,
 ] as const;
 
 type Registered = (typeof methods)[number];

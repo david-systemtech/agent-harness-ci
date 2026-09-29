@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "trust.decide params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "sessionId": {
+      "description": "The session asked in, whose key is decided; leave out key.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
+    "key": {
+      "description": "A key already recorded, decided again; leave out sessionId.",
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+        }
+      ]
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "trusted",
+        "declined"
+      ],
+      "description": "A trust decision: trusted (the repository's own instructions, settings, hooks and skills load into its runs) or declined (they never do, and it is not asked again)."
+    }
+  },
+  "required": [
+    "commandId",
+    "decision"
+  ],
+  "description": "A decision on a session's key, or on a key already recorded.",
+  "oneOf": [
+    {
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": true,
+        "key": false
+      }
+    },
+    {
+      "required": [
+        "key"
+      ],
+      "properties": {
+        "sessionId": false,
+        "key": true
+      }
+    }
+  ]
+}

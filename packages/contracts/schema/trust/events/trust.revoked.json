@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustRevokedPayload",
+  "type": "object",
+  "properties": {
+    "key": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+        }
+      ],
+      "description": "The key as its record held it."
+    },
+    "keyKind": {
+      "type": "string",
+      "enum": [
+        "identity",
+        "checkout",
+        "directory"
+      ],
+      "description": "What a trust key is: identity (the session's repository identity), checkout (its repository's main checkout, with no identity) or directory (its workspace path, in no repository)."
+    }
+  },
+  "required": [
+    "key",
+    "keyKind"
+  ],
+  "description": "trust.revoked: a key's decision was withdrawn, and the key is undecided again."
+}

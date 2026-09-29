@@ -542,6 +542,20 @@ import {
   SkillsUpdatedPayload,
   SkillsView,
 } from "./skills.js";
+import {
+  TRUST_EVENT_TYPES,
+  TrustDecision,
+  TrustEventType,
+  TrustKey,
+  TrustKeyKind,
+  TrustOffer,
+  TrustOfferHooks,
+  TrustOfferMcpServer,
+  TrustOfferSkillRoot,
+  TrustRecord,
+  TrustState,
+  TrustUpdatedPayload,
+} from "./trust.js";
 
 /**
  * The JSON Schema export: every schema in the package as a draft 2020-12
@@ -857,6 +871,18 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
   { path: "skills/follow.json", title: "SkillSourceFollow", schema: SkillSourceFollow },
   { path: "skills/source.json", title: "SkillSource", schema: SkillSource },
+  { path: "trust/key-kind.json", title: "TrustKeyKind", schema: TrustKeyKind },
+  { path: "trust/key.json", title: "TrustKey", schema: TrustKey },
+  { path: "trust/decision.json", title: "TrustDecision", schema: TrustDecision },
+  { path: "trust/state.json", title: "TrustState", schema: TrustState },
+  { path: "trust/record.json", title: "TrustRecord", schema: TrustRecord },
+  { path: "trust/event-type.json", title: "TrustEventType", schema: TrustEventType },
+  ...Object.entries(TRUST_EVENT_TYPES).map(([type, entry]) => ({ path: `trust/events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
+  { path: "trust/trust-updated.json", title: "TrustUpdatedPayload", schema: TrustUpdatedPayload },
+  { path: "trust/offer-skill-root.json", title: "TrustOfferSkillRoot", schema: TrustOfferSkillRoot },
+  { path: "trust/offer-hooks.json", title: "TrustOfferHooks", schema: TrustOfferHooks },
+  { path: "trust/offer-mcp-server.json", title: "TrustOfferMcpServer", schema: TrustOfferMcpServer },
+  { path: "trust/offer.json", title: "TrustOffer", schema: TrustOffer },
   { path: "theme/theme.json", title: "Theme", schema: Theme },
   { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
   { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },

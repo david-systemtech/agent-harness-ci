@@ -270,6 +270,8 @@ describe("the method registry", () => {
       "routines.endpoints.remove",
       "skills.own.create",
       "skills.own.remove",
+      "trust.decide",
+      "trust.revoke",
     ]);
   });
 
@@ -499,6 +501,10 @@ describe("the method registry", () => {
       | "skills.get"
       | "skills.own.create"
       | "skills.own.remove"
+      | "trust.get"
+      | "trust.list"
+      | "trust.decide"
+      | "trust.revoke"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

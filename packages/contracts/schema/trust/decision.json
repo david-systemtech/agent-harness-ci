@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustDecision",
+  "type": "string",
+  "enum": [
+    "trusted",
+    "declined"
+  ],
+  "description": "A trust decision: trusted (the repository's own instructions, settings, hooks and skills load into its runs) or declined (they never do, and it is not asked again)."
+}

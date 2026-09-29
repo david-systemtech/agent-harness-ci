@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustOfferHooks",
+  "type": "object",
+  "properties": {
+    "event": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The hook event, as the settings name it: PreToolUse, SessionStart."
+    },
+    "hooks": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The hook commands declared for it, across its matchers."
+    }
+  },
+  "required": [
+    "event",
+    "hooks"
+  ],
+  "description": "The hooks the repository's shared settings declare for one event."
+}

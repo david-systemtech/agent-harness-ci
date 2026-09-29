@@ -1363,6 +1363,62 @@
       "title": "SkillSource"
     },
     {
+      "path": "trust/key-kind.json",
+      "title": "TrustKeyKind"
+    },
+    {
+      "path": "trust/key.json",
+      "title": "TrustKey"
+    },
+    {
+      "path": "trust/decision.json",
+      "title": "TrustDecision"
+    },
+    {
+      "path": "trust/state.json",
+      "title": "TrustState"
+    },
+    {
+      "path": "trust/record.json",
+      "title": "TrustRecord"
+    },
+    {
+      "path": "trust/event-type.json",
+      "title": "TrustEventType"
+    },
+    {
+      "path": "trust/events/trust.granted.json",
+      "title": "TrustGrantedPayload"
+    },
+    {
+      "path": "trust/events/trust.declined.json",
+      "title": "TrustDeclinedPayload"
+    },
+    {
+      "path": "trust/events/trust.revoked.json",
+      "title": "TrustRevokedPayload"
+    },
+    {
+      "path": "trust/trust-updated.json",
+      "title": "TrustUpdatedPayload"
+    },
+    {
+      "path": "trust/offer-skill-root.json",
+      "title": "TrustOfferSkillRoot"
+    },
+    {
+      "path": "trust/offer-hooks.json",
+      "title": "TrustOfferHooks"
+    },
+    {
+      "path": "trust/offer-mcp-server.json",
+      "title": "TrustOfferMcpServer"
+    },
+    {
+      "path": "trust/offer.json",
+      "title": "TrustOffer"
+    },
+    {
       "path": "theme/theme.json",
       "title": "Theme"
     },
@@ -5081,6 +5137,62 @@
     {
       "path": "methods/skills.own.remove/error.json",
       "title": "skills.own.remove error"
+    },
+    {
+      "path": "methods/trust.get/params.json",
+      "title": "trust.get params"
+    },
+    {
+      "path": "methods/trust.get/result.json",
+      "title": "trust.get result"
+    },
+    {
+      "path": "methods/trust.get/error.json",
+      "title": "trust.get error"
+    },
+    {
+      "path": "methods/trust.list/params.json",
+      "title": "trust.list params"
+    },
+    {
+      "path": "methods/trust.list/result.json",
+      "title": "trust.list result"
+    },
+    {
+      "path": "methods/trust.list/error.json",
+      "title": "trust.list error"
+    },
+    {
+      "path": "methods/trust.decide/params.json",
+      "title": "trust.decide params"
+    },
+    {
+      "path": "methods/trust.decide/result.json",
+      "title": "trust.decide result"
+    },
+    {
+      "path": "methods/trust.decide/response.json",
+      "title": "trust.decide response"
+    },
+    {
+      "path": "methods/trust.decide/error.json",
+      "title": "trust.decide error"
+    },
+    {
+      "path": "methods/trust.revoke/params.json",
+      "title": "trust.revoke params"
+    },
+    {
+      "path": "methods/trust.revoke/result.json",
+      "title": "trust.revoke result"
+    },
+    {
+      "path": "methods/trust.revoke/response.json",
+      "title": "trust.revoke response"
+    },
+    {
+      "path": "methods/trust.revoke/error.json",
+      "title": "trust.revoke error"
     }
   ],
   "cases": [
@@ -6619,6 +6731,44 @@
       "result": "methods/skills.own.remove/result.json",
       "response": "methods/skills.own.remove/response.json",
       "error": "methods/skills.own.remove/error.json"
+    },
+    {
+      "name": "trust.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/trust.get/params.json",
+      "result": "methods/trust.get/result.json",
+      "error": "methods/trust.get/error.json"
+    },
+    {
+      "name": "trust.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/trust.list/params.json",
+      "result": "methods/trust.list/result.json",
+      "error": "methods/trust.list/error.json"
+    },
+    {
+      "name": "trust.decide",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/trust.decide/params.json",
+      "result": "methods/trust.decide/result.json",
+      "response": "methods/trust.decide/response.json",
+      "error": "methods/trust.decide/error.json"
+    },
+    {
+      "name": "trust.revoke",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/trust.revoke/params.json",
+      "result": "methods/trust.revoke/result.json",
+      "response": "methods/trust.revoke/response.json",
+      "error": "methods/trust.revoke/error.json"
     }
   ]
 }

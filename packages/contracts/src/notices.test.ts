@@ -59,6 +59,7 @@ describe("environment notices", () => {
       "settings.changed",
       "setup.result-changed",
       "skills.updated",
+      "trust.updated",
       "tools.updated",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");

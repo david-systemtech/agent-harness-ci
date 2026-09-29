@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustUpdatedPayload",
+  "type": "object",
+  "properties": {},
+  "description": "trust.updated: a trust decision was recorded or revoked and has committed; a client reads trust.get and trust.list again."
+}
