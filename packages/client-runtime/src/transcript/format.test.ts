@@ -49,6 +49,7 @@ describe("a finished turn's cost line", () => {
   it("says how a run that did not complete ended", () => {
     expect(endWords(ended({ reason: "interrupted", cause: "user" }))).toBe("Interrupted");
     expect(endWords(ended({ reason: "interrupted", cause: "read-now" }))).toBe("Interrupted to read the queue");
+    expect(endWords(ended({ reason: "interrupted", cause: "timeout" }))).toBe("Interrupted at the routine's time limit");
     expect(endWords(ended({ reason: "error" }))).toBe("Error");
   });
 });
