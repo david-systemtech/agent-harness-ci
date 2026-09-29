@@ -1,12 +1,14 @@
 import { z } from "zod";
+import { PRODUCT_NAME } from "./product.js";
 
 /**
  * Forge origins, slugs and variable names (forge spec, "The forge account
  * record"; ADR 0012, ADR 0020): the kind, the origin rules, the remote
  * normaliser and the matching rule, the slug and variable derivations, the
- * git username, the API base and the pull-request URL parsers, all pure, so
- * a client in another language derives exactly the names the environment
- * does. The ForgeService, its record and its methods build on them.
+ * git username, the API base, the token pages and the pull-request URL
+ * parsers, all pure, so a client in another language derives exactly the
+ * names the environment does. The ForgeService, its record and its methods
+ * build on them.
  */
 
 /**
@@ -317,6 +319,106 @@ export const forgeVariableNames = (account: { readonly slug: ForgeSlug; readonly
   return { url: names("URL"), token: [...names("TOKEN"), ...(account.origin === GITHUB_ORIGIN ? ["GH_TOKEN"] : [])], kind: names("KIND") };
 };
 
+// Token pages -----------------------------------------------------------------
+
+/** A permission a fine-grained GitHub token is granted, as its page names it, and the access it needs. */
+export const ForgeTokenPermission = z
+  .object({
+    name: z.string().min(1).meta({ description: "The permission as the token page names it: Contents, Issues, Pull requests, Administration." }),
+    access: z.enum(["read", "write"]).meta({ description: "The access it needs: read, or write (Read and write on the page), which includes read." }),
+  })
+  .meta({ description: "One permission a fine-grained token is granted, and its access." });
+export type ForgeTokenPermission = z.infer<typeof ForgeTokenPermission>;
+
+const tokenPageUrl = z
+  .url({ protocol: /^https?$/ })
+  .regex(/^https?:\/\//)
+  .meta({ description: "The page on the forge where the token is minted, with any prefill in its query." });
+const prefilled = z.boolean().meta({
+  description: "Whether the link fills in what to grant, so the person only confirms it; false for a page where they tick it themselves.",
+});
+const scopes = z.array(z.string().min(1)).min(1);
+
+/**
+ * A page where a person mints the token a forge account needs, and what
+ * that token must be granted (forge spec, "Providers"; ADR 0012, ADR 0032):
+ * GitHub's fine-grained token (its permissions, on every repository) or
+ * classic token (its scopes), or a Forgejo or Gitea access token (its
+ * scopes, as the API names them).
+ */
+export const ForgeTokenPage = z
+  .discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("fine-grained"),
+        url: tokenPageUrl,
+        prefilled,
+        repositoryAccess: z.literal("all").meta({ description: "Repository access to choose: All repositories, which creating one needs." }),
+        permissions: z.array(ForgeTokenPermission).min(1),
+      })
+      .meta({ description: "GitHub's fine-grained personal access token: its repository access and the permissions it is granted." }),
+    z
+      .object({ kind: z.literal("classic"), url: tokenPageUrl, prefilled, scopes: scopes.meta({ description: "The scopes to tick: repo and read:org." }) })
+      .meta({ description: "GitHub's classic personal access token and the scopes it is granted." }),
+    z
+      .object({
+        kind: z.literal("access-token"),
+        url: tokenPageUrl,
+        prefilled,
+        scopes: scopes.meta({ description: "The scopes to give it, as the API names them (write:repository); on the page, each category at Read or Read and write." }),
+      })
+      .meta({ description: "A Forgejo or Gitea access token, minted on the user's Applications settings, and the scopes it is given." }),
+  ])
+  .meta({ description: "A page where a person mints the token a forge account needs, whether the link fills it in, and what the token must be granted." });
+export type ForgeTokenPage = z.infer<typeof ForgeTokenPage>;
+
+/**
+ * What the harness's GitHub token is granted (ADR 0012, ADR 0032): the
+ * repositories' contents, issues and pull requests, and their
+ * administration, which creating a repository needs; as a classic token,
+ * `repo`, and `read:org` for the owner picker.
+ */
+const GITHUB_PERMISSIONS: readonly ForgeTokenPermission[] = [
+  { name: "Contents", access: "write" },
+  { name: "Issues", access: "write" },
+  { name: "Pull requests", access: "write" },
+  { name: "Administration", access: "write" },
+];
+const GITHUB_SCOPES = ["repo", "read:org"];
+
+/** The query name a fine-grained token's page takes each permission by (GitHub's "Pre-filling fine-grained personal access token details"). */
+const permissionParameter = (permission: ForgeTokenPermission): string => permission.name.toLowerCase().replace(/ /g, "_");
+
+/** A URL's query of `pairs`, each name and value percent-encoded. */
+const queryOf = (pairs: readonly (readonly [string, string])[]): string => pairs.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
+
+/**
+ * GitHub's token pages on `origin`. Only github.com (and Enterprise Cloud)
+ * fills in a fine-grained token from its link, so there it is offered
+ * first, with no expiry, since the step turns amber on a token expiring
+ * within thirty days and GitHub's own default is thirty; an Enterprise
+ * Server's fine-grained page is offered after the classic one, whose link
+ * ticks its scopes everywhere.
+ */
+const githubTokenPages = (origin: ForgeOrigin): ForgeTokenPage[] => {
+  const fineGrainedPage = `${origin}/settings/personal-access-tokens/new`;
+  const fineGrained = (url: string, prefilled: boolean): ForgeTokenPage => ({ kind: "fine-grained", url, prefilled, repositoryAccess: "all", permissions: [...GITHUB_PERMISSIONS] });
+  const classic: ForgeTokenPage = {
+    kind: "classic",
+    url: `${origin}/settings/tokens/new?${queryOf([["description", PRODUCT_NAME], ["scopes", GITHUB_SCOPES.join(",")]])}`,
+    prefilled: true,
+    scopes: [...GITHUB_SCOPES],
+  };
+  if (origin !== GITHUB_ORIGIN) return [classic, fineGrained(fineGrainedPage, false)];
+  const query = queryOf([["name", PRODUCT_NAME], ["expires_in", "none"], ...GITHUB_PERMISSIONS.map((permission) => [permissionParameter(permission), permission.access] as const)]);
+  return [fineGrained(`${fineGrainedPage}?${query}`, true), classic];
+};
+
+/** Forgejo's and Gitea's access token (forge research, 5.4): minted on the user's Applications settings, which a link cannot fill in. */
+const giteaTokenPages = (origin: ForgeOrigin): ForgeTokenPage[] => [
+  { kind: "access-token", url: `${origin}/user/settings/applications`, prefilled: false, scopes: ["read:user", "write:repository", "write:issue", "write:organization"] },
+];
+
 // Per kind ----------------------------------------------------------------------
 
 /** What each forge kind derives on its own (ADR 0020; forge spec, "Providers"). */
@@ -327,6 +429,8 @@ interface ForgeKindRules {
   readonly apiBase: (origin: ForgeOrigin) => string;
   /** The segment of a pull request's web URL between its repository and its number; null for a kind whose pull requests nothing reads yet. */
   readonly pullRequestSegment: string | null;
+  /** Where a person mints the token, the one to offer first; none for a kind nothing adds yet. */
+  readonly tokenPages: (origin: ForgeOrigin) => ForgeTokenPage[];
 }
 
 /** Forgejo and Gitea share one provider over the Gitea API. */
@@ -334,6 +438,7 @@ const GITEA_API: ForgeKindRules = {
   gitUsername: (login) => login,
   apiBase: (origin) => `${origin}/api/v1`,
   pullRequestSegment: "pulls",
+  tokenPages: giteaTokenPages,
 };
 
 const KIND_RULES: Readonly<Record<ForgeKind, ForgeKindRules>> = {
@@ -341,6 +446,7 @@ const KIND_RULES: Readonly<Record<ForgeKind, ForgeKindRules>> = {
     gitUsername: () => "x-access-token",
     apiBase: (origin) => (origin === GITHUB_ORIGIN ? "https://api.github.com" : `${origin}/api/v3`),
     pullRequestSegment: "pull",
+    tokenPages: githubTokenPages,
   },
   forgejo: GITEA_API,
   gitea: GITEA_API,
@@ -349,6 +455,7 @@ const KIND_RULES: Readonly<Record<ForgeKind, ForgeKindRules>> = {
     gitUsername: () => "oauth2",
     apiBase: (origin) => `${origin}/api/v4`,
     pullRequestSegment: null,
+    tokenPages: () => [],
   },
 };
 
@@ -365,6 +472,18 @@ export const forgeGitUsername = (kind: ForgeKind, login: string): string => KIND
  * and Gitea, and `/api/v4` for the reserved GitLab.
  */
 export const forgeApiBase = (kind: ForgeKind, origin: ForgeOrigin): string => KIND_RULES[kind].apiBase(origin);
+
+/**
+ * Where a person mints the token a forge account of `kind` on `origin`
+ * needs, and what it must be granted (forge spec, "Providers"), the page to
+ * offer first first: on github.com a fine-grained token with Contents,
+ * Issues, Pull requests and Administration at write on every repository,
+ * then a classic one with `repo` and `read:org`, the order reversed on an
+ * Enterprise origin; on Forgejo and Gitea an access token with
+ * `read:user`, `write:repository`, `write:issue` and `write:organization`.
+ * None for the reserved GitLab, which nothing adds before milestone 2.
+ */
+export const forgeTokenPages = (kind: ForgeKind, origin: ForgeOrigin): ForgeTokenPage[] => KIND_RULES[kind].tokenPages(origin);
 
 /** A pull request as its web URL names it. */
 export interface PullRequestReference {

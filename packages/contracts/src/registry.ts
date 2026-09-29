@@ -84,7 +84,17 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
-import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate, forgeAccountsVerify, forgeGhProbe } from "./methods/forge.js";
+import {
+  forgeAccountsAdd,
+  forgeAccountsList,
+  forgeAccountsRemove,
+  forgeAccountsSetPrimary,
+  forgeAccountsUpdate,
+  forgeAccountsVerify,
+  forgeDetect,
+  forgeGhProbe,
+  forgeOrgsList,
+} from "./methods/forge.js";
 import {
   keyManagersCertificatePreview,
   keyManagersConnectionsAdd,
@@ -213,6 +223,8 @@ export const methods = [
   forgeAccountsSetPrimary,
   forgeAccountsVerify,
   forgeGhProbe,
+  forgeDetect,
+  forgeOrgsList,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,

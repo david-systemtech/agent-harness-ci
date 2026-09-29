@@ -73,6 +73,27 @@ const unreachableCopy = {
   copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" },
 };
 
+const fineGrainedPage = {
+  kind: "fine-grained",
+  url: "https://github.com/settings/personal-access-tokens/new?name=agent-harness&expires_in=none&contents=write&issues=write&pull_requests=write&administration=write",
+  prefilled: true,
+  repositoryAccess: "all",
+  permissions: [
+    { name: "Contents", access: "write" },
+    { name: "Issues", access: "write" },
+    { name: "Pull requests", access: "write" },
+    { name: "Administration", access: "write" },
+  ],
+};
+const classicPage = { kind: "classic", url: "https://github.com/settings/tokens/new?description=agent-harness&scopes=repo%2Cread%3Aorg", prefilled: true, scopes: ["repo", "read:org"] };
+const accessTokenPage = {
+  kind: "access-token",
+  url: `${origin}/user/settings/applications`,
+  prefilled: false,
+  scopes: ["read:user", "write:repository", "write:issue", "write:organization"],
+};
+const detected = { origin, kind: "forgejo", version: "16.0.3+gitea-1.22.0", tokenPages: [accessTokenPage] };
+
 const added = {
   forgeAccountId,
   origin,
@@ -217,6 +238,38 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
   "forge/events/forge.account.git-rejected.json": { valid: [{ forgeAccountId, origin }], invalid: [{ forgeAccountId }, { forgeAccountId, origin: "ssh://git.systemtech.dev" }] },
   "forge/events/forge.account.removed.json": { valid: [{ forgeAccountId }], invalid: [{}, { forgeAccountId: "github" }] },
   "forge/events/forge.origin-missing.json": { valid: [{ origin, operation: "clone a skill source" }], invalid: [{ origin }, { origin, operation: "" }] },
+  "forge/token-permission.json": {
+    valid: [{ name: "Contents", access: "write" }, { name: "Metadata", access: "read" }],
+    invalid: [{ name: "Contents", access: "admin" }, { name: "", access: "write" }, { name: "Contents" }],
+  },
+  "forge/token-page.json": {
+    valid: [fineGrainedPage, classicPage, accessTokenPage, { ...fineGrainedPage, prefilled: false, url: "https://ghe.example.com/settings/personal-access-tokens/new" }],
+    invalid: [
+      { ...fineGrainedPage, permissions: [] },
+      { ...fineGrainedPage, repositoryAccess: "selected" },
+      { ...classicPage, scopes: [] },
+      { ...accessTokenPage, url: "git.systemtech.dev/user/settings/applications" },
+      { ...accessTokenPage, url: "ssh://git.systemtech.dev/user/settings/applications" },
+      { ...accessTokenPage, kind: "oauth" },
+      { ...accessTokenPage, prefilled: undefined },
+    ],
+  },
+  "forge/owner.json": {
+    valid: [{ login: "david", kind: "user" }, { login: "systemtech", kind: "organisation" }],
+    invalid: [{ login: "", kind: "user" }, { login: "systemtech", kind: "organization" }, { login: "david" }],
+  },
+  "errors/kind_unsupported.json": {
+    valid: [{ code: "kind_unsupported", message: "https://gitlab.com is GitLab, which a forge account cannot be added for before milestone 2.", data: { origin: "https://gitlab.com", kind: "gitlab" } }],
+    invalid: [{ code: "kind_unsupported", message: "m", data: { origin: "https://gitlab.com" } }, { code: "kind_unsupported", message: "m", data: { origin: "gitlab.com", kind: "gitlab" } }],
+  },
+  "errors/not_a_forge.json": {
+    valid: [{ code: "not_a_forge", message: "https://example.com answered as no forge the harness knows.", data: { origin: "https://example.com" } }],
+    invalid: [{ code: "not_a_forge", message: "m", data: {} }, { code: "not_a_forge", message: "m", data: { origin: "https://example.com/" } }],
+  },
+  "forge/errors/unreachable.json": {
+    valid: [{ code: "unreachable", message: "The forge at https://git.systemtech.dev:5526 could not be reached: ECONNREFUSED.", data: { origin } }],
+    invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { origin: "git.systemtech.dev" } }],
+  },
   "errors/verification_failed.json": {
     valid: [{ code: "verification_failed", message: "The forge refused the token.", data: { origin, status: 401 } }],
     invalid: [{ code: "verification_failed", message: "m", data: { origin } }, { code: "verification_failed", message: "m", data: { origin: "nowhere", status: 401 } }, { code: "identity_mismatch", message: "m", data: { origin, status: 401 } }],
@@ -358,5 +411,19 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "forge.gh.probe": {
     params: { valid: [{}], invalid: [[], "gh"] },
     result: { valid: [probe], invalid: [{}, { ...probe, meetsMinimum: undefined }] },
+  },
+  "forge.detect": {
+    params: { valid: [{ url: "git@git.systemtech.dev:david/agent-harness.git" }, { url: "https://github.com" }], invalid: [{}, { url: "" }, { url: 5526 }] },
+    result: {
+      valid: [detected, { ...detected, version: null }, { origin: "https://github.com", kind: "github", version: null, tokenPages: [fineGrainedPage, classicPage] }],
+      invalid: [{ ...detected, kind: "gitlab" }, { ...detected, tokenPages: [] }, { ...detected, version: "" }, { ...detected, origin: "git.systemtech.dev" }],
+    },
+  },
+  "forge.orgs.list": {
+    params: { valid: [{ forgeAccountId }], invalid: [{}, { forgeAccountId: "github" }] },
+    result: {
+      valid: [{ owners: [{ login: "david", kind: "user" }] }, { owners: [{ login: "david", kind: "user" }, { login: "systemtech", kind: "organisation" }] }],
+      invalid: [{}, { owners: [{ login: "david" }] }, { owners: "david" }],
+    },
   },
 };

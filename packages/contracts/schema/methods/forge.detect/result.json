@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.detect result",
+  "type": "object",
+  "properties": {
+    "origin": {
+      "type": "string",
+      "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+      "description": "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "github",
+        "forgejo",
+        "gitea"
+      ],
+      "description": "The kind of forge the origin is: github, forgejo or gitea."
+    },
+    "version": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The version the forge answered (16.0.3+gitea-1.22.0, 3.19.0); null where it gives none: github.com, and a Forgejo or Gitea that asks every caller to sign in."
+    },
+    "tokenPages": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "fine-grained"
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https?:\\/\\/",
+                "description": "The page on the forge where the token is minted, with any prefill in its query."
+              },
+              "prefilled": {
+                "type": "boolean",
+                "description": "Whether the link fills in what to grant, so the person only confirms it; false for a page where they tick it themselves."
+              },
+              "repositoryAccess": {
+                "type": "string",
+                "const": "all",
+                "description": "Repository access to choose: All repositories, which creating one needs."
+              },
+              "permissions": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The permission as the token page names it: Contents, Issues, Pull requests, Administration."
+                    },
+                    "access": {
+                      "type": "string",
+                      "enum": [
+                        "read",
+                        "write"
+                      ],
+                      "description": "The access it needs: read, or write (Read and write on the page), which includes read."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "access"
+                  ],
+                  "description": "One permission a fine-grained token is granted, and its access."
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "url",
+              "prefilled",
+              "repositoryAccess",
+              "permissions"
+            ],
+            "description": "GitHub's fine-grained personal access token: its repository access and the permissions it is granted."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "classic"
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https?:\\/\\/",
+                "description": "The page on the forge where the token is minted, with any prefill in its query."
+              },
+              "prefilled": {
+                "type": "boolean",
+                "description": "Whether the link fills in what to grant, so the person only confirms it; false for a page where they tick it themselves."
+              },
+              "scopes": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "The scopes to tick: repo and read:org."
+              }
+            },
+            "required": [
+              "kind",
+              "url",
+              "prefilled",
+              "scopes"
+            ],
+            "description": "GitHub's classic personal access token and the scopes it is granted."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "access-token"
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https?:\\/\\/",
+                "description": "The page on the forge where the token is minted, with any prefill in its query."
+              },
+              "prefilled": {
+                "type": "boolean",
+                "description": "Whether the link fills in what to grant, so the person only confirms it; false for a page where they tick it themselves."
+              },
+              "scopes": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "The scopes to give it, as the API names them (write:repository); on the page, each category at Read or Read and write."
+              }
+            },
+            "required": [
+              "kind",
+              "url",
+              "prefilled",
+              "scopes"
+            ],
+            "description": "A Forgejo or Gitea access token, minted on the user's Applications settings, and the scopes it is given."
+          }
+        ],
+        "description": "A page where a person mints the token a forge account needs, whether the link fills it in, and what the token must be granted."
+      },
+      "description": "Where to mint the token and what to grant it, the page to offer first at the head."
+    }
+  },
+  "required": [
+    "origin",
+    "kind",
+    "version",
+    "tokenPages"
+  ]
+}
