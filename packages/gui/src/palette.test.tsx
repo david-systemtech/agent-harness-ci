@@ -106,7 +106,12 @@ describe("its entries", () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");
     // Stop the run is app.interrupt, whose Esc is off until "Esc stops the run" is on: no key.
-    expect(entriesUnder("Anywhere")).toEqual(["Stop the runNothing is running in this session.", "Find in the conversationCtrl+F", "Show or hide the terminalCtrl+J"]);
+    expect(entriesUnder("Anywhere")).toEqual([
+      "Stop the runNothing is running in this session.",
+      "Find in the conversationCtrl+F",
+      "Show or hide the terminalCtrl+J",
+      "Show or hide the run's detailsCtrl+I",
+    ]);
     expect(entriesUnder("Writing a message")).toEqual([
       "Send it, steer a turn, run a row, send a failed checkEnter",
       "A newline instead of sendingShift+Enter",
@@ -119,9 +124,14 @@ describe("its entries", () => {
       "Take the newest queued message back to edit↑Nothing is queued to withdraw.",
     ]);
     expect(entriesUnder("Slash commands")).toEqual([
+      "/modelChoose the model, and its effort where it has one",
+      "/modeSet the permission mode for the next turn",
       "/attachSend an image or file with the next message",
       "/diffWhat this conversation changed, and the working tree's diff",
       "/tasksBackground work: what is running, and what a delegated agent did",
+      "/handoffMove this conversation to another account, or start it fresh there",
+      "/accountSwitch the account this session's next run uses, or add one",
+      "/containmentSet how contained this session's runs are",
       "/terminalOpen a terminal on the session's environment, in a pane",
       "/filesBrowse the workspace's files, and read one in the pager",
     ]);
@@ -222,9 +232,9 @@ describe("choosing an entry", () => {
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
     await app.user.keyboard("{ArrowDown}");
-    expect(highlighted()).toMatch(/^Send it/);
+    expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
-    expect(highlighted()).toMatch(/^Send it/);
+    expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });

@@ -54,7 +54,3 @@ export const planDelta = (before: PlanMark, after: PlanMark): readonly string[] 
   }
   return observed ? words : null;
 };
-
-/** The gauge pooling the session's account on its environment. */
-export const gaugeOf = (gauges: readonly UsageGauge[], environmentId: string, accountId: string | null): UsageGauge | undefined =>
-  accountId === null ? undefined : gauges.find((gauge) => gauge.accounts.some((a) => a.environmentId === environmentId && a.accountId === accountId));
