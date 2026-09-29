@@ -25,8 +25,8 @@ export const UPDATE_SNAPSHOT_USAGE = [
   `${PRODUCT_NAME} update discard --update-id <id> [--data-dir <path>]`,
 ] as const;
 
-/** A reason's code, as an outcome record names a failure: lowercase letters, digits and hyphens, such as `health`. */
-const REASON_CODE = /^[a-z][a-z0-9-]*$/;
+/** A reason's code, as an outcome record names a failure: lowercase letters, digits and hyphens, such as `health` (never a leading hyphen, which reads as a flag). */
+const REASON_CODE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** The update id a verb takes, required: the update the host-side updater began, as `update status --json` names it. */
 const updateIdOf = (value: string | undefined, verb: string): string => {

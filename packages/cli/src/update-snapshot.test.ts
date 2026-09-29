@@ -260,6 +260,10 @@ describe("agent-harness update restore", SPAWNS, () => {
       expect(code, args.join(" ")).toBe(2);
       expect(err, args.join(" ")).toContain("agent-harness update restore");
     }
+    // A code of digits is one: past the arguments, the verb finds no snapshot to restore.
+    const digits = await run(["restore", ...without("--reason"), "--reason", "503", "--data-dir", "/nonexistent/agent-harness"]);
+    expect(digits.code).toBe(1);
+    expect(digits.err).toMatch(/^There is no snapshot of update /);
   });
 });
 
