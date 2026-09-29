@@ -17,6 +17,19 @@
       ],
       "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
     },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "skill",
+        "command"
+      ],
+      "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+    },
+    "path": {
+      "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+      "type": "string"
+    },
     "description": {
       "anyOf": [
         {
@@ -40,6 +53,18 @@
     "userInvocable": {
       "type": "boolean",
       "description": "Whether a person may invoke it: false exactly when its frontmatter sets user-invocable: false, which leaves it out of the / menu."
+    },
+    "whileActive": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "hooks",
+          "allowed-tools"
+        ],
+        "description": "A frontmatter key that acts while the skill is active, which a client says of the member: hooks (commands run on the provider's events) or allowed-tools (tools that may run without a prompt; the tool gate and the denylist still run first)."
+      },
+      "description": "The keys its frontmatter declares that act while it is active, hooks before allowed-tools; empty for none."
     },
     "origin": {
       "anyOf": [
@@ -200,7 +225,13 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991,
-      "description": "Its body's length in characters, which always-on appends to every run; a quarter of it approximates the tokens."
+      "description": "Its body's length in characters, after its frontmatter, which always-on appends to every run."
+    },
+    "tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The tokens its body approximately costs: a quarter of its size, rounded up."
     },
     "problems": {
       "type": "array",
@@ -210,10 +241,11 @@
           "kind": {
             "type": "string",
             "enum": [
+              "frontmatter",
               "name",
               "description"
             ],
-            "description": "What is wrong: name (neither its frontmatter name nor its folder's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+            "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
           },
           "message": {
             "type": "string",
@@ -260,14 +292,18 @@
   },
   "required": [
     "name",
+    "kind",
+    "path",
     "description",
     "invocation",
     "userInvocable",
+    "whileActive",
     "origin",
     "layer",
     "size",
+    "tokens",
     "problems",
     "warnings"
   ],
-  "description": "A member of a skill set: its name, description, invocation, whether a person may invoke it, its origin, its layer, its body's size, and its problems (any leaves it invalid) and warnings."
+  "description": "A member of a skill set: its name, whether it is a skill folder or a command file and where it lies, its description, invocation, whether a person may invoke it, the keys it declares that act while it is active, its origin, its layer, its body's size and approximate tokens, and its problems (any leaves it invalid) and warnings."
 }

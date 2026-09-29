@@ -8,6 +8,7 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
+import { browserSchemaFixtures } from "./browser-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
@@ -21,7 +22,7 @@ import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
-import { skillSchemaFixtures } from "./skill-fixtures.js";
+import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
@@ -521,6 +522,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...workspaceMethodFixtures,
   ...updateMethodFixtures,
   ...routineMethodFixtures,
+  ...skillMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -737,8 +739,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "usage.updated",
       "settings.changed",
       "setup.result-changed",
+      "skills.updated",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -773,6 +776,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
       { type: "setup.result-changed", payload: forgeRejected },
+      { type: "skills.updated", payload: {} },
       toolsUpdatedNotice.valid,
       validEnvironmentStartedEvent,
     ],
@@ -911,6 +915,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...workspaceSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
+  ...browserSchemaFixtures,
   ...routineSchemaFixtures,
   ...methodSchemaFixtures,
 };

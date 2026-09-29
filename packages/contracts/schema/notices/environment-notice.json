@@ -3544,9 +3544,18 @@
                   "updates.pinnedVersion",
                   "updates.idleWindowMinutes",
                   "updates.deferralCapHours",
-                  "appearance.theme"
+                  "appearance.theme",
+                  "browser.devSites",
+                  "browser.evaluateEverywhere",
+                  "browser.deepReadEverywhere",
+                  "browser.reach",
+                  "browser.headless.allowRuns",
+                  "browser.headless.endpoint",
+                  "browser.headless.executable",
+                  "browser.headless.limits",
+                  "browser.internalHosts"
                 ],
-                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme."
+                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts."
               },
               "uniqueItems": true,
               "description": "The keys whose values changed, each once, in the order settings.updated names them."
@@ -3580,10 +3589,11 @@
                 "account",
                 "your-machines",
                 "forges",
+                "browser",
                 "permissions",
                 "appearance"
               ],
-              "description": "A step with an entry in the step registry: account, your-machines, forges, permissions, appearance."
+              "description": "A step with an entry in the step registry: account, your-machines, forges, browser, permissions, appearance."
             },
             "state": {
               "type": "string",
@@ -3752,6 +3762,25 @@
         "payload"
       ],
       "description": "A Set up step's check answered a result that differs from the one the environment's result cache held, in anything but when it was checked, or the step's first: the result, which replaces that step's in environment.subscribe's snapshot. A result that only refreshes when it was checked is not noticed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "skills.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "description": "skills.updated: the skill set changed, by a command that committed or a read that found the own directory changed; a client reads skills.get again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The skill set changed: a command changed it, or a read found the own directory changed."
     },
     {
       "type": "object",

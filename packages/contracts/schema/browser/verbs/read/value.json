@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReadValue",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The address the page has now."
+    },
+    "title": {
+      "type": "string",
+      "description": "The page's title."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "article",
+        "snapshot"
+      ],
+      "description": "article: the reader's article, as Markdown; snapshot: the snapshot's text in all mode, where the page is not an article."
+    },
+    "text": {
+      "type": "string",
+      "description": "This page of the text."
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Where this page starts, in characters."
+    },
+    "totalChars": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How long the whole text is, in characters."
+    },
+    "nextOffset": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where the next page starts; null on the last."
+    },
+    "challenge": {
+      "description": "The challenge the page shows, when it shows one.",
+      "type": "string",
+      "enum": [
+        "recaptcha",
+        "hcaptcha",
+        "turnstile",
+        "datadome",
+        "perimeterx",
+        "cloudflare",
+        "javascript"
+      ]
+    }
+  },
+  "required": [
+    "url",
+    "title",
+    "source",
+    "text",
+    "offset",
+    "totalChars",
+    "nextOffset"
+  ],
+  "description": "A page of the page's readable text: the article as Markdown, or the snapshot's text; paged by offset."
+}

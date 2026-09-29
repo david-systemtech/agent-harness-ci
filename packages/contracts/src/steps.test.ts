@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
+  BROWSER_SETTINGS_KEYS,
   BYPASS_SENTENCE,
   CHECK_BUDGET_SECONDS,
   DEFAULT_CADENCE_MINUTES,
@@ -220,7 +221,21 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "browser", "permissions", "appearance"]);
+  });
+
+  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
+    const browser = stepOf("browser");
+    expect((STEP_ORDER as readonly string[]).indexOf("browser")).toBe(8);
+    expect(STEP_REGISTRY.find((step) => step.id === "browser")?.home).toBe("access.browser");
+    expect(browser.writes).toEqual([...BROWSER_SETTINGS_KEYS]);
+    expect(browser.checks.map((check) => check.key)).toEqual([...BROWSER_SETTINGS_KEYS]);
+    expect(browser).toMatchObject({ stateChecks: [], links: [], skippable: false, budget: "local", cadence: { minutes: 60 }, triggers: [] });
+    expect(browser).not.toHaveProperty("skip");
+    expect(browser.writesState).toBeUndefined();
+    const presets = presetSettings();
+    for (const check of browser.checks) expect(check.check(presets[check.key as SettingsKey]), check.key).toBe(true);
+    expect(browser.checks.find((check) => check.key === "browser.devSites")?.check(["https://myapp.test"])).toBe("browser.devSites does not hold a valid value.");
   });
 
   it("exports the check the switch-over's done checklist runs: the steps of the milestone-1 order no entry registers, in that order (#94)", () => {
@@ -406,11 +421,12 @@ describe("the step registry", () => {
     expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
   });
 
-  it("gives Account, Permissions and Appearance the local budget, Your machines and Forges the network one, each an hourly cadence but Forges, checked every fifteen minutes because the orientation block reports each forge account's status", () => {
+  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines and Forges the network one, each an hourly cadence but Forges, checked every fifteen minutes because the orientation block reports each forge account's status", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence.minutes])).toEqual([
       ["account", "local", 60],
       ["your-machines", "network", 60],
       ["forges", "network", 15],
+      ["browser", "local", 60],
       ["permissions", "local", 60],
       ["appearance", "local", 60],
     ]);
@@ -432,11 +448,12 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices and settings.updated, Forges on every forge.account.* event, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices and settings.updated, Forges on every forge.account.* event, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["your-machines", ["environment.update-*", "settings.updated"]],
       ["forges", ["forge.account.*"]],
+      ["browser", []],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],
     ]);

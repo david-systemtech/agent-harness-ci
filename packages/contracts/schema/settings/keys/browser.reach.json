@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserReach",
+  "type": "object",
+  "propertyNames": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 200,
+    "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+  },
+  "additionalProperties": {
+    "anyOf": [
+      {
+        "type": "string",
+        "const": "per-session",
+        "description": "No Chrome until one is chosen in the session: the preset."
+      },
+      {
+        "type": "object",
+        "properties": {
+          "chrome": {
+            "type": "object",
+            "properties": {
+              "environmentId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "description": "The environment the Chrome is paired with."
+              },
+              "chromeId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+              }
+            },
+            "required": [
+              "environmentId",
+              "chromeId"
+            ],
+            "description": "A Chrome of an environment."
+          }
+        },
+        "required": [
+          "chrome"
+        ],
+        "description": "This Chrome for every new session of the account."
+      }
+    ],
+    "description": "An account's reach: per-session, or a Chrome always."
+  },
+  "description": "browser.reach: by account id, whether a new session of the account starts with a Chrome: per-session (no Chrome until one is chosen), or a Chrome of an environment always. An account not listed is per-session; preset empty."
+}

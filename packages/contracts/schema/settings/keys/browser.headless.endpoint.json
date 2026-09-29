@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeadlessEndpoint",
+  "anyOf": [
+    {
+      "type": "string",
+      "pattern": "^(?:https?|wss?):\\/\\/[^\\s/?#]+(?:[/?#]\\S*)?$"
+    },
+    {
+      "type": "null"
+    }
+  ],
+  "description": "browser.headless.endpoint: an operator's browser beside the environment, by its CDP address (http, https, ws or wss); null for none, when the environment launches a Chromium itself. Preset null."
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CookiesValue",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "value": {
+        "description": "The value, only where deep reads are allowed; elsewhere a cookie is its name and attributes.",
+        "type": "string"
+      },
+      "domain": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "expires": {
+        "description": "When it expires; absent for a session cookie.",
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+      },
+      "httpOnly": {
+        "type": "boolean"
+      },
+      "secure": {
+        "type": "boolean"
+      },
+      "sameSite": {
+        "description": "When the browser sends it on a request from another site: Strict, Lax or None.",
+        "type": "string",
+        "enum": [
+          "Strict",
+          "Lax",
+          "None"
+        ]
+      }
+    },
+    "required": [
+      "name",
+      "domain",
+      "path",
+      "httpOnly",
+      "secure"
+    ],
+    "description": "A cookie the page would send."
+  },
+  "description": "The cookies the page would send."
+}

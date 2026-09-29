@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NetworkArgs",
+  "type": "object",
+  "properties": {
+    "failedOnly": {
+      "description": "Only the requests that failed; preset false.",
+      "type": "boolean"
+    }
+  },
+  "description": "network: the requests since the last network verb."
+}
