@@ -13,6 +13,7 @@ import {
   releaseVersionOfTag,
   type ReleaseAsset,
   type ReleaseChannel,
+  type ReleaseImage,
   type ReleaseSource,
   type UpdateBlockedReason,
   type UpdateCheckFailure,
@@ -107,7 +108,7 @@ export interface ChannelFailure {
   readonly message: string;
 }
 
-/** A release that can be staged: its version, this platform's artefact as the forge lists it and as its manifest does, and the launcher protocol it needs. */
+/** A release that can be staged: its version, this platform's artefact as the forge lists it and as its manifest does, the launcher protocol it needs, and its image. */
 export interface StageableRelease {
   readonly version: string;
   /** The artefact's record on the forge: what is downloaded. */
@@ -116,6 +117,8 @@ export interface StageableRelease {
   readonly artefact: ReleaseAsset;
   /** The launcher protocol the release's environment needs. */
   readonly launcherProtocol: number;
+  /** The release's image as its manifest names it: what a container's update goes to, which the host-side updater pulls (#348). */
+  readonly image: ReleaseImage;
 }
 
 /** Why a target cannot be reached by itself: its reason, the target, and what unblocks it, for people. */
@@ -150,9 +153,10 @@ export interface ReleaseChannelReader {
   /**
    * The release `updates.apply` asks for by `version`, or with none the
    * newest on `channel` (current when nothing newer is published), ready to
-   * stage under a launcher speaking `launcherProtocol`; or why it cannot be.
+   * stage under a launcher speaking `launcherProtocol`, or for a container's
+   * host-side updater to pull with none (null, #348); or why it cannot be.
    */
-  requested(version: string | undefined, channel: ReleaseChannel, launcherProtocol: number): Promise<StageableRelease | ReleaseRefusal>;
+  requested(version: string | undefined, channel: ReleaseChannel, launcherProtocol: number | null): Promise<StageableRelease | ReleaseRefusal>;
   /**
    * Downloads `release`'s artefact into the file `destination` and checks
    * its size and SHA-256 against the manifest: null once it matches, else
@@ -293,7 +297,7 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
         message: `The release ${version}'s database schema, ${manifest.databaseSchemaVersion}, is below this database's, ${database}: it cannot open the database.`,
       };
     }
-    return { outcome: "target", release: { version, ...artefact, launcherProtocol: manifest.launcherProtocol } };
+    return { outcome: "target", release: { version, ...artefact, launcherProtocol: manifest.launcherProtocol, image: manifest.image } };
   };
 
   /** The pinned or requested `version`'s release: among those listed, else read by its tag; null when there is none that is not a draft. */
@@ -427,7 +431,7 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
             : { code: "not_found", message: `Cannot update to ${version}: ${examined.message}`, data: {} };
         case "target": {
           const needs = examined.release.launcherProtocol;
-          if (needs <= launcherProtocol) return examined.release;
+          if (launcherProtocol === null || needs <= launcherProtocol) return examined.release;
           return { code: "conflict", message: `Cannot update to ${version}: ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
         }
       }

@@ -14,6 +14,7 @@ import {
   type InstallRefusal,
   type ParamsOf,
   type PendingUpdate,
+  type ReleaseImage,
   type UpdateCancelCause,
   type UpdateCause,
   type UpdateConflictReason,
@@ -62,7 +63,7 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  * and starts the drain with the trigger `update`, which refuses new runs
  * from then on. The drain waits for running runs up to its cap, not for parked ones; then
  * every client hears `bye: updating` and the launcher is asked `switch?`
- * (`switchOver`); a refused switch is `environment.update-failed` at stage
+ * (`afterDrain`); a refused switch is `environment.update-failed` at stage
  * `switch`, appended before the environment closes, and the launcher starts
  * the same version again. `updates.cancel` withdraws an update not yet
  * draining. As the next start passes its gate, the coordinator settles the
@@ -71,6 +72,21 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  * the outcome, marks each run that update cut and continues it where it
  * can (`interrupted-runs.ts`, #345).
  *
+ * **Managed outside** (#348): a container with no launcher never replaces
+ * itself, since its restart policy would bring the old version straight
+ * back; the plan is the same, and the host-side updater carries it out.
+ * What a check finds, or `updates.apply` asks for by version, is pending
+ * with the image its manifest names, and nothing is staged. The pending
+ * update reads `ready` whenever a native environment would drain (idle,
+ * past its cap, or asked `now`), and the coordinator never drains by
+ * itself: the updater's `updates.begin` of that update appends its start
+ * with the cause that made it ready and drains. That drain does not end the
+ * process: every client hears `bye: updating` at the updater's stop (a
+ * signal), and with none five minutes after the drain has waited the update
+ * fails at stage `switch` and the environment closes, for the restart
+ * policy to start the same version, whose settle marks and continues the
+ * runs it cut.
+ *
  * A pending update is read back from the log as the environment starts, so
  * it is still pending after a restart, with its `since`: when an update
  * first became pending, kept when a newer one replaces it. Its `deferUntil`
@@ -78,6 +94,9 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  */
 
 const MINUTE_MS = 60_000;
+
+/** Managed outside, how long after an update's drain has waited the host-side updater's stop may come before the update fails (`no-stop`). */
+export const STOP_WAIT_MS = 5 * MINUTE_MS;
 
 /** Who the coordinator's own notices name: the environment's updates, never a client. */
 const UPDATES_ACTOR = formatActor({ kind: "system", id: "updates" });
@@ -94,6 +113,11 @@ export interface UpdateCoordinatorOptions {
   /** The harness version the environment runs: every update goes from it. */
   readonly harnessVersion: string;
   readonly launcher: LauncherChannel;
+  /**
+   * Whether the environment's updates are managed outside it: a container
+   * with no launcher, whose host-side updater carries out the plan (#348).
+   */
+  readonly managedOutside: boolean;
   /** The run registry, whose every change the coordinator hears. */
   readonly runs: Pick<RunRegistry, "onChange">;
   /** Where the continuation of a run an update cut starts, as the settle marks it. */
@@ -126,7 +150,7 @@ export interface UpdateCoordinator {
    * a continuation where it can go on (`interrupted-runs.ts`).
    */
   settle(): void;
-  readonly handlers: Required<Pick<MethodHandlers, "updates.apply" | "updates.cancel">>;
+  readonly handlers: Required<Pick<MethodHandlers, "updates.apply" | "updates.cancel" | "updates.begin">>;
   /** What a check reads the channel with beside the settings: the running launcher's protocol, as its `versions?` answers, and the failed versions. */
   channelContext(): Promise<ChannelContext>;
   /**
@@ -154,12 +178,21 @@ export interface UpdateCoordinator {
   /** Starts hearing the run registry, the minute and the cap; returns the stop. Called once the wire is open. */
   start(): () => void;
   /**
-   * The switch, once an update's drain has waited and every client has
-   * heard `bye: updating`: asks the launcher `switch?`, and on a refusal
-   * appends `environment.update-failed` (stage `switch`, the launcher's
-   * reason). Settles once answered; the environment closes after.
+   * The end of an update's drain, once it has waited; the environment
+   * closes after. Under a launcher, every client hears `bye: updating`
+   * (`sayUpdating`) and the launcher is asked `switch?`; a refusal appends
+   * `environment.update-failed` (stage `switch`, the launcher's reason).
+   * Managed outside, it waits for the host-side updater's stop
+   * (`stopRequested`), which may have come during the drain already, and
+   * then says `bye: updating`; with no stop five minutes on, it appends
+   * `environment.update-failed` (stage `switch`, reason `no-stop`) and the
+   * environment closes as any drain does, for the container's restart policy
+   * to start the same version again. Settles at once when the environment
+   * is closing.
    */
-  switchOver(): Promise<void>;
+  afterDrain(sayUpdating: () => Promise<void>): Promise<void>;
+  /** The process was asked to stop (SIGTERM or SIGINT): managed outside, the host-side updater's `docker compose stop`, which ends an update's drain. */
+  stopRequested(): void;
 }
 
 /** A pending update, as the coordinator holds it. */
@@ -169,12 +202,19 @@ interface Update {
   readonly source: UpdateSource;
   /** When an update first became pending. */
   readonly since: Date;
+  /** Managed outside, the target's image from its release manifest, which the host-side updater pulls; none for a native environment's update. */
+  readonly image?: ReleaseImage;
 }
 
 /** Where the coordinator is. */
 type Held =
   | { readonly state: "current" }
-  | { readonly state: "waiting"; readonly update: Update }
+  | {
+      readonly state: "waiting";
+      readonly update: Update;
+      /** Asked for with `when: now`: managed outside, ready whatever the activity, for the host-side updater. */
+      readonly now?: boolean;
+    }
   | { readonly state: "draining" | "switching"; readonly update: Update; readonly cause: UpdateCause };
 
 /** The update-pending, -started and -cancelled notices, which say what is pending. */
@@ -201,6 +241,15 @@ const refusalOf = (unstaged: Unstaged): Refusal =>
 /** Why no launcher can switch the version, for people. */
 const NO_LAUNCHER_MESSAGE = "No launcher runs this environment to switch its version: serve runs in the foreground; `service install` runs the environment under one.";
 
+/** Why a container takes no artefact, for people: its host-side updater pulls an image, which `updates.apply` names by version. */
+const CONTAINER_ARTEFACT_MESSAGE = "No launcher runs this container to install an artefact: its host-side updater pulls the release's image, so ask for the update by version alone.";
+
+/** Why no host-side updater begins this environment's updates, for people: a launcher switches them, or it is no container. */
+const notOutsideMessage = (underLauncher: boolean): string =>
+  underLauncher
+    ? "A launcher runs this environment and switches its versions itself: no host-side updater begins its updates."
+    : "This environment runs in no container: no host-side updater begins its updates; `service install` runs it under a launcher, which updates it.";
+
 /** Whether `a` is a release version newer than `b`; a version that is none is never newer. */
 const newer = (a: string, b: string): boolean => ReleaseVersion.safeParse(a).success && ReleaseVersion.safeParse(b).success && compareReleaseVersions(a, b) > 0;
 
@@ -217,7 +266,10 @@ const pendingInLog = (log: EventLog): Update | undefined => {
   for (const event of log.readStream({ kinds: [ENVIRONMENT_STREAM_KIND], types: [...PENDING_TYPES] })) {
     if (event.type === "environment.update-pending") {
       const payload = UpdatePendingPayload.safeParse(event.payload);
-      if (payload.success) pending = { updateId: payload.data.updateId, toVersion: payload.data.toVersion, source: payload.data.source, since: new Date(payload.data.since) };
+      if (payload.success) {
+        const { updateId, toVersion, source, since, image } = payload.data;
+        pending = { updateId, toVersion, source, since: new Date(since), ...(image !== undefined && { image }) };
+      }
       continue;
     }
     const ended = (event.type === "environment.update-started" ? UpdateStartedPayload : UpdateCancelledPayload).safeParse(event.payload);
@@ -238,6 +290,10 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   let started = false;
   let stopped = false;
   let capTimer: Timer | undefined;
+  /** Whether the process was asked to stop: managed outside, the host-side updater's stop, which ends an update's drain. */
+  let stopAsked = false;
+  /** Ends the wait for that stop, told whether it came; set while `afterDrain` waits. */
+  let endStopWait: ((came: boolean) => void) | undefined;
 
   const deferUntil = (update: Update): Date => new Date(update.since.getTime() + options.deferralCapMs());
 
@@ -249,6 +305,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       source: update.source,
       since: update.since.toISOString(),
       deferUntil: deferUntil(update).toISOString(),
+      ...(update.image !== undefined && { image: update.image }),
     };
     return { type: "environment.update-pending", payload };
   };
@@ -279,22 +336,37 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   const armCap = (): void => {
     capTimer?.cancel();
     capTimer = undefined;
-    if (!started || stopped || held.state !== "waiting") return;
+    if (!started || stopped || held.state !== "waiting" || options.managedOutside) return;
     capTimer = clock.setTimeout(evaluate, Math.max(0, deferUntil(held.update).getTime() - clock.now().getTime()));
+  };
+
+  /** What makes `update` go under `activity`: the environment idle, or its deferral cap passed while busy; none while busy work holds it or another drain is under way. */
+  const dueCause = (update: Update, activity: EnvironmentActivity): UpdateCause | undefined => {
+    if (activity.state === "idle") return "idle";
+    return activity.state === "busy" && clock.now() >= deferUntil(update) ? "cap" : undefined;
+  };
+
+  /** Managed outside, what makes the waiting update ready for the host-side updater: asked for now, else what would drain it natively; none during another drain. */
+  const readyCause = (waiting: Extract<Held, { readonly state: "waiting" }>): UpdateCause | undefined => {
+    const activity = options.activity();
+    if (activity.state === "draining") return undefined;
+    return waiting.now === true ? "requested" : dueCause(waiting.update, activity);
   };
 
   /**
    * The tick: reads the activity and, in the same tick, begins the drain
    * of the waiting update when the environment is idle or its deferral cap
    * has passed. A drain some other trigger began is left to close the
-   * environment: the update is still pending at the next start.
+   * environment: the update is still pending at the next start. Managed
+   * outside, the coordinator never drains on its own: the update reads
+   * ready instead, for the host-side updater's `updates.begin`.
    */
   function evaluate(): void {
-    if (stopped || held.state !== "waiting") return;
+    if (stopped || held.state !== "waiting" || options.managedOutside) return;
     const { update } = held;
     const activity = options.activity();
     if (activity.state === "draining") return;
-    const cause: UpdateCause | undefined = activity.state === "idle" ? "idle" : clock.now() >= deferUntil(update) ? "cap" : undefined;
+    const cause = dueCause(update, activity);
     if (cause === undefined) return armCap();
     try {
       log.append(stream, [startedEvent(update, cause)], { actor: UPDATES_ACTOR });
@@ -333,6 +405,13 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
         context.tx.afterCommit(evaluate);
         return { aggregate: stream, result };
       }
+      // Managed outside, asked for now it is ready for the host-side updater, which begins it.
+      if (options.managedOutside) {
+        context.tx.afterCommit(() => {
+          if (held.state === "waiting" && held.update === update) held = { state: "waiting", update, now: true };
+        });
+        return { aggregate: stream, result };
+      }
       context.tx.afterCommit(() => {
         if (held.state === "waiting" && held.update === update) draining(update, "requested", { actor: context.actor, commandId: context.commandId });
       });
@@ -342,7 +421,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   /**
    * The command that makes the installed `staged` update the pending one:
    * `since` carried over from an update it replaces, else now; draining at
-   * once with `when: now`, else waiting.
+   * once with `when: now`, else waiting. Managed outside, `now` makes it
+   * ready for the host-side updater, and nothing drains.
    */
   const makePending =
     (staged: Omit<Update, "since">, when: ParamsOf<"updates.apply">["when"]): MethodHandler<"updates.apply"> =>
@@ -350,15 +430,33 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       const refused = underWay();
       if (refused) return { aggregate: stream, rejected: refused };
       const update = pendingOf(staged);
+      const drainNow = when === "now" && !options.managedOutside;
       const events: EventInput[] = [pendingEvent(update)];
-      if (when === "now") events.push(startedEvent(update, "requested"));
+      if (drainNow) events.push(startedEvent(update, "requested"));
       context.tx.afterCommit(() => {
-        held = { state: "waiting", update };
-        if (when === "now") draining(update, "requested", { actor: context.actor, commandId: context.commandId });
+        held = { state: "waiting", update, now: when === "now" };
+        if (drainNow) draining(update, "requested", { actor: context.actor, commandId: context.commandId });
         else wait();
       });
       return { aggregate: stream, result: { updateId: update.updateId, toVersion: update.toVersion }, events };
     };
+
+  /**
+   * Whether the host-side updater may begin `updateId`: managed outside,
+   * with that update waiting and ready, as a native environment would drain
+   * it now; answered with the cause that makes it ready, else why not.
+   */
+  const beginnable = (updateId: string): { readonly update: Update; readonly cause: UpdateCause } | Refusal => {
+    if (!options.managedOutside) return conflict("not_outside", notOutsideMessage(launcher.present()));
+    const refused = underWay();
+    if (refused) return refused;
+    if (held.state !== "waiting") return conflict("not_ready", `No update is pending, so ${updateId} is not ready.`);
+    const { update } = held;
+    if (update.updateId !== updateId) return conflict("not_ready", `${updateId} is not the pending update: the update to ${update.toVersion} is, as ${update.updateId}.`);
+    const cause = readyCause(held);
+    if (cause === undefined) return conflict("not_ready", `The update to ${update.toVersion} is not ready: it waits for idle, or its deferral cap at ${deferUntil(update).toISOString()}.`);
+    return { update, cause };
+  };
 
   /** The waiting update's wait begins, or goes on with a new update: the cap's timer armed, and the activity read at once. */
   const wait = (): void => {
@@ -394,7 +492,9 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     if (artefactPath === undefined && version !== undefined && pinnedVersion !== null && version !== pinnedVersion) {
       return refuse(conflict("pinned", `${pinnedVersion} is pinned: pin ${version}, or unpin, to update to it.`));
     }
-    if (!launcher.present()) return refuse(conflict("no_launcher", NO_LAUNCHER_MESSAGE));
+    // Managed outside, a version is pending for the host-side updater, which pulls its image: no artefact is installed.
+    if (options.managedOutside && artefactPath !== undefined) return refuse(conflict("no_launcher", CONTAINER_ARTEFACT_MESSAGE));
+    if (!launcher.present() && !options.managedOutside) return refuse(conflict("no_launcher", NO_LAUNCHER_MESSAGE));
     const busy = stagingUnderWay();
     if (busy) return refuse(busy);
     if (artefactPath !== undefined && version !== undefined) {
@@ -472,18 +572,25 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
    * a request (Update now): read from the channel for the launcher running
    * the environment, downloaded, checked, unpacked and installed; then the
    * command makes it pending, or takes the waiting update when that is the
-   * version the channel names.
+   * version the channel names. Managed outside, the release is read and
+   * made pending with its image, for the host-side updater: nothing is
+   * downloaded.
    */
   const download = async (version: string | undefined, when: ParamsOf<"updates.apply">["when"]): Promise<MethodHandler<"updates.apply">> => {
-    const versions = await launcher.request({ type: "versions?" });
-    if (versions.type === "refused") return refuse(conflict("no_launcher", NO_LAUNCHER_MESSAGE));
-    const release = await options.channel.requested(version, options.settings().channel, versions.launcherProtocol);
+    let launcherProtocol: number | null = null;
+    if (!options.managedOutside) {
+      const versions = await launcher.request({ type: "versions?" });
+      if (versions.type === "refused") return refuse(conflict("no_launcher", NO_LAUNCHER_MESSAGE));
+      launcherProtocol = versions.launcherProtocol;
+    }
+    const release = await options.channel.requested(version, options.settings().channel, launcherProtocol);
     if ("code" in release) return refuse(release);
     // What changed while the channel was read: an update began or is staged, or the newest named is what waits.
     const refused = underWay() ?? stagingUnderWay();
     if (refused) return refuse(refused);
     if (held.state === "waiting" && held.update.toVersion === release.version) return takeWaiting(held.update, when);
     const update = { updateId: randomUUID(), toVersion: release.version, source: "request" } as const;
+    if (options.managedOutside) return makePending({ ...update, image: release.image }, when);
     const unstaged = await stagingOf(update, () => fetchAndInstall(release));
     return unstaged === null ? makePending(update, when) : refuse(refusalOf(unstaged));
   };
@@ -509,14 +616,14 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     wait();
   };
 
-  /** What every state with an update shows of it: `deferUntil` read with the cap as it is set now, and no image, which only a container's update has. */
+  /** What every state with an update shows of it: `deferUntil` read with the cap as it is set now, and its image, which only a container's update has. */
   const pendingParts = (update: Update) => ({
     updateId: update.updateId,
     toVersion: update.toVersion,
     source: update.source,
     since: update.since.toISOString(),
     deferUntil: deferUntil(update).toISOString(),
-    image: null,
+    image: update.image ?? null,
   });
 
   /** Withdraws the waiting `update` once `context`'s command commits: nothing is pending after. */
@@ -539,6 +646,38 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     return `The update to ${held.update.toVersion} was due at ${due.toISOString()} and has not gone through its drain: it is ${held.state}.`;
   };
 
+  /** Appends that `update` failed at stage `switch` for `reason`, changing nothing, before the environment closes: the version it went from runs again. */
+  const appendFailed = (update: Update, reason: string): void => {
+    const failed: UpdateFailedPayload = { updateId: update.updateId, fromVersion: harnessVersion, toVersion: update.toVersion, stage: "switch", reason, rolledBack: false };
+    try {
+      log.append(stream, [{ type: "environment.update-failed", payload: failed }], { actor: UPDATES_ACTOR });
+    } catch (error) {
+      console.error(`Appending the failed switch of update ${update.updateId} failed:`, error);
+    }
+  };
+
+  /**
+   * Managed outside, once `update`'s drain has waited: whether the
+   * host-side updater's stop came, at once when it came already, else
+   * within five minutes. With none, the update failed (`no-stop`); with the
+   * environment closing first, neither.
+   */
+  const stopCame = (update: Update): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (stopAsked) return resolve(true);
+      const timer = clock.setTimeout(() => {
+        endStopWait = undefined;
+        console.error(`No stop came ${STOP_WAIT_MS / MINUTE_MS} minutes after the drain for the update to ${update.toVersion}: the update failed, and the environment exits for the container's restart policy to start ${harnessVersion} again.`);
+        appendFailed(update, "no-stop");
+        resolve(false);
+      }, STOP_WAIT_MS);
+      endStopWait = (came) => {
+        timer.cancel();
+        endStopWait = undefined;
+        resolve(came);
+      };
+    });
+
   return {
     pending() {
       switch (held.state) {
@@ -547,6 +686,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
           return blocked ? { state: "blocked", ...blocked } : { state: "current" };
         case "waiting": {
           const activity = options.activity();
+          if (options.managedOutside && readyCause(held) !== undefined) return { state: "ready", ...pendingParts(held.update) };
           const waitsOn = activity.state === "busy" ? { reason: activity.reason, until: activity.busyUntil ?? null } : null;
           return { state: "waiting", ...pendingParts(held.update), waitsOn };
         }
@@ -575,6 +715,17 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
         withdrawOnCommit(update, context);
         return { aggregate: stream, result: { updateId: update.updateId, toVersion: update.toVersion }, events: [cancelledEvent(update, "requested")] };
       },
+
+      // The host-side updater begins the ready update whose image it pulled: its start appended with the cause that made it ready, then the drain (#348).
+      "updates.begin": ({ updateId }, context) => {
+        const begun = beginnable(updateId);
+        if ("code" in begun) return { aggregate: stream, rejected: begun };
+        const { update, cause } = begun;
+        context.tx.afterCommit(() => {
+          if (held.state === "waiting" && held.update === update) draining(update, cause, { actor: context.actor, commandId: context.commandId });
+        });
+        return { aggregate: stream, result: { updateId: update.updateId, toVersion: update.toVersion }, events: [startedEvent(update, cause)] };
+      },
     },
 
     async channelContext() {
@@ -585,7 +736,13 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     async follow(reading, settings) {
       blocked = reading.blocked;
       const { stage, target } = reading;
-      if (stage === null || target === null || !launcher.present() || staging !== undefined || !channelReplaces(stage.version)) return null;
+      if (stage === null || target === null || staging !== undefined || !channelReplaces(stage.version)) return null;
+      // Managed outside, nothing is staged: the target is pending with its image, which the host-side updater pulls.
+      if (options.managedOutside) {
+        if (sameTarget(settings, options.settings()) && underWay() === undefined) pendFromChannel({ updateId: randomUUID(), toVersion: stage.version, source: target.source, image: stage.image });
+        return null;
+      }
+      if (!launcher.present()) return null;
       const update = { updateId: randomUUID(), toVersion: stage.version, source: target.source };
       const unstaged = await stagingOf(update, () => fetchAndInstall(stage));
       if (unstaged !== null) return { reason: unstaged.reason === "no_launcher" ? "install" : unstaged.reason, message: unstaged.message };
@@ -629,28 +786,27 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
         stopRuns();
         minute.cancel();
         capTimer?.cancel();
+        endStopWait?.(false);
       };
     },
 
-    async switchOver() {
-      if (held.state !== "draining") return;
+    async afterDrain(sayUpdating) {
+      if (held.state !== "draining" || stopped) return;
       const { update, cause } = held;
+      if (options.managedOutside) {
+        if (await stopCame(update)) await sayUpdating();
+        return;
+      }
+      await sayUpdating();
       held = { state: "switching", update, cause };
       const answer = await launcher.request({ type: "switch?", updateId: update.updateId, version: update.toVersion });
       if (answer.type === "switching") return;
-      const failed: UpdateFailedPayload = {
-        updateId: update.updateId,
-        fromVersion: harnessVersion,
-        toVersion: update.toVersion,
-        stage: "switch",
-        reason: answer.reason,
-        rolledBack: false,
-      };
-      try {
-        log.append(stream, [{ type: "environment.update-failed", payload: failed }], { actor: UPDATES_ACTOR });
-      } catch (error) {
-        console.error(`Appending the refused switch of update ${update.updateId} failed:`, error);
-      }
+      appendFailed(update, answer.reason);
+    },
+
+    stopRequested() {
+      stopAsked = true;
+      endStopWait?.(true);
     },
   };
 };

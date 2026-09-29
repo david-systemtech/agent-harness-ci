@@ -18,6 +18,7 @@ import { readSettings } from "../settings/settings-store.js";
 import { channelSettingsOf, type ReleaseChannelReader } from "./channel.js";
 import type { ChannelChecks } from "./checks.js";
 import type { UpdateCoordinator } from "./coordinator.js";
+import type { HostUpdaterPolls } from "./host-updater.js";
 
 /**
  * The update methods this environment serves (launcher-update spec,
@@ -25,10 +26,12 @@ import type { UpdateCoordinator } from "./coordinator.js";
  * who manages its updates, where its releases are read, the channel's
  * newest, the last check and the target it found (#346), the pending update
  * as the update coordinator holds it, how the last update ended (#344) and
- * the versions installed; `updates.check`, a check of the channel and then
+ * the versions installed, and, with `hostUpdater: true`, the host-side
+ * updater's poll, which it remembers (#348); `updates.check`, a check of the channel and then
  * the same document; `updates.settings.set`, the one way to write the five
  * update settings, a pin checked against its release first (#346); and the
- * coordinator's `updates.apply` and `updates.cancel` (#343).
+ * coordinator's `updates.apply` and `updates.cancel` (#343) and
+ * `updates.begin` (#348).
  */
 
 /** Why nothing manages the updates of an environment `serve` runs in the foreground, for people. */
@@ -47,6 +50,8 @@ export interface UpdateMethodsOptions {
   readonly launcher: LauncherChannel;
   /** A container with no launcher: a host-side updater manages its updates. */
   readonly managedOutside: boolean;
+  /** The host-side updater's polls: a poll heard, and when the last came. */
+  readonly hostUpdater: Pick<HostUpdaterPolls, "polled" | "lastPoll">;
   /** Reads the bundled Claude Code's version; called once, the first time it is asked for. */
   readonly claudeCodeVersion: () => Promise<string | null>;
   /** The update coordinator: the pending update, how the updates ended, `updates.apply` and `updates.cancel`, and what a settings change withdraws. */
@@ -82,7 +87,7 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
       if (answer.type === "refused") return { manager: { kind: "none", reason: LAUNCHER_GONE_REASON }, installed: [] };
       return { manager: { kind: "launcher", launcherVersion: answer.launcherVersion }, installed: [...answer.installed] };
     }
-    if (options.managedOutside) return { manager: { kind: "outside", lastPoll: null }, installed: [] };
+    if (options.managedOutside) return { manager: { kind: "outside", lastPoll: options.hostUpdater.lastPoll() }, installed: [] };
     return { manager: { kind: "none", reason: FOREGROUND_REASON }, installed: [] };
   };
 
@@ -129,7 +134,10 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
   return {
     ...options.coordinator.handlers,
 
-    "updates.status": status,
+    "updates.status": ({ hostUpdater }) => {
+      if (hostUpdater === true) options.hostUpdater.polled();
+      return status();
+    },
 
     "updates.check": async () => {
       await options.checks.check();

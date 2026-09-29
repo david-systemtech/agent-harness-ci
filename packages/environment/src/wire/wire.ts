@@ -38,7 +38,8 @@ const CLOSE = { bye: 1000, goingAway: 1001, protocolError: 1002, unsupportedData
 
 export interface WireOptions {
   readonly environment: { readonly id: string; readonly name: string };
-  readonly capabilities: CapabilityFlags;
+  /** The capability flags, read as each `hello` is sent: `self-update` comes and goes with the host-side updater's polls (#348). */
+  readonly capabilities: () => CapabilityFlags;
   readonly clientSessions: SocketSessions;
   readonly methods: MethodTable;
   readonly clock: Clock;
@@ -209,7 +210,7 @@ export const createWire = (options: WireOptions): Wire => {
     const hello: HelloFrame = {
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: [...options.capabilities],
+      capabilities: [...options.capabilities()],
       environmentId: options.environment.id,
       environmentName: options.environment.name,
       clientSessionId: clientSession.id,
