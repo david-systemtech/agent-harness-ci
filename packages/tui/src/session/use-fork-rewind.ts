@@ -86,9 +86,6 @@ export interface ForkRewind {
   undo(): void;
 }
 
-/** Whether an availability is the runtime's refusal because a run is live. */
-export const refusedLive = (availability: VerbAvailability): boolean => availability.status === "absent" && availability.reason === "run_active";
-
 export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   const { runtime, opened, runs } = host;
   // The rewind as the runtime offers it now: a stop first while the live run can be stopped for it, else why not.
@@ -110,7 +107,7 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
    * What a rewind answered, in one line or by opening the session it started. `askedByKey`: a key action (the picker's
    * Enter, `w`) asked for the rewind, so an offer to stop that follows takes y and n whatever the composer holds.
    */
-  const rewound = (target: Opened, message: Anchor, done: RewindAnswer, askedByKey: boolean): void => {
+  const answered = (target: Opened, message: Anchor, done: RewindAnswer, askedByKey: boolean): void => {
     switch (done.kind) {
       case "new-session": {
         if (!done.answer.ok) return host.say(`No session was started: ${done.answer.error.message}`);
@@ -139,7 +136,7 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   const stopThenRewind = (target: Opened, message: Anchor) => {
     const stopping = () => host.say(`Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`);
     // No key asks what follows the wait: it may have outlasted the start of the next message.
-    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId, { stopFirst: true, onStopping: stopping }).then((done) => rewound(target, message, done, false));
+    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId, { stopFirst: true, onStopping: stopping }).then((done) => answered(target, message, done, false));
   };
 
   /**
@@ -160,7 +157,7 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   };
 
   const rewindOn = (target: Opened, message: Anchor, askedByKey: boolean) => {
-    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId).then((done) => rewound(target, message, done, askedByKey));
+    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId).then((done) => answered(target, message, done, askedByKey));
   };
 
   const rewindTo = (target: Opened, available: ForkRewindVerbs, message: Anchor, askedByKey: boolean) => {

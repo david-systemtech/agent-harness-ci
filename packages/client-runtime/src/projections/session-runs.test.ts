@@ -455,6 +455,23 @@ describe("commands.rewind", () => {
     expect(rejections(runtime)).toHaveLength(1);
   });
 
+  it("in its stop-first form is refused at once, dispatching nothing, while the run is only starting, with no id to interrupt (#390)", async () => {
+    const { runtime, wire, env, sessionId, play, environments } = await opened();
+    await play(...firstRun);
+    // Another client's start: the list says starting before any run.started names the run.
+    environments[0]?.list.event(listEvent(5, sessionId, "session.activity-changed", {}, { activity: { state: "starting", since: "2026-09-24T01:05:03.456Z" } }));
+    await flush();
+    expect(runtime.projections.runs.session(env, sessionId).read().state).toBe("starting");
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT, { stopFirst: true })).toEqual({
+      kind: "refused",
+      reason: "run_active",
+      message: "A run is starting on this session: once it is running, a rewind offers to stop it.",
+    });
+    await flush();
+    expect(requests(wire, "runs.interrupt")).toEqual([]);
+    expect(requests(wire, "sessions.rewind")).toEqual([]);
+  });
+
   it("answers any other refusal as the rewind's own, with its notice, and starts nothing", async () => {
     const { runtime, wire, env, sessionId, play } = await opened();
     await play(...firstRun);
