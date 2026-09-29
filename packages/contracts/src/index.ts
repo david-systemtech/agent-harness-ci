@@ -34,6 +34,8 @@ export * from "./permissions-settings.js";
 export * from "./prompts.js";
 export * from "./repository-identity.js";
 export * from "./shape-rules.js";
+export * from "./skill-rule-cases.js";
+export * from "./skill-rules.js";
 export {
   METHOD_KINDS,
   commandParams,
