@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "workspaces.browse result",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "The directory listed, as a directory request records it: ~ expanded, . and .. resolved, symlinks kept."
+    },
+    "parent": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The directory enclosing it; null at a root."
+    },
+    "directories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The subdirectory's name in the directory browsed."
+          },
+          "repository": {
+            "type": "boolean",
+            "description": "True when it is the root of a git repository: a checkout (it holds .git) or a bare repository."
+          }
+        },
+        "required": [
+          "name",
+          "repository"
+        ],
+        "description": "A subdirectory of the directory browsed, marked when it is a repository's root."
+      }
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the directory holds more than the 1,000 subdirectories listed."
+    }
+  },
+  "required": [
+    "path",
+    "parent",
+    "directories",
+    "truncated"
+  ]
+}
