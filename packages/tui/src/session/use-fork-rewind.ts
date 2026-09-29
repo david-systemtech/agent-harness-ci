@@ -105,14 +105,15 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   };
 
   /**
-   * What a rewind answered, in one line or by opening the session it started. `askedByKey`: a key action (the picker's
-   * Enter, `w`) asked for the rewind, so an offer to stop that follows takes y and n whatever the composer holds.
+   * What a rewind answered, in one line or by opening the session it started. `workspace`: the rewound session's, read
+   * when the rewind was asked for, since a stop-first rewind answers after its wait, when another session may be open.
+   * `askedByKey`: a key action (the picker's Enter, `w`) asked for the rewind, so an offer to stop that follows takes y
+   * and n whatever the composer holds.
    */
-  const answered = (target: Opened, message: Anchor, done: RewindAnswer, askedByKey: boolean): void => {
+  const answered = (target: Opened, message: Anchor, workspace: string | undefined, done: RewindAnswer, askedByKey: boolean): void => {
     switch (done.kind) {
       case "new-session": {
         if (!done.answer.ok) return host.say(`No session was started: ${done.answer.error.message}`);
-        const workspace = host.projection?.summary?.workspace.path;
         host.openSession({ environmentId: target.environmentId, sessionId: done.sessionId });
         return host.say(
           `${messageWords(message.text)} was the first prompt, with nothing before it: a new session${workspace !== undefined ? ` in ${workspace}` : ""} starts with it as its draft.`,
@@ -135,9 +136,10 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
 
   /** Stops the live run, then rewinds to `message` once it has ended: the runtime's stop-first rewind. */
   const stopThenRewind = (target: Opened, message: Anchor) => {
+    const workspace = host.projection?.summary?.workspace.path;
     const stopping = () => host.say(`Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`);
     // No key asks what follows the wait: it may have outlasted the start of the next message.
-    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId, { stopFirst: true, onStopping: stopping }).then((done) => answered(target, message, done, false));
+    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId, { stopFirst: true, onStopping: stopping }).then((done) => answered(target, message, workspace, done, false));
   };
 
   /** The stop-first rewind's offer on `target` as the runtime has it now, not as the render that asked for the rewind saw it. */
@@ -165,7 +167,8 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   };
 
   const rewindOn = (target: Opened, message: Anchor, askedByKey: boolean) => {
-    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId).then((done) => answered(target, message, done, askedByKey));
+    const workspace = host.projection?.summary?.workspace.path;
+    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId).then((done) => answered(target, message, workspace, done, askedByKey));
   };
 
   const rewindTo = (target: Opened, available: ForkRewindVerbs, message: Anchor, askedByKey: boolean) => {
