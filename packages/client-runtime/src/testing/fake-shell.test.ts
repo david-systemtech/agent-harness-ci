@@ -40,6 +40,9 @@ describe("the recording fake shell", () => {
     expect(await shell.service.status()).toEqual({ installed: true, running: true, ready: true });
     expect(await shell.clipboard.readImage()).toBeUndefined();
     expect(await shell.dialogs.openFileContents()).toEqual([]);
+    expect(await shell.installer.bundledServer()).toBeNull();
+    expect(await shell.update.current()).toEqual({ version: "0.0.0-test", platform: "linux", arch: "x64", format: "pacman" });
+    expect(await shell.update.apply({ path: "/tmp/agent-harness-0.6.0.pacman", version: "0.6.0", sha256: "a".repeat(64) }, "quit")).toEqual({ outcome: "applied" });
     await expect(shell.http("http://desk.test:7433/.well-known/agent-harness/environment")).rejects.toThrow("fetch failed");
 
     shell.answer("service.status", async () => ({ installed: false, running: false, ready: false }));

@@ -2,6 +2,7 @@ import { PROTOCOL_VERSION, type PromptKind, type RunEndedPayload } from "@agent-
 import { answerCapability } from "./capabilities.js";
 import { LOCAL_PLACEHOLDER_ID } from "./connections/records.js";
 import { createRegistry, type ConnectionSeams, type RegistryCaches } from "./connections/registry.js";
+import { DESKTOP_DOWNLOAD_TIMEOUT_MS, createDesktopUpdate } from "./desktop-update.js";
 import { createNotices } from "./notices.js";
 import { derived, type Observable } from "./observable.js";
 import { createDrafts } from "./outbox/drafts.js";
@@ -138,6 +139,15 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const requestCache = createRequestCache({ clock: platform.clock, call, records: registry.list, report });
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
   const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
+  // The desktop's own update and the server it carries (#354): through the local environment, its stage given the time a download takes.
+  const desktopUpdate = createDesktopUpdate({
+    clock: platform.clock,
+    shell: platform.shell,
+    records: registry.list,
+    call,
+    stageCall: createRequests({ clock: platform.clock, capability, request: registry.seams.request, timeoutMs: DESKTOP_DOWNLOAD_TIMEOUT_MS }).call,
+    report,
+  });
 
   // The projections of #142: runs and parked asks, one session's transcript, accounts, models and plan usage, the mode picker,
   // and the calls the environment addresses to this client.
@@ -201,10 +211,13 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.
     start: () =>
-      (started ??= registry.start().catch((error: unknown) => {
-        started = undefined;
-        throw error;
-      })),
+      (started ??= registry.start().then(
+        () => desktopUpdate.start(),
+        (error: unknown) => {
+          started = undefined;
+          throw error;
+        },
+      )),
     local: registry.local,
     connections: {
       list: registry.list,
@@ -248,9 +261,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     notices: { dismiss: (id) => notices.dismiss(id) },
     environmentNow: (environmentId) => made.now(environmentId),
     requests,
+    desktopUpdate: { view: desktopUpdate.view, restart: () => desktopUpdate.restart(), applyBundledServer: () => desktopUpdate.applyBundledServer() },
     capability,
     close() {
       closing ??= (async () => {
+        desktopUpdate.close();
         registry.close();
         terminals.close();
         // A draft still waiting its second is dispatched, so the outbox keeps it for the next start.

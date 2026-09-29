@@ -1,5 +1,6 @@
 import type { LocalStatus } from "./bootstrap.js";
 import type { CapabilityAnswer, CapabilityName } from "./capabilities.js";
+import type { DesktopUpdate } from "./desktop-update.js";
 import type { ClientPreferences } from "./connections/records.js";
 import type { Connections } from "./connections/registry.js";
 import type { Notice } from "./notices.js";
@@ -108,6 +109,13 @@ export interface Runtime {
   readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */
   readonly requests: Requests;
+  /**
+   * The desktop's own update through its local environment, on a shell with
+   * `update` (checked at launch and hourly, a newer build staged, "Restart
+   * to update"), and the server artefact it carries, handed to that
+   * environment or offered, on a shell with `installer.bundledServer`.
+   */
+  readonly desktopUpdate: DesktopUpdate;
   /**
    * The environment's time now, as this client reckons it from the server
    * time its last `hello` carried: what a snooze-until or a prompt's TTL is

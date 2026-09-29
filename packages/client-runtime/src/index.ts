@@ -78,6 +78,14 @@ export {
 } from "./pairing.js";
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
+export {
+  DESKTOP_CHECK_INTERVAL_MS,
+  type BundledServerView,
+  type DesktopBuildView,
+  type DesktopUpdate,
+  type DesktopUpdateFailure,
+  type DesktopUpdateView,
+} from "./desktop-update.js";
 export type { EnvironmentView } from "./projections/environments.js";
 export {
   COMMAND_EXPIRY_MS,
