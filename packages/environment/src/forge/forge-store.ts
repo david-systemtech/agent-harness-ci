@@ -29,8 +29,10 @@ import type { Reader } from "../sessions/session-tables.js";
  * kept from the `forge.*` events on the environment stream in the
  * transaction that appends them and rebuilt from the log. A removed forge
  * account keeps its row, marked removed, so its id is never taken again.
- * `forge_origins` holds the canonical origin and every alias of each forge
- * account the environment holds, one forge account per origin;
+ * Each row counts the credentials its forge account has been given since it
+ * was added (`credential_generation`), which a run's process environment is
+ * keyed on (#315). `forge_origins` holds the canonical origin and every
+ * alias of each forge account the environment holds, one forge account per origin;
  * `forge_missing_origins` the last `forge.origin-missing` of each origin; the partial
  * unique indexes hold one slug per live forge account and one primary,
  * which the ForgeService checks before it appends.
@@ -55,7 +57,8 @@ export const FORGE_ACCOUNTS_TABLES = {
     token_information TEXT,
     copied_from TEXT,
     created_at TEXT NOT NULL,
-    removed_at TEXT
+    removed_at TEXT,
+    credential_generation INTEGER NOT NULL DEFAULT 0
   ) STRICT;
   CREATE UNIQUE INDEX forge_accounts_live_slug ON forge_accounts (slug) WHERE removed_at IS NULL;
   CREATE UNIQUE INDEX forge_accounts_one_primary ON forge_accounts (is_primary) WHERE is_primary = 1`,
@@ -125,7 +128,9 @@ const added = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountAdde
 const updated = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountUpdatedPayload): void => {
   const { forgeAccountId } = payload;
   if (payload.slug !== undefined) db.run("UPDATE forge_accounts SET slug = ? WHERE id = ?", payload.slug, forgeAccountId);
-  if (payload.credential !== undefined) db.run("UPDATE forge_accounts SET credential = ? WHERE id = ?", json(payload.credential), forgeAccountId);
+  if (payload.credential !== undefined) {
+    db.run("UPDATE forge_accounts SET credential = ?, credential_generation = credential_generation + 1 WHERE id = ?", json(payload.credential), forgeAccountId);
+  }
   if (payload.identity !== undefined) db.run("UPDATE forge_accounts SET identity = ? WHERE id = ?", json(payload.identity), forgeAccountId);
   if (payload.problem !== undefined) {
     statusMoves(db, event, forgeAccountId, payload.problem);
@@ -231,9 +236,12 @@ const COLUMNS = "id, origin, aliases, kind, slug, identity, credential, capabili
 /** The problems that keep a forge account out of every injection (forge spec, "The injected set"). */
 const NOT_INJECTED: ReadonlySet<ForgeProblem["kind"]> = new Set(["identity-changed", "needs-credential"]);
 
+/** Whether a forge account is injected into runs and terminals: every one but those a problem keeps out (forge spec, "The injected set"). */
+export const isInjected = (account: Pick<ForgeAccountRecord, "problem">): boolean => account.problem === null || !NOT_INJECTED.has(account.problem.kind);
+
 /** The variables a forge account injects: its names from #309's rule, or none while a problem keeps it out of runs. */
 const variablesOf = (account: Pick<ForgeAccountRecord, "slug" | "origin" | "primary" | "problem">): ForgeVariables => {
-  if (account.problem !== null && NOT_INJECTED.has(account.problem.kind)) return { url: [], token: [], kind: [] };
+  if (!isInjected(account)) return { url: [], token: [], kind: [] };
   const { url, token, kind } = forgeVariableNames(account);
   return { url: [...url], token: [...token], kind: [...kind] };
 };
@@ -270,6 +278,15 @@ export const liveForgeAccount = (reader: Reader, id: string): ForgeAccountRecord
   const [row] = reader.all<ForgeAccountRow>(`SELECT ${COLUMNS} FROM forge_accounts WHERE id = ? AND removed_at IS NULL`, id);
   return row === undefined ? null : recordOf(row);
 };
+
+/**
+ * How many credentials each forge account the environment holds has been
+ * given since it was added, by id: 0 for the one it was added with, one
+ * more for each `forge.accounts.update` that replaced it (a Move's
+ * included). Never the credential itself.
+ */
+export const credentialGenerations = (reader: Reader): Map<string, number> =>
+  new Map(reader.all<{ id: string; credential_generation: number }>("SELECT id, credential_generation FROM forge_accounts WHERE removed_at IS NULL").map((row) => [row.id, row.credential_generation]));
 
 /** The forge account holding `origin` as its canonical origin or an alias. */
 export const originHolder = (reader: Reader, origin: string): string | null =>
