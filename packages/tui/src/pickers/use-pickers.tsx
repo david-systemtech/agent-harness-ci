@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   BETWEEN_ENVIRONMENTS,
   addAccount as addAccountOn,
-  adminCall,
   cancelSignIn as cancelSignInOn,
+  describeKey,
   fallbackOf,
   followedSignIn,
   handOff as handOffOnto,
@@ -11,6 +11,9 @@ import {
   handingOffWords,
   labelProblem,
   modelsOf,
+  noKeysLine,
+  parseTyped,
+  saveSetting,
   sendSignInCode,
   sessionModeOf,
   setSessionContainment,
@@ -18,6 +21,8 @@ import {
   signInEnd,
   startSignIn as startSignInOf,
   startingAccount,
+  valueWords,
+  writerOf,
   type EnvironmentView,
   type RunChoice,
   type Runtime,
@@ -34,7 +39,6 @@ import {
   type ContainmentLevel,
   type KeyActionId,
   type Mode,
-  type ParamsOf,
   type SettingsKey,
 } from "@agent-harness/contracts";
 import { LinesCard } from "../screens/transcript.js";
@@ -46,7 +50,7 @@ import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Questio
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
 import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, usageLines, type Panel, type PanelRow } from "./panel.js";
-import { describeKey, editorKeys, editorRows, noKeysLine, noRowLine, parseTyped, valueWords, writerOf } from "./settings.js";
+import { editorKeys, editorRows, noRowLine } from "./settings.js";
 
 /**
  * The accounts, models, permissions, settings and Set up commands wired to
@@ -276,8 +280,7 @@ export const usePickers = (host: PickersHost): Pickers => {
   // Settings.
 
   const writeSetting = (environmentId: string, key: SettingsKey, value: unknown, acknowledged = false) => {
-    const writer = writerOf(key);
-    if (writer === null) return;
+    if (writerOf(key) === null) return;
     if (key === "permissions.unattended.mode" && value === "bypassPermissions" && !acknowledged) {
       return host.ask({
         text: `${BYPASS_SENTENCE} Make bypassPermissions the unattended mode? y/n`,
@@ -285,29 +288,12 @@ export const usePickers = (host: PickersHost): Pickers => {
         no: () => host.say(`${key} is left as it was.`),
       });
     }
-    const commandId = host.newCommandId();
     // The value was checked against the key's schema; `requests.call` checks the params against the method's again.
-    const values = { [key]: value };
-    const saved = (answer: { readonly ok: true; readonly result: { readonly values: Readonly<Record<string, unknown>> } | undefined } | { readonly ok: false; readonly line: string }) => {
-      if (!answer.ok) return host.say(`Not saved: ${answer.line}`);
-      host.change((card) => (card.kind === "settings" && card.environmentId === environmentId ? { ...card, values: { ...card.values, ...(answer.result?.values ?? values) } } : card));
+    void saveSetting(runtime, environmentId, key, value, { commandId: host.newCommandId(), acknowledgeBypass: acknowledged }).then((saved) => {
+      if (!saved.ok) return host.say(`Not saved: ${saved.line}`);
+      host.change((card) => (card.kind === "settings" && card.environmentId === environmentId ? { ...card, values: { ...card.values, ...saved.values } } : card));
       host.say(`${key} is ${valueWords(value)}.`);
-    };
-    if (writer === "settings.update") {
-      void adminCall(() => runtime.requests.call(environmentId, "settings.update", { commandId, values: values as ParamsOf<"settings.update">["values"] })).then(saved);
-      return;
-    }
-    if (writer === "updates.settings.set") {
-      void adminCall(() => runtime.requests.call(environmentId, "updates.settings.set", { commandId, values: values as ParamsOf<"updates.settings.set">["values"] })).then(saved);
-      return;
-    }
-    void adminCall(() =>
-      runtime.requests.call(environmentId, "permissions.settings.set", {
-        commandId,
-        values: values as ParamsOf<"permissions.settings.set">["values"],
-        ...(acknowledged && { acknowledgeBypass: true as const }),
-      }),
-    ).then(saved);
+    });
   };
 
   const readSettings = (environmentId: string) => {

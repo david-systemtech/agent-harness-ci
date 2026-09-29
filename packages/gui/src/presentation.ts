@@ -105,6 +105,13 @@ export interface PresentationValues {
    * one was read, when the preset is painted.
    */
   readonly cachedTheme: Theme | null;
+  /**
+   * The row of Settings last opened, by its id (docs/specs/gui.md,
+   * "Settings: the rail, the rows and the addresses"): kept as the id and
+   * read against the row registry when Settings opens, so an id the registry
+   * no longer holds opens Set up (ADR 0027); null until a row is opened.
+   */
+  readonly settingsRow: string | null;
 }
 
 export type PresentationKey = keyof PresentationValues;
@@ -121,6 +128,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   runLocalEnvironment: true,
   lightOrDark: "system",
   cachedTheme: null,
+  settingsRow: null,
 });
 
 /** The document the presentation is kept in, and the format this build writes. */
@@ -163,6 +171,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   runLocalEnvironment: (stored) => (typeof stored === "boolean" ? stored : undefined),
   lightOrDark: (stored) => LIGHT_OR_DARK.find((preference) => preference === stored),
   cachedTheme: (stored) => (stored === null ? null : Theme.safeParse(stored).data),
+  settingsRow: (stored) => (stored === null || typeof stored === "string" ? stored : undefined),
 };
 
 export interface Presentation {

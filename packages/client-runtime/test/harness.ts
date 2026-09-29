@@ -46,9 +46,11 @@ export const holds = <T>(observable: Observable<T>, condition: (value: T) => boo
 export const grantReader = (t: TestEnvironment): GrantReader => ({ read: async () => t.grant() });
 
 export const useHarness = () => {
-  const { onCleanup } = useCleanups();
+  const { onCleanup, tempDir } = useCleanups();
   return {
     onCleanup,
+    /** A directory of the test's own, removed after it. */
+    tempDir,
     async environment(options?: TestEnvironmentOptions): Promise<TestEnvironment> {
       const t = await startTestEnvironment(options);
       onCleanup(() => t.close());

@@ -21,7 +21,7 @@ if (container === null) throw new Error("The page has no #root to mount the wind
 const mount = async (platform: Platform, runtime: Runtime) => {
   const report = (error: unknown) => (platform.reportError ?? console.error)(error);
   const presentation = await openPresentation(platform.documents, report);
-  createRoot(container).render(<App runtime={runtime} presentation={presentation} clock={platform.clock} macOS={onMacOS(navigator)} shell={platform.shell} />);
+  createRoot(container).render(<App runtime={runtime} presentation={presentation} clock={platform.clock} version={platform.client.version} macOS={onMacOS(navigator)} shell={platform.shell} />);
   runtime.start().catch(report);
 };
 

@@ -1,5 +1,7 @@
 import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { SettingsView } from "../settings/settings-view.js";
+import { useSettings } from "../settings/settings-window.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
 import { usePresentation } from "../window-context.js";
 import { Header } from "./header.js";
@@ -22,7 +24,8 @@ const SESSION_PANES = "session-panes";
  * divider is left is presentation (`sidebarWidth`), kept as the sidebar's
  * share of the window; the sidebar keeps its width in pixels as the window
  * is resized. It holds the window's terminal panes, which the header and
- * every session pane ask (#409).
+ * every session pane ask (#409). While Settings is open it takes the window
+ * below the header in place of the sidebar and the session panes.
  */
 export const Frame = () => {
   const [sidebarWidth, setSidebarWidth] = usePresentation("sidebarWidth");
@@ -30,25 +33,30 @@ export const Frame = () => {
     const share = layout[SIDEBAR];
     if (isUserInteraction && share !== undefined) setSidebarWidth(share);
   };
+  const { shown } = useSettings();
   return (
     <TerminalPanesProvider>
       <div className="flex h-dvh flex-col bg-abyss text-ink">
         <Header />
-        <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
-          <Panel
-            id={SIDEBAR}
-            defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
-            minSize={SIDEBAR_LEAST}
-            maxSize={SIDEBAR_MOST}
-            groupResizeBehavior="preserve-pixel-size"
-          >
-            <SidebarRegion />
-          </Panel>
-          <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
-          <Panel id={SESSION_PANES}>
-            <SessionPaneRegion />
-          </Panel>
-        </Group>
+        {shown ? (
+          <SettingsView />
+        ) : (
+          <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
+            <Panel
+              id={SIDEBAR}
+              defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
+              minSize={SIDEBAR_LEAST}
+              maxSize={SIDEBAR_MOST}
+              groupResizeBehavior="preserve-pixel-size"
+            >
+              <SidebarRegion />
+            </Panel>
+            <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
+            <Panel id={SESSION_PANES}>
+              <SessionPaneRegion />
+            </Panel>
+          </Group>
+        )}
       </div>
     </TerminalPanesProvider>
   );

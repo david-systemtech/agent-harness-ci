@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerMoveItemKind",
+  "type": "string",
+  "enum": [
+    "forge-account"
+  ],
+  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+}

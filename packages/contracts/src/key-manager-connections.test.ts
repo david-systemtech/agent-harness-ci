@@ -42,6 +42,9 @@ describe("the key-manager connection methods", () => {
       "keyManagers.certificate.preview": ["query", "admin"],
       "keyManagers.references.check": ["query", "admin"],
       "keyManagers.references.browse": ["query", "admin"],
+      "keyManagers.connections.setBasePath": ["command", "admin"],
+      "keyManagers.move.list": ["query", "read"],
+      "keyManagers.move": ["command", "admin"],
     });
   });
 
@@ -117,6 +120,7 @@ describe("the connection record", () => {
       "policies",
       "ticks",
       "basePath",
+      "suggestedBasePath",
       "injects",
       "status",
       "tokenInformation",
@@ -153,13 +157,14 @@ describe("an address", () => {
 });
 
 describe("the key-manager connection events", () => {
-  it("are the seven on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
+  it("are the eight on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
     expect(Object.keys(KEY_MANAGER_EVENT_PAYLOADS)).toEqual([
       "key-manager.connection.added",
       "key-manager.connection.signed-in",
       "key-manager.connection.signed-out",
       "key-manager.connection.updated",
       "key-manager.connection.policies-set",
+      "key-manager.connection.base-path-set",
       "key-manager.connection.verified",
       "key-manager.connection.removed",
     ]);

@@ -110,6 +110,7 @@ describe("its entries", () => {
       "Stop the runNothing is running in this session.",
       "Find in the conversationCtrl+F",
       "Show or hide the terminalCtrl+J",
+      "Open or close SettingsCtrl+,",
       "Show or hide the run's detailsCtrl+I",
     ]);
     expect(entriesUnder("Writing a message")).toEqual([
@@ -143,11 +144,14 @@ describe("its entries", () => {
     expect(entries()).not.toContainEqual(expect.stringContaining("Open the command palette"));
   });
 
-  it("are the window's own alone while no session is open", async () => {
+  it("are the window's own alone while no session is open: Settings, its rows and the sessions", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>}k{/Control}");
-    expect(entries()).toEqual(["Sessions on every environment…"]);
+    expect(entriesUnder("Anywhere")).toEqual(["Open or close SettingsCtrl+,"]);
+    expect(entriesUnder("Settings")).toHaveLength(19);
+    expect(entries()).toHaveLength(21);
+    expect(entries().at(-1)).toBe("Sessions on every environment…");
   });
 
   it("read their keys as macOS writes them there", async () => {
@@ -254,10 +258,12 @@ describe("choosing an entry", () => {
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
     await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("Open or close SettingsCtrl+,");
+    await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowUp}{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });

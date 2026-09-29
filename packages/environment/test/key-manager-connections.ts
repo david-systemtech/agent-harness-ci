@@ -49,7 +49,17 @@ export const remove = (client: WireClient, connectionId: string): Promise<Respon
 export const setPolicies = (client: WireClient, connectionId: string, ticks: readonly string[]): Promise<ResponseOf<"keyManagers.connections.setPolicies">> =>
   client.request("keyManagers.connections.setPolicies", { commandId: randomUUID(), connectionId, ticks: [...ticks] });
 
+export const setBasePath = (client: WireClient, connectionId: string, basePath: string): Promise<ResponseOf<"keyManagers.connections.setBasePath">> =>
+  client.request("keyManagers.connections.setBasePath", { commandId: randomUUID(), connectionId, basePath });
+
 export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> => (await client.request("keyManagers.list", {})).connections;
+
+/** `keyManagers.move.list`: the items holding a stored value, with their targets (#371). */
+export const moveList = async (client: WireClient): Promise<ResultOf<"keyManagers.move.list">["items"]> => (await client.request("keyManagers.move.list", {})).items;
+
+/** Sends `keyManagers.move` for `items` (preset all) to the connection, with a fresh command id (#371). */
+export const move = (client: WireClient, params: Omit<ParamsOf<"keyManagers.move">, "commandId" | "items"> & Partial<Pick<ParamsOf<"keyManagers.move">, "items">>): Promise<ResponseOf<"keyManagers.move">> =>
+  client.request("keyManagers.move", { commandId: randomUUID(), items: "all", ...params });
 
 /** `keyManagers.connections.verify` of one connection, or every one: the records it answers. */
 export const verify = async (client: WireClient, connectionId?: string): Promise<KeyManagerConnectionRecord[]> =>
