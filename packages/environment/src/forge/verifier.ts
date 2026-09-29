@@ -89,7 +89,7 @@ export interface Verifier {
   used(forgeAccountId: string, capability: ForgeCapabilityName, at: string): void;
   /** One verification of a token no forge account holds, within the budget, recording nothing: what it makes of nothing known. */
   probe(request: ProbeRequest): Promise<Reconciled>;
-  /** Stops the schedule; a verification still running records nothing. */
+  /** Stops the schedule; a verification still running, one queued behind it and a rate limit heard after record nothing and read nothing, as the event log closes after. */
   close(): void;
 }
 
