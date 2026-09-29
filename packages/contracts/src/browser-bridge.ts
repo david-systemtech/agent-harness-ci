@@ -36,6 +36,13 @@ export const BRIDGE_PROTOCOL_VERSION = 2;
  * version leaves a Chrome working until it is reloaded. Anything else is
  * answered with the Reload sentence: the environment's folder holds the
  * extension it ships, which Reload loads.
+ *
+ * The rule is about versions; serving one takes its messages' shapes, and
+ * this package holds version 2's alone. Version 1 was the ported
+ * extension's, whose socket carries another extension's Origin, which the
+ * listener refuses before any message, so version 2 is the first this
+ * harness serves. The environment that raises the version keeps version 2's
+ * schemas beside its own, to serve the one before.
  */
 export const serveBridgeVersion = (theirs: number, ours: number = BRIDGE_PROTOCOL_VERSION): true | string =>
   theirs === ours || theirs === ours - 1
@@ -181,7 +188,7 @@ export type BridgeFromEnvironment = Exclude<z.infer<typeof BridgeFromEnvironment
 
 // The codec ------------------------------------------------------------------
 
-/** The longest message the bridge carries, in characters. */
+/** The longest message the bridge carries, in characters (UTF-16 code units, as a string's length counts them): 8 Mi. */
 export const BRIDGE_MESSAGE_MAX_CHARS = 8 * 1024 * 1024;
 
 /** A message read off the socket, or the reason it was refused: a sentence to send back in `refused`. */
@@ -218,7 +225,11 @@ const decode = (text: string, messages: Readonly<Record<string, z.ZodType>>, sen
   return refuse(`The ${type} message is malformed: ${where}${issue?.message ?? "it does not match its schema."}`);
 };
 
-/** A message the extension sent, read by the environment: an opening of a version it does not serve is refused with the Reload sentence. */
+/**
+ * A message the extension sent, read by the environment against version 2's
+ * shapes: an opening of a version it does not serve is refused with the
+ * Reload sentence before its shape is read.
+ */
 export const decodeFromExtension = (text: string): BridgeDecoding<BridgeFromExtension> =>
   decode(text, EXTENSION_MESSAGES, "extension") as BridgeDecoding<BridgeFromExtension>;
 

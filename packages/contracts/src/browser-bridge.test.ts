@@ -109,7 +109,13 @@ describe("bridge protocol version 2", () => {
     expect(serveBridgeVersion(5, 5)).toBe(true);
     expect(serveBridgeVersion(4, 5)).toBe(true);
     expect(serveBridgeVersion(3, 5)).toMatch(/^This extension speaks bridge version 3 and this environment speaks 5\./);
-    expect(decodeFromExtension(JSON.stringify({ type: "announce", protocolVersion: 1, extensionVersion: "0.4.1", name: "" })).ok).toBe(true);
+  });
+
+  it("reads a served opening against version 2's shapes, the only ones this package holds", () => {
+    expect(decodeFromExtension(JSON.stringify({ type: "hello", protocolVersion: 1, extensionVersion: "0.4.1", environmentId, chromeId, name: "Work" })).ok).toBe(true);
+    expect(reasonOf(decodeFromExtension(JSON.stringify({ type: "hello", protocolVersion: 1, extensionVersion: "0.4.1", browserId: "old-shape", browserName: "Work" })))).toMatch(
+      /^The hello message is malformed: environmentId: /,
+    );
   });
 });
 

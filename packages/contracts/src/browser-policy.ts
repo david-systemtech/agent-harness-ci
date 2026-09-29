@@ -111,7 +111,7 @@ export const PagePolicy = z
   .object({
     devSites: z.array(HostPattern).meta({
       description:
-        "browser.devSites: the hosts being developed, as host patterns, where cookie values, storage and evaluate are allowed; loopback and private addresses count without being listed.",
+        "browser.devSites: the hosts being developed, as host patterns, where cookie values, storage and evaluate are allowed; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names count without being listed, a cloud metadata address never.",
     }),
     evaluateEverywhere: z.boolean().meta({ description: "browser.evaluateEverywhere: evaluate is allowed on every site, not only dev sites." }),
     deepReadEverywhere: z.boolean().meta({ description: "browser.deepReadEverywhere: cookie values and storage are read on every site, not only dev sites." }),

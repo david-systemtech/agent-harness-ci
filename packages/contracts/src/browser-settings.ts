@@ -18,7 +18,7 @@ import type { SettingDefinition } from "./settings.js";
 
 export const BrowserDevSites = z.array(HostPattern).meta({
   description:
-    "browser.devSites: the hosts being developed, as host patterns (localhost, *.myapp.test), where a Chrome's cookie values, storage and evaluate are allowed; loopback and private addresses count without being listed. Preset empty.",
+    "browser.devSites: the hosts being developed, as host patterns (localhost, *.myapp.test), where a Chrome's cookie values, storage and evaluate are allowed; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names count without being listed, a cloud metadata address never. Preset empty.",
 });
 
 export const BrowserEvaluateEverywhere = z.boolean().meta({
