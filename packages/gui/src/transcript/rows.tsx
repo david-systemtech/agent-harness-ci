@@ -11,11 +11,11 @@ import {
 } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
 import { useState } from "react";
-import { classes } from "../ui/classes.js";
-import { Fold } from "../ui/index.js";
 import { ForkedRow } from "../fork-rewind/forked.js";
 import { MessageVerbs } from "../fork-rewind/message-verbs.js";
 import { UndoOnFold } from "../fork-rewind/rewound.js";
+import { classes } from "../ui/classes.js";
+import { Fold } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
 import { CallCard, CallsRow } from "./calls.js";
 import { Marked } from "./find.js";

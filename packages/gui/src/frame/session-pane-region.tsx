@@ -1,10 +1,10 @@
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
+import { RewoundStrip } from "../fork-rewind/rewound.js";
+import { SessionForkRewindProvider } from "../fork-rewind/session-fork-rewind.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
-import { RewoundStrip } from "../fork-rewind/rewound.js";
-import { SessionForkRewindProvider } from "../fork-rewind/session-fork-rewind.js";
 import { PaneLine, PaneLines } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
