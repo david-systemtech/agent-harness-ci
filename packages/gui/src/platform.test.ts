@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { createRuntime } from "@agent-harness/client-runtime";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { browserNetwork, browserPlatform, systemClock } from "./platform/browser-platform.js";
 
 /**
@@ -48,5 +49,17 @@ describe("the bundle's platform", () => {
     await platform.documents.set("presentation", { format: 1 });
     expect(await platform.documents.get("presentation")).toEqual({ format: 1 });
     await expect(platform.documents.set("x", { cut: BigInt(1) })).rejects.toThrow();
+  });
+
+  it("has no shell, so this computer's gh is absent with its reason in a browser tab (#320)", () => {
+    const platform = browserPlatform(window, "0.5.0");
+    expect(platform.shell).toBeUndefined();
+    const runtime = createRuntime(platform);
+    onTestFinished(() => runtime.close());
+    expect(runtime.capability("any", "shell.gh")).toEqual({
+      status: "absent",
+      reason: "no-shell",
+      message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh.",
+    });
   });
 });
