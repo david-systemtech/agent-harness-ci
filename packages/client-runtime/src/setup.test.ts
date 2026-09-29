@@ -7,7 +7,7 @@ import { attentionResult, doneResult } from "../test/setup.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
-import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
+import { fakeShell, inMemoryPlatform, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 
 /**
  * `projections.setup` through the fake wire (#570; the Set up
@@ -253,5 +253,91 @@ describe("an environment without the setup flag", () => {
     expect(runtime.connections.list.read()[0]?.phase).toBe("ready");
     expect(checksSent(wire).map((frame) => frame.type === "request" && frame.params)).toEqual([{}]);
     expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 2, done: 1, needsAttention: 1, skipped: 0, attention: ["permissions"] });
+  });
+});
+
+/** Each registered step's id, its result's state and checked-at, and whether it is stale. */
+const held = (runtime: Runtime, env: string) =>
+  runtime.projections.setup(env).read().steps.flatMap((step) => (step.result === null ? [] : [{ id: step.id, state: step.result.state, checkedAt: step.result.checkedAt, stale: step.result.stale }]));
+
+describe("an environment this client cannot reach", () => {
+  it("reads unreachable since the connection lost it, every result it holds stale with its checked-at, and fresh again once its stream is live", async () => {
+    const { runtime, wire, clock, env } = await withResults();
+    wire.answer("setup.check", () => ({ result: { results: [attentionResult("permissions", "permissions.denylist", ["restore"], { checkedAt: after(1_000) })] } }));
+    clock.advance(1_000);
+    await runtime.setup.check(env, "permissions");
+    expect(runtime.projections.setup(env).read().reach).toEqual({ status: "reachable" });
+
+    clock.advance(4_000);
+    wire.server.drop();
+    await flush();
+    expect(runtime.projections.setup(env).read().reach).toEqual({ status: "unreachable", phase: "backoff", since: after(5_000) });
+    expect(held(runtime, env)).toEqual([
+      { id: "account", state: "done", checkedAt: after(0), stale: true },
+      { id: "permissions", state: "needs-attention", checkedAt: after(1_000), stale: true },
+    ]);
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 2, done: 1, needsAttention: 1, skipped: 0, attention: ["permissions"] });
+
+    // Reached again: still stale while the stream catches up, fresh once it is live.
+    clock.advance(1_250);
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const environment = await subscription(wire, "environment.subscribe");
+    await flush();
+    expect(runtime.projections.setup(env).read().reach).toEqual({ status: "reachable" });
+    expect(held(runtime, env).map((row) => row.stale)).toEqual([true, false]);
+    environment.synchronized(3);
+    await flush();
+    expect(held(runtime, env).map((row) => row.stale)).toEqual([false, false]);
+  });
+
+  it("with the local environment's service down, reads service down from a restarted client's cache, stale, offering start-service, which connections.startService answers", async () => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk", capabilities: ["setup"] });
+    for (const method of ["sessions.subscribe", "environment.subscribe"]) wire.answer(method, () => undefined);
+    const shell = fakeShell();
+    const local = (documents?: InMemoryDocumentStore) => {
+      const platform = inMemoryPlatform({ clock, kind: "desktop", grant: wire.grant, shell, fetch: wire.fetch, webSocket: wire.webSocket, ...(documents && { documents }) });
+      const { runtime } = createRuntimeWithSeams(platform);
+      onTestFinished(() => runtime.close());
+      return { platform, runtime };
+    };
+    const env = wire.environmentId;
+
+    const first = local();
+    const starting = first.runtime.start();
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const environment = await subscription(wire, "environment.subscribe");
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), attentionResult("permissions", "permissions.denylist", ["restore"])] });
+    environment.synchronized(3);
+    await starting;
+    await flush();
+    expect(held(first.runtime, env).map((row) => row.stale)).toEqual([false, false]);
+    await first.runtime.close();
+
+    clock.advance(60_000);
+    wire.discovery("unreachable");
+    const again = local(first.platform.documents);
+    await again.runtime.start();
+    const setup = again.runtime.projections.setup(env);
+    onTestFinished(setup.subscribe(() => undefined));
+    expect(setup.read().reach).toEqual({ status: "service-down", since: after(60_000), action: "start-service" });
+    expect(held(again.runtime, env)).toEqual([
+      { id: "account", state: "done", checkedAt: after(0), stale: true },
+      { id: "permissions", state: "needs-attention", checkedAt: after(0), stale: true },
+    ]);
+
+    wire.discovery({});
+    const startingService = again.runtime.connections.startService(env);
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    (await subscription(wire, "environment.subscribe")).synchronized(3);
+    await startingService;
+    await flush();
+    expect(shell.calls).toContainEqual(["service.start"]);
+    expect(setup.read().reach).toEqual({ status: "reachable" });
+    expect(held(again.runtime, env).map((row) => row.stale)).toEqual([false, false]);
+    expect(checksSent(wire)).toEqual([]);
   });
 });

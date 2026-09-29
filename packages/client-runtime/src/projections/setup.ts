@@ -1,5 +1,5 @@
 import { SETTINGS_ROWS, STEP_LABELS, STEP_ORDER, type RegisteredStepId, type SettingsRowId, type StepId, type StepResult } from "@agent-harness/contracts";
-import type { ConnectionRecord } from "../connections/records.js";
+import type { ConnectionPhase, ConnectionRecord } from "../connections/records.js";
 import { derived, writable, type Observable } from "../observable.js";
 import type { Clock, Timer } from "../platform.js";
 import type { RequestAnswer, Requests } from "../requests.js";
@@ -22,9 +22,32 @@ export const SETUP_PENDING_MS = 500;
 
 /** One step's result as the projection shows it: the environment's result, and whether it is stale. */
 export interface SetupResultView extends StepResult {
-  /** Held from before this client last reached the environment: the cache's, kept with its checked-at while it cannot be reached. */
+  /**
+   * Not known to hold now: the environment cannot be reached, or its stream
+   * has not caught up since this client reached it (a result read from the
+   * cursor cache after a restart). Kept with its checked-at meanwhile.
+   */
   readonly stale: boolean;
 }
+
+/**
+ * Whether this client can reach the environment, from the connection's
+ * state (the Set up specification, "Running checks": unreachable is the
+ * client's to see). A check cannot run on an environment the client cannot
+ * reach, so its results are stale meanwhile. The local environment with its
+ * service down offers `start-service`, which `connections.startService`
+ * answers.
+ */
+export type SetupReach =
+  | { readonly status: "reachable" }
+  | {
+      readonly status: "unreachable";
+      /** The connection's phase; null for an environment this client has no connection to. */
+      readonly phase: ConnectionPhase | null;
+      /** Since when it has not been reached, on this client's clock; null while it never has and nothing is cached. */
+      readonly since: string | null;
+    }
+  | { readonly status: "service-down"; readonly since: string | null; readonly action: "start-service" };
 
 /** One of the eleven steps. */
 export interface SetupStepView {
@@ -52,6 +75,7 @@ export interface SetupCounts {
 
 export interface SetupView {
   readonly environmentId: string;
+  readonly reach: SetupReach;
   /** The eleven steps, in the milestone-1 order. */
   readonly steps: readonly SetupStepView[];
   readonly counts: SetupCounts;
@@ -91,6 +115,13 @@ interface Ask {
   timer: Timer | undefined;
 }
 
+const reachOf = (record: ConnectionRecord | undefined): SetupReach => {
+  if (record === undefined) return { status: "unreachable", phase: null, since: null };
+  if (record.phase === "ready" || record.phase === "syncing") return { status: "reachable" };
+  if (record.action === "service.start") return { status: "service-down", since: record.unreachableSince, action: "start-service" };
+  return { status: "unreachable", phase: record.phase, since: record.unreachableSince };
+};
+
 const countsOf = (steps: readonly SetupStepView[]): SetupCounts => {
   const results = steps.flatMap((step) => (step.result === null ? [] : [step.result]));
   const attention = results.filter((result) => result.state === "needs-attention").map((result) => result.step);
@@ -122,11 +153,13 @@ export const createSetup = (host: SetupHost): Setup => {
   const changed = () => version.update((n) => n + 1);
 
   const views = new Map<string, Observable<SetupView>>();
-  const compute = (environmentId: string, environments: ReadonlyMap<string, StreamState<EnvironmentData>>): SetupView => {
+  const compute = (environmentId: string, records: readonly ConnectionRecord[], environments: ReadonlyMap<string, StreamState<EnvironmentData>>): SetupView => {
+    const reach = reachOf(records.find((record) => record.environmentId === environmentId));
     const stream = environments.get(environmentId);
     const streamed = new Map((stream?.data?.setup ?? []).map((result) => [result.step as StepId, result]));
     const answered = answers.get(environmentId);
     const live = stream?.freshness === "live";
+    const reachable = reach.status === "reachable";
     const asking = [...asks].filter((ask) => ask.environmentId === environmentId && ask.due);
     const steps = STEP_ORDER.map((id): SetupStepView => {
       const held = latest(streamed.get(id), answered?.get(id));
@@ -135,11 +168,12 @@ export const createSetup = (host: SetupHost): Setup => {
         label: STEP_LABELS[id],
         home: HOME_ROWS.get(id) as SettingsRowId,
         registered: held !== undefined,
-        result: held === undefined ? null : { ...held.result, stale: !held.answered && !live },
+        // An answer is as fresh as the stream while the environment can be reached; the stream's results, once it is live.
+        result: held === undefined ? null : { ...held.result, stale: !reachable || (!held.answered && !live) },
         pending: asking.some((ask) => ask.step === undefined || ask.step === id),
       };
     });
-    return { environmentId, steps, counts: countsOf(steps) };
+    return { environmentId, reach, steps, counts: countsOf(steps) };
   };
 
   /**
@@ -150,7 +184,7 @@ export const createSetup = (host: SetupHost): Setup => {
    * results (the Set up specification, "Capability flags").
    */
   const followed = (environmentId: string): Observable<SetupView> => {
-    const inner = derived([host.environments, version] as const, (environments) => compute(environmentId, environments));
+    const inner = derived([host.records, host.environments, version] as const, (records, environments) => compute(environmentId, records, environments));
     let followers = 0;
     let waiting: (() => void) | undefined;
     const askWhenReady = (records: readonly ConnectionRecord[]) => {
