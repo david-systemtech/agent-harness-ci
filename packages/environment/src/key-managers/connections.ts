@@ -11,6 +11,7 @@ import {
   type KeyManagerConnectionRecord,
   type KeyManagerConnectionSignedInPayload,
   type KeyManagerConnectionUpdatedPayload,
+  type KeyManagerConnectionVerifiedPayload,
   type KeyManagerProvider,
   type KeyManagerStatus,
   type KeyManagerTokenInformation,
@@ -27,7 +28,8 @@ import type { Reader } from "../sessions/session-tables.js";
 import { basePathProblem } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { openBaoProvider } from "./openbao.js";
-import type { ConnectionProvider, ProviderFailure, SignInTarget } from "./provider.js";
+import { KEY_MANAGER_BUDGET_MS, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
+import { createVerificationSchedule } from "./verifier.js";
 
 /**
  * The key-manager connections (key-managers spec, "The connection record",
@@ -62,7 +64,21 @@ import type { ConnectionProvider, ProviderFailure, SignInTarget } from "./provid
  * - **One connection per provider and address**, and the first of a
  *   provider signed in while none injects does (`injects`), until it is
  *   signed out or removed; the ticks are preset to every policy of the
- *   login at its first sign-in.
+ *   login at its first sign-in, and `setPolicies` ticks a subset of them.
+ * - **Verification** (#366) runs on the schedule `verifier.ts` keeps, one at
+ *   a time per connection within the budget (ADR 0031's ten seconds), past
+ *   which the connection is `unreachable`. It asks the key manager with the
+ *   login held; with none held, or a login the environment made whose token
+ *   OpenBao no longer knows (it lived out its time to live), it signs in
+ *   from the kept credential first and records that as the environment's
+ *   own sign-in. A token a person gave that OpenBao no longer knows is
+ *   `expired` once past the expiry its lookup gave, else
+ *   `credential-rejected`. What changed of the status, token information,
+ *   policies or `canMint` is recorded as `key-manager.connection.verified`,
+ *   as `system:key-manager`; a verification that finds nothing new appends
+ *   nothing, and when each connection was last verified is kept beside its
+ *   record, in memory, as the forge's verified-at times are. Every line a
+ *   key manager's text becomes passes the scrub registry first (#363).
  */
 
 /** The environment's own sign-ins' actor. */
@@ -100,6 +116,8 @@ const invalid = (path: readonly (string | number)[], message: string): never => 
 export interface KeyManagerConnectionsOptions {
   readonly log: EventLog;
   readonly clock: Clock;
+  /** How long one verification may take, on the wall clock; preset `KEY_MANAGER_BUDGET_MS`. */
+  readonly budgetMs?: number;
   /** The environment's id: the id of its stream, where the connections' events go. */
   readonly environmentId: string;
   /** The vault as the environment holds it: every entry registered with the scrub registry while it is held. */
@@ -110,10 +128,12 @@ export interface KeyManagerConnectionsOptions {
 export interface KeyManagerConnections {
   /** Registers every credential the vault holds, and deletes the key-manager entries no connection holds; startup runs it once, before the wire opens. */
   start(): Promise<void>;
-  /** After startup's gate: every connection with a credential signs in from it at once. */
-  startSigningIn(): void;
-  /** The connections, in the order they were added, each as it stands now. */
+  /** After startup's gate: every connection with a credential signs in from it at once, and is verified on the clock after, then every fifteen minutes. */
+  startSigningInAndVerifying(): void;
+  /** The connections, in the order they were added, each as it stands now, with when it was last verified. */
   list(): KeyManagerConnectionRecord[];
+  /** `keyManagers.connections.verify`: verifies one connection now, or every one, joining one running, and answers every record after; `not_found` for one the environment does not hold. */
+  verify(connectionId?: string): Promise<KeyManagerConnectionRecord[]>;
   /**
    * `keyManagers.connections.add`, prepared: the wire's, and the state
    * import's and the bulk copy's in process, which apply the handler its
@@ -122,9 +142,10 @@ export interface KeyManagerConnections {
   readonly add: PreparedCommand<"keyManagers.connections.add">;
   readonly signIn: PreparedCommand<"keyManagers.connections.signIn">;
   readonly update: PreparedCommand<"keyManagers.connections.update">;
+  readonly setPolicies: MethodHandler<"keyManagers.connections.setPolicies">;
   readonly signOut: MethodHandler<"keyManagers.connections.signOut">;
   readonly remove: MethodHandler<"keyManagers.connections.remove">;
-  /** Stops the sign-ins under way from recording anything, and lets go of every login and credential registration; a login is not revoked, and expires. */
+  /** Stops the sign-ins and verifications under way from recording anything, and lets go of every login and credential registration; a login is not revoked, and expires. */
   close(): void;
 }
 
@@ -137,21 +158,47 @@ interface Login {
   readonly release: ScrubRelease;
 }
 
+/** Why the key manager could not be asked: the credential stands as it was. */
+type CouldNotAsk = Exclude<LoginFailure["outcome"], "credential-rejected">;
+
 /** What a sign-in came to. */
 type SignInResult =
   | { readonly outcome: "signed-in"; readonly login: Login; readonly information: KeyManagerTokenInformation }
   /** The credential refused, or a root login, which the harness never holds. */
   | { readonly outcome: "refused"; readonly reason: "rejected" | "root_token"; readonly message: string }
   /** The key manager could not be asked: the credential stands as it was. */
-  | { readonly outcome: Exclude<ProviderFailure["outcome"], "credential-rejected">; readonly message: string };
+  | { readonly outcome: CouldNotAsk; readonly message: string };
 
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
 
-/** The wire error of a sign-in that could not ask the key manager. */
-const FAILURE_CODES = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected" } as const;
+/** The wire error of a sign-in that could not ask the key manager: a key manager asking the harness to slow down could not answer now. */
+const FAILURE_CODES = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected", "rate-limited": "unreachable" } as const;
+
+/** The status a connection the key manager could not be asked about stands in: one asking the harness to slow down is unreachable for now. */
+const STATUS_OF: Record<CouldNotAsk, KeyManagerStatus["kind"]> = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate-rejected", "rate-limited": "unreachable" };
+
+/** What one verification found: the key manager's answer with the login it asked with, or the status it found the connection in. */
+type Checked =
+  | {
+      readonly outcome: "verified";
+      readonly answer: Extract<VerifyAnswer, { readonly outcome: "verified" }>;
+      readonly login: Login;
+      /** Whether the verification signed in to ask: its login is held only once what it found is recorded. */
+      readonly fresh: boolean;
+    }
+  /** The status it found the connection in: credential-rejected, expired, unreachable, sealed or certificate-rejected. */
+  | { readonly outcome: "failed"; readonly status: KeyManagerStatus };
+
+/** `2026-09-24 01:00 UTC`: an instant to the minute, for a line a person reads. */
+const minute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
+
+/** Whether a verification changed what the token information says, beside the time it has left, which moves with the clock. */
+const sameInformation = (one: KeyManagerTokenInformation | null, other: KeyManagerTokenInformation | null): boolean =>
+  JSON.stringify(one === null ? null : { ...one, ttlSeconds: 0 }) === JSON.stringify(other === null ? null : { ...other, ttlSeconds: 0 });
 
 export const createKeyManagerConnections = (options: KeyManagerConnectionsOptions): KeyManagerConnections => {
   const { log, clock, vault, scrub } = options;
+  const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -162,6 +209,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const credentials = new Map<string, ScrubRelease>();
   /** When each sign-in from the kept credential under way began, by connection. */
   const signingIn = new Map<string, string>();
+  /** The startup's sign-in of each connection while it runs: a verification waits for it. */
+  const startupSignIns = new Map<string, Promise<void>>();
+  /** When each connection was last verified, whatever it found: beside the record, which keeps only the time of the last one that changed something. */
+  const verifiedTimes = new Map<string, string>();
   /** Raised by every committed command that changes a connection's credential, login or address: a sign-in begun before records nothing. */
   const epochs = new Map<string, number>();
   let closed = false;
@@ -248,6 +299,19 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
   const awaitingSignIn = (): KeyManagerStatus => statusNow("awaiting-sign-in", "No credential is on this environment: sign in in Set up, Key manager.");
 
+  /**
+   * The status of a connection whose credential the key manager refused: a
+   * token a person gave, past the expiry its lookup gave, lived out its
+   * maximum life (`expired`); any other credential is rejected.
+   */
+  const refusedStatus = (record: KeyManagerConnectionRecord, message: string): KeyManagerStatus => {
+    const expiry = record.method === "token" ? (record.tokenInformation?.expiresAt ?? null) : null;
+    if (expiry !== null && clock.now().getTime() >= Date.parse(expiry)) {
+      return statusNow("expired", `The token this connection signed in with expired at ${minute(expiry)}, the end of its life: sign in again with a new token in Set up, Key manager.`);
+    }
+    return statusNow("credential-rejected", `${message} Sign in again in Set up, Key manager.`);
+  };
+
   const signedInStatus = (provider: KeyManagerProvider, information: KeyManagerTokenInformation): KeyManagerStatus =>
     statusNow("signed-in", information.displayName === "" ? `Signed in to ${PROVIDER_NAMES[provider]}.` : `Signed in to ${PROVIDER_NAMES[provider]} as ${information.displayName}.`);
 
@@ -255,13 +319,13 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
    * Signs in at `target` with `credential`: logs in, registering the token as
    * it arrives, then looks it up. A root login is let go and refused.
    */
-  const signInWith = async (connectionId: string, provider: ConnectionProvider, target: SignInTarget, credential: KeyManagerCredential): Promise<SignInResult> => {
-    const failed = (failure: ProviderFailure): SignInResult =>
+  const signInWith = async (connectionId: string, provider: ConnectionProvider, target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<SignInResult> => {
+    const failed = (failure: LoginFailure): SignInResult =>
       failure.outcome === "credential-rejected" ? { outcome: "refused", reason: "rejected", message: scrubbed(failure.message) } : { outcome: failure.outcome, message: scrubbed(failure.message) };
-    const logged = await provider.logIn(target, credential);
+    const logged = await provider.logIn(target, credential, signal);
     if (logged.outcome !== "logged-in") return failed(logged);
     const login: Login = { token: logged.token, minted: logged.minted, provider, target, release: scrub.register(logged.token, { owner: `key-manager:${connectionId}:login` }) };
-    const found = await provider.lookUp(target, logged.token);
+    const found = await provider.lookUp(target, logged.token, signal);
     if (found.outcome !== "found") {
       await letGo(connectionId, login);
       return failed(found);
@@ -273,17 +337,23 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return { outcome: "signed-in", login, information: found.information };
   };
 
-  /** A record as it stands now: signing in while a sign-in from the kept credential is under way. */
+  /** `record` with when it was last verified: the later of its own time and the one kept beside it. */
+  const seen = (record: KeyManagerConnectionRecord): KeyManagerConnectionRecord => {
+    const at = verifiedTimes.get(record.id);
+    return at === undefined || (record.verifiedAt !== null && record.verifiedAt >= at) ? record : { ...record, verifiedAt: at };
+  };
+
+  /** A record as it stands now: signing in while a sign-in from the kept credential is under way, and with when it was last verified. */
   const standing = (record: KeyManagerConnectionRecord): KeyManagerConnectionRecord => {
     const since = signingIn.get(record.id);
-    return since === undefined ? record : { ...record, status: { kind: "signing-in", since, message: `Signing in to ${PROVIDER_NAMES[record.provider]} at ${record.address}.` } };
+    return seen(since === undefined ? record : { ...record, status: { kind: "signing-in", since, message: `Signing in to ${PROVIDER_NAMES[record.provider]} at ${record.address}.` } });
   };
 
   /** The record a command left: a sign-in, a sign-out or a new address settles the connection, whatever sign-in from the kept credential still runs. */
   const settledRecordOf = (connectionId: string): KeyManagerConnectionRecord => {
     const held = liveConnection(reader, connectionId);
     if (held === null) throw new Error(`The key-manager connection ${connectionId} is not in the store after a command applied to it.`);
-    return held.record;
+    return seen(held.record);
   };
 
   /** The record a command left, as it stands now. */
@@ -416,7 +486,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           signed = result;
           status = signedInStatus(params.provider, result.information);
         } else {
-          status = statusNow(result.outcome, result.message);
+          status = statusNow(STATUS_OF[result.outcome], result.message);
         }
         entry = await store(connectionId, given, context);
       }
@@ -446,6 +516,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         command.tx.afterCommit(() => {
           holdCredential(connectionId, arrival);
           if (signed !== null) holdLogin(connectionId, signed.login);
+          if (entry !== null) schedule.changed(connectionId);
         });
         return { aggregate: stream, result: { connection: recordOf(connectionId) } };
       };
@@ -494,6 +565,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           holdCredential(connectionId, arrival);
           holdLogin(connectionId, result.login);
           if (current.credential !== null) deleteEntry(current.credential);
+          schedule.changed(connectionId);
         });
         return { aggregate: stream, result: { connection: settledRecordOf(connectionId) } };
       };
@@ -541,6 +613,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           }
           const at = { tx: command.tx, actor: command.actor, commandId: command.commandId };
           log.append(stream, [{ type: "key-manager.connection.updated", payload: { connectionId, ...changes } }], at);
+          command.tx.afterCommit(() => schedule.changed(connectionId));
           if (signed !== null) {
             const payload: KeyManagerConnectionSignedInPayload = {
               connectionId,
@@ -598,8 +671,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
             result.outcome === "signed-in"
               ? signedInStatus(current.record.provider, result.information)
               : result.outcome === "refused"
-                ? statusNow("credential-rejected", `${result.message} Sign in again in Set up, Key manager.`)
-                : statusNow(result.outcome, result.message);
+                ? refusedStatus(current.record, result.message)
+                : statusNow(STATUS_OF[result.outcome], result.message);
           const payload: KeyManagerConnectionSignedInPayload = {
             connectionId,
             status,
@@ -619,6 +692,176 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     }
   };
 
+  /**
+   * What a verification of the connection verifies now: its credential, the
+   * commands that changed its login or address since, and its token role;
+   * null for one that is not verified (no credential, or a provider this
+   * version cannot sign in to).
+   */
+  const subjectOf = (connectionId: string): string | null => {
+    const held = liveConnection(reader, connectionId);
+    if (held === null || held.credential === null || PROVIDERS[held.record.provider] === undefined || targetOf(held.record) === null) return null;
+    return JSON.stringify([held.credential, epochOf(connectionId), held.record.tokenRole]);
+  };
+
+  /**
+   * Stops holding a login the key manager no longer knows, while it is still
+   * the one held: there is nothing left to revoke. Its token stays registered
+   * until the verification that found it dead ends (`dead`), so the text of
+   * an answer that echoes it is scrubbed still.
+   */
+  const dropDead = (connectionId: string, login: Login, dead: Login[]): void => {
+    if (logins.get(connectionId) !== login) return;
+    logins.delete(connectionId);
+    dead.push(login);
+  };
+
+  const failedWith = (status: KeyManagerStatus): Checked => ({ outcome: "failed", status });
+
+  /**
+   * What the key manager answers of the connection now: asked with the login
+   * held; with none held, or a login the environment made that the key
+   * manager no longer knows, after signing in from the kept credential.
+   */
+  const ask = async (record: KeyManagerConnectionRecord, entry: string, provider: ConnectionProvider, target: SignInTarget, signal: AbortSignal, dead: Login[]): Promise<Checked> => {
+    const connectionId = record.id;
+    const verifyWith = async (login: Login, fresh: boolean): Promise<Checked> => {
+      const answer = await provider.verify(target, login.token, { tokenRole: record.tokenRole, signal });
+      if (answer.outcome === "verified") return { outcome: "verified", answer, login, fresh };
+      if (fresh) await letGo(connectionId, login);
+      if (answer.outcome !== "credential-rejected") return failedWith(statusNow(STATUS_OF[answer.outcome], scrubbed(answer.message)));
+      if (!fresh) {
+        dropDead(connectionId, login, dead);
+        // A login the environment made has lived out its life, or was revoked: it signs in again from the kept credential.
+        if (login.minted) return signInAgain();
+      }
+      return failedWith(refusedStatus(record, scrubbed(answer.message)));
+    };
+    const signInAgain = async (): Promise<Checked> => {
+      const credential = await readCredential(entry);
+      if (credential === null) return failedWith(refusedStatus(record, "The environment's vault holds no credential for this connection."));
+      const result = await signInWith(connectionId, provider, target, credential, signal);
+      if (result.outcome === "signed-in") return verifyWith(result.login, true);
+      if (result.outcome === "refused") return failedWith(refusedStatus(record, result.message));
+      return failedWith(statusNow(STATUS_OF[result.outcome], result.message));
+    };
+    const held = logins.get(connectionId);
+    return held === undefined ? signInAgain() : verifyWith(held, false);
+  };
+
+  /** Settles as `work` does, or as unreachable once the budget has passed, when the work's signal is aborted too; a login the work made after that is let go. */
+  const withinBudget = async (record: KeyManagerConnectionRecord, work: (signal: AbortSignal) => Promise<Checked>): Promise<Checked> => {
+    const controller = new AbortController();
+    const overrun = new Promise<Checked>((resolve) => {
+      controller.signal.addEventListener("abort", () =>
+        resolve(failedWith(statusNow("unreachable", `${PROVIDER_NAMES[record.provider]} at ${record.address} did not finish answering within ${budgetMs / 1000} s.`))),
+      );
+    });
+    const working = work(controller.signal).then(
+      (checked) => {
+        if (controller.signal.aborted && checked.outcome === "verified" && checked.fresh) void letGo(record.id, checked.login);
+        return checked;
+      },
+      (error: unknown) => {
+        console.error(`Verifying the key-manager connection ${record.id} failed:`, error);
+        return failedWith(statusNow("unreachable", `Verifying ${PROVIDER_NAMES[record.provider]} at ${record.address} failed inside the environment; it is tried again in fifteen minutes.`));
+      },
+    );
+    // On the wall clock, never the environment's, which a test may hold still.
+    const timer = setTimeout(() => controller.abort(), budgetMs);
+    timer.unref();
+    try {
+      return await Promise.race([working, overrun]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  /**
+   * Records what a verification found of the connection, unless a command
+   * changed what it verifies meanwhile; answers whether it was taken. A
+   * verification that signed in records that first, as the environment's own
+   * sign-in; then `key-manager.connection.verified` when the status, token
+   * information, policies or `canMint` changed, a status of the kind there
+   * was keeping its since-time.
+   */
+  const recordFound = (connectionId: string, subject: string, checked: Checked): boolean =>
+    log.atomically((tx) => {
+      const current = subjectOf(connectionId) === subject ? liveConnection(reader, connectionId) : null;
+      if (current === null) return false;
+      const at = { tx, actor: KEY_MANAGER_ACTOR };
+      let before = current.record;
+      let found: Omit<KeyManagerConnectionVerifiedPayload, "connectionId">;
+      if (checked.outcome === "failed") {
+        found = { status: checked.status, tokenInformation: before.tokenInformation, policies: before.policies, canMint: before.canMint };
+      } else {
+        const { information, policies, canMint } = checked.answer;
+        const status = signedInStatus(before.provider, information);
+        if (checked.fresh) {
+          const payload: KeyManagerConnectionSignedInPayload = { connectionId, status, tokenInformation: information, ...firstSignIn(before, information) };
+          log.append(stream, [{ type: "key-manager.connection.signed-in", payload }], at);
+          before = settledRecordOf(connectionId);
+        }
+        found = { status, tokenInformation: information, policies: [...policies], canMint };
+      }
+      const changed =
+        before.status.kind !== found.status.kind ||
+        !sameInformation(before.tokenInformation, found.tokenInformation) ||
+        JSON.stringify(before.policies) !== JSON.stringify(found.policies) ||
+        before.canMint !== found.canMint;
+      if (changed) {
+        const status = before.status.kind === found.status.kind ? { ...found.status, since: before.status.since } : found.status;
+        log.append(stream, [{ type: "key-manager.connection.verified", payload: { connectionId, ...found, status } }], at);
+      }
+      return true;
+    });
+
+  /** One verification of the connection, within the budget, recording what it found; it never rejects. */
+  const verifyNow = async (connectionId: string): Promise<void> => {
+    try {
+      // What the startup's sign-in records is what this verification starts from.
+      await startupSignIns.get(connectionId);
+      if (closed) return;
+      const subject = subjectOf(connectionId);
+      const held = liveConnection(reader, connectionId);
+      const provider = held === null ? undefined : PROVIDERS[held.record.provider];
+      const target = held === null ? null : targetOf(held.record);
+      if (subject === null || held === null || held.credential === null || provider === undefined || target === null) return;
+      const entry = held.credential;
+      const checked = await withinBudget(held.record, async (signal) => {
+        const dead: Login[] = [];
+        try {
+          return await ask(held.record, entry, provider, target, signal, dead);
+        } finally {
+          // Once the work ends, past the budget or not: every line it made is scrubbed by then.
+          for (const login of dead) login.release();
+        }
+      });
+      const verifiedAt = clock.now().toISOString();
+      let taken = false;
+      try {
+        // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
+        taken = !closed && recordFound(connectionId, subject, checked);
+        if (taken) verifiedTimes.set(connectionId, verifiedAt);
+      } finally {
+        // A login the verification made is held once what it found is recorded; otherwise, a failed write included, it is let go.
+        if (checked.outcome === "verified" && checked.fresh) {
+          if (taken) holdLogin(connectionId, checked.login);
+          else void letGo(connectionId, checked.login);
+        }
+      }
+    } catch (error) {
+      console.error(`Verifying the key-manager connection ${connectionId} failed:`, error);
+    }
+  };
+
+  const schedule = createVerificationSchedule({
+    clock,
+    connectionIds: () => listConnections(reader).map((held) => held.record.id),
+    subjectOf,
+    verifyNow,
+  });
+
   return {
     async start() {
       const entries = new Set<string>();
@@ -635,21 +878,48 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       }
     },
 
-    startSigningIn() {
+    startSigningInAndVerifying() {
       for (const { record, credential } of listConnections(reader)) {
         const provider = PROVIDERS[record.provider];
         const target = targetOf(record);
-        if (credential !== null && provider !== undefined && target !== null) void signInFromVault(record, credential, provider, target);
+        if (credential === null || provider === undefined || target === null) continue;
+        const running = signInFromVault(record, credential, provider, target).finally(() => {
+          if (startupSignIns.get(record.id) === running) startupSignIns.delete(record.id);
+        });
+        startupSignIns.set(record.id, running);
       }
+      schedule.start();
     },
 
     list: () => listConnections(reader).map((held: StoredConnection) => standing(held.record)),
+
+    async verify(connectionId) {
+      const id = connectionId?.toLowerCase();
+      if (id !== undefined && liveConnection(reader, id) === null) throw new ContractError(notFound(id));
+      await Promise.all((id === undefined ? listConnections(reader).map((held) => held.record.id) : [id]).map(schedule.verify));
+      return listConnections(reader).map((held) => standing(held.record));
+    },
 
     add,
 
     signIn,
 
     update,
+
+    setPolicies(params, command) {
+      const connectionId = params.connectionId.toLowerCase();
+      const held = liveConnection(reader, connectionId);
+      if (held === null) return { aggregate: stream, rejected: notFound(connectionId) };
+      const { record } = held;
+      const policies = record.tokenInformation?.policies ?? invalid(["ticks"], "The connection has no login whose policies could be ticked: sign it in first.");
+      const foreign = params.ticks.findIndex((tick) => !policies.includes(tick));
+      if (foreign !== -1) invalid(["ticks", foreign], `${params.ticks[foreign]} is not one of the login's policies (${policies.join(", ")}).`);
+      // Kept in the order the login's lookup names them, each once.
+      const ticks = policies.filter((policy) => params.ticks.includes(policy));
+      if (JSON.stringify(ticks) === JSON.stringify(record.ticks)) return { aggregate: stream, result: { connection: standing(record) } };
+      log.append(stream, [{ type: "key-manager.connection.policies-set", payload: { connectionId, ticks } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+      return { aggregate: stream, result: { connection: recordOf(connectionId) } };
+    },
 
     signOut(params, command) {
       const connectionId = params.connectionId.toLowerCase();
@@ -658,7 +928,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (held.credential === null) return { aggregate: stream, result: { connection: standing(held.record) } };
       const status = statusNow("awaiting-sign-in", "Signed out: sign in again in Set up, Key manager.");
       log.append(stream, [{ type: "key-manager.connection.signed-out", payload: { connectionId, status } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-      command.tx.afterCommit(() => forget(connectionId, held.credential));
+      command.tx.afterCommit(() => {
+        forget(connectionId, held.credential);
+        schedule.removed(connectionId);
+      });
       return { aggregate: stream, result: { connection: settledRecordOf(connectionId) } };
     },
 
@@ -667,12 +940,17 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const held = liveConnection(reader, connectionId);
       if (held === null) return { aggregate: stream, rejected: notFound(connectionId) };
       log.append(stream, [{ type: "key-manager.connection.removed", payload: { connectionId } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-      command.tx.afterCommit(() => forget(connectionId, held.credential));
+      command.tx.afterCommit(() => {
+        forget(connectionId, held.credential);
+        schedule.removed(connectionId);
+        verifiedTimes.delete(connectionId);
+      });
       return { aggregate: stream, result: { connectionId } };
     },
 
     close() {
       closed = true;
+      schedule.close();
       for (const login of logins.values()) login.release();
       logins.clear();
       for (const release of credentials.values()) release();

@@ -3011,6 +3011,221 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "key-manager.connection.policies-set"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+            },
+            "ticks": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+              },
+              "description": "The policies runs receive from now on: a subset of the login's, in the order its lookup names them."
+            }
+          },
+          "required": [
+            "connectionId",
+            "ticks"
+          ],
+          "description": "key-manager.connection.policies-set: a person ticked which of the login's policies runs receive."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "Which of a key-manager connection's policies runs receive was ticked."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "key-manager.connection.verified"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+            },
+            "status": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "awaiting-sign-in",
+                    "signing-in",
+                    "signed-in",
+                    "credential-rejected",
+                    "expired",
+                    "unreachable",
+                    "sealed",
+                    "certificate-rejected"
+                  ],
+                  "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's)."
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "Since when the connection has stood so: a login that finds what it had keeps the time."
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\n]*$",
+                  "description": "One line for people: where it stands and what to do."
+                }
+              },
+              "required": [
+                "kind",
+                "since",
+                "message"
+              ],
+              "description": "Where the verification found the connection: signed in, or credential-rejected, expired, unreachable, sealed or certificate-rejected; a status of the kind it had keeps its since-time."
+            },
+            "tokenInformation": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": "string",
+                      "description": "The token's display name, as the key manager answers it (approle, userpass-david)."
+                    },
+                    "policies": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                        "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+                      },
+                      "description": "The policies the login's token holds, as its lookup answers them."
+                    },
+                    "ttlSeconds": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "The token's time to live when it was looked up, in seconds; 0 for a token that does not expire."
+                    },
+                    "renewable": {
+                      "type": "boolean",
+                      "description": "Whether the token can be renewed."
+                    },
+                    "expiresAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "An instant as an ISO 8601 UTC timestamp."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "When the token expires; null for one that does not."
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "policies",
+                    "ttlSeconds",
+                    "renewable",
+                    "expiresAt"
+                  ],
+                  "description": "What the login's lookup said of its token: display name, policies, time to live, whether it renews, and its expiry. Never the token or its id."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What the login's lookup says of its token; as it was known when the verification could not look it up."
+            },
+            "policies": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                        "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+                      },
+                      "writes": {
+                        "type": "string",
+                        "enum": [
+                          "yes",
+                          "no",
+                          "possibly"
+                        ],
+                        "description": "Whether a login's policy can write: yes (its text grants create, update, patch or delete on a path outside auth/, sys/, cubbyhole/ and identity/), no (it grants none there) or possibly (its text could not be read with the login)."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "writes"
+                    ],
+                    "description": "One of the login's policies, as its lookup names it (never root), and whether it can write, read from its text where the login may."
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The login's policies with their write flags; as they were known when the verification could not read them."
+            },
+            "canMint": {
+              "description": "Whether the login can mint run tokens; as it was known when the verification could not read its capabilities.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "connectionId",
+            "status",
+            "tokenInformation",
+            "policies",
+            "canMint"
+          ],
+          "description": "key-manager.connection.verified: a verification found the connection's status, token information, policies or whether it can mint changed, and what it found, whole; recorded as system:key-manager with no command id. A verification that finds nothing new appends nothing."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A verification of a key-manager connection found its status, token information, policies or whether it can mint changed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "key-manager.connection.removed"
         },
         "payload": {

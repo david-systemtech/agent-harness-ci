@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerCertificate",
+  "type": "object",
+  "properties": {
+    "pem": {
+      "type": "string",
+      "maxLength": 65536,
+      "pattern": "-----BEGIN CERTIFICATE-----",
+      "description": "The certificate as PEM: what add or update pins as the connection's CA once a person accepts it."
+    },
+    "sha256Fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$",
+      "description": "Its SHA-256 fingerprint: 32 bytes in upper-case hex, joined by colons."
+    },
+    "subject": {
+      "type": "string",
+      "description": "Its subject, one line (CN=agent-harness test CA)."
+    },
+    "names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The DNS names and IP addresses its subject alternative names hold, in its order; empty for none."
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When it stops being valid."
+    },
+    "selfSigned": {
+      "type": "boolean",
+      "description": "Whether it signs itself: a root, rather than an intermediate or a leaf a CA issued."
+    }
+  },
+  "required": [
+    "pem",
+    "sha256Fingerprint",
+    "subject",
+    "names",
+    "expiresAt",
+    "selfSigned"
+  ],
+  "description": "The certificate a key manager's chain is anchored on, read from its TLS handshake with verification off: the issuer walked up to, else the leaf, as PEM, with its SHA-256 fingerprint, subject, names, expiry and whether it signs itself."
+}

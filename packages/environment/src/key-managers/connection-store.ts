@@ -2,12 +2,15 @@ import {
   ENVIRONMENT_STREAM_KIND,
   type KeyManagerAuthMethod,
   type KeyManagerConnectionAddedPayload,
+  type KeyManagerConnectionPoliciesSetPayload,
   type KeyManagerConnectionRecord,
   type KeyManagerConnectionRemovedPayload,
   type KeyManagerConnectionSignedInPayload,
   type KeyManagerConnectionSignedOutPayload,
   type KeyManagerConnectionUpdatedPayload,
+  type KeyManagerConnectionVerifiedPayload,
   type KeyManagerCopiedFrom,
+  type KeyManagerLoginPolicy,
   type KeyManagerProvider,
   type KeyManagerStatus,
   type KeyManagerTokenInformation,
@@ -22,7 +25,10 @@ import type { Reader } from "../sessions/session-tables.js";
  * on the environment stream in the transaction that appends them and rebuilt
  * from the log. A removed connection keeps its row, marked removed, so its
  * id is never taken again. Beside the record each row names the vault entry
- * holding the connection's credential, which the record never shows. The
+ * holding the connection's credential, which the record never shows. A
+ * verification's row keeps when it was recorded (`verified_at`); the
+ * connections keep the later times of verifications that found nothing new
+ * in memory, beside it (#366). The
  * partial unique indexes hold one live connection per provider and address,
  * and one injecting connection per provider, which the connections check
  * before they append.
@@ -42,12 +48,14 @@ export const KEY_MANAGER_CONNECTIONS_TABLES = {
     mount TEXT,
     username TEXT,
     token_role TEXT,
+    policies TEXT,
     ticks TEXT,
     base_path TEXT,
     injects INTEGER NOT NULL DEFAULT 0 CHECK (injects IN (0, 1)),
     status TEXT NOT NULL,
     token_information TEXT,
     can_mint INTEGER CHECK (can_mint IN (0, 1)),
+    verified_at TEXT,
     credential TEXT,
     copied_from TEXT,
     imported_from TEXT,
@@ -115,8 +123,25 @@ const signedIn = (db: ProjectionDb, payload: KeyManagerConnectionSignedInPayload
 
 const signedOut = (db: ProjectionDb, payload: KeyManagerConnectionSignedOutPayload): void => {
   moveStatus(db, payload.connectionId, payload.status);
-  // Signed out, it no longer injects: the next of its provider signed in does.
-  db.run("UPDATE key_manager_connections SET token_information = NULL, can_mint = NULL, credential = NULL, injects = 0 WHERE id = ?", payload.connectionId);
+  // Signed out, it no longer injects: the next of its provider signed in does. What the login was known by goes with it.
+  db.run("UPDATE key_manager_connections SET token_information = NULL, policies = NULL, can_mint = NULL, credential = NULL, injects = 0 WHERE id = ?", payload.connectionId);
+};
+
+const policiesSet = (db: ProjectionDb, payload: KeyManagerConnectionPoliciesSetPayload): void => {
+  db.run("UPDATE key_manager_connections SET ticks = ? WHERE id = ?", json(payload.ticks), payload.connectionId);
+};
+
+const verified = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnectionVerifiedPayload): void => {
+  const { connectionId } = payload;
+  moveStatus(db, connectionId, payload.status);
+  db.run(
+    "UPDATE key_manager_connections SET token_information = ?, policies = ?, can_mint = ?, verified_at = ? WHERE id = ?",
+    jsonOrNull(payload.tokenInformation),
+    jsonOrNull(payload.policies),
+    payload.canMint === null ? null : payload.canMint ? 1 : 0,
+    event.occurredAt,
+    connectionId,
+  );
 };
 
 const updated = (db: ProjectionDb, payload: KeyManagerConnectionUpdatedPayload): void => {
@@ -146,6 +171,10 @@ export const keyManagerConnectionsProjector: Projector = {
         return signedOut(db, event.payload as KeyManagerConnectionSignedOutPayload);
       case "key-manager.connection.updated":
         return updated(db, event.payload as KeyManagerConnectionUpdatedPayload);
+      case "key-manager.connection.policies-set":
+        return policiesSet(db, event.payload as KeyManagerConnectionPoliciesSetPayload);
+      case "key-manager.connection.verified":
+        return verified(db, event, event.payload as KeyManagerConnectionVerifiedPayload);
       case "key-manager.connection.removed":
         return removed(db, event, event.payload as KeyManagerConnectionRemovedPayload);
     }
@@ -163,12 +192,14 @@ interface ConnectionRow {
   mount: string | null;
   username: string | null;
   token_role: string | null;
+  policies: string | null;
   ticks: string | null;
   base_path: string | null;
   injects: number;
   status: string;
   token_information: string | null;
   can_mint: number | null;
+  verified_at: string | null;
   credential: string | null;
   copied_from: string | null;
   imported_from: string | null;
@@ -176,7 +207,7 @@ interface ConnectionRow {
 }
 
 const COLUMNS =
-  "id, provider, label, address, ca, method, mount, username, token_role, ticks, base_path, injects, status, token_information, can_mint, credential, copied_from, imported_from, created_at";
+  "id, provider, label, address, ca, method, mount, username, token_role, policies, ticks, base_path, injects, status, token_information, can_mint, verified_at, credential, copied_from, imported_from, created_at";
 
 /** A connection as the store holds it: its record, and the vault entry of its credential, which the record never shows. */
 export interface StoredConnection {
@@ -196,12 +227,14 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     mount: row.mount,
     username: row.username,
     tokenRole: row.token_role,
+    policies: parsed<KeyManagerLoginPolicy[]>(row.policies),
     ticks: parsed<string[]>(row.ticks),
     basePath: row.base_path,
     injects: row.injects === 1,
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),
     canMint: row.can_mint === null ? null : row.can_mint === 1,
+    verifiedAt: row.verified_at,
     copiedFrom: parsed<KeyManagerCopiedFrom>(row.copied_from),
     importedFrom: row.imported_from,
     createdAt: row.created_at,

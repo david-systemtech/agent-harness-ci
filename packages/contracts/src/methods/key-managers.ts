@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import {
+  KeyManagerAddress,
   KeyManagerAuthMethod,
   KeyManagerBasePath,
   KeyManagerCa,
+  KeyManagerCertificate,
   KeyManagerConnectionRecord,
   KeyManagerCopiedFrom,
   KeyManagerCredential,
@@ -19,10 +21,12 @@ import { commandParams, defineMethod } from "../method.js";
 
 /**
  * The key-manager connection methods (key-managers spec, "Wire methods";
- * ADR 0011, ADR 0028): the list at `read`; add, signIn, update, signOut and
- * remove at `admin`, each a command whose events go on the environment
- * stream. A connection the environment does not hold is rejected
- * `not_found` (data `kind: key_manager_connection`). A credential crosses the
+ * ADR 0011, ADR 0028): the list at `read`; add, signIn, update,
+ * setPolicies, signOut and remove at `admin`, each a command whose events
+ * go on the environment stream; verify and the certificate preview,
+ * `admin` queries, since they call the key manager. A connection the
+ * environment does not hold is rejected `not_found` (data `kind:
+ * key_manager_connection`). A credential crosses the
  * wire once, in add or signIn, and is never answered back: not in a result,
  * a receipt, an event or an `invalid_params` issue.
  *
@@ -67,6 +71,15 @@ export const CertificateRejectedError = errorSchema("certificate_rejected", conn
     "The key manager's certificate did not verify against the connection's pinned CA, or, with none pinned, against the system's trusted CAs: nothing was changed. The message says why; data names the connection.",
 });
 export type CertificateRejectedError = z.infer<typeof CertificateRejectedError>;
+
+/** The address a certificate preview was asked of could not be reached, or answered no TLS handshake. */
+export const AddressUnreachableError = errorSchema(
+  "unreachable",
+  z.object({ address: KeyManagerAddress.meta({ description: "The address the preview was asked of, as its origin." }) }),
+).meta({
+  description: "The address could not be reached, or completed no TLS handshake within ten seconds: no certificate was read. The message says what failed; data names the address.",
+});
+export type AddressUnreachableError = z.infer<typeof AddressUnreachableError>;
 
 /** This environment has no provider for the key manager a credential is for. */
 export const ProviderUnavailableError = errorSchema(
@@ -207,4 +220,61 @@ export const keyManagersConnectionsRemove = defineMethod({
   params: commandParams({ connectionId: KeyManagerConnectionId }),
   result: z.object({ connectionId: KeyManagerConnectionId }),
   errors: [],
+});
+
+/**
+ * Ticks which of the login's policies runs receive
+ * (`key-manager.connection.policies-set`; ADR 0028): a subset of the
+ * policies the login's lookup names, kept in its order; the ticks it holds
+ * already change nothing. A policy the login does not hold, or a connection
+ * whose login has not been looked up, is `invalid_params`.
+ */
+export const keyManagersConnectionsSetPolicies = defineMethod({
+  name: "keyManagers.connections.setPolicies",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    connectionId: KeyManagerConnectionId,
+    ticks: z.array(KeyManagerPolicy).max(256).meta({ description: "The policies runs receive: a subset of the login's, each named once." }),
+  }),
+  result: connectionResult,
+  errors: [],
+});
+
+/**
+ * Verifies one connection now, or every one (key-managers spec, "The
+ * connection record"; ADR 0011, ADR 0028), as `forge.accounts.verify` does:
+ * for OpenBao, its seal status, the login's own lookup, its capabilities on
+ * the token-create path (or its token role's) and its policies' texts where
+ * it may read them, within ten seconds, past which it is `unreachable`. What
+ * changed is recorded as `key-manager.connection.verified`; a connection
+ * being verified already is joined, not verified twice. Answers every
+ * connection's record after it. A connection with no credential is not
+ * verified.
+ */
+export const keyManagersConnectionsVerify = defineMethod({
+  name: "keyManagers.connections.verify",
+  scope: "admin",
+  kind: "query",
+  params: z.object({ connectionId: KeyManagerConnectionId.optional().meta({ description: "The connection to verify; every one when absent." }) }),
+  result: z.object({ connections: z.array(KeyManagerConnectionRecord) }),
+  errors: [],
+});
+
+/**
+ * Reads the certificate an `https` key manager presents, before a person
+ * trusts its CA (key-managers spec, "Providers"): a TLS socket opened with
+ * verification off, the chain read and the socket closed without sending a
+ * byte of a request. Answers the chain's anchor, the issuer walked up to or
+ * else the leaf, which only add or update pins, once a person accepts it.
+ * Changes nothing. An address that is no `https` origin is
+ * `invalid_params`.
+ */
+export const keyManagersCertificatePreview = defineMethod({
+  name: "keyManagers.certificate.preview",
+  scope: "admin",
+  kind: "query",
+  params: z.object({ address: z.string().min(1).max(2048).meta({ description: "The key manager's https URL: only its origin is read." }) }),
+  result: z.object({ certificate: KeyManagerCertificate }),
+  errors: [AddressUnreachableError],
 });
