@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "routines.checkImport params",
+  "type": "object",
+  "properties": {
+    "yaml": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Routine documents as YAML, one or several."
+    },
+    "routineId": {
+      "description": "The routine one document would replace the definition of; absent to make routines.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    }
+  },
+  "required": [
+    "yaml"
+  ]
+}

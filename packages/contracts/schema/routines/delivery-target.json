@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeliveryTarget",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "client-notice"
+        },
+        "on": {
+          "type": "string",
+          "enum": [
+            "success",
+            "failure",
+            "both"
+          ],
+          "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+        }
+      },
+      "required": [
+        "kind",
+        "on"
+      ],
+      "description": "routine.delivered on the environment stream, which every connected client raises."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "webhook"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,40}$",
+          "description": "The endpoint's name on the routine's environment, which holds its URL and secret."
+        },
+        "on": {
+          "type": "string",
+          "enum": [
+            "success",
+            "failure",
+            "both"
+          ],
+          "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+        }
+      },
+      "required": [
+        "kind",
+        "target",
+        "on"
+      ],
+      "description": "A signed webhook POST to an endpoint the environment names."
+    }
+  ],
+  "description": "Where a firing's result goes, and which results it takes: a client notice, or a signed webhook to a named endpoint."
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FiringFailureReason",
+  "type": "string",
+  "enum": [
+    "run_error",
+    "timed_out",
+    "restart",
+    "drained"
+  ],
+  "description": "Why a firing failed: run_error (its run ended in error), timed_out (its maximum duration passed and its run was interrupted), restart (its run was cut by a restart, or let go with its session still there) or drained (a drain cut its run and nothing continued it)."
+}

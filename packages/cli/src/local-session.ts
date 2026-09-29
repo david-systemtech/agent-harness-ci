@@ -19,7 +19,7 @@ import {
   type ResponseOf,
   type WireError,
 } from "@agent-harness/contracts";
-import { HARNESS_VERSION } from "@agent-harness/environment";
+import { HARNESS_VERSION, systemClock, type Clock, type Timer } from "@agent-harness/environment";
 
 /**
  * The route every CLI verb that asks the environment on this machine
@@ -66,10 +66,12 @@ export type LocalCall = <N extends MethodName>(method: N, params: ParamsOf<N>) =
 /** How long the verb waits for the environment at each step: the exchange, the hello, each answer. */
 const WIRE_TIMEOUT_MS = 10_000;
 
-/** How the route waits: a test shortens the timeout. */
+/** How the route waits: a test shortens the timeout, and holds its clock to bound only the step it is about. */
 export interface LocalSessionOptions {
   /** How long the environment may stay silent while the verb waits on it; preset ten seconds. */
   readonly timeoutMs?: number;
+  /** What the timeout runs on, the exchange's and the wire's alike; preset the real clock. */
+  readonly clock?: Pick<Clock, "setTimeout">;
 }
 
 const readGrant = (dataDir: string): BootstrapGrant => {
@@ -95,20 +97,28 @@ const readGrant = (dataDir: string): BootstrapGrant => {
 };
 
 /** Exchanges the grant's secret for a local `tui` client session under `label`, which the verb revokes itself once its calls are done. */
-const exchangeGrant = async (origin: string, secret: string, label: string, net: Net, timeoutMs: number): Promise<ClientSessionCredential> => {
+const exchangeGrant = async (origin: string, secret: string, label: string, net: Net, timeoutMs: number, clock: Pick<Clock, "setTimeout">): Promise<ClientSessionCredential> => {
+  // The same bound as the wire phase, so a wedged environment fails the verb in seconds rather than minutes; it
+  // covers reading the answer too, and aborts with the error `AbortSignal.timeout` gives.
+  const abort = new AbortController();
+  const timer = clock.setTimeout(() => abort.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")), timeoutMs);
   let response: Response;
+  let body: unknown;
   try {
-    response = await net.fetch(`${origin}${BOOTSTRAP_PATH}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ secret, kind: "tui", label }),
-      // The same bound as the wire phase, so a wedged environment fails the verb in seconds rather than minutes.
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (error) {
-    throw new LocalFailure(`The environment at ${origin} did not answer: ${(error as Error).message}`, { cause: error });
+    try {
+      response = await net.fetch(`${origin}${BOOTSTRAP_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ secret, kind: "tui", label }),
+        signal: abort.signal,
+      });
+    } catch (error) {
+      throw new LocalFailure(`The environment at ${origin} did not answer: ${(error as Error).message}`, { cause: error });
+    }
+    body = await response.json().catch(() => undefined);
+  } finally {
+    timer.cancel();
   }
-  const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
     const refusal = BootstrapError.safeParse(body);
     throw new LocalFailure(`The environment refused the bootstrap exchange: ${refusal.success ? refusal.data.message : `HTTP ${response.status}`}`);
@@ -128,7 +138,13 @@ type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
  * refused revoke, a socket closed early and an environment silent for the
  * timeout while the verb waits on it fail the verb.
  */
-const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net, timeoutMs: number, work: (call: LocalCall) => Promise<T>): Promise<T> =>
+const overWire = <T>(
+  url: string,
+  credential: ClientSessionCredential,
+  net: Net,
+  { timeoutMs, clock }: Required<LocalSessionOptions>,
+  work: (call: LocalCall) => Promise<T>,
+): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const ws = new net.WebSocket(url);
     /** The calls awaiting their answer, by request id. */
@@ -137,12 +153,12 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
     let greeted = false;
     let outcome: Outcome<T> | undefined;
     let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: Timer | undefined;
 
     const settle = (ending: Outcome<T>) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      timer?.cancel();
       if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) ws.close(1000);
       if (ending.ok) resolve(ending.value);
       else reject(ending.error);
@@ -156,9 +172,9 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
      * fails the verb; while only the verb's own work runs, nothing is waited on.
      */
     const rearm = () => {
-      clearTimeout(timer);
+      timer?.cancel();
       const waiting = !greeted || pending.size > 0 || outcome !== undefined;
-      if (waiting && !settled) timer = setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
+      if (waiting && !settled) timer = clock.setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
     };
     const send = (frame: Parameters<typeof encodeFrame>[0]) => ws.send(encodeFrame(frame));
 
@@ -250,10 +266,10 @@ export const withLocalSession = async <T>(
   net: Net,
   label: string,
   work: (call: LocalCall) => Promise<T>,
-  { timeoutMs = WIRE_TIMEOUT_MS }: LocalSessionOptions = {},
+  { timeoutMs = WIRE_TIMEOUT_MS, clock = systemClock }: LocalSessionOptions = {},
 ): Promise<T> => {
   const grant = readGrant(target.dataDir);
   const hostPort = formatHostPort(grant.address.host, target.port ?? grant.address.port);
-  const credential = await exchangeGrant(`http://${hostPort}`, grant.secret, label, net, timeoutMs);
-  return overWire(`ws://${hostPort}${WIRE_PATH}`, credential, net, timeoutMs, work);
+  const credential = await exchangeGrant(`http://${hostPort}`, grant.secret, label, net, timeoutMs, clock);
+  return overWire(`ws://${hostPort}${WIRE_PATH}`, credential, net, { timeoutMs, clock }, work);
 };

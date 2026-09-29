@@ -13,11 +13,13 @@ import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
+import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
+import { skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
@@ -507,6 +509,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
   ...updateMethodFixtures,
+  ...routineMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -878,10 +881,12 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...accountSchemaFixtures,
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
+  ...skillSchemaFixtures,
   ...themeSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
+  ...routineSchemaFixtures,
   ...methodSchemaFixtures,
 };

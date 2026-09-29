@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillOrigin",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "repository"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "The identity of the repository the member was read from: its source's, or the trusted repository's."
+        },
+        "path": {
+          "description": "The member's folder in that repository, from its root; . when the root is itself the skill.",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "repository",
+        "path"
+      ],
+      "description": "The repository the member was read from, by its identity, and the member's folder there."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "manifest"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "The identity of the repository the manifest says the member was copied from."
+        },
+        "path": {
+          "description": "The member's folder in that repository, as the manifest names it.",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{4,64}$",
+              "description": "The commit the member was copied at, as the manifest names it: its object name, full or abbreviated."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "licence": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The licence the manifest names, an SPDX identifier where it gives one; null when it names none."
+        }
+      },
+      "required": [
+        "kind",
+        "repository",
+        "path",
+        "commit",
+        "licence"
+      ],
+      "description": "What a provenance manifest beside the member names: the repository and folder it was copied from, the commit and the licence."
+    }
+  ],
+  "description": "Where a member comes from, which the readiness overlay is keyed by (repository identity and folder path): the repository it was read from, or what a provenance manifest beside a copy names."
+}

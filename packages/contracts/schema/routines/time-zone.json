@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineTimeZone",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 64,
+  "pattern": "^[A-Za-z][A-Za-z0-9_+\\-/]*$",
+  "description": "An IANA time zone's name, such as Europe/London or UTC; whether the environment's zone data knows it is the schedule's to check."
+}
