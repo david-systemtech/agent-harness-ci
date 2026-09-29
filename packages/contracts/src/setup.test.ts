@@ -133,8 +133,59 @@ describe("a result of a step this build does not register", () => {
   });
 
   it("names a step of the milestone-1 order, and setup.check asks about a registered step only", () => {
-    expect(registry["setup.check"].result.safeParse({ results: [skippedOf("housekeeping")] }).success).toBe(false);
+    // One past the order is a later milestone's, which the answer and the snapshot pass over (#693).
+    expect(StepResult.safeParse(skippedOf("housekeeping")).success).toBe(false);
     for (const step of unregisteredSteps()) expect(registry["setup.check"].params.safeParse({ step }).success, step).toBe(false);
     for (const step of REGISTERED_STEP_IDS) expect(registry["setup.check"].params.safeParse({ step }).success, step).toBe(true);
+  });
+});
+
+/**
+ * A result a newer environment gives in a vocabulary this build's lacks
+ * (#693): a verb added to the named actions, a kind of item added to what
+ * an action applies to, a step a later milestone adds. None moves the
+ * protocol version, so an older client reads what it can of the answer, the
+ * snapshot and the notice, and leaves out only the part it cannot act on.
+ */
+describe("a result in a newer environment's vocabulary", () => {
+  const attention = {
+    step: "forges",
+    state: "needs-attention",
+    reason: "The forge refused the credential of david on git.example.com.",
+    failing: ["forges.identity"],
+    actions: ["sign-in-again", "check-again"],
+    checkedAt: "2026-09-29T08:00:00.000Z",
+  } as const;
+  const done = { step: "account", state: "done", reason: "Every account is signed in.", failing: [], actions: [], checkedAt: "2026-09-29T08:00:00.000Z" } as const;
+
+  it("offers no action this build does not know, nor a target serving one, and setup.check's answer reads whole", () => {
+    const rotate = { action: "rotate-token", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" };
+    const newer = { ...attention, actions: ["rotate-token", "sign-in-again", "check-again"], targets: [rotate] };
+    expect(StepResult.parse(newer)).toEqual(attention);
+    expect(registry["setup.check"].result.parse({ results: [done, newer] })).toEqual({ results: [done, attention] });
+    expect(EnvironmentNotice.parse({ type: "setup.result-changed", payload: newer }).payload).toEqual(attention);
+  });
+
+  it("leaves out a target of a kind this build does not know, and an action whose every target it left out, which it could only carry out on the wrong item", () => {
+    const forgeAccount = { action: "sign-in-again", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" };
+    const calendar = { action: "sign-in-again", kind: "calendar-account", id: "calendar-work", label: "Work calendar" };
+    // Update naming no tool updates this machine: offered with its one target left out, it would update the wrong thing.
+    const extension = { action: "update", kind: "browser-extension", id: "extension-1", label: "The extension" };
+    const newer = { ...attention, actions: ["sign-in-again", "update", "check-again"], targets: [calendar, forgeAccount, extension] };
+    expect(StepResult.parse(newer)).toEqual({ ...attention, targets: [forgeAccount] });
+
+    const none = StepResult.parse({ ...attention, actions: ["update", "check-again"], targets: [extension] });
+    expect(none).toEqual({ ...attention, actions: ["check-again"] });
+    expect(none).not.toHaveProperty("targets");
+  });
+
+  it("passes over a result of a step past the milestone-1 order in setup.check's answer and the snapshot, reading the rest, and its notice is one this build does not know", () => {
+    const later = { ...done, step: "housekeeping", reason: "Nothing to sweep." };
+    expect(registry["setup.check"].result.parse({ results: [done, later, attention] })).toEqual({ results: [done, attention] });
+    const status = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } as const;
+    expect(registry["environment.subscribe"].result.parse({ status, setup: [later, done] })).toEqual({ status, setup: [done] });
+    expect(EnvironmentNotice.safeParse({ type: "setup.result-changed", payload: later }).success).toBe(false);
+    // A step of the order with a result no environment gives is no newer vocabulary: the answer is still refused.
+    expect(registry["setup.check"].result.safeParse({ results: [done, { ...attention, state: "pending" }] }).success).toBe(false);
   });
 });

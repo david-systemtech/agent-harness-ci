@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StepResults",
+  "type": "array",
+  "items": {
+    "anyOf": [
+      {
+        "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and the items they apply to, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031). A verb or a kind of item the reader does not know is a newer environment's: the reader leaves out that action or target, and an action whose every target it leaves out, and reads the rest.",
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "account",
+              "carry-over",
+              "your-machines",
+              "forges",
+              "key-manager",
+              "memory-bank",
+              "skills",
+              "instructions",
+              "browser",
+              "permissions",
+              "appearance"
+            ],
+            "description": "The step checked: any step of the milestone-1 order, so a client reads a result of a step a newer environment registers and its own build does not."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "needs-attention",
+              "skipped"
+            ],
+            "description": "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step). Skipped is derived from the environment's state each time the step is checked, never recorded: nothing a person does skips a step."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One line for the step's row: what needs attention, naming each check that failed; when the step is done, what its checks found to hold."
+          },
+          "failing": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when done or skipped."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "sign-in-again",
+                    "pull-now",
+                    "check-again",
+                    "unpair",
+                    "pair-another",
+                    "install",
+                    "update",
+                    "reload",
+                    "set-up-this-machine",
+                    "restore",
+                    "move",
+                    "start-service",
+                    "import-again",
+                    "try-again",
+                    "write-it-myself",
+                    "start-over",
+                    "revise"
+                  ],
+                  "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact)."
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?!(?:sign-in-again|pull-now|check-again|unpair|pair-another|install|update|reload|set-up-this-machine|restore|move|start-service|import-again|try-again|write-it-myself|start-over|revise)$)[a-z][a-z0-9-]*$",
+                  "description": "A verb a newer environment offers that the reader's vocabulary lacks: lowercase words joined by hyphens, which the reader offers as no action."
+                }
+              ]
+            },
+            "description": "The actions to offer beside the reason: those of the checks that failed, each once, or check-again alone on a result that timed out; empty when done or skipped. The reader leaves out a verb it does not know, and one whose every target it leaves out."
+          },
+          "targets": {
+            "description": "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once; absent when no check that failed named one. The reader leaves out one of a verb or a kind it does not know.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "sign-in-again",
+                        "pull-now",
+                        "check-again",
+                        "unpair",
+                        "pair-another",
+                        "install",
+                        "update",
+                        "reload",
+                        "set-up-this-machine",
+                        "restore",
+                        "move",
+                        "start-service",
+                        "import-again",
+                        "try-again",
+                        "write-it-myself",
+                        "start-over",
+                        "revise"
+                      ],
+                      "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact)."
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?!(?:sign-in-again|pull-now|check-again|unpair|pair-another|install|update|reload|set-up-this-machine|restore|move|start-service|import-again|try-again|write-it-myself|start-over|revise)$)[a-z][a-z0-9-]*$",
+                      "description": "A verb a newer environment offers that the reader's vocabulary lacks: lowercase words joined by hyphens, which the reader offers as no action."
+                    }
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "account",
+                        "forge-account",
+                        "key-manager-connection",
+                        "tool",
+                        "skill-source",
+                        "chrome",
+                        "session",
+                        "bank",
+                        "denylist-section",
+                        "environment"
+                      ],
+                      "description": "The kind of item a result's action applies to: account (a provider account), forge-account, key-manager-connection, tool (a managed tool), skill-source, chrome (a paired Chrome), session (an authoring session), bank (a memory bank), denylist-section, or environment."
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^(?!(?:account|forge-account|key-manager-connection|tool|skill-source|chrome|session|bank|denylist-section|environment)$)[a-z][a-z0-9-]*$",
+                      "description": "A kind of item a newer environment names that the reader's list lacks: lowercase words joined by hyphens, whose target the reader leaves out."
+                    }
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The item's id, as the methods behind its action name it: an account's id, a forge account's origin, a denylist section's name, a session's id."
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The item as a person reads it, for the client to name beside the action."
+                }
+              },
+              "required": [
+                "action",
+                "kind",
+                "id",
+                "label"
+              ],
+              "description": "One item a result's action applies to: the action it serves, and the item's kind, id and label. One serving a verb, or of a kind, the reader does not know is a newer environment's, which the reader leaves out."
+            }
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When the check ran, on the environment's clock."
+          },
+          "lastGood": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "skipped"
+                ],
+                "description": "What the step's last good result found: done, or skipped."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "That result's line."
+              },
+              "checkedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When that check ran, on the environment's clock."
+              }
+            },
+            "required": [
+              "state",
+              "reason",
+              "checkedAt"
+            ],
+            "description": "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated: the step's cached result when that passed, else the last good result the cached one carried, so it survives a restart; absent when there is neither."
+          }
+        },
+        "required": [
+          "step",
+          "state",
+          "reason",
+          "failing",
+          "actions",
+          "checkedAt"
+        ]
+      },
+      {
+        "description": "A result of a step past the milestone-1 order, a later milestone's: the reader has no row for it and passes over it.",
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "pattern": "^(?!(?:account|carry-over|your-machines|forges|key-manager|memory-bank|skills|instructions|browser|permissions|appearance)$)[a-z][a-z0-9-]*$",
+            "description": "A step past the milestone-1 order, a later milestone's: lowercase words joined by hyphens, which the reader has no row for."
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "additionalProperties": {}
+      }
+    ]
+  }
+}

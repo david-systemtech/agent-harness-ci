@@ -241,7 +241,7 @@ const UsageUpdated = z
   .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
 
 /** A forge, key-manager, routine or managed-tools event as a notice: its type and its payload, described. */
-const describedNotice = <const T extends string, P extends z.ZodObject>(type: T, payload: P, description: string) =>
+const describedNotice = <const T extends string, P extends z.ZodType>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
 const ForgeAccountAdded = describedNotice("forge.account.added", ForgeAccountAddedPayload, "A forge account was added: its origin, kind, slug, identity, credential source, primary flag and problem.");

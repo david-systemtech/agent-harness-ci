@@ -4,7 +4,7 @@ import { EnvironmentIcon, EnvironmentLook, EnvironmentName } from "../environmen
 import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
-import { StepResult } from "../setup.js";
+import { StepResults } from "../setup.js";
 
 /** Readiness, idle or busy with the reason or draining, and whether updates are managed outside. */
 export const environmentStatus = defineMethod({
@@ -33,9 +33,9 @@ export const environmentSubscribe = defineMethod({
     environment: EnvironmentLook.optional().meta({
       description: "The environment's name, icon and colour as of the snapshot; absent from an environment that predates them.",
     }),
-    setup: z.array(StepResult).optional().meta({
+    setup: StepResults.optional().meta({
       description:
-        "Every registered Set up step's latest result, as the environment's result cache holds it, in the step registry's order, each with when it was checked; a step never checked is absent. Absent from an environment without the setup flag.",
+        "Every registered Set up step's latest result, as the environment's result cache holds it, in the step registry's order, each with when it was checked; a step never checked is absent. Absent from an environment without the setup flag. The reader passes over a result of a step past the milestone-1 order, a later milestone's, and reads the rest.",
     }),
   }),
   errors: [],

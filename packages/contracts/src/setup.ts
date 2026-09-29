@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Timestamp } from "./primitives.js";
-import { REGISTERED_STEP_IDS, StepId } from "./steps.js";
+import { REGISTERED_STEP_IDS, STEP_ORDER, StepId } from "./steps.js";
 
 /**
  * What a step's health check answers (ADR 0031): run on the environment
@@ -70,6 +70,22 @@ export const SetupAction = z.enum(SETUP_ACTIONS).meta({
 });
 export type SetupAction = z.infer<typeof SetupAction>;
 
+const isSetupAction = (action: string): action is SetupAction => (SETUP_ACTIONS as readonly string[]).includes(action);
+
+/**
+ * A name spelt as the `known` ones are, lowercase words joined by hyphens,
+ * that is none of them: a newer environment's (#693). The pattern is zod's
+ * half and the export's alike.
+ */
+const laterThan = (known: readonly string[]) => z.string().regex(new RegExp(`^(?!(?:${known.join("|")})$)[a-z][a-z0-9-]*$`));
+
+/**
+ * A verb a newer environment's vocabulary has and this build's lacks
+ * (#693). No protocol version marks an added verb, so a result offering
+ * one still reads, and a reader offers it as no action.
+ */
+const LaterSetupAction = laterThan(SETUP_ACTIONS).meta({ description: "A verb a newer environment offers that the reader's vocabulary lacks: lowercase words joined by hyphens, which the reader offers as no action." });
+
 /**
  * The kinds of item a result's actions apply to: Sign in again opens that
  * account's sign-in, Pull now pulls those sources, Try again continues that
@@ -110,6 +126,25 @@ export const SetupTarget = z
   });
 export type SetupTarget = z.infer<typeof SetupTarget>;
 
+/** A verb as a result offers it: one of this build's vocabulary, or a newer environment's that it lacks. */
+const OfferedAction = z.union([SetupAction, LaterSetupAction]);
+
+/**
+ * A kind of item a newer environment's actions apply to that this build's
+ * list lacks (#693): a target of it still reads, and a reader leaves it out.
+ */
+const LaterSetupTargetKind = laterThan(SETUP_TARGET_KINDS).meta({ description: "A kind of item a newer environment names that the reader's list lacks: lowercase words joined by hyphens, whose target the reader leaves out." });
+
+/** A target as a result names it: of an action and a kind this build knows, or of a newer environment's verb or kind. */
+const OfferedTarget = z
+  .object({ ...SetupTarget.shape, action: OfferedAction, kind: z.union([SetupTargetKind, LaterSetupTargetKind]) })
+  .meta({
+    description:
+      "One item a result's action applies to: the action it serves, and the item's kind, id and label. One serving a verb, or of a kind, the reader does not know is a newer environment's, which the reader leaves out.",
+  });
+
+const isSetupTarget = (target: z.output<typeof OfferedTarget>): target is SetupTarget => isSetupAction(target.action) && (SETUP_TARGET_KINDS as readonly string[]).includes(target.kind);
+
 /**
  * The three states a step's check reports (ADR 0031): done and skipped both
  * pass a re-run. Skipped is derived from state and never recorded (the Set
@@ -145,43 +180,85 @@ export const RegisteredStepId = z.enum(REGISTERED_STEP_IDS).meta({ description: 
 export type RegisteredStepId = z.infer<typeof RegisteredStepId>;
 
 /**
- * One step's check, as `setup.check` answers it. It names any step of the
+ * One step's check as an environment gives it. It names any step of the
  * milestone-1 order, not only the ones this build registers (#672): each
  * entry that lands grows the registry, so an environment built after one
  * answers for a step an older client's registry lacks, and that client
  * reads the answer, the snapshot and the notice whole, the step drawn with
  * the label and home row every client knows it by. Asking about a step
- * (`setup.check`'s `step`) stays limited to the registered ones.
+ * (`setup.check`'s `step`) stays limited to the registered ones. Its
+ * actions and targets may be in a newer environment's vocabulary (#693),
+ * which `readable` narrows to this build's.
  */
-export const StepResult = z
-  .object({
-    step: StepId.meta({
-      description:
-        "The step checked: any step of the milestone-1 order, so a client reads a result of a step a newer environment registers and its own build does not.",
-    }),
-    state: StepState,
-    reason: z.string().min(1).meta({
-      description: "One line for the step's row: what needs attention, naming each check that failed; when the step is done, what its checks found to hold.",
-    }),
-    failing: z.array(z.string().min(1)).meta({
-      description:
-        "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when done or skipped.",
-    }),
-    actions: z.array(SetupAction).meta({
-      description: "The actions to offer beside the reason: those of the checks that failed, each once, or check-again alone on a result that timed out; empty when done or skipped.",
-    }),
-    targets: z
-      .array(SetupTarget)
-      .optional()
-      .meta({
-        description:
-          "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once; absent when no check that failed named one.",
-      }),
-    checkedAt: Timestamp.meta({ description: "When the check ran, on the environment's clock." }),
-    lastGood: LastGood.optional(),
-  })
-  .meta({
+const GivenResult = z.object({
+  step: StepId.meta({
     description:
-      "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and the items they apply to, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031).",
-  });
+      "The step checked: any step of the milestone-1 order, so a client reads a result of a step a newer environment registers and its own build does not.",
+  }),
+  state: StepState,
+  reason: z.string().min(1).meta({
+    description: "One line for the step's row: what needs attention, naming each check that failed; when the step is done, what its checks found to hold.",
+  }),
+  failing: z.array(z.string().min(1)).meta({
+    description:
+      "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when done or skipped.",
+  }),
+  actions: z.array(OfferedAction).meta({
+    description:
+      "The actions to offer beside the reason: those of the checks that failed, each once, or check-again alone on a result that timed out; empty when done or skipped. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
+  }),
+  targets: z
+    .array(OfferedTarget)
+    .optional()
+    .meta({
+      description:
+        "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once; absent when no check that failed named one. The reader leaves out one of a verb or a kind it does not know.",
+    }),
+  checkedAt: Timestamp.meta({ description: "When the check ran, on the environment's clock." }),
+  lastGood: LastGood.optional(),
+});
+
+/**
+ * A result as this build reads it (#693): no protocol version marks a verb
+ * or a kind added to the vocabulary, so a newer environment's result is
+ * read, never refused, and what this build cannot act on is left out. That
+ * is a verb it does not know, a target of such a verb or of a kind it does
+ * not know, and a verb it knows whose every target it left out: carried out
+ * on no item, it would act on another (Update naming no tool updates this
+ * machine). The targets are absent once none is left, as when no check
+ * named one.
+ */
+const readable = ({ targets: given, ...result }: z.output<typeof GivenResult>) => {
+  const targets = given?.filter(isSetupTarget) ?? [];
+  const placed = (action: SetupAction) => targets.some((target) => target.action === action) || !given?.some((target) => target.action === action);
+  return { ...result, actions: result.actions.filter(isSetupAction).filter(placed), ...(targets.length > 0 && { targets }) };
+};
+
+/** One step's check, as `setup.check` answers it and this build reads it. */
+export const StepResult = GivenResult.transform(readable).meta({
+  description:
+    "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and the items they apply to, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031). A verb or a kind of item the reader does not know is a newer environment's: the reader leaves out that action or target, and an action whose every target it leaves out, and reads the rest.",
+});
 export type StepResult = z.infer<typeof StepResult>;
+
+/**
+ * A step past the milestone-1 order (#693): a later milestone adds steps
+ * with no protocol bump, and a result of one has no row in this build's
+ * checklist.
+ */
+const LaterStepId = laterThan(STEP_ORDER).meta({ description: "A step past the milestone-1 order, a later milestone's: lowercase words joined by hyphens, which the reader has no row for." });
+
+/** A result of a step past the order: passed over whatever else it holds, since this build has no row to show it on. */
+const LaterStepResult = z
+  .looseObject({ step: LaterStepId })
+  .transform(() => null)
+  .meta({ description: "A result of a step past the milestone-1 order, a later milestone's: the reader has no row for it and passes over it." });
+
+/**
+ * The results `setup.check` answers and the snapshot carries, as this build
+ * reads them (#693): one of a step past the milestone-1 order is passed
+ * over and the rest read, so a later milestone's step costs an older client
+ * that step alone. A notice carries one result, so a notice of such a step
+ * is one this build does not know.
+ */
+export const StepResults = z.array(z.union([StepResult, LaterStepResult])).transform((results) => results.filter((result) => result !== null));
