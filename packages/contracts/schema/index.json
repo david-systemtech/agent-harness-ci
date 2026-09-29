@@ -1011,6 +1011,14 @@
       "title": "KeyManagerPolicy"
     },
     {
+      "path": "key-managers/policy-writes.json",
+      "title": "KeyManagerPolicyWrites"
+    },
+    {
+      "path": "key-managers/login-policy.json",
+      "title": "KeyManagerLoginPolicy"
+    },
+    {
       "path": "key-managers/base-path.json",
       "title": "KeyManagerBasePath"
     },
@@ -1051,6 +1059,10 @@
       "title": "KeyManagerConnectionRecord"
     },
     {
+      "path": "key-managers/certificate.json",
+      "title": "KeyManagerCertificate"
+    },
+    {
       "path": "key-managers/events/key-manager.connection.added.json",
       "title": "KeyManagerConnectionAddedPayload"
     },
@@ -1065,6 +1077,14 @@
     {
       "path": "key-managers/events/key-manager.connection.updated.json",
       "title": "KeyManagerConnectionUpdatedPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.policies-set.json",
+      "title": "KeyManagerConnectionPoliciesSetPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.verified.json",
+      "title": "KeyManagerConnectionVerifiedPayload"
     },
     {
       "path": "key-managers/events/key-manager.connection.removed.json",
@@ -1089,6 +1109,10 @@
     {
       "path": "errors/provider_unavailable.json",
       "title": "ProviderUnavailableError"
+    },
+    {
+      "path": "key-managers/errors/address_unreachable.json",
+      "title": "AddressUnreachableError"
     },
     {
       "path": "scrub/shape-rule-id.json",
@@ -3355,6 +3379,22 @@
       "title": "keyManagers.connections.update error"
     },
     {
+      "path": "methods/keyManagers.connections.setPolicies/params.json",
+      "title": "keyManagers.connections.setPolicies params"
+    },
+    {
+      "path": "methods/keyManagers.connections.setPolicies/result.json",
+      "title": "keyManagers.connections.setPolicies result"
+    },
+    {
+      "path": "methods/keyManagers.connections.setPolicies/response.json",
+      "title": "keyManagers.connections.setPolicies response"
+    },
+    {
+      "path": "methods/keyManagers.connections.setPolicies/error.json",
+      "title": "keyManagers.connections.setPolicies error"
+    },
+    {
       "path": "methods/keyManagers.connections.signOut/params.json",
       "title": "keyManagers.connections.signOut params"
     },
@@ -3385,6 +3425,30 @@
     {
       "path": "methods/keyManagers.connections.remove/error.json",
       "title": "keyManagers.connections.remove error"
+    },
+    {
+      "path": "methods/keyManagers.connections.verify/params.json",
+      "title": "keyManagers.connections.verify params"
+    },
+    {
+      "path": "methods/keyManagers.connections.verify/result.json",
+      "title": "keyManagers.connections.verify result"
+    },
+    {
+      "path": "methods/keyManagers.connections.verify/error.json",
+      "title": "keyManagers.connections.verify error"
+    },
+    {
+      "path": "methods/keyManagers.certificate.preview/params.json",
+      "title": "keyManagers.certificate.preview params"
+    },
+    {
+      "path": "methods/keyManagers.certificate.preview/result.json",
+      "title": "keyManagers.certificate.preview result"
+    },
+    {
+      "path": "methods/keyManagers.certificate.preview/error.json",
+      "title": "keyManagers.certificate.preview error"
     },
     {
       "path": "methods/settings.get/params.json",
@@ -4619,6 +4683,16 @@
       "error": "methods/keyManagers.connections.update/error.json"
     },
     {
+      "name": "keyManagers.connections.setPolicies",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.setPolicies/params.json",
+      "result": "methods/keyManagers.connections.setPolicies/result.json",
+      "response": "methods/keyManagers.connections.setPolicies/response.json",
+      "error": "methods/keyManagers.connections.setPolicies/error.json"
+    },
+    {
       "name": "keyManagers.connections.signOut",
       "scope": "admin",
       "kind": "command",
@@ -4637,6 +4711,24 @@
       "result": "methods/keyManagers.connections.remove/result.json",
       "response": "methods/keyManagers.connections.remove/response.json",
       "error": "methods/keyManagers.connections.remove/error.json"
+    },
+    {
+      "name": "keyManagers.connections.verify",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.connections.verify/params.json",
+      "result": "methods/keyManagers.connections.verify/result.json",
+      "error": "methods/keyManagers.connections.verify/error.json"
+    },
+    {
+      "name": "keyManagers.certificate.preview",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.certificate.preview/params.json",
+      "result": "methods/keyManagers.certificate.preview/result.json",
+      "error": "methods/keyManagers.certificate.preview/error.json"
     },
     {
       "name": "settings.get",

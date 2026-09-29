@@ -124,6 +124,8 @@ export interface TestEnvironmentOptions {
   readonly gh?: EnvironmentOptions["gh"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's, with no connection. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
+  /** How long a key-manager connection's verification, or a certificate preview, may take; preset: the environment's ten seconds. */
+  readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
   /** The vault the environment holds; preset: the file vault in the data directory. */
   readonly vault?: EnvironmentOptions["vault"];
   /** The command git names as its credential helper, before `git-credential <slug>`; preset none. */
@@ -307,6 +309,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
     gh: options.gh ?? managedGh({ hostEnv: { PATH: EMPTY_PATH } }),
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+    ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
     ...(options.vault !== undefined && { vault: options.vault }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),

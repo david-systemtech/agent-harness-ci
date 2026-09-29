@@ -69,6 +69,19 @@ describe("the presentation", () => {
     expect(String(reported[0])).toContain("paneLayout, textSize, readingWidth, reasoningShown, streamingFade");
   });
 
+  it("holds whether to run an environment on this machine, preset on, read back only as on or off", async () => {
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read().runLocalEnvironment).toBe(true);
+    first.set("runLocalEnvironment", false);
+    await first.close();
+    expect((await openPresentation(documents)).values.read().runLocalEnvironment).toBe(false);
+
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, runLocalEnvironment: "no" });
+    expect((await openPresentation(odd)).values.read().runLocalEnvironment).toBe(true);
+  });
+
   it("holds only keys on the organisation-state lint's presentation list", () => {
     for (const key of Object.keys(PRESENTATION_DEFAULTS)) expect(PRESENTATION_KEYS).toContain(key);
   });

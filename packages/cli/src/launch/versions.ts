@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
+import { ARTEFACT_CLI_ENTRY, artefactNode, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
 
 /**
  * The versions directory (launcher-update spec, "Versions and the launcher"):
@@ -38,11 +38,11 @@ export const completeVersions = (dataDir: string): string[] => {
     .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 };
 
-/** Where a version's own Node runtime is in its folder: where Node's archive for the platform puts it once unpacked into the version's `node` folder. */
-export const versionNode = (platform: NodeJS.Platform): readonly string[] => (platform === "win32" ? ["node", "node.exe"] : ["node", "bin", "node"]);
+/** Where a version's own Node runtime is in its folder: the server artefact's (`artefactNode`), which a version is unpacked from. */
+export const versionNode = (platform: NodeJS.Platform): readonly string[] => artefactNode(platform);
 
-/** Where a version's CLI entry is in its folder. */
-export const VERSION_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
+/** Where a version's CLI entry is in its folder: the server artefact's. */
+export const VERSION_CLI_ENTRY: readonly string[] = ARTEFACT_CLI_ENTRY;
 
 /**
  * The command line that runs the `agent-harness` of the version installed in

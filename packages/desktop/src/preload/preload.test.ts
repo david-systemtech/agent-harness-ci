@@ -84,12 +84,27 @@ describe("the preload bundle", () => {
 
   it("exposes the shell's members as window.desktopShell, and nothing else", () => {
     const shell = shellOf(preload());
-    expect(Object.keys(shell).sort()).toEqual(["clipboard", "deepLinks", "dialogs", "http", "network", "openExternal", "system", "window"]);
+    expect(Object.keys(shell).sort()).toEqual([
+      "clipboard",
+      "deepLinks",
+      "dialogs",
+      "http",
+      "localGrant",
+      "network",
+      "openExternal",
+      "secrets",
+      "service",
+      "system",
+      "window",
+    ]);
     expect(Object.keys(shell["window"] ?? {}).sort()).toEqual(["focus", "setBackgroundColour", "setBadge", "setTitle"]);
     expect(Object.keys(shell["dialogs"] ?? {}).sort()).toEqual(["openDirectory", "openFile", "openFileContents", "save"]);
     expect(Object.keys(shell["clipboard"] ?? {}).sort()).toEqual(["readImage", "readText", "writeText"]);
     expect(Object.keys(shell["network"] ?? {})).toEqual(["allow"]);
     expect(Object.keys(shell["deepLinks"] ?? {})).toEqual(["onOpen"]);
+    expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["delete", "get", "set"]);
+    expect(Object.keys(shell["localGrant"] ?? {})).toEqual(["read"]);
+    expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["install", "start", "status"]);
     expect(shell).not.toHaveProperty("tray");
   });
 

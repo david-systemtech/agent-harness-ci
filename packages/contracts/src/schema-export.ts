@@ -331,13 +331,16 @@ import {
   KeyManagerAuthMethod,
   KeyManagerBasePath,
   KeyManagerCa,
+  KeyManagerCertificate,
   KeyManagerConnectionRecord,
   KeyManagerCopiedFrom,
   KeyManagerCredential,
   KeyManagerImportedFrom,
   KeyManagerLabel,
+  KeyManagerLoginPolicy,
   KeyManagerMount,
   KeyManagerPolicy,
+  KeyManagerPolicyWrites,
   KeyManagerStatus,
   KeyManagerStatusKind,
   KeyManagerTokenInformation,
@@ -345,7 +348,7 @@ import {
   KeyManagerUsername,
   KeyManagerVaultEntry,
 } from "./key-manager-connections.js";
-import { CertificateRejectedError, KeyManagerVerificationFailedError, ProviderUnavailableError, SealedError, UnreachableError } from "./methods/key-managers.js";
+import { AddressUnreachableError, CertificateRejectedError, KeyManagerVerificationFailedError, ProviderUnavailableError, SealedError, UnreachableError } from "./methods/key-managers.js";
 import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
 import {
   ClampReason,
@@ -608,6 +611,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/token-role.json", title: "KeyManagerTokenRole", schema: KeyManagerTokenRole },
   { path: "key-managers/ca.json", title: "KeyManagerCa", schema: KeyManagerCa },
   { path: "key-managers/policy.json", title: "KeyManagerPolicy", schema: KeyManagerPolicy },
+  { path: "key-managers/policy-writes.json", title: "KeyManagerPolicyWrites", schema: KeyManagerPolicyWrites },
+  { path: "key-managers/login-policy.json", title: "KeyManagerLoginPolicy", schema: KeyManagerLoginPolicy },
   { path: "key-managers/base-path.json", title: "KeyManagerBasePath", schema: KeyManagerBasePath },
   { path: "key-managers/credential.json", title: "KeyManagerCredential", schema: KeyManagerCredential },
   { path: "key-managers/vault-entry.json", title: "KeyManagerVaultEntry", schema: KeyManagerVaultEntry },
@@ -618,6 +623,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/imported-from.json", title: "KeyManagerImportedFrom", schema: KeyManagerImportedFrom },
   { path: "key-managers/label.json", title: "KeyManagerLabel", schema: KeyManagerLabel },
   { path: "key-managers/connection-record.json", title: "KeyManagerConnectionRecord", schema: KeyManagerConnectionRecord },
+  { path: "key-managers/certificate.json", title: "KeyManagerCertificate", schema: KeyManagerCertificate },
   ...Object.entries(KEY_MANAGER_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `key-managers/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -628,6 +634,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/sealed.json", title: "SealedError", schema: SealedError },
   { path: "errors/certificate_rejected.json", title: "CertificateRejectedError", schema: CertificateRejectedError },
   { path: "errors/provider_unavailable.json", title: "ProviderUnavailableError", schema: ProviderUnavailableError },
+  { path: "key-managers/errors/address_unreachable.json", title: "AddressUnreachableError", schema: AddressUnreachableError },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },

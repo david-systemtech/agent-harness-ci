@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { Address } from "../../environment/src/serve/http.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
-import { parsePairingInput } from "./pairing.js";
+import { pairingDeepLink, parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
@@ -16,6 +16,16 @@ describe("reading what David pastes or types", () => {
       origin: "http://100.64.0.7:7433",
       code: "K7Q2MXH4RT",
     });
+  });
+
+  it("reads a link handed to the app as its deep link, and one that carries no pairing link as no link", () => {
+    const link = "http://desk.tail1234.ts.net:7433/pair#K7Q2M-XH4RT";
+    expect(pairingDeepLink(link)).toBe("agent-harness://pair?link=http%3A%2F%2Fdesk.tail1234.ts.net%3A7433%2Fpair%23K7Q2M-XH4RT");
+    expect(parsePairingInput({ link: pairingDeepLink(link) })).toEqual({ ok: true, origin: "http://desk.tail1234.ts.net:7433", code: "K7Q2MXH4RT" });
+    expect(parsePairingInput({ link: ` ${pairingDeepLink(link).replace("agent-harness://pair", "Agent-Harness://Pair")} ` })).toMatchObject({ ok: true });
+    for (const other of ["agent-harness://pair?link=desk", "agent-harness://pair?link=%E0%A4%A", "agent-harness://open/desk/1", `agent-harness://pair?code=K7Q2MXH4RT`]) {
+      expect(parsePairingInput({ link: other })).toMatchObject({ ok: false, failure: { reason: "invalid-link" } });
+    }
   });
 
   it("reads an address and a typed code, in any case, with spaces or hyphens", () => {

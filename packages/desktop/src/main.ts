@@ -3,9 +3,10 @@ import { arch, homedir, hostname, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, protocol, shell } from "electron";
-import { desktopDataDirectory } from "./data-directory.js";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, protocol, safeStorage, shell } from "electron";
+import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
+import { desktopLog } from "./log.js";
 
 /**
  * The desktop's entry, which Electron runs (`package.json`'s `main`): the
@@ -24,19 +25,33 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** The `gui` build this desktop carries: the package's `dist`, beside its manifest. */
 const renderer = join(dirname(createRequire(import.meta.url).resolve("@agent-harness/gui/package.json")), "dist");
 
+const machine = { os, env: process.env, homedir: homedir() };
+const data = desktopDataDirectory(machine);
+const log = desktopLog(data);
+
 startDesktop(
-  { app, protocol, ipcMain, dialog, clipboard, shell, nativeTheme, openWindow: (options) => new BrowserWindow(options) },
+  { app, protocol, ipcMain, dialog, clipboard, shell, nativeTheme, safeStorage, openWindow: (options) => new BrowserWindow(options) },
   {
     os,
     architecture: arch(),
     hostname: hostname(),
     user: userInfo().username,
     argv: process.argv,
-    paths: { data: desktopDataDirectory({ os, env: process.env, homedir: homedir() }), renderer, preload: join(here, "preload.cjs") },
+    paths: {
+      data,
+      environment: environmentDataDirectory(machine),
+      renderer,
+      preload: join(here, "preload.cjs"),
+      // A packaged desktop carries the server artefact in its resources (#423 puts it there); one run from a checkout carries none.
+      ...(app.isPackaged && { server: join(process.resourcesPath, "server") }),
+    },
     // Unpackaged (`electron .`), the OS starts the app again as Electron's executable and the app's folder.
     ...(process.defaultApp && { relaunch: { executable: process.execPath, args: [resolve(process.argv[1] ?? ".")] } }),
   },
-).catch((error: unknown) => {
+  { reportError: log.report },
+).catch(async (error: unknown) => {
   console.error(error);
+  log.report(error);
+  await log.flushed();
   app.exit(1);
 });
