@@ -1,5 +1,6 @@
 import { GITHUB_ORIGIN, PRODUCT_NAME, type ForgeKind, type ForgeOrigin } from "@agent-harness/contracts";
 import { forgeGet, type CallOptions, type ForgeHttpOptions, type Reply } from "./forge-http.js";
+import { field, name } from "./providers.js";
 
 /**
  * Which forge an origin is (forge spec, "Providers"; #313), asked with no
@@ -45,12 +46,8 @@ interface Route {
 /** The line Forgejo's and Gitea's API answers a caller with no credential with, when it asks every caller to sign in (`REQUIRE_SIGNIN_VIEW`). */
 const SIGN_IN_REQUIRED = "Only signed in user is allowed to call APIs.";
 
-const field = (value: unknown, name: string): unknown => (typeof value === "object" && value !== null ? (value as Record<string, unknown>)[name] : undefined);
-
-const text = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
-
 /** The version a Forgejo or Gitea version route answered; null for any other answer. */
-const versionIn = (reply: Answered): string | null => (reply.status === 200 ? text(field(reply.body, "version")) : null);
+const versionIn = (reply: Answered): string | null => (reply.status === 200 ? name(field(reply.body, "version")) : null);
 
 /** Whether the answer is a Forgejo or Gitea API asking every caller to sign in. */
 const asksToSignIn = (reply: Answered): boolean => reply.status === 403 && field(reply.body, "message") === SIGN_IN_REQUIRED;
@@ -82,7 +79,7 @@ const ROUTES: readonly Route[] = [
   {
     path: "/api/v3/meta",
     read: (reply) =>
-      reply.status === 200 && typeof field(reply.body, "verifiable_password_authentication") === "boolean" ? detected("github", text(field(reply.body, "installed_version"))) : null,
+      reply.status === 200 && typeof field(reply.body, "verifiable_password_authentication") === "boolean" ? detected("github", name(field(reply.body, "installed_version"))) : null,
   },
   {
     path: "/.well-known/openid-configuration",

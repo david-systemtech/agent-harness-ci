@@ -696,7 +696,6 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const given = params.credential;
       const formed = given.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
       const { origin } = remoteOf(params.url);
-      if (params.kind !== undefined) refuseGhOffGitHub(given, params.kind);
       const aliases = aliasOrigins(params.aliases, origin) ?? [];
       const doomed = addRefusal(forgeAccountId, [origin, ...aliases], params.slug);
       if (doomed !== null) return rejecting<"forge.accounts.add">(doomed);

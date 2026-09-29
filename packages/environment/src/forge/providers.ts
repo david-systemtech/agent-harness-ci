@@ -317,12 +317,12 @@ const fullNameOf = (item: unknown): string | null => {
 const repositoryPath = (fullName: string): string => fullName.split("/").map(encodeURIComponent).join("/");
 
 /** An object's field, if the value is an object. */
-const field = (value: unknown, name: string): unknown => (typeof value === "object" && value !== null ? (value as Record<string, unknown>)[name] : undefined);
+export const field = (value: unknown, name: string): unknown => (typeof value === "object" && value !== null ? (value as Record<string, unknown>)[name] : undefined);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
 /** A name the forge answered: a string that is not empty. */
-const name = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+export const name = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
 /** A repository on `origin` as both APIs answer one; null for an answer that is none. */
 const repositoryOn =

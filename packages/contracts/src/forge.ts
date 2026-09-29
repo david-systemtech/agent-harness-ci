@@ -476,7 +476,7 @@ export const forgeApiBase = (kind: ForgeKind, origin: ForgeOrigin): string => KI
 /**
  * Where a person mints the token a forge account of `kind` on `origin`
  * needs, and what it must be granted (forge spec, "Providers"), the page to
- * offer first first: on github.com a fine-grained token with Contents,
+ * offer first at the head: on github.com a fine-grained token with Contents,
  * Issues, Pull requests and Administration at write on every repository,
  * then a classic one with `repo` and `read:org`, the order reversed on an
  * Enterprise origin; on Forgejo and Gitea an access token with

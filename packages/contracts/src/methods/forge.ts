@@ -37,14 +37,17 @@ import { commandParams, defineMethod } from "../method.js";
  * repository under, live and never stored (ADR 0020).
  */
 
-/** The forge refused the credential: its identity endpoint answered a refusal (401, 403) or something that is no user. */
+/** The forge refused the credential: its identity endpoint answered a refusal (401, 403) or something that is no user, or a read it asked for answered so. */
 export const VerificationFailedError = errorSchema(
   "verification_failed",
   z.object({
     origin: ForgeOrigin,
-    status: z.int().meta({ description: "The HTTP status the forge's identity endpoint answered." }),
+    status: z.int().meta({ description: "The HTTP status the forge answered." }),
   }),
-).meta({ description: "The forge refused the credential, or its identity endpoint answered no user: nothing was stored. data names the origin and the HTTP status." });
+).meta({
+  description:
+    "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list): an add or update stored nothing. data names the origin and the HTTP status.",
+});
 export type VerificationFailedError = z.infer<typeof VerificationFailedError>;
 
 /** A new credential answered as another user than the forge account's. */
