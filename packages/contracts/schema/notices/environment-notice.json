@@ -3762,6 +3762,25 @@
         "payload"
       ],
       "description": "A Set up step's check answered a result that differs from the one the environment's result cache held, in anything but when it was checked, or the step's first: the result, which replaces that step's in environment.subscribe's snapshot. A result that only refreshes when it was checked is not noticed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "skills.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "description": "skills.updated: the skill set changed, by a command that committed or a read that found the own directory changed; a client reads skills.get again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The skill set changed: a command changed it, or a read found the own directory changed."
     }
   ],
   "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."

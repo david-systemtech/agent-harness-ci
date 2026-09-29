@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsUpdatedPayload",
+  "type": "object",
+  "properties": {},
+  "description": "skills.updated: the skill set changed, by a command that committed or a read that found the own directory changed; a client reads skills.get again."
+}

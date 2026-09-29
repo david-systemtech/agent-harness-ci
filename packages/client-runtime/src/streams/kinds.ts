@@ -314,6 +314,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
       case "settings.changed":
         return data;
+      // The skill set changing (#494) changes no status: the request cache reads skills.get again.
+      case "skills.updated":
+        return data;
     }
   },
   encode: (data) => data,
