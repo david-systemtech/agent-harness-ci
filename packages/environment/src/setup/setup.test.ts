@@ -7,6 +7,7 @@ import { bubblewrapProbe, brokenProbe } from "../../test/containment.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { refusal } from "../../test/sessions.js";
 import { lateCheck, scriptedStep } from "../../test/setup-steps.js";
+import type { StateChecker } from "./check.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -235,6 +236,31 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     });
   });
 
+  it.each([
+    ["local", 5_000, "could not check: timed out after 5 s"],
+    ["network", 10_000, "could not check: timed out after 10 s"],
+    ["git", 30_000, "could not check: timed out after 30 s"],
+  ] as const)("times a step of the %s budget class out at its seconds and never before, the line naming them", async (budget, ms, line) => {
+    const late = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [scriptedStep("account", { budget, stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] })],
+        stateChecks: { "account.late": late.checker },
+      },
+    });
+    const client = await t.client();
+    const inTime = check(client, "account");
+    const first = await late.call(1);
+    t.clock.advance(ms - 1);
+    first.answer(true);
+    expect(await inTime).toMatchObject({ state: "done" });
+
+    const timedOut = check(client, "account");
+    await late.call(2);
+    t.clock.advance(ms);
+    expect(await timedOut).toMatchObject({ state: "needs-attention", reason: line, failing: ["account.late"], actions: ["check-again"] });
+  });
+
   it("carries no last good result on a timeout when there has been none since the start, and a late answer that holds does not become one", async () => {
     const late = lateCheck();
     const t = await start({
@@ -303,7 +329,7 @@ describe("setup.check on steps whose state checks answer late (#308)", () => {
     const t = await start({
       setupSteps: {
         steps: [
-          scriptedStep("account", { budgetSeconds: 10, stateChecks: [{ id: "account.slow", holds: "The slow check holds.", actions: [] }] }),
+          scriptedStep("account", { budget: "network", stateChecks: [{ id: "account.slow", holds: "The slow check holds.", actions: [] }] }),
           scriptedStep("your-machines", { stateChecks: [{ id: "your-machines.quick", holds: "The quick check holds.", actions: [] }] }),
           scriptedStep("appearance"),
         ],
@@ -429,5 +455,76 @@ describe("a skippable step's skip check (#308)", () => {
     t.clock.advance(5_000);
     expect(await timedOut).toMatchObject({ state: "needs-attention", reason: "could not check: timed out after 5 s", failing: ["your-machines.present"], actions: ["check-again"] });
     expect(other.calls()).toBe(0);
+  });
+});
+
+describe("the items a result's actions apply to (#568)", () => {
+  const work = { action: "sign-in-again", kind: "account", id: "account-work", label: "Work" } as const;
+  const personal = { ...work, id: "account-personal", label: "Personal" } as const;
+  const accountSteps = (checks: { readonly [id: string]: StateChecker }) => ({
+    steps: [
+      scriptedStep("account", {
+        stateChecks: [
+          { id: "account.signed-in", holds: "Every account is signed in.", actions: ["sign-in-again" as const] },
+          { id: "account.sources", holds: "Every source is pulled.", actions: ["pull-now" as const, "sign-in-again" as const] },
+        ],
+      }),
+    ],
+    stateChecks: checks,
+  });
+
+  it("carries the targets the failing checks name, each with the action it serves, in the entry's order and each once", async () => {
+    const source = { action: "pull-now", kind: "skill-source", id: "source-1", label: "team-skills" } as const;
+    const t = await start({
+      setupSteps: accountSteps({
+        "account.signed-in": () => ({ reason: "Work and Personal are signed out.", targets: [work, personal] }),
+        "account.sources": () => ({ reason: "team-skills has not pulled, and Work cannot reach it.", targets: [source, work] }),
+      }),
+    });
+    expect(await check(await t.client(), "account")).toEqual({
+      step: "account",
+      state: "needs-attention",
+      reason: "Work and Personal are signed out. team-skills has not pulled, and Work cannot reach it.",
+      failing: ["account.signed-in", "account.sources"],
+      actions: ["sign-in-again", "pull-now"],
+      targets: [work, personal, source],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+  });
+
+  it("carries no targets when no failing check names one, when the step is done, or for an action the check does not offer", async () => {
+    let signedIn = false;
+    const t = await start({
+      setupSteps: accountSteps({
+        "account.signed-in": () => signedIn || { reason: "Work is signed out.", targets: [{ ...work, action: "check-again" }] },
+        "account.sources": () => true,
+      }),
+    });
+    const client = await t.client();
+    const failing = await check(client, "account");
+    expect(failing).toMatchObject({ state: "needs-attention", failing: ["account.signed-in"], actions: ["sign-in-again"] });
+    expect(failing).not.toHaveProperty("targets");
+    signedIn = true;
+    const done = await check(client, "account");
+    expect(done.state).toBe("done");
+    expect(done).not.toHaveProperty("targets");
+  });
+
+  it("carries none on a skipped step, whatever its skip check named", async () => {
+    const t = await start({
+      setupSteps: {
+        steps: [
+          scriptedStep("account", {
+            skippable: true,
+            skip: "account.present",
+            stateChecks: [{ id: "account.present", holds: "An account is added.", actions: ["sign-in-again"] }],
+          }),
+        ],
+        stateChecks: { "account.present": () => ({ reason: "No account is added.", targets: [work] }) },
+      },
+    });
+    const result = await check(await t.client(), "account");
+    expect(result).toMatchObject({ state: "skipped", reason: "No account is added.", actions: [] });
+    expect(result).not.toHaveProperty("targets");
   });
 });

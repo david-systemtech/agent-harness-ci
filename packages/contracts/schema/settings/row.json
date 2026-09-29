@@ -85,7 +85,7 @@
               "permissions",
               "appearance"
             ],
-            "description": "A step of the milestone-1 checklist, registered or not: account, carry-over, your-machines, forges, key-manager, memory-bank, skills, instructions, browser, permissions, appearance."
+            "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
           },
           "description": "The steps whose home row this is, whose health its dot shows; empty for a row no step lives on."
         }

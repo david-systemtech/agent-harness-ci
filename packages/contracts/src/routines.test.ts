@@ -490,14 +490,8 @@ describe("the routines methods", () => {
     });
   });
 
-  it("owe each handler to the ticket that builds it, so an environment answers each as not served yet", () => {
+  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands)", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
-      "routines.list": "#521",
-      "routines.create": "#521",
-      "routines.update": "#521",
-      "routines.enable": "#521",
-      "routines.disable": "#521",
-      "routines.delete": "#521",
       "routines.history": "#523",
       "routines.runNow": "#523",
       "routines.testPreCheck": "#526",
@@ -518,10 +512,16 @@ describe("the routines methods", () => {
     }
   });
 
-  it("refuse in conflict with reason name_taken or firing_running, and a pre-check's output_too_large and denylisted", () => {
-    expect(ROUTINE_CONFLICT_REASONS).toEqual(["name_taken", "firing_running"]);
+  it("refuse in conflict with reason name_taken, exists or firing_running, and a pre-check's output_too_large and denylisted", () => {
+    expect(ROUTINE_CONFLICT_REASONS).toEqual(["name_taken", "exists", "firing_running"]);
     // conflict is a shared error: every method may answer it, its data carrying the reason.
-    for (const [name, reason] of [["routines.create", "name_taken"], ["routines.update", "name_taken"], ["routines.import", "name_taken"], ["routines.runNow", "firing_running"]] as const) {
+    for (const [name, reason] of [
+      ["routines.create", "name_taken"],
+      ["routines.create", "exists"],
+      ["routines.update", "name_taken"],
+      ["routines.import", "name_taken"],
+      ["routines.runNow", "firing_running"],
+    ] as const) {
       expect(registry[name].error.parse({ code: "conflict", message: "m", data: { reason } }), name).toMatchObject({ code: "conflict" });
     }
     expect(DenylistedError.parse({ code: "denylisted", message: "example.com is on the denylist.", data: { host: "example.com" } })).toEqual({

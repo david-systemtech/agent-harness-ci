@@ -88,6 +88,8 @@ export interface TestEnvironmentOptions {
   readonly hostname?: string;
   /** The operating system an environment's preset icon follows; preset: the machine's. */
   readonly platform?: NodeJS.Platform;
+  /** The environment's own IANA time zone; preset: the process's. */
+  readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
   /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
@@ -299,6 +301,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.name !== undefined && { name: options.name }),
     ...(options.hostname !== undefined && { hostname: options.hostname }),
     ...(options.platform !== undefined && { platform: options.platform }),
+    ...(options.timeZone !== undefined && { timeZone: options.timeZone }),
     ...(options.harnessVersion !== undefined && { harnessVersion: options.harnessVersion }),
     ...(options.hooks !== undefined && { hooks: options.hooks }),
     ...(options.bindTailnet !== undefined && { bindTailnet: options.bindTailnet }),
