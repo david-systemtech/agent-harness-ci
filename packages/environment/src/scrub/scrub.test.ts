@@ -246,10 +246,29 @@ describe("the diagnostic output", () => {
 describe("terminal output", () => {
   const SPLIT = "alpha-secret-value-1";
 
-  /** An environment on a fake pseudo-terminal whose output is a chunk the moment it is printed, a terminal open on it, and a client following that terminal. */
+  /**
+   * The client-session signing key these tests start with, 32 bytes as
+   * base64. The vault's entries are registered for scrubbing, and the stream
+   * holds back the longest tail of a chunk that could begin a registered
+   * value: the random key a first start makes began with `c` one start in
+   * 64, and held the `c` of `token alpha-sec` back into the next chunk
+   * (#610). This one begins with `d`, and no chunk printed here ends in a
+   * text it begins with.
+   */
+  const SIGNING_KEY_TEXT = Buffer.from("terminal-output-test-signing-key").toString("base64");
+
+  /**
+   * An environment on a fake pseudo-terminal whose output is a chunk the
+   * moment it is printed, started on a data directory whose vault holds
+   * `SIGNING_KEY_TEXT`, a terminal open on it, and a client following that
+   * terminal.
+   */
   const terminalOn = async () => {
+    const dataDir = join(tempDir(), "data");
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    await fileVault(join(dataDir, VAULT_FILE)).set(SIGNING_KEY, SIGNING_KEY_TEXT);
     const pty = fakePty();
-    const t = await start({ terminals: { pty, gatherMs: 0 } });
+    const t = await start({ dataDir, terminals: { pty, gatherMs: 0 } });
     const client = await t.client();
     const sessionId = await sessionIn(client, tempDir("agent-harness-terminal-"));
     const terminal = await openTerminal(client, sessionId);
