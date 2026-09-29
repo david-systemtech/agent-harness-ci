@@ -10,7 +10,7 @@ import type { KeyManagerConnections } from "./connections.js";
  * environment stream; verify and the certificate preview, `admin` queries.
  * The rules are the connections', and the preview's own.
  */
-export const keyManagerMethods = (connections: KeyManagerConnections): MethodHandlers => ({
+export const keyManagerMethods = (connections: KeyManagerConnections, budgetMs?: number): MethodHandlers => ({
   "keyManagers.list": () => ({ connections: connections.list() }),
   "keyManagers.connections.add": connections.add,
   "keyManagers.connections.signIn": connections.signIn,
@@ -19,5 +19,5 @@ export const keyManagerMethods = (connections: KeyManagerConnections): MethodHan
   "keyManagers.connections.signOut": connections.signOut,
   "keyManagers.connections.remove": connections.remove,
   "keyManagers.connections.verify": async ({ connectionId }) => ({ connections: await connections.verify(connectionId) }),
-  "keyManagers.certificate.preview": previewCertificate,
+  "keyManagers.certificate.preview": (params) => previewCertificate(params, budgetMs),
 });

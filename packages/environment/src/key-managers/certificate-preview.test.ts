@@ -1,4 +1,6 @@
 import { X509Certificate } from "node:crypto";
+import { createServer, type AddressInfo, type Socket } from "node:net";
+import { ContractError } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { UNREACHABLE_OPENBAO, startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
@@ -16,8 +18,8 @@ import { refusal } from "../../test/sessions.js";
 
 const { onCleanup } = useCleanups();
 
-const withOpenBao = async () => {
-  const t: TestEnvironment = await startTestEnvironment();
+const withOpenBao = async (keyManagerTimeoutMs?: number) => {
+  const t: TestEnvironment = await startTestEnvironment(keyManagerTimeoutMs === undefined ? {} : { keyManagerTimeoutMs });
   onCleanup(() => t.close());
   const bao: FakeOpenBao = await startFakeOpenBao({ now: () => t.clock.now() });
   onCleanup(() => bao.close());
@@ -78,6 +80,33 @@ describe("keyManagers.certificate.preview", () => {
     const other = await preview(client, bao.address);
     expect(other.certificate.sha256Fingerprint).not.toBe(certificate.sha256Fingerprint);
     expect((await list(client))[0]?.ca).toBe(certificate.pem);
+  });
+
+  it("answers unreachable within its budget from a key manager that keeps the handshake busy without finishing it", async () => {
+    const { client } = await withOpenBao(300);
+    // A TLS record header announcing a long handshake message, then one byte of it every 50 ms: never idle, never done.
+    const trickling = new Set<Socket>();
+    const server = createServer((socket) => {
+      trickling.add(socket);
+      socket.on("error", () => undefined);
+      socket.write(Buffer.from([0x16, 0x03, 0x03, 0x40, 0x00]));
+      const drip = setInterval(() => socket.write(Buffer.from([0x00])), 50);
+      socket.on("close", () => clearInterval(drip));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    onCleanup(() => {
+      for (const socket of trickling) socket.destroy();
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    const address = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    // Settled at all: the socket is never idle, so only a deadline ends the wait.
+    const refused = await preview(client, address).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(refused).toBeInstanceOf(ContractError);
+    expect(refused).toMatchObject({ code: "unreachable", message: `${address} could not be reached for its certificate: no TLS handshake within 0.3 seconds.`, data: { address } });
   });
 
   it("answers unreachable naming the address for one nothing listens on, invalid_params for one that is not an https origin, and is refused below admin", async () => {

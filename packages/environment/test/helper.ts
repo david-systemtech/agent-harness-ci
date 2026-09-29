@@ -124,7 +124,7 @@ export interface TestEnvironmentOptions {
   readonly gh?: EnvironmentOptions["gh"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's, with no connection. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
-  /** How long a key-manager connection's verification may take; preset: the environment's ten seconds. */
+  /** How long a key-manager connection's verification, or a certificate preview, may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
   /** The vault the environment holds; preset: the file vault in the data directory. */
   readonly vault?: EnvironmentOptions["vault"];

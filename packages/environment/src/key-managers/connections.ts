@@ -28,7 +28,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { basePathProblem } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { openBaoProvider } from "./openbao.js";
-import type { ConnectionProvider, LoginFailure, SignInTarget, VerifyAnswer } from "./provider.js";
+import { KEY_MANAGER_BUDGET_MS, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createVerificationSchedule } from "./verifier.js";
 
 /**
@@ -113,13 +113,10 @@ const invalid = (path: readonly (string | number)[], message: string): never => 
   throw new ContractError(invalidParams([{ code: "custom", path: [...path], message }], message));
 };
 
-/** How long one verification may take (ADR 0031's budget), past which the connection is `unreachable`. */
-export const KEY_MANAGER_VERIFY_BUDGET_MS = 10_000;
-
 export interface KeyManagerConnectionsOptions {
   readonly log: EventLog;
   readonly clock: Clock;
-  /** How long one verification may take, on the wall clock; preset ten seconds. */
+  /** How long one verification may take, on the wall clock; preset `KEY_MANAGER_BUDGET_MS`. */
   readonly budgetMs?: number;
   /** The environment's id: the id of its stream, where the connections' events go. */
   readonly environmentId: string;
@@ -201,7 +198,7 @@ const sameInformation = (one: KeyManagerTokenInformation | null, other: KeyManag
 
 export const createKeyManagerConnections = (options: KeyManagerConnectionsOptions): KeyManagerConnections => {
   const { log, clock, vault, scrub } = options;
-  const budgetMs = options.budgetMs ?? KEY_MANAGER_VERIFY_BUDGET_MS;
+  const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };

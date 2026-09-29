@@ -7,12 +7,29 @@ import type { KeyManagerPolicyWrites } from "@agent-harness/contracts";
  * `sys/`, `cubbyhole/` and `identity/`, the token's and the key manager's
  * own paths. A path pattern is taken as it is written: one that does not
  * start with those prefixes (`*`, `+/data/*`) may reach outside them, so it
- * counts. A text that is neither the policy language nor its JSON form, as
- * far as this reads them, possibly writes.
+ * counts. A rule's capabilities are its `capabilities` list and those its
+ * legacy `policy` parameter stands for, which OpenBao still reads
+ * (`write` is create, read, update, delete and list). A text that is neither
+ * the policy language nor its JSON form, as far as this reads them, possibly
+ * writes.
  */
 
 const WRITING = new Set(["create", "update", "patch", "delete"]);
 const OWN_PATHS = ["auth/", "sys/", "cubbyhole/", "identity/"];
+
+/** The capabilities each value of a rule's legacy `policy` parameter stands for, as OpenBao reads it. */
+const LEGACY_POLICIES: Readonly<Record<string, readonly string[]>> = {
+  deny: ["deny"],
+  read: ["read", "list"],
+  write: ["create", "read", "update", "delete", "list"],
+  sudo: ["create", "read", "update", "delete", "list", "sudo"],
+};
+
+/** A rule's capabilities: its list, then those its legacy `policy` parameter stands for; an unknown parameter grants nothing it can be sure of. */
+const capabilitiesOf = (listed: readonly string[], legacy: string | undefined): string[] => [
+  ...listed.map((capability) => capability.toLowerCase()),
+  ...(legacy === undefined ? [] : (LEGACY_POLICIES[legacy.toLowerCase()] ?? [])),
+];
 
 /** One `path` rule: its pattern, and the capabilities it grants. */
 interface Rule {
@@ -46,7 +63,8 @@ const hclRules = (text: string): Rule[] | null => {
     if (depth > 0) return null;
     const body = source.slice(opening.lastIndex, end - 1);
     const listed = /\bcapabilities\s*=\s*\[([^\]]*)\]/.exec(body)?.[1] ?? "";
-    rules.push({ path: match[1] ?? "", capabilities: [...listed.matchAll(/"([^"]*)"/g)].map(([, capability = ""]) => capability.toLowerCase()) });
+    const legacy = /\bpolicy\s*=\s*"([^"]*)"/.exec(body)?.[1];
+    rules.push({ path: match[1] ?? "", capabilities: capabilitiesOf([...listed.matchAll(/"([^"]*)"/g)].map(([, capability = ""]) => capability), legacy) });
     opening.lastIndex = end;
   }
   return rules;
@@ -77,10 +95,11 @@ const jsonRules = (text: string): Rule[] | null => {
   // The JSON form may give the rules as an object, or as a list of one-rule objects.
   const entries = Array.isArray(paths) ? paths.filter(isRecord).flatMap((each) => Object.entries(each)) : isRecord(paths) ? Object.entries(paths) : null;
   if (entries === null) return null;
-  return entries.map(([path, rule]) => ({
-    path,
-    capabilities: isRecord(rule) && Array.isArray(rule["capabilities"]) ? rule["capabilities"].filter((each): each is string => typeof each === "string").map((each) => each.toLowerCase()) : [],
-  }));
+  return entries.map(([path, rule]) => {
+    const listed = isRecord(rule) && Array.isArray(rule["capabilities"]) ? rule["capabilities"].filter((each): each is string => typeof each === "string") : [];
+    const legacy = isRecord(rule) && typeof rule["policy"] === "string" ? rule["policy"] : undefined;
+    return { path, capabilities: capabilitiesOf(listed, legacy) };
+  });
 };
 
 /** Whether the policy `text` can write, as the rule above reads it. */

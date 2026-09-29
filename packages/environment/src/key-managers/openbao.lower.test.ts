@@ -123,6 +123,15 @@ path "identity/entity/*" { capabilities = ["update"] }`;
     expect(await flagOf("")).toBe("no");
   });
 
+  it("reads the capabilities the legacy policy parameter grants: write and sudo write, read and deny do not", async () => {
+    expect(await flagOf(`path "personal/*" { policy = "write" }`)).toBe("yes");
+    expect(await flagOf(`path "personal/*" { policy = "sudo" }`)).toBe("yes");
+    expect(await flagOf(`path "personal/*" { policy = "read" }`)).toBe("no");
+    expect(await flagOf(`path "personal/*" { policy = "deny" }`)).toBe("no");
+    expect(await flagOf(`path "sys/policies/acl/*" { policy = "write" }`)).toBe("no");
+    expect(await flagOf(JSON.stringify({ path: { "personal/*": { policy: "write" } } }))).toBe("yes");
+  });
+
   it("reads the policy language with comments and nested parameters, and its JSON form", async () => {
     const hcl = `# Agents write their notes here.
 // Nothing else is written.

@@ -332,7 +332,7 @@ export interface EnvironmentOptions {
   readonly gh?: ManagedGh;
   /** The key-manager registry's resolve seam, which #91 fills (#312). Preset: no key-manager connection; tests script one. */
   readonly keyManagers?: KeyManagerRegistry;
-  /** How long one verification of a key-manager connection may take (#366). Preset: `KEY_MANAGER_VERIFY_BUDGET_MS`, ADR 0031's ten seconds. */
+  /** How long one verification of a key-manager connection, or one certificate preview, may take (#366). Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds. */
   readonly keyManagerTimeoutMs?: number;
   /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
@@ -942,7 +942,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections),
+    ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),

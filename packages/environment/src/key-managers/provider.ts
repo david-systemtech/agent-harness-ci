@@ -10,6 +10,9 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
  * TLS verification: a pinned CA is the only trust it adds.
  */
 
+/** How long one exchange with a key manager may take, a verification or a certificate preview (ADR 0031's budget), past which it is `unreachable`. */
+export const KEY_MANAGER_BUDGET_MS = 10_000;
+
 /** Where a provider signs in: the connection's address, its pinned CA, and its auth method at its mount. */
 export interface SignInTarget {
   readonly address: string;
