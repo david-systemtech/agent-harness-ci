@@ -105,17 +105,34 @@ export const mainCheckout = (workspace: Workspace): string | null => {
 const keyOf = (place: MemoryPlace): string | null =>
   place.repositoryIdentity ?? (place.workspace.kind === "scratch" ? null : (mainCheckout(place.workspace) ?? place.workspace.path));
 
-/** The name of `place`'s auto-memory directory under the root: named for a person reading the directory, and hashed so two keys never share one. */
+/** The directory name of the key `key`: named for a person reading the directory, and hashed so two keys never share one. */
+const nameOf = (key: string): string => hashedName(key, key, "workspace");
+
+/** The name of `place`'s auto-memory directory under the root. */
 export const autoMemoryName = (place: MemoryPlace): string => {
   const key = keyOf(place);
-  return key === null ? SCRATCH_MEMORY_DIRECTORY : hashedName(key, key, "workspace");
+  return key === null ? SCRATCH_MEMORY_DIRECTORY : nameOf(key);
+};
+
+/**
+ * The directories `place`'s memory may be in, each with its key: its key's,
+ * then, for a directory or worktree with no identity, the one #121 keyed by
+ * the workspace path before the key was refined, where a session in a
+ * subdirectory or a worktree kept its memory until then.
+ */
+const sourcesOf = (place: MemoryPlace): { readonly name: string; readonly key: string }[] => {
+  const key = keyOf(place);
+  const sources = [key === null ? { name: SCRATCH_MEMORY_DIRECTORY, key: "the scratch workspaces" } : { name: nameOf(key), key }];
+  const { workspace } = place;
+  if (place.repositoryIdentity === null && workspace.kind !== "scratch" && workspace.path !== key) sources.push({ name: nameOf(workspace.path), key: workspace.path });
+  return sources;
 };
 
 export interface AutoMemory {
   /**
    * A session's key changed from `before` to `after`: the old key's
-   * directory is copied into the new key's by the carry-over rule, and
-   * stays. Carries run one at a time, in the order asked, so two for one
+   * directory, and the one #121 keyed by the workspace path when that is
+   * another, are copied into the new key's by the carry-over rule, and stay. Carries run one at a time, in the order asked, so two for one
    * key never interleave; one that fails is said and never rejects. Settles
    * once this one has run.
    */
@@ -126,9 +143,10 @@ export interface AutoMemory {
 export const createAutoMemory = (root: string): AutoMemory => {
   let queue: Promise<void> = Promise.resolve();
   const carryNow = async (before: MemoryPlace, after: MemoryPlace): Promise<void> => {
-    const [from, to] = [autoMemoryName(before), autoMemoryName(after)];
-    if (from === to) return;
-    await carryMemory({ directory: join(root, from), name: from, label: keyOf(before) ?? "the scratch workspaces" }, join(root, to));
+    const to = autoMemoryName(after);
+    for (const source of sourcesOf(before)) {
+      if (source.name !== to) await carryMemory({ directory: join(root, source.name), name: source.name, label: source.key }, join(root, to));
+    }
   };
   return {
     carry: (before, after) => {

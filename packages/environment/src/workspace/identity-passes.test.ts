@@ -11,6 +11,7 @@ import { create, deleteSession, get, listStream, patchOf } from "../../test/sess
 import { git, scriptedResolver } from "../../test/workspaces.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { autoMemoryName, type MemoryPlace } from "./auto-memory.js";
+import { hashedName } from "./directory-names.js";
 
 /**
  * Identity after creation (workspace-picker spec, "Repository identity",
@@ -373,6 +374,27 @@ describe("auto memory when a session's key changes", () => {
     expect(after).not.toBe(before);
     expect(readMemory(after)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
     expect(readMemory(before)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
+  });
+
+  it("also carries the directory a session in a subdirectory was keyed by before the main checkout was (#121's workspace path)", async () => {
+    const dataDir = dataDirectory();
+    const first = await start({ dataDir });
+    const checkout = repository();
+    const pkg = join(checkout, "packages", "app");
+    mkdirSync(pkg, { recursive: true });
+    const session = await created(await first.client(), { kind: "directory", path: pkg });
+    // #121 keyed a session with no identity by its workspace path: `<slug>-<hash>` of the path.
+    const byPath = join(dataDir, "auto-memory", hashedName(pkg, pkg, "workspace"));
+    expect(byPath).not.toBe(memoryDirectory(dataDir, session.summary));
+    writeMemory(byPath, { "MEMORY.md": MEMORY, "build.md": TOPIC });
+    await first.close();
+    git(checkout, "remote", "add", "origin", "git@git.systemtech.dev:david/agent-harness.git");
+
+    const again = await start({ dataDir });
+    await again.env.workspaces.identityPass;
+
+    expect(readMemory(memoryDirectory(dataDir, { ...session.summary, repositoryIdentity: IDENTITY }))).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
+    expect(readMemory(byPath)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
   });
 
   it("puts a second source under carried/, with a pointer line in MEMORY.md, and overwrites nothing", async () => {

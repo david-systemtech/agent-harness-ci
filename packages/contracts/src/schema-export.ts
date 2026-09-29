@@ -186,6 +186,7 @@ import {
   ProviderTranscriptOutcome,
   PullRequest,
   PullRequestState,
+  RepositoryIdentifiedReason,
   SESSION_EVENT_TYPES,
   SessionActivity,
   SessionId,
@@ -203,7 +204,6 @@ import {
   WorkspaceProblem,
   WorkspaceRequest,
   WorkspaceStatus,
-  RepositoryIdentifiedReason,
 } from "./sessions.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
