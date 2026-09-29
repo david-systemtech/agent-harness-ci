@@ -241,7 +241,7 @@ A version's first start after a switch, which serves nothing until the launcher 
 _Avoid_: canary, probation, test start
 
 **Database snapshot**:
-The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial, in a folder named by that id; a rollback copies it back.
+The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial (a container's `update snapshot` takes it before the recreate), in a folder named by that id; a rollback copies it back.
 _Avoid_: backup (a copy a person keeps), checkpoint (SQLite's own)
 
 **Restore marker**:

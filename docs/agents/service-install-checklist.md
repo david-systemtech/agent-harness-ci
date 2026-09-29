@@ -91,18 +91,26 @@ there, and a container runs `agent-harness serve` directly instead.
 
 ## Container (the image and `scripts/compose.yaml`)
 
-The repository's `Dockerfile` and the install script's compose file
-(`scripts/compose.yaml`, #141) run the environment as the image's non-root
-user, `agent-harness` (uid and gid 10001), on named volumes that start owned
-by that user. `test/container.test.ts` reads both as text; these steps prove
-them against a real Docker (or Podman) on a Linux host. No release publishes
-the image yet, so build it from a checkout. Record the result in the pull
-request that changes either file, or list the section as not run.
+The repository's `Dockerfile` and the published compose file
+(`scripts/compose.yaml`, #141, #349) run the environment as the image's
+non-root user, `agent-harness` (uid and gid 10001), on named volumes that
+start owned by that user. `test/container.test.ts` reads both as text, and
+`packages/cli/src/update-snapshot.test.ts` runs the host-side updater's
+`update snapshot`, `restore` and `discard` on a temporary data directory;
+these steps prove them against a real Docker (or Podman) on a Linux host.
+No release publishes the image yet, so build it from a checkout and name it
+with `AGENT_HARNESS_IMAGE` (the compose file's default is the release's
+image, which the release workflow writes in). Every `docker compose` below
+is `AGENT_HARNESS_IMAGE=agent-harness docker compose -f scripts/compose.yaml`.
+Record the result in the pull request that changes either file or those
+verbs, or list the section as not run.
 
 1. `docker build -t agent-harness .` from the checkout succeeds: `node-pty` compiles in the build stage, the `--prod` reinstall drops the devDependencies without asking, and `docker run --rm agent-harness --version` prints the version.
-2. `docker compose -f scripts/compose.yaml up -d`, then `docker compose -f scripts/compose.yaml exec environment id`: uid and gid 10001, not 0. The logs show the discovery address, not the root refusal.
-3. `docker compose -f scripts/compose.yaml exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
-4. `docker compose -f scripts/compose.yaml exec environment agent-harness pair` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`.
+2. `docker compose up -d` on fresh volumes, then `docker compose exec environment id`: uid and gid 10001, not 0. `docker compose logs environment` shows the discovery address, not the root refusal, and after it a pairing link, an ASCII QR and a code, since no client has paired yet.
+3. `docker compose exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
+4. `docker compose exec environment agent-harness pair --data-dir /data` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`. After that exchange, `docker compose restart` and `docker compose logs environment`: the new start prints the discovery address and no pairing.
 5. `setup.check` from that client answers Permissions and Your machines done (under Docker's default seccomp profile only `off` is offered, and the containment default's preset is `off`).
-6. `docker compose -f scripts/compose.yaml exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
-7. With a run under way, `docker compose -f scripts/compose.yaml stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
+6. `docker compose exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
+7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
+8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
+9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.
