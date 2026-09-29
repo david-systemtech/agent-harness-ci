@@ -266,6 +266,14 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "key-manager.connection.updated":
       case "key-manager.connection.removed":
         return data;
+      // The routines' notices (#519) change no status: the routines list refreshes on routine.updated (#532), and the
+      // notices queue raises a delivered result and a failed delivery (#525, #529).
+      case "routine.updated":
+      case "routine.delivered":
+      case "routine.delivery-failed":
+      case "routine.endpoint-set":
+      case "routine.endpoint-removed":
+        return data;
     }
   },
   encode: (data) => data,

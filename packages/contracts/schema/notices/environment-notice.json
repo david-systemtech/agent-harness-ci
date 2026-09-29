@@ -3034,6 +3034,267 @@
         "payload"
       ],
       "description": "A key-manager connection was removed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "routine.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "routineId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+            },
+            "change": {
+              "type": "string",
+              "enum": [
+                "created",
+                "edited",
+                "enabled",
+                "disabled",
+                "deleted",
+                "skipped",
+                "firing-started",
+                "firing-continued",
+                "firing-ended",
+                "delivery-attempted"
+              ],
+              "description": "What changed on a routine: the record appended to its stream, routine.<change>: created, edited, enabled, disabled, deleted, skipped (not no-change), firing-started, firing-continued, firing-ended or delivery-attempted (a final result, not a retry)."
+            }
+          },
+          "required": [
+            "routineId",
+            "change"
+          ],
+          "description": "routine.updated: a routine changed; the client runtime refreshes routines.list, and nobody sees the notice itself."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A routine changed: which, and the record that changed it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "routine.delivered"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "routineId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+              "description": "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case."
+            },
+            "entryId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The firing or skip delivered."
+            },
+            "entryKind": {
+              "type": "string",
+              "enum": [
+                "firing",
+                "skip"
+              ],
+              "description": "Whether the entry is a firing or a skip."
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The firing's session, which opening the notice opens; null for a skip."
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "succeeded",
+                "failed"
+              ],
+              "description": "How a delivered entry ended: succeeded (a firing), or failed (a failed firing, or a failing skip: pre-check-failed or cannot-start)."
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "The result in one line, at most 200 characters: the text's first non-blank line, or the failure's reason."
+            },
+            "body": {
+              "type": "string",
+              "maxLength": 4000,
+              "description": "The result, at most 4,000 characters: the final text, \"The firing finished without a final message.\" when it had none, or the failure's detail."
+            }
+          },
+          "required": [
+            "routineId",
+            "name",
+            "entryId",
+            "entryKind",
+            "sessionId",
+            "outcome",
+            "summary",
+            "body"
+          ],
+          "description": "routine.delivered: a routine's result for a client-notice target, once its entry's end committed; every connected client raises it."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A routine's result for every connected client: the routine, the entry, its session, outcome, summary and body."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "routine.delivery-failed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "routineId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+              "description": "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case."
+            },
+            "entryId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The firing or skip that could not be delivered."
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,40}$",
+              "description": "The endpoint the webhook target names."
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Why the last attempt failed: the status, the network error, or a missing endpoint or secret."
+            }
+          },
+          "required": [
+            "routineId",
+            "name",
+            "entryId",
+            "endpoint",
+            "error"
+          ],
+          "description": "routine.delivery-failed: a webhook delivery failed finally, after its retries or at once; every connected client raises it."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A routine's result could not be delivered to a webhook endpoint: which, and why."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "routine.endpoint-set"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,40}$",
+              "description": "A webhook endpoint's name on its environment: 1 to 40 lower-case letters, digits and hyphens, unique."
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^https?:\\/\\/",
+              "description": "Where the endpoint's POSTs go: https, or http only to loopback, localhost, a private or tailnet address or a .ts.net name; with no userinfo, and its host off the denylist."
+            },
+            "secretKind": {
+              "type": "string",
+              "enum": [
+                "pasted",
+                "reference",
+                "missing"
+              ],
+              "description": "Where a webhook endpoint's secret is, never the secret: pasted (sent once and kept in the environment's vault), reference (a key-manager reference resolved per delivery) or missing (none, so a delivery to it fails)."
+            }
+          },
+          "required": [
+            "name",
+            "url",
+            "secretKind"
+          ],
+          "description": "routine.endpoint-set: a webhook endpoint was made or replaced: its name, URL and where its secret is, never the secret."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A webhook endpoint was made or replaced: its name, URL and secret kind."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "routine.endpoint-removed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,40}$",
+              "description": "A webhook endpoint's name on its environment: 1 to 40 lower-case letters, digits and hyphens, unique."
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "description": "routine.endpoint-removed: a webhook endpoint was removed, and its secret with it."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A webhook endpoint was removed."
     }
   ],
   "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."

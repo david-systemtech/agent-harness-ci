@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineTrigger",
+  "type": "string",
+  "enum": [
+    "schedule",
+    "catch-up",
+    "run-now"
+  ],
+  "description": "What made an entry: schedule (a due time on time), catch-up (the latest of due times missed while the environment was down, fired once) or run-now (routines.runNow)."
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeliveryOn",
+  "type": "string",
+  "enum": [
+    "success",
+    "failure",
+    "both"
+  ],
+  "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+}

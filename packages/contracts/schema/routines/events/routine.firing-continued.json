@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineFiringContinuedPayload",
+  "type": "object",
+  "properties": {
+    "firingId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The run that continues the firing after an update cut its last."
+    }
+  },
+  "required": [
+    "firingId",
+    "runId"
+  ],
+  "description": "routine.firing-continued: an update cut the firing's run and the environment continued it; the firing follows the new run."
+}

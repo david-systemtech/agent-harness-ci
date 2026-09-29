@@ -1755,6 +1755,258 @@
       "title": "UpdateSettingsPatch"
     },
     {
+      "path": "routines/routine-id.json",
+      "title": "RoutineId"
+    },
+    {
+      "path": "routines/routine-name.json",
+      "title": "RoutineName"
+    },
+    {
+      "path": "routines/day.json",
+      "title": "RoutineDay"
+    },
+    {
+      "path": "routines/time.json",
+      "title": "RoutineTime"
+    },
+    {
+      "path": "routines/schedule.json",
+      "title": "RoutineSchedule"
+    },
+    {
+      "path": "routines/time-zone.json",
+      "title": "RoutineTimeZone"
+    },
+    {
+      "path": "routines/if-missed.json",
+      "title": "RoutineIfMissed"
+    },
+    {
+      "path": "routines/workspace.json",
+      "title": "RoutineWorkspace"
+    },
+    {
+      "path": "routines/injection.json",
+      "title": "RoutineInjection"
+    },
+    {
+      "path": "routines/pre-check.json",
+      "title": "PreCheck"
+    },
+    {
+      "path": "routines/pre-check-input.json",
+      "title": "PreCheckInput"
+    },
+    {
+      "path": "routines/delivery-on.json",
+      "title": "DeliveryOn"
+    },
+    {
+      "path": "routines/endpoint-name.json",
+      "title": "EndpointName"
+    },
+    {
+      "path": "routines/delivery-target.json",
+      "title": "DeliveryTarget"
+    },
+    {
+      "path": "routines/definition.json",
+      "title": "RoutineDefinition"
+    },
+    {
+      "path": "routines/definition-input.json",
+      "title": "RoutineDefinitionInput"
+    },
+    {
+      "path": "routines/fields.json",
+      "title": "RoutineFields"
+    },
+    {
+      "path": "routines/entry-id.json",
+      "title": "RoutineEntryId"
+    },
+    {
+      "path": "routines/trigger.json",
+      "title": "RoutineTrigger"
+    },
+    {
+      "path": "routines/firing-outcome.json",
+      "title": "FiringOutcome"
+    },
+    {
+      "path": "routines/firing-failure-reason.json",
+      "title": "FiringFailureReason"
+    },
+    {
+      "path": "routines/skip-reason.json",
+      "title": "SkipReason"
+    },
+    {
+      "path": "routines/cannot-start-reason.json",
+      "title": "CannotStartReason"
+    },
+    {
+      "path": "routines/move-link.json",
+      "title": "RoutineMoveLink"
+    },
+    {
+      "path": "routines/live-firing.json",
+      "title": "LiveFiring"
+    },
+    {
+      "path": "routines/last-outcome.json",
+      "title": "RoutineLastOutcome"
+    },
+    {
+      "path": "routines/state.json",
+      "title": "RoutineState"
+    },
+    {
+      "path": "routines/attention.json",
+      "title": "RoutineAttention"
+    },
+    {
+      "path": "routines/listed-routine.json",
+      "title": "ListedRoutine"
+    },
+    {
+      "path": "routines/pre-check-failure.json",
+      "title": "PreCheckFailure"
+    },
+    {
+      "path": "routines/pre-check-record.json",
+      "title": "PreCheckRecord"
+    },
+    {
+      "path": "routines/delivery-attempt-result.json",
+      "title": "DeliveryAttemptResult"
+    },
+    {
+      "path": "routines/delivery-attempt.json",
+      "title": "DeliveryAttempt"
+    },
+    {
+      "path": "routines/delivery.json",
+      "title": "RoutineDelivery"
+    },
+    {
+      "path": "routines/firing-entry.json",
+      "title": "FiringEntry"
+    },
+    {
+      "path": "routines/skip-entry.json",
+      "title": "SkipEntry"
+    },
+    {
+      "path": "routines/entry.json",
+      "title": "RoutineEntry"
+    },
+    {
+      "path": "routines/event-type.json",
+      "title": "RoutineEventType"
+    },
+    {
+      "path": "routines/events/routine.created.json",
+      "title": "RoutineCreatedPayload"
+    },
+    {
+      "path": "routines/events/routine.edited.json",
+      "title": "RoutineEditedPayload"
+    },
+    {
+      "path": "routines/events/routine.enabled.json",
+      "title": "RoutineEnabledPayload"
+    },
+    {
+      "path": "routines/events/routine.disabled.json",
+      "title": "RoutineDisabledPayload"
+    },
+    {
+      "path": "routines/events/routine.deleted.json",
+      "title": "RoutineDeletedPayload"
+    },
+    {
+      "path": "routines/events/routine.skipped.json",
+      "title": "RoutineSkippedPayload"
+    },
+    {
+      "path": "routines/events/routine.firing-started.json",
+      "title": "RoutineFiringStartedPayload"
+    },
+    {
+      "path": "routines/events/routine.firing-continued.json",
+      "title": "RoutineFiringContinuedPayload"
+    },
+    {
+      "path": "routines/events/routine.firing-ended.json",
+      "title": "RoutineFiringEndedPayload"
+    },
+    {
+      "path": "routines/events/routine.delivery-attempted.json",
+      "title": "RoutineDeliveryAttemptedPayload"
+    },
+    {
+      "path": "routines/change.json",
+      "title": "RoutineChange"
+    },
+    {
+      "path": "routines/delivered-outcome.json",
+      "title": "DeliveredOutcome"
+    },
+    {
+      "path": "routines/endpoint-secret-kind.json",
+      "title": "EndpointSecretKind"
+    },
+    {
+      "path": "routines/endpoint-url.json",
+      "title": "EndpointUrl"
+    },
+    {
+      "path": "routines/notices/routine.updated.json",
+      "title": "RoutineUpdatedPayload"
+    },
+    {
+      "path": "routines/notices/routine.delivered.json",
+      "title": "RoutineDeliveredPayload"
+    },
+    {
+      "path": "routines/notices/routine.delivery-failed.json",
+      "title": "RoutineDeliveryFailedPayload"
+    },
+    {
+      "path": "routines/notices/routine.endpoint-set.json",
+      "title": "RoutineEndpointSetPayload"
+    },
+    {
+      "path": "routines/notices/routine.endpoint-removed.json",
+      "title": "RoutineEndpointRemovedPayload"
+    },
+    {
+      "path": "routines/webhook-endpoint.json",
+      "title": "WebhookEndpoint"
+    },
+    {
+      "path": "routines/webhook-entry.json",
+      "title": "WebhookEntry"
+    },
+    {
+      "path": "routines/webhook-payload.json",
+      "title": "WebhookPayload"
+    },
+    {
+      "path": "routines/conflict-reason.json",
+      "title": "RoutineConflictReason"
+    },
+    {
+      "path": "routines/import-warnings.json",
+      "title": "RoutineImportWarnings"
+    },
+    {
+      "path": "routines/import-check.json",
+      "title": "RoutineImportCheck"
+    },
+    {
       "path": "setup/step-id.json",
       "title": "StepId"
     },

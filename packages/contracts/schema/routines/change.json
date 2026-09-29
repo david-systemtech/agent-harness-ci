@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineChange",
+  "type": "string",
+  "enum": [
+    "created",
+    "edited",
+    "enabled",
+    "disabled",
+    "deleted",
+    "skipped",
+    "firing-started",
+    "firing-continued",
+    "firing-ended",
+    "delivery-attempted"
+  ],
+  "description": "What changed on a routine: the record appended to its stream, routine.<change>: created, edited, enabled, disabled, deleted, skipped (not no-change), firing-started, firing-continued, firing-ended or delivery-attempted (a final result, not a retry)."
+}

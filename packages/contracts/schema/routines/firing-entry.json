@@ -1,0 +1,627 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FiringEntry",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "firing"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "schedule",
+        "catch-up",
+        "run-now"
+      ],
+      "description": "What made an entry: schedule (a due time on time), catch-up (the latest of due times missed while the environment was down, fired once) or run-now (routines.runNow)."
+    },
+    "count": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many due times it stands for: more than one when missed due times collapsed into it."
+    },
+    "preCheck": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "script",
+                "url"
+              ],
+              "description": "Whether a script ran or a URL was fetched."
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "exitStatus": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The script's exit status; null for a URL, or a script killed at its timeout."
+            },
+            "httpStatus": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The URL's final HTTP status; null for a script, or a URL that did not answer."
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The output's size in bytes, as far as it was read."
+            },
+            "hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "A SHA-256 digest: 64 lowercase hexadecimal digits."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The SHA-256 of the output's exact bytes, with no normalisation; null when the pre-check failed."
+            },
+            "differs": {
+              "description": "Whether the hash differs from the baseline's; null with no baseline (a first observation) or no hash.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "output": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 65536
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The output, scrubbed, its first 65,536 characters (routines.testPreCheck answers its first 8,000); null where it is not kept, as for a no-change skip, whose output is the baseline's."
+            },
+            "stderr": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 8192
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The script's standard error, scrubbed, its last 8,192 characters, kept for a failure; else null."
+            },
+            "failure": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "script_missing",
+                        "script_unusable",
+                        "exit_status",
+                        "timed_out",
+                        "output_too_large",
+                        "unreachable",
+                        "http_status",
+                        "denylisted"
+                      ],
+                      "description": "Why a pre-check failed: script_missing (no file at its path in the scripts directory), script_unusable (its path leaves the scripts directory once links are followed, or names no regular executable file), exit_status (the script exited other than 0), timed_out (it ran past its timeout, and its process tree was killed), output_too_large (its output passed 1 MiB), unreachable (the URL did not answer, or redirected more than five times), http_status (the URL answered other than 2xx) or denylisted (a host it reached is on the denylist)."
+                    },
+                    "detail": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What failed, for a person: the exit status, the path's problem, the host."
+                    }
+                  },
+                  "required": [
+                    "reason",
+                    "detail"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the pre-check failed; null when it did not."
+            }
+          },
+          "required": [
+            "kind",
+            "startedAt",
+            "durationMs",
+            "exitStatus",
+            "httpStatus",
+            "bytes",
+            "hash",
+            "differs",
+            "output",
+            "stderr",
+            "failure"
+          ],
+          "description": "What one run of a pre-check found: its kind, when and how long, its exit or HTTP status, the output's size, hash and kept part, whether it differs from the baseline, and why it failed when it did."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The pre-check it ran; null when none ran."
+    },
+    "deliveries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "client-notice"
+                  },
+                  "on": {
+                    "type": "string",
+                    "enum": [
+                      "success",
+                      "failure",
+                      "both"
+                    ],
+                    "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "on"
+                ],
+                "description": "routine.delivered on the environment stream, which every connected client raises."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "webhook"
+                  },
+                  "target": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9-]{1,40}$",
+                    "description": "The endpoint's name on the routine's environment, which holds its URL and secret."
+                  },
+                  "on": {
+                    "type": "string",
+                    "enum": [
+                      "success",
+                      "failure",
+                      "both"
+                    ],
+                    "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "target",
+                  "on"
+                ],
+                "description": "A signed webhook POST to an endpoint the environment names."
+              }
+            ],
+            "description": "Where a firing's result goes, and which results it takes: a client notice, or a signed webhook to a named endpoint."
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "delivered",
+              "failed"
+            ],
+            "description": "Where the delivery stands: pending (an attempt is to come), delivered, or failed finally."
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Which attempt, from 1."
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                "result": {
+                  "type": "string",
+                  "enum": [
+                    "delivered",
+                    "retrying",
+                    "failed"
+                  ],
+                  "description": "What a delivery attempt came to: delivered, retrying (it failed and is retried at retryAt: a network error, a timeout, 408, 429 or 5xx) or failed (finally)."
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The HTTP status a webhook answered; null for a client notice, or when none came."
+                },
+                "error": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "What went wrong; null when it was delivered."
+                },
+                "retryAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "An instant as an ISO 8601 UTC timestamp."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the next attempt is made, when the result is retrying; else null."
+                }
+              },
+              "required": [
+                "attempt",
+                "at",
+                "result",
+                "status",
+                "error",
+                "retryAt"
+              ],
+              "description": "One attempt to deliver an entry to a target: which, when, what it came to, the status, the error and the retry time."
+            },
+            "description": "Every attempt, first first."
+          }
+        },
+        "required": [
+          "target",
+          "result",
+          "attempts"
+        ],
+        "description": "An entry's delivery to one target: where it stands and every attempt."
+      },
+      "description": "Its delivery to each target that took it, in the targets' order."
+    },
+    "dueAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "The due time it fired for; for run now, when it was asked."
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "An instant as an ISO 8601 UTC timestamp."
+    },
+    "endedAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When it ended; null while it is live."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The firing's session, tagged with the routine."
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "Its latest run: the first, or the one that continued it after an update."
+    },
+    "requestedBy": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "A client session's id, as hello names it and the access methods list and revoke it."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The client session that ran it now; null for the schedule and a catch-up."
+    },
+    "targets": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "client-notice"
+              },
+              "on": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failure",
+                  "both"
+                ],
+                "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+              }
+            },
+            "required": [
+              "kind",
+              "on"
+            ],
+            "description": "routine.delivered on the environment stream, which every connected client raises."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "webhook"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,40}$",
+                "description": "The endpoint's name on the routine's environment, which holds its URL and secret."
+              },
+              "on": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failure",
+                  "both"
+                ],
+                "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+              }
+            },
+            "required": [
+              "kind",
+              "target",
+              "on"
+            ],
+            "description": "A signed webhook POST to an endpoint the environment names."
+          }
+        ],
+        "description": "Where a firing's result goes, and which results it takes: a client notice, or a signed webhook to a named endpoint."
+      },
+      "description": "The delivery targets it started with, which an edit meanwhile does not change."
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "succeeded",
+            "silent",
+            "failed",
+            "cancelled"
+          ],
+          "description": "How a firing ended: succeeded (its run completed with text other than the silence marker, or none), silent (its final text was the silence marker, so nothing was delivered), failed (with its reason) or cancelled (a person interrupted it, or deleted its session or its routine)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How it ended; null while it is live."
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "run_error",
+            "timed_out",
+            "restart",
+            "drained"
+          ],
+          "description": "Why a firing failed: run_error (its run ended in error), timed_out (its maximum duration passed and its run was interrupted), restart (its run was cut by a restart, or let go with its session still there) or drained (a drain cut its run and nothing continued it)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why it failed; null unless it did."
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 16000
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Its final text, at most 16,000 characters: the last firing run's result text, else its last assistant text; empty when there was none; null while it is live."
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheReadTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "costUsd": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the tokens cost in US dollars, when the provider says."
+              },
+              "contextWindow": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The model's context window in tokens, when the provider says."
+              }
+            },
+            "required": [
+              "model",
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "costUsd",
+              "contextWindow"
+            ],
+            "description": "One model's token spend in a run: input, output, cache reads and writes, cost and context window."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Its runs' token spend per model, when the provider reported it; null while live or when none was."
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How long it ran, from its start to its end; null while it is live."
+    },
+    "baselineAdvanced": {
+      "description": "Whether its pre-check's output became the baseline; null while it is live.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "trigger",
+    "count",
+    "preCheck",
+    "deliveries",
+    "dueAt",
+    "startedAt",
+    "endedAt",
+    "sessionId",
+    "runId",
+    "requestedBy",
+    "targets",
+    "outcome",
+    "reason",
+    "text",
+    "usage",
+    "durationMs",
+    "baselineAdvanced"
+  ],
+  "description": "A firing: a session tagged with its routine, with its trigger, due time, pre-check, targets, and once it has ended its outcome, text, usage, duration and deliveries."
+}
