@@ -141,6 +141,19 @@ describe("the summary field table", () => {
     expect(SESSION_EVENT_TYPES["session.workspace-status-changed"].payload.safeParse({ status: "moved" }).success).toBe(false);
   });
 
+  it("gives the identity passes session.repository-identified, list-flagged, which no transcript fold drops, while the identity stays sessions.create's", () => {
+    const payload = SESSION_EVENT_TYPES["session.repository-identified"].payload;
+    expect(SUMMARY_FIELD_OWNERS.repositoryIdentity).toEqual({ command: "sessions.create" });
+    expect(isListEvent("session", "session.repository-identified")).toBe(true);
+    expect(Object.hasOwn(TRANSCRIPT_EVENT_TYPES, "session.repository-identified")).toBe(false);
+    expect(payload.safeParse({ repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", reason: "resolved" }).success).toBe(true);
+    expect(payload.safeParse({ repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", reason: "alias" }).success).toBe(true);
+    expect(payload.safeParse({ repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", reason: "moved" }).success).toBe(false);
+    // An identity, as the rule gives one: never null, never a path of one segment.
+    expect(payload.safeParse({ repositoryIdentity: null, reason: "resolved" }).success).toBe(false);
+    expect(payload.safeParse({ repositoryIdentity: "https://git.systemtech.dev/agent-harness", reason: "resolved" }).success).toBe(false);
+  });
+
   it("fails when a summary field is missing from it", () => {
     const missing = Object.fromEntries(Object.entries(owners).filter(([key]) => key !== "tags"));
     expect(fieldTableProblems(missing, keys, registry, EVENT_TYPES)).toEqual(["tags: no owner"]);

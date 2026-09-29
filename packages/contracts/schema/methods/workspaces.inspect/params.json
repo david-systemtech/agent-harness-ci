@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "workspaces.inspect params",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "pattern": "^(?:~(?:[\\\\/]|$)|\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "The path to inspect."
+    }
+  },
+  "required": [
+    "path"
+  ]
+}

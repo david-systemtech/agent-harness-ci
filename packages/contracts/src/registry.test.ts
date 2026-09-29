@@ -137,6 +137,14 @@ describe("the method registry", () => {
     });
   });
 
+  it("gives browsing and inspecting an environment's directories the scope of files.*, terminal, each a query (workspace-picker spec)", () => {
+    const workspaceMethods = methods.filter((m) => m.name.startsWith("workspaces."));
+    expect(Object.fromEntries(workspaceMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "workspaces.browse": ["query", "terminal"],
+      "workspaces.inspect": ["query", "terminal"],
+    });
+  });
+
   it("gives the providers methods the claude-adapter spec's scopes: the list at read, the processes at admin", () => {
     const providerMethods = methods.filter((m) => m.name.startsWith("providers."));
     expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
@@ -438,6 +446,8 @@ describe("the method registry", () => {
       | "files.read"
       | "diffs.workingTree"
       | "diffs.session"
+      | "workspaces.browse"
+      | "workspaces.inspect"
       | "updates.status"
       | "updates.check"
       | "updates.apply"

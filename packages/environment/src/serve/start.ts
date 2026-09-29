@@ -96,6 +96,7 @@ import { createForgeService, type ForgeService } from "../forge/forge-service.js
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
+import { verifiedOrigins } from "../forge/git-helper.js";
 import type { ManagedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -112,6 +113,9 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { createAutoMemory } from "../workspace/auto-memory.js";
+import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
+import { createIdentityPasses } from "../workspace/identity-passes.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
 import { workspaceRoots } from "../workspace/roots.js";
@@ -463,6 +467,13 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /** The workspaces' in-process seams (#329). */
+  readonly workspaces: {
+    /** For a repository identity, the directory a session on it works from here, else scratch: what a routine's move (#92) and hand-off re-resolve through. */
+    readonly checkoutIndex: CheckoutIndex;
+    /** Settles once this start's resolved identity pass, run once the wire is open, has run: what a test waits on before reading what it left. */
+    readonly identityPass: Promise<void>;
+  };
   /**
    * The key-manager registry's resolve (#370): how the harness's services
    * read a reference for one operation, in process, with the connection's
@@ -691,6 +702,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
 
+  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at and the identity passes carry (#329).
+  const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
+
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
 
@@ -723,7 +737,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
-    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY), sessionStore: providerStore })];
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot, sessionStore: providerStore })];
     // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
     let probed: ContainmentReport;
     try {
@@ -941,7 +955,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
+  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -1012,7 +1029,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
-    ...workspaceMethods({ log }),
+    // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
+    ...workspaceMethods({
+      log,
+      directoryRules: environmentResolver,
+      worktreesRoot: roots.worktrees,
+      ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+    }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,
@@ -1157,6 +1180,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       console.error("Minting the pairing a declared container prints at its start failed; run pair in the container for one:", error);
     }
   }
+  // The identity passes (#329): sessions with no identity resolved again, past the gate, four git processes at a time; and
+  // every identity on a verified alias's host moved to its canonical host, from here on, as a forge account is added or verified.
+  const identityPasses = createIdentityPasses({
+    log,
+    forgeAccounts,
+    autoMemory: createAutoMemory(autoMemoryRoot),
+    ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+  }).start();
+  closers.push(() => identityPasses.stop());
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
@@ -1236,6 +1268,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     startPairing,
+    workspaces: { checkoutIndex: createCheckoutIndex(log), identityPass: identityPasses.resolved },
     close,
   };
 };

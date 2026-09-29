@@ -10,6 +10,7 @@ import {
   startEnvironment,
   type EnvironmentHandle,
   type EnvironmentOptions,
+  type PreflightSeams,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
 import { harnessCommand } from "./harness-command.js";
@@ -20,6 +21,7 @@ import { status } from "./status.js";
 import { GIT_CREDENTIAL_USAGE, gitCredential, readStandardInput } from "./git-credential.js";
 import { LocalFailure, type Net } from "./local-session.js";
 import { mintPairing, renderPairing, type PairArgs } from "./pair.js";
+import { preflight, PREFLIGHT_USAGE } from "./preflight.js";
 import { TUI_USAGE, tui, type RunTui } from "./tui.js";
 import { UPDATE_USAGE, update } from "./update.js";
 
@@ -27,6 +29,7 @@ const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} ${LAUNCH_USAGE}`,
+  `       ${PRODUCT_NAME} ${PREFLIGHT_USAGE}`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
@@ -49,6 +52,8 @@ export interface CliContext extends ProcessContext {
   readonly fetch?: typeof globalThis.fetch;
   /** Seams into the service verbs for tests, under the same rule as `environment`. */
   readonly service?: ServiceSeams;
+  /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
+  readonly preflight?: PreflightSeams;
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector">;
   /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
@@ -183,6 +188,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
     }
     if (args[0] === "serve") return await serve(args.slice(1), context);
     if (args[0] === "launch") return await launch(args.slice(1), context);
+    if (args[0] === "preflight") return await preflight(args.slice(1), { stdout: context.stdout, stderr: context.stderr, seams: context.preflight ?? {} });
     if (args[0] === "status") return await status(args.slice(1), { stdout: context.stdout, fetch: context.fetch ?? fetch });
     if (args[0] === "service") {
       return await service(args.slice(1), {

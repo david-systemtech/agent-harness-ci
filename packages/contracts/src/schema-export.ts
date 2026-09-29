@@ -187,6 +187,7 @@ import {
   ProviderTranscriptOutcome,
   PullRequest,
   PullRequestState,
+  RepositoryIdentifiedReason,
   SESSION_EVENT_TYPES,
   SessionActivity,
   SessionId,
@@ -204,7 +205,10 @@ import {
   WorkspaceProblem,
   WorkspaceRequest,
   WorkspaceStatus,
+  AbsolutePath,
+  RequestedDirectory,
 } from "./sessions.js";
+import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection } from "./workspaces.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
   AccountIdentity,
@@ -580,6 +584,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/workspace-request.json", title: "WorkspaceRequest", schema: WorkspaceRequest },
   { path: "sessions/workspace-problem.json", title: "WorkspaceProblem", schema: WorkspaceProblem },
   { path: "sessions/workspace-status.json", title: "WorkspaceStatus", schema: WorkspaceStatus },
+  { path: "sessions/repository-identified-reason.json", title: "RepositoryIdentifiedReason", schema: RepositoryIdentifiedReason },
+  { path: "sessions/absolute-path.json", title: "AbsolutePath", schema: AbsolutePath },
+  { path: "sessions/requested-directory.json", title: "RequestedDirectory", schema: RequestedDirectory },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },
@@ -849,6 +856,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "files/files-list-source.json", title: "FilesListSource", schema: FilesListSource },
   { path: "diffs/session-diff-change.json", title: "SessionDiffChange", schema: SessionDiffChange },
   { path: "diffs/session-diff-file.json", title: "SessionDiffFile", schema: SessionDiffFile },
+  { path: "workspaces/browsed-directory.json", title: "BrowsedDirectory", schema: BrowsedDirectory },
+  { path: "workspaces/inspected-commit.json", title: "InspectedCommit", schema: InspectedCommit },
+  { path: "workspaces/inspected-branch.json", title: "InspectedBranch", schema: InspectedBranch },
+  { path: "workspaces/inspected-repository.json", title: "InspectedRepository", schema: InspectedRepository },
+  { path: "workspaces/workspace-inspection.json", title: "WorkspaceInspection", schema: WorkspaceInspection },
   { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
   { path: "actions/action-condition.json", title: "ActionCondition", schema: ActionCondition },
   { path: "actions/action.json", title: "Action", schema: Action },

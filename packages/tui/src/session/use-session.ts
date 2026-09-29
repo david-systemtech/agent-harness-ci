@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   forkedFrom,
+  gaugeOf,
   hear,
   liveRunIdOf,
   lockOf,
@@ -17,7 +18,7 @@ import {
   type SessionRunsView,
 } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities, CommandEntry } from "@agent-harness/contracts";
-import { gaugeOf, markOf, planDelta, type PlanMark } from "../transcript/plan.js";
+import { markOf, planDelta, type PlanMark } from "../transcript/plan.js";
 
 /**
  * The session on screen (docs/specs/tui.md, "The transcript" and "The

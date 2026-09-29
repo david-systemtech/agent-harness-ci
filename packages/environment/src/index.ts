@@ -305,6 +305,8 @@ export {
   type UserCheck,
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
+export { DATABASE_SCHEMA_VERSION } from "./event-log/migrations.js";
+export { preflight, type PreflightAnswer, type PreflightCheck, type PreflightFailure, type PreflightSeams } from "./updates/preflight.js";
 export { secretShapedIn } from "./scrub/refusal.js";
 export { createScrubRegistry, REDACTED, type ScrubRegistration, type ScrubRegistry, type ScrubRelease, type ScrubStream } from "./scrub/registry.js";
 export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";

@@ -9,6 +9,7 @@ import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { AdapterEvent, AdapterRun, RunContext, RunInput } from "../../adapter/contract.js";
 import { openEventLog, type EventLog } from "../../event-log/event-log.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../../provider-transcripts/store.js";
+import { git } from "../../../test/workspaces.js";
 
 /**
  * The Claude adapter over the environment's session store (#137, the
@@ -188,6 +189,88 @@ describe("auto memory", () => {
     adapter.createRun(runInput({ sessionId: randomUUID(), repositoryIdentity: null, workspace: { kind: "directory", path: "/scratch/notes" } }), context());
     expect(((await fake.made(4)).options.settings as { autoMemoryDirectory: string }).autoMemoryDirectory).toMatch(/^\/data\/auto-memory\/scratch-notes-[0-9a-f]{12}$/);
     for (const id of [SESSION, FORK]) await adapter.stopProcess(id);
+  });
+});
+
+describe("the auto-memory key (#329)", () => {
+  /** The auto-memory directory the run made `made`-th by the fake SDK was handed. */
+  const memoryOf = async (made: number): Promise<string> => ((await fake.made(made)).options.settings as { autoMemoryDirectory: string }).autoMemoryDirectory;
+
+  it("is the identity, else the repository's main checkout, so a remote-less repository's checkout, subdirectories and worktrees share one, else the one all scratch workspaces share", async () => {
+    const adapter = adapterWith({ autoMemoryRoot: "/data/auto-memory" });
+    const checkout = join(tempDir("agent-harness-remoteless-"), "Remoteless Repo");
+    mkdirSync(join(checkout, "packages", "app"), { recursive: true });
+    git(checkout, "init", "-q");
+    git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+    const linked = join(tempDir("agent-harness-linked-"), "feature");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", linked);
+    const workspaces: RunInput["workspace"][] = [
+      { kind: "directory", path: checkout },
+      { kind: "directory", path: join(checkout, "packages", "app") },
+      // A worktree of the user's, given as a directory, and one the environment made, whose repository it recorded.
+      { kind: "directory", path: linked },
+      { kind: "worktree", path: "/data/worktrees/remoteless-repo-0a1b2c3d4e5f/feature-2", repository: checkout, branch: "feature-2" },
+      // Identified: the identity, whatever the checkout.
+      { kind: "directory", path: linked },
+      { kind: "scratch", path: "/data/scratch/3f0c8a52-1d6e-4b7a-9e2f-5c4d3b2a1f0e" },
+      { kind: "scratch", path: "/data/scratch/8d2e4f6a-0b1c-4d3e-8f5a-6b7c8d9e0f1a" },
+    ];
+    const sessions = workspaces.map(() => randomUUID());
+    for (const [index, workspace] of workspaces.entries()) {
+      adapter.createRun(runInput({ sessionId: sessions[index] as string, workspace, repositoryIdentity: index === 4 ? "https://github.com/david/repo" : null }), context());
+    }
+    const directories = await Promise.all(workspaces.map((_, index) => memoryOf(index + 1)));
+
+    const [main, ...rest] = directories;
+    expect(main).toMatch(/^\/data\/auto-memory\/[a-z0-9-]*remoteless-repo-[0-9a-f]{12}$/);
+    expect(rest.slice(0, 3)).toEqual([main, main, main]);
+    expect(directories[4]).toMatch(/^\/data\/auto-memory\/https-github-com-david-repo-[0-9a-f]{12}$/);
+    expect(directories.slice(5)).toEqual(["/data/auto-memory/scratch", "/data/auto-memory/scratch"]);
+    for (const id of sessions) await adapter.stopProcess(id);
+  });
+
+  it("keys a repository whose git directory lies elsewhere, and a submodule, by that git directory, so its checkout and worktrees share one", async () => {
+    const adapter = adapterWith({ autoMemoryRoot: "/data/auto-memory" });
+    const root = tempDir("agent-harness-separate-");
+    const checkout = join(root, "checkout");
+    const gitDirectory = join(root, "git-directory");
+    git(root, "init", "-q", `--separate-git-dir=${gitDirectory}`, checkout);
+    git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+    const linked = join(root, "linked");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", linked);
+    const made = join(root, "made");
+    git(checkout, "worktree", "add", "-q", "-b", "feature-2", made);
+    // A submodule, whose git directory lies in its superproject's, and a worktree of it.
+    const library = join(root, "library");
+    git(root, "init", "-q", library);
+    git(library, "commit", "-q", "--allow-empty", "-m", "first");
+    const superproject = join(root, "superproject");
+    git(root, "init", "-q", superproject);
+    git(superproject, "commit", "-q", "--allow-empty", "-m", "first");
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "add", "-q", library, "vendor/library");
+    const submodule = join(superproject, "vendor", "library");
+    const submoduleLinked = join(root, "submodule-linked");
+    git(submodule, "worktree", "add", "-q", "-b", "feature", submoduleLinked);
+    const workspaces: RunInput["workspace"][] = [
+      { kind: "directory", path: checkout },
+      { kind: "directory", path: linked },
+      // One the environment made, keyed by its own files whichever path git gave as its repository: git 2.39 lists
+      // the git directory as the main worktree here, and a git that lists the checkout must not split the key.
+      { kind: "worktree", path: made, repository: checkout, branch: "feature-2" },
+      { kind: "directory", path: submodule },
+      { kind: "directory", path: submoduleLinked },
+      { kind: "directory", path: superproject },
+    ];
+    const sessions = workspaces.map(() => randomUUID());
+    for (const [index, workspace] of workspaces.entries()) adapter.createRun(runInput({ sessionId: sessions[index] as string, workspace, repositoryIdentity: null }), context());
+    const directories = await Promise.all(workspaces.map((_, index) => memoryOf(index + 1)));
+
+    expect(directories[0]).toMatch(/^\/data\/auto-memory\/[a-z0-9-]*git-directory-[0-9a-f]{12}$/);
+    expect(directories.slice(1, 3)).toEqual([directories[0], directories[0]]);
+    expect(directories[3]).toMatch(/^\/data\/auto-memory\/[a-z0-9-]*modules-vendor-library-[0-9a-f]{12}$/);
+    expect(directories[4]).toBe(directories[3]);
+    expect(new Set(directories).size).toBe(3);
+    for (const id of sessions) await adapter.stopProcess(id);
   });
 });
 
