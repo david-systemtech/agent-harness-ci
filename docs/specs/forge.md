@@ -155,7 +155,7 @@ The registry gains `forges`, fourth (ADR 0020, ADR 0034), in #141's shape (ADR 0
 
 ### Copies and the state import
 
-- **Same on every environment** (ADR 0020): the client calls `forge.accounts.add` on each target with origin, aliases, kind, slug, primary and `copiedFrom`; a reference copies as is; a stored token as `none`, which the target's check asks for; a `gh` source as `gh` (chosen default). Aliases without a credential wait unverified and unserved. The copied primary clears any other (ADR 0012).
+- **Same on every environment** (ADR 0020): the client calls `forge.accounts.add` on each target with origin, aliases, kind, slug, primary and `copiedFrom`; a reference copies with its locator, naming the target's own connection for the same provider and address, and a target holding none refuses it `credential_source_unavailable` (#706; client-runtime spec, #320's notes); a stored token as `none`, which the target's check asks for; a `gh` source as `gh` (chosen default). Aliases without a credential wait unverified and unserved. The copied primary clears any other (ADR 0012).
 - **The state import** (#56) calls the ForgeService in process: a credential probe answering identity and capabilities without storing, and the add with provenance `imported`; grouping and the winner rule are #56's (ADR 0020).
 
 ### Milestones 2 and 3
