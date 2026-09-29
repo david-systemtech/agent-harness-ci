@@ -104,11 +104,19 @@ export interface ScriptControls {
 /** A run's script: the events it plays, in order, ending (or not, or throwing) as a test needs. */
 export type Script = (controls: ScriptControls) => Iterable<AdapterEvent> | AsyncIterable<AdapterEvent>;
 
-/** One provider process as the fake keeps it: its session, how many runs it served, and whether it has been stopped. */
+/**
+ * One provider process as the fake keeps it: its session, how many runs it
+ * served, whether it has been stopped, and the process environment it was
+ * spawned with (#307).
+ */
 export interface FakeProcessRecord {
   readonly sessionId: string;
   /** The runs `createRun` started on it. */
   runs: number;
+  /** The key of the process environment it was spawned with: a run with another is served by a fresh process. */
+  readonly key: string;
+  /** Settles with the variables its spawn was supplied, which its scripted commands run in (`runCommand`). */
+  readonly supplied: Promise<Readonly<Record<string, string>>>;
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -606,13 +614,19 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     return latest === undefined || latest.stopping || latest.stopped ? undefined : latest;
   };
 
+  /** Starts a process cold for the run: its process environment supplied once, for this spawn. */
+  const spawn = (input: RunInput): FakeProcessRecord => {
+    const supplied = input.processEnvironment.supply().then((answer) => answer.variables);
+    // A script that never asks for the variables leaves a failed supply unheard: it is not an unhandled rejection.
+    supplied.catch(() => undefined);
+    const process: FakeProcessRecord = { sessionId: input.sessionId, runs: 0, key: input.processEnvironment.key, supplied, stopping: false, stopped: false, killed: false };
+    processes.push(process);
+    return process;
+  };
+
   /** The session's process for a new run: the live one, or one started cold. */
-  const processFor = (sessionId: string): FakeProcessRecord => {
-    let process = liveProcess(sessionId);
-    if (process === undefined) {
-      process = { sessionId, runs: 0, stopping: false, stopped: false, killed: false };
-      processes.push(process);
-    }
+  const processFor = (input: RunInput): FakeProcessRecord => {
+    const process = liveProcess(input.sessionId) ?? spawn(input);
     process.runs += 1;
     return process;
   };
@@ -815,7 +829,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     }),
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
     createRun: (input, context) => {
-      const process = processFor(input.sessionId);
+      const process = processFor(input);
       ports.set(process, context.process);
       return play(input, context, nextScripts.shift() ?? options.script ?? replyScript, false, process);
     },

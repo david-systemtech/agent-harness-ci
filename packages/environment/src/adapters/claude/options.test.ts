@@ -1,6 +1,7 @@
 import type { CanUseTool, HookCallback, SessionStore } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
+import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
 import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type RunOptionsInput } from "./options.js";
 
@@ -45,6 +46,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
     network: true,
   },
   denylist: null,
+  processEnvironment: EMPTY_PROCESS_ENVIRONMENT,
   prompt: [{ messageId: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", text: "Go", attachments: [] }],
   ...overrides,
 });

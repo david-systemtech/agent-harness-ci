@@ -22,6 +22,7 @@ import {
   type RunContext,
   type RunInput,
 } from "../../adapter/contract.js";
+import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 
 /**
  * The Claude adapter with the SDK transport scripted (claude-adapter spec,
@@ -106,6 +107,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     network: true,
   },
   denylist: null,
+  processEnvironment: EMPTY_PROCESS_ENVIRONMENT,
   prompt: [message("Go")],
   ...overrides,
 });
