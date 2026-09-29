@@ -108,6 +108,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createIdentityPasses } from "../workspace/identity-passes.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
@@ -1102,6 +1103,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const identityPasses = createIdentityPasses({
     log,
     forgeAccounts,
+    autoMemory: createAutoMemory(join(dataDir, AUTO_MEMORY_DIRECTORY)),
     ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
   }).start();
   closers.push(() => identityPasses.stop());

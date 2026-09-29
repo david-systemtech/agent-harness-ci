@@ -1,15 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import type { EventEnvelope, SessionSummary, Workspace, WorkspaceRequest } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, get, listStream, patchOf } from "../../test/sessions.js";
 import { git, scriptedResolver } from "../../test/workspaces.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import { autoMemoryName, type MemoryPlace } from "./auto-memory.js";
 
 /**
  * Identity after creation (workspace-picker spec, "Repository identity",
@@ -300,5 +301,100 @@ describe("the alias pass", () => {
     const again = await start({ dataDir, forgeFetch });
     await again.env.workspaces.identityPass;
     expect((await get(await again.client(), id)).repositoryIdentity).toBe("https://git.systemtech.dev/david/later");
+  });
+});
+
+/** Where the environment keeps auto memory: the directory the Claude adapter points a run of `place` at. */
+const memoryDirectory = (dataDir: string, place: MemoryPlace): string => join(dataDir, "auto-memory", autoMemoryName(place));
+
+/** Writes `files` (relative path to text) into `directory`, as Claude writes its memory. */
+const writeMemory = (directory: string, files: Readonly<Record<string, string>>): void => {
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(join(directory, name, ".."), { recursive: true });
+    writeFileSync(join(directory, name), text);
+  }
+};
+
+/** Every file under `directory`, by its path from there, with its text. */
+const readMemory = (directory: string): Record<string, string> =>
+  Object.fromEntries(
+    readdirSync(directory, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const path = join(entry.parentPath, entry.name);
+        return [path.slice(directory.length + 1), readFileSync(path, "utf8")];
+      })
+      .sort(([a], [b]) => (a as string).localeCompare(b as string)),
+  );
+
+const MEMORY = "# Memory\n\n- [Build](build.md) — how the build runs\n";
+const TOPIC = "The build runs with pnpm.\n";
+
+describe("auto memory when a session's key changes", () => {
+  it("copies the main checkout's directory into the identity's once the resolved pass finds one, keeping the old; a second session of the repository copies nothing again", async () => {
+    const dataDir = dataDirectory();
+    const first = await start({ dataDir });
+    const client = await first.client();
+    const checkout = repository();
+    mkdirSync(join(checkout, "docs"));
+    const sessions = [await created(client, { kind: "directory", path: checkout }), await created(client, { kind: "directory", path: join(checkout, "docs") })];
+    const before = memoryDirectory(dataDir, sessions[0]?.summary as MemoryPlace);
+    expect(memoryDirectory(dataDir, sessions[1]?.summary as MemoryPlace)).toBe(before);
+    writeMemory(before, { "MEMORY.md": MEMORY, "build.md": TOPIC });
+    await first.close();
+    git(checkout, "remote", "add", "origin", "git@git.systemtech.dev:david/agent-harness.git");
+
+    const again = await start({ dataDir });
+    await again.env.workspaces.identityPass;
+
+    const after = memoryDirectory(dataDir, { ...(sessions[0]?.summary as MemoryPlace), repositoryIdentity: IDENTITY });
+    expect(after).not.toBe(before);
+    expect(readMemory(after)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
+    expect(readMemory(before)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
+  });
+
+  it("puts a second source under carried/, with a pointer line in MEMORY.md, and overwrites nothing", async () => {
+    const dataDir = dataDirectory();
+    const first = await start({ dataDir });
+    const client = await first.client();
+    const identified = await created(client, { kind: "directory", path: repository({ origin: "https://git.systemtech.dev:5526/david/agent-harness" }) });
+    const checkout = repository();
+    const later = await created(client, { kind: "directory", path: checkout });
+    const target = memoryDirectory(dataDir, identified.summary);
+    const source = memoryDirectory(dataDir, later.summary);
+    const held = "# Memory\n\n- [Receipts](receipts.md) — the retention rule\n";
+    writeMemory(target, { "MEMORY.md": held, "receipts.md": "Thirty days.\n", "build.md": "Built on the laptop.\n" });
+    writeMemory(source, { "MEMORY.md": MEMORY, "build.md": TOPIC, "notes/deep.md": "Nested.\n" });
+    await first.close();
+    git(checkout, "remote", "add", "origin", "ssh://git@git.systemtech.dev:2222/david/agent-harness.git");
+
+    const again = await start({ dataDir });
+    await again.env.workspaces.identityPass;
+
+    const carried = `carried/${source.slice(source.lastIndexOf("/") + 1)}`;
+    const memory = readMemory(target);
+    expect(memory).toEqual({
+      "MEMORY.md": expect.stringMatching(new RegExp(`^${held.replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll("(", "\\(").replaceAll(")", "\\)")}- \\[.*\\]\\(${carried}/MEMORY\\.md\\)\\n$`)),
+      "receipts.md": "Thirty days.\n",
+      "build.md": "Built on the laptop.\n",
+      [`${carried}/MEMORY.md`]: MEMORY,
+      [`${carried}/build.md`]: TOPIC,
+      [`${carried}/notes/deep.md`]: "Nested.\n",
+    });
+    expect(readMemory(source)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC, "notes/deep.md": "Nested.\n" });
+  });
+
+  it("copies an identity's directory into the canonical identity's when the alias pass moves it", async () => {
+    const { t, client } = await withForge();
+    const ssh = await created(client, { kind: "directory", path: repository({ origin: "ssh://git@100.101.102.103:2222/david/agent-harness.git" }) });
+    const before = memoryDirectory(t.dataDir, ssh.summary);
+    writeMemory(before, { "MEMORY.md": MEMORY, "build.md": TOPIC });
+
+    await added(client, { url: CANONICAL, kind: "forgejo", aliases: [TAILNET] });
+
+    const after = memoryDirectory(t.dataDir, { ...ssh.summary, repositoryIdentity: IDENTITY });
+    await vi.waitFor(() => expect(existsSync(join(after, "build.md"))).toBe(true), { timeout: WAIT_MS });
+    expect(readMemory(after)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
+    expect(readMemory(before)).toEqual({ "MEMORY.md": MEMORY, "build.md": TOPIC });
   });
 });

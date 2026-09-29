@@ -9,6 +9,7 @@ import {
   type Workspace,
 } from "@agent-harness/contracts";
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
+import type { AutoMemory } from "./auto-memory.js";
 import { readRepositoryIdentity } from "./identity.js";
 
 /**
@@ -34,6 +35,11 @@ import { readRepositoryIdentity } from "./identity.js";
  *   needs no workspace. It matters because the Carry over import records
  *   identities before any forge account exists.
  *
+ * A session whose identity either pass changes has its auto-memory key
+ * changed with it: its old directory is carried into the new one
+ * (`auto-memory.ts`), the resolved pass waiting for the copy before it goes
+ * on.
+ *
  * The rule is given this environment's forge accounts with their verified
  * aliases as they are when it runs, and a resolved identity is put on its
  * canonical host again as it is appended, in case an alias was verified
@@ -53,6 +59,8 @@ export interface IdentityPassesOptions {
   readonly log: EventLog;
   /** This environment's forge accounts, each with its canonical origin and verified aliases, as the rule reads them now. */
   readonly forgeAccounts: () => readonly ForgeAccountOrigins[];
+  /** Where a session whose key an identity changes has its auto memory carried. */
+  readonly autoMemory: AutoMemory;
   /** How long each git call gets; preset: the hardened runner's 15 seconds. */
   readonly gitTimeoutMs?: number;
 }
@@ -61,7 +69,7 @@ export interface IdentityPassesOptions {
 export interface RunningPasses {
   /** Settles once the resolved pass has run, or has stopped. */
   readonly resolved: Promise<void>;
-  /** Stops both passes, starting no git call after this, and settles once the calls the resolved pass has running have answered. */
+  /** Stops both passes, starting no git call after this, and settles once the git calls and copies they have running are done. */
   stop(): Promise<void>;
 }
 
@@ -97,14 +105,17 @@ const isDirectory = async (path: string): Promise<boolean> => {
 export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPasses => {
   const { log } = options;
   let stopped = false;
+  /** The alias pass's appends whose copies still run. */
+  const copying = new Set<Promise<void>>();
 
   /**
    * Appends the identity a pass found for the session, if the session is
    * still as the pass read it: not deleted, and holding `before` in the
-   * workspace it was read in. Answers whether it appended.
+   * workspace it was read in; then carries its auto memory to the new key.
+   * Settles once the copy has run; at once when nothing was appended.
    */
-  const identify = (sessionId: string, workspace: string, before: string | null, repositoryIdentity: string, reason: RepositoryIdentifiedReason): boolean =>
-    log.atomically((tx) => {
+  const identify = async (sessionId: string, workspace: string, before: string | null, repositoryIdentity: string, reason: RepositoryIdentifiedReason): Promise<void> => {
+    const appended = log.atomically((tx) => {
       const [row] = log.read<{ workspace: string; repository_identity: string | null; deleted_at: string | null }>(
         "SELECT workspace, repository_identity, deleted_at FROM sessions WHERE id = ?",
         sessionId,
@@ -116,6 +127,10 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
       });
       return true;
     });
+    if (!appended) return;
+    const place = JSON.parse(workspace) as Workspace;
+    await options.autoMemory.carry({ workspace: place, repositoryIdentity: before }, { workspace: place, repositoryIdentity });
+  };
 
   /** The resolved pass: see the module comment. */
   const resolvedPass = async (): Promise<void> => {
@@ -131,7 +146,7 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
           ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }),
         });
         if (identity === null || stopped) continue;
-        identify(row.id, row.workspace, null, onCanonicalHost(identity, options.forgeAccounts()), "resolved");
+        await identify(row.id, row.workspace, null, onCanonicalHost(identity, options.forgeAccounts()), "resolved");
       }
     };
     await Promise.all(Array.from({ length: GIT_AT_ONCE }, resolveNext));
@@ -145,7 +160,13 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
     );
     for (const row of rows) {
       const rewritten = onCanonicalHost(row.repository_identity, forgeAccounts);
-      if (rewritten !== row.repository_identity) identify(row.id, row.workspace, row.repository_identity, rewritten, "alias");
+      if (rewritten === row.repository_identity) continue;
+      // Appended now, as the forge's event is heard; the copy runs after.
+      const identified = identify(row.id, row.workspace, row.repository_identity, rewritten, "alias").catch((error: unknown) =>
+        console.error(`Moving the identity of the session ${row.id} to its forge account's canonical host failed:`, error),
+      );
+      copying.add(identified);
+      void identified.finally(() => copying.delete(identified));
     }
   };
 
@@ -171,7 +192,7 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
         stop: async () => {
           stopped = true;
           unsubscribe();
-          await resolved;
+          await Promise.all([resolved, ...copying]);
         },
       };
     },
