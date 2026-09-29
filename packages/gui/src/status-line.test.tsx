@@ -139,3 +139,48 @@ describe("the run", () => {
     await waitFor(() => expect(lineText()).toContain("waiting for you"));
   });
 });
+
+describe("run info", () => {
+  it("shows the latest run's resolved policy, account, model, effort, tokens, cost and ending on Mod+I, and hides it on Mod+I again", async () => {
+    const { app, env, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
+    env.emit(session, "run.policy.resolved", {
+      runId,
+      actorKind: "client",
+      actorName: null,
+      attended: true,
+      mode: { requested: "bypassPermissions", effective: "auto", ceiling: "auto", clamped: true, clampReason: "ceiling" },
+      containment: { requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null },
+      unattendedDefaultApplied: false,
+    });
+    env.endRun(session, runId, {
+      reason: "error",
+      usage: [{ model: "claude-opus-4", inputTokens: 1500, outputTokens: 500, cacheReadTokens: 2000, cacheWriteTokens: 0, costUsd: 0.05, contextWindow: null }],
+    });
+    await waitFor(() => expect(lineText()).toContain("4.0k tok"));
+
+    await app.user.keyboard("{Control>}i{/Control}");
+    const info = await screen.findByRole("region", { name: "The latest run" });
+    const fact = (term: string) => within(info).getByText(term).nextElementSibling?.textContent;
+    expect(fact("Started by")).toBe("client, attended");
+    await waitFor(() => expect(fact("Account")).toBe("work (seth@work.test)"));
+    expect(fact("Model")).toBe("claude-opus-4");
+    expect(fact("Effort")).toBe("high");
+    expect(fact("Mode")).toBe("auto, clamped from bypassPermissions to the ceiling auto");
+    expect(fact("Containment")).toBe("workspace (the environment's default), enforced by bubblewrap");
+    expect(fact("Tokens")).toBe("4.0k (1.5k in, 2.0k cache read, 0 cache write, 500 out)");
+    expect(fact("Cost")).toBe("$0.050");
+    expect(fact("Ending")).toBe("Error: The run failed.");
+
+    await app.user.keyboard("{Control>}i{/Control}");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "The latest run" })).toBeNull());
+  });
+
+  it("says there is no run yet, and closes on Esc", async () => {
+    const { app } = await opened();
+    await app.user.click(within(statusLine()).getByRole("button", { name: "Run info" }));
+    expect(await screen.findByText("No run yet: the session's first message starts one.")).toBeTruthy();
+    await app.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("No run yet: the session's first message starts one.")).toBeNull());
+  });
+});

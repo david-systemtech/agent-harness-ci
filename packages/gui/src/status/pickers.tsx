@@ -16,7 +16,8 @@ import {
   type RunChoice,
 } from "@agent-harness/client-runtime";
 import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type Mode } from "@agent-harness/contracts";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { Offer } from "../keys/key-dispatch.js";
 import { usePaneLine } from "../session/pane-line.js";
@@ -32,7 +33,9 @@ import { useModelChoice } from "./run-choices.js";
  * per environment; #402), each a menu opened from its button on the line and
  * each over the session's environment. Each asks the connection whether it
  * can do what it does (`capability`): one it cannot is dim with the
- * capability's reason, which a press says on the pane's line. What each
+ * capability's reason, which a press says on the pane's line. Each is its
+ * slash command's too (`/account`, `/model`, `/mode`, `/containment`),
+ * which opens it from the composer or the command palette. What each
  * choice does and says is the client runtime's (`setSessionMode`,
  * `setSessionContainment`, the hand-off), so the terminal UI says the same.
  *
@@ -62,8 +65,8 @@ interface PickerButtonProps {
   readonly children: ReactNode;
   /** The menu's items. */
   readonly items: () => ReactNode;
-  /** The menu's name. */
-  readonly title: string;
+  /** The slash command that opens it. */
+  readonly command: "account" | "model" | "mode" | "containment";
 }
 
 const TRIGGER = "h-6 min-w-0 shrink gap-1 px-1.5 text-xs font-normal text-ink-muted";
@@ -73,8 +76,10 @@ const TRIGGER = "h-6 min-w-0 shrink gap-1 px-1.5 text-xs font-normal text-ink-mu
  * does, the button is dim with the reason in its tooltip and opens nothing:
  * a press says the reason on the pane's line.
  */
-const PickerButton = ({ name, value, offer, children, items, title }: PickerButtonProps) => {
+const PickerButton = ({ name, value, offer, children, items, command }: PickerButtonProps) => {
   const [, say] = usePaneLine();
+  const [open, setOpen] = useState(false);
+  useSlashCommand(command, () => (offer.status === "absent" ? say(offer.message) : setOpen(true)), offer);
   const label = `${name}: ${value}`;
   if (offer.status === "absent") {
     return (
@@ -86,13 +91,13 @@ const PickerButton = ({ name, value, offer, children, items, title }: PickerButt
     );
   }
   return (
-    <Menu>
+    <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger asChild>
         <Button aria-label={label} className={TRIGGER}>
           {children}
         </Button>
       </MenuTrigger>
-      <MenuContent align="start" aria-label={title} className="max-h-96 max-w-md overflow-y-auto">
+      <MenuContent align="start" className="max-h-96 max-w-md overflow-y-auto">
         {items()}
       </MenuContent>
     </Menu>
@@ -189,10 +194,10 @@ export const AccountPicker = ({ environmentId, sessionId, accountId }: AccountPi
   };
   return (
     <PickerButton
-      name="Account"
+      name="Account" command="account"
       value={accountId === null ? "default account" : `${account?.label ?? accountId} ${account ? identityWords(account) : "not read yet"}`}
       offer={listing}
-      title={`Accounts on ${environment}`}
+     
       items={items}
     >
       {accountId === null ? (
@@ -222,7 +227,6 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
   const [, choose] = useModelChoice(environmentId, sessionId);
   const [, say] = usePaneLine();
   const session = useSessionName(environmentId, sessionId);
-  const environment = useEnvironmentName(environmentId);
 
   const words = model === undefined ? "default model" : model.effort !== null ? `${model.model} ${model.effort}` : model.model;
   const chosen = (id: string, effort: string | null) => {
@@ -245,7 +249,6 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
           <MenuLabel>{modelName(entry)}</MenuLabel>
           {[null, ...entry.efforts].map((effort) => (
             <Item key={effort ?? ""} onSelect={() => chosen(entry.id, effort)} note={marked(entry.id, effort)}>
-              <span className="sr-only">{entry.id} </span>
               {effort ?? "its own effort"}
             </Item>
           ))}
@@ -254,7 +257,7 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
     );
   };
   return (
-    <PickerButton name="Model" value={words} offer={listing} title={`Models on ${environment}`} items={items}>
+    <PickerButton name="Model" command="model" value={words} offer={listing} items={items}>
       <span className={model === undefined ? "text-ink-faint" : "text-ink"}>{words}</span>
     </PickerButton>
   );
@@ -292,7 +295,7 @@ export const ModePicker = ({ environmentId, sessionId, ceiling, value, children 
       </Item>
     ));
   return (
-    <PickerButton name="Mode" value={value} offer={setting} title={`Mode of ${session}`} items={items}>
+    <PickerButton name="Mode" command="mode" value={value} offer={setting} items={items}>
       {children}
     </PickerButton>
   );
@@ -337,7 +340,7 @@ export const ContainmentPicker = ({ environmentId, sessionId, containment }: Con
     </>
   );
   return (
-    <PickerButton name="Containment" value={value} offer={setting} title={`Containment of ${session}`} items={items}>
+    <PickerButton name="Containment" command="containment" value={value} offer={setting} items={items}>
       <span className={containment?.level === "off" ? "text-amber" : undefined}>{value}</span>
     </PickerButton>
   );

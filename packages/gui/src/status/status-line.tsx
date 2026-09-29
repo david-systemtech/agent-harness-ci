@@ -15,6 +15,7 @@ import {
 } from "@agent-harness/client-runtime";
 import { EnvironmentColour } from "@agent-harness/contracts";
 import { useEffect, useMemo, useReducer } from "react";
+import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { classes } from "../ui/classes.js";
 import { Button } from "../ui/index.js";
@@ -47,7 +48,8 @@ export interface StatusLineProps {
  *   otherwise), its tokens and cost, the last run's once it has ended; or,
  *   while the account's window is out and no run is live, the hand-off offer
  *   in `accounts.handoff.recommend`'s words, which opens the hand-off picker.
- *   Run info (Mod+I) sits at its end.
+ *   Run info (Mod+I) sits at its end. `/handoff` opens the hand-off picker
+ *   whenever.
  */
 export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
   const runtime = useRuntime();
@@ -76,6 +78,8 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
     now: () => runtime.environmentNow(environmentId).getTime(),
   });
   useSecondTicks(useClock(), facts.elapsedMs);
+  const openHandoff = useHandoffPicker();
+  useSlashCommand("handoff", openHandoff);
 
   return (
     <section aria-label="Status line" className="flex shrink-0 flex-col gap-1 border-t border-hairline px-4 py-2 text-xs text-ink-muted">
