@@ -62,7 +62,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** How often the sweep runs: once a day. */
 export const COMPACTION_SWEEP_INTERVAL_MS = DAY_MS;
 
-/** The transcript types a compaction removes: the fold's items and run facts, and a run's composed instructions, none of which a projector reads. */
+/** The session-stream types a compaction removes: the transcript's items and run facts the fold keeps, and a run's composed instructions, none of which a projector reads. */
 export const COMPACTION_REMOVES = [
   "assistant.delta",
   "assistant.text",

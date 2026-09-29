@@ -1005,13 +1005,14 @@ describe("a call the descriptor does not cover", () => {
 });
 
 describe("a run composing its instructions (#493)", () => {
-  /** A composer whose every composition waits for `held`, counting those begun. */
+  /** A composer whose every composition waits for `held`, counting those begun and those answered. */
   const stalling = (held: Gate) => {
-    const begun = { count: 0 };
+    const begun = { count: 0, answered: 0 };
     const instructions = composeInstructions({
       orientation: async () => {
         begun.count += 1;
         await held.opened;
+        begun.answered += 1;
         return { text: "You are on SYSTEM-SERVER.", unreadRegistries: [] };
       },
     });
@@ -1041,6 +1042,21 @@ describe("a run composing its instructions (#493)", () => {
     held.open();
     await untilEnded(t, runId);
     expect(t.adapter.lastRun().input.mode).toBe("plan");
+  });
+
+  it("ends on an admin's stop of its session's process, interrupted by them, and nothing starts once its composition answers", async () => {
+    const held = gate();
+    const { begun, instructions } = stalling(held);
+    const t = await setup(fakeAdapter(), { instructions });
+    const runId = startRun(t, "Go");
+    await vi.waitFor(() => expect(begun.count).toBe(1));
+    t.host.processes.stop(t.sessionId, { actor: "client_session:admin", commandId: randomUUID() });
+    await untilEnded(t, runId);
+    expect(endsOf(t, runId)[0]).toMatchObject({ actor: "client_session:admin", payload: { reason: "interrupted", cause: "user" } });
+    held.open();
+    await vi.waitFor(() => expect(begun.answered).toBe(1));
+    expect(t.adapter.runs).toHaveLength(0);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
   });
 
   it("ends on a read-now, interrupted by it with no provider process begun, and the run of the queue reads what it was launched with", async () => {
