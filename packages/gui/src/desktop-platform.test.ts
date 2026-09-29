@@ -2,6 +2,7 @@ import { createRuntime, type SocketHandlers, type WebSocketFactory } from "@agen
 import { fakeShell, inMemoryDocuments, inMemoryNetwork, manualClock, seededRandom, type FakeShell } from "@agent-harness/client-runtime/testing";
 import { scriptedWorld, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { IDBFactory } from "fake-indexeddb";
+import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { desktopPlatform, desktopShellOf, windowDesktopPlatform, type DesktopPlatform } from "./platform/desktop-platform.js";
 
@@ -112,6 +113,18 @@ describe("the desktop platform", () => {
 
     await runtime.connections.remove(laptop.environmentId);
     expect(allowed()).toBe(`allow ${desk}`);
+  });
+
+  it("stops declaring the address of a pairing that failed once its socket has closed", async () => {
+    const world = scriptedWorld(manualClock(), { environments: [{ name: "laptop", reach: "unpaired", hello: { environmentId: "0199aa00-0000-7000-8000-0000000000ff" } }] });
+    const { runtime, seen } = await onDesktop(world);
+    await runtime.start();
+    const laptop = world.environment("laptop");
+    expect(await runtime.connections.add({ link: laptop.wire.link })).toMatchObject({ status: "failed", failure: { reason: "different-environment" } });
+
+    const allows = seen.filter((entry) => entry.startsWith("allow"));
+    expect(allows.some((entry) => entry.includes(laptop.wire.origin))).toBe(true);
+    await waitFor(() => expect(seen.filter((entry) => entry.startsWith("allow")).at(-1)).toBe("allow "));
   });
 
   it("opens a socket to loopback at once, and one closed before its address was declared never opens, and says it closed", async () => {

@@ -9,7 +9,8 @@ import type { Observable, PlatformSocket, ShellNetwork, SocketHandlers, WebSocke
  * connection's address is closed again; and a socket to an address not
  * declared yet (a pairing tries its new client session before the
  * connection is kept) waits for its address to be declared before it
- * opens, and keeps it declared until it has opened or closed.
+ * opens, and keeps it declared until it has opened or closed; then only
+ * the connections' addresses are, so a pairing that failed leaves none.
  */
 
 const LOOPBACK = /^(localhost|127(\.\d{1,3}){3}|\[::1\])(:\d+)?$/i;
@@ -65,10 +66,13 @@ export const declaredSockets = (network: ShellNetwork, open: WebSocketFactory, r
     const { address } = reached;
     wait(address, 1);
     let done = false;
+    // Opened or closed, the socket no longer needs its address declared: an address no connection keeps (a pairing that
+    // failed) is closed again.
     const settle = () => {
       if (done) return;
       done = true;
       wait(address, -1);
+      declare().catch(report);
     };
     const settling: SocketHandlers = {
       onOpen: () => (settle(), handlers.onOpen()),
