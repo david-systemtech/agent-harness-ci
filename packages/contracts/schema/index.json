@@ -599,6 +599,10 @@
       "title": "ToolDecisionPayload"
     },
     {
+      "path": "sessions/events/run.instructions.composed.json",
+      "title": "RunInstructionsComposedPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -1579,6 +1583,38 @@
       "title": "ReviewRun"
     },
     {
+      "path": "instructions/layer.json",
+      "title": "InstructionLayer"
+    },
+    {
+      "path": "instructions/manifest-part.json",
+      "title": "InstructionManifestPart"
+    },
+    {
+      "path": "instructions/manifest-layer.json",
+      "title": "InstructionManifestLayer"
+    },
+    {
+      "path": "instructions/always-on-skill.json",
+      "title": "InstructionAlwaysOnSkill"
+    },
+    {
+      "path": "instructions/left-out-reason.json",
+      "title": "InstructionLeftOutReason"
+    },
+    {
+      "path": "instructions/left-out.json",
+      "title": "InstructionLeftOut"
+    },
+    {
+      "path": "instructions/manifest.json",
+      "title": "InstructionManifest"
+    },
+    {
+      "path": "instructions/preview-part.json",
+      "title": "InstructionPreviewPart"
+    },
+    {
       "path": "terminals/terminal-id.json",
       "title": "TerminalId"
     },
@@ -2265,6 +2301,10 @@
     {
       "path": "errors/not_a_forge.json",
       "title": "NotAForgeError"
+    },
+    {
+      "path": "errors/not_a_pull_request.json",
+      "title": "NotAPullRequestError"
     },
     {
       "path": "forge/errors/unreachable.json",
@@ -3323,6 +3363,18 @@
       "title": "commands.list error"
     },
     {
+      "path": "methods/instructions.preview/params.json",
+      "title": "instructions.preview params"
+    },
+    {
+      "path": "methods/instructions.preview/result.json",
+      "title": "instructions.preview result"
+    },
+    {
+      "path": "methods/instructions.preview/error.json",
+      "title": "instructions.preview error"
+    },
+    {
       "path": "methods/forge.accounts.list/params.json",
       "title": "forge.accounts.list params"
     },
@@ -3445,6 +3497,50 @@
     {
       "path": "methods/forge.orgs.list/error.json",
       "title": "forge.orgs.list error"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/params.json",
+      "title": "forge.pullRequests.link params"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/result.json",
+      "title": "forge.pullRequests.link result"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/response.json",
+      "title": "forge.pullRequests.link response"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/error.json",
+      "title": "forge.pullRequests.link error"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/params.json",
+      "title": "forge.pullRequests.unlink params"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/result.json",
+      "title": "forge.pullRequests.unlink result"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/response.json",
+      "title": "forge.pullRequests.unlink response"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/error.json",
+      "title": "forge.pullRequests.unlink error"
+    },
+    {
+      "path": "methods/forge.pullRequests.refresh/params.json",
+      "title": "forge.pullRequests.refresh params"
+    },
+    {
+      "path": "methods/forge.pullRequests.refresh/result.json",
+      "title": "forge.pullRequests.refresh result"
+    },
+    {
+      "path": "methods/forge.pullRequests.refresh/error.json",
+      "title": "forge.pullRequests.refresh error"
     },
     {
       "path": "methods/keyManagers.list/params.json",
@@ -4981,6 +5077,15 @@
       "error": "methods/commands.list/error.json"
     },
     {
+      "name": "instructions.preview",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/instructions.preview/params.json",
+      "result": "methods/instructions.preview/result.json",
+      "error": "methods/instructions.preview/error.json"
+    },
+    {
       "name": "forge.accounts.list",
       "scope": "read",
       "kind": "query",
@@ -5064,6 +5169,35 @@
       "params": "methods/forge.orgs.list/params.json",
       "result": "methods/forge.orgs.list/result.json",
       "error": "methods/forge.orgs.list/error.json"
+    },
+    {
+      "name": "forge.pullRequests.link",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.pullRequests.link/params.json",
+      "result": "methods/forge.pullRequests.link/result.json",
+      "response": "methods/forge.pullRequests.link/response.json",
+      "error": "methods/forge.pullRequests.link/error.json"
+    },
+    {
+      "name": "forge.pullRequests.unlink",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.pullRequests.unlink/params.json",
+      "result": "methods/forge.pullRequests.unlink/result.json",
+      "response": "methods/forge.pullRequests.unlink/response.json",
+      "error": "methods/forge.pullRequests.unlink/error.json"
+    },
+    {
+      "name": "forge.pullRequests.refresh",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.pullRequests.refresh/params.json",
+      "result": "methods/forge.pullRequests.refresh/result.json",
+      "error": "methods/forge.pullRequests.refresh/error.json"
     },
     {
       "name": "keyManagers.list",

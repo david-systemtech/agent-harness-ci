@@ -6,6 +6,7 @@ import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage } from "
 import { CredentialUnavailableError } from "../git-credential.js";
 import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError } from "../key-managers.js";
 import { commandParams, defineMethod } from "../method.js";
+import { PullRequest, SessionId, SessionSummary } from "../sessions.js";
 
 /**
  * The forge account methods (forge spec, "Wire methods"; ADR 0012, ADR
@@ -35,6 +36,11 @@ import { commandParams, defineMethod } from "../method.js";
  * `forge.detect` says which forge a URL is on and which token to mint
  * there; `forge.orgs.list` reads the owners a forge account may create a
  * repository under, live and never stored (ADR 0020).
+ *
+ * `forge.pullRequests.link`, `unlink` and `refresh` keep a session's pull
+ * requests (forge spec, "Pull-request links and status"; ADR 0012), whose
+ * events and the summary's `pullRequests` are session-state's: a link and
+ * an unlink are the session's own events, at `sessions:write`.
  */
 
 /** The forge refused the credential: its identity endpoint answered a refusal (401, 403) or something that is no user, or a read it asked for answered so. */
@@ -46,7 +52,7 @@ export const VerificationFailedError = errorSchema(
   }),
 ).meta({
   description:
-    "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list): an add or update stored nothing. data names the origin and the HTTP status.",
+    "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list; linking a pull request, no pull request): an add or update stored nothing, a link linked nothing. data names the origin and the HTTP status.",
 });
 export type VerificationFailedError = z.infer<typeof VerificationFailedError>;
 
@@ -346,4 +352,88 @@ export const forgeOrgsList = defineMethod({
   params: z.object({ forgeAccountId: ForgeAccountId }),
   result: z.object({ owners: z.array(ForgeOwner).meta({ description: "The user first, then each organisation in the order the forge lists them." }) }),
   errors: [CredentialUnavailableError, VerificationFailedError, ForgeUnreachableError],
+});
+
+/** A URL that is no pull request's web address a provider reads. */
+export const NotAPullRequestError = errorSchema(
+  "not_a_pull_request",
+  z.object({
+    origin: ForgeOrigin.nullable().meta({ description: "The origin the URL is on; null for a URL that names no forge." }),
+  }),
+).meta({
+  description:
+    "The URL is no pull request's web address on a forge a provider reads (GitHub's /<owner>/<repository>/pull/<number>, Forgejo's and Gitea's /<owner>/<repository>/pulls/<number>, on the kind of the forge account serving its origin): nothing was linked. data names its origin, when it has one.",
+});
+export type NotAPullRequestError = z.infer<typeof NotAPullRequestError>;
+
+/** A pull request's web URL as a person gives it: any page of it, a query or a fragment, on any origin that serves it. */
+const PullRequestUrlInput = z
+  .string()
+  .min(1)
+  .max(2048)
+  .meta({ description: "The pull request's web URL, or any page of it (its files, with a query or a fragment), on the forge's canonical origin or an alias of it." });
+
+const summaryResult = z.object({ summary: SessionSummary.meta({ description: "The session as the command left it." }) });
+
+/**
+ * Links a pull request to a session (forge spec, "Pull-request links and
+ * status"; ADR 0012): a prepared command that reads the pull request from
+ * the forge first, with the forge account serving the URL's origin, or
+ * anonymously where none does, and appends `session.pull-request-linked`
+ * with what it read, as the linking client session. The session keeps it by
+ * its web URL on the origin it was read from, the pull request's own page
+ * however the URL was given. A URL no provider reads as a pull request is
+ * `not_a_pull_request`; one the forge answers 404 with a forge account is
+ * `not_found` (data kind `pull_request`); an anonymous read the forge
+ * refuses (401, 403, or a 404, behind which a private repository hides) is
+ * `forge_account_missing`; a credential that cannot be read is
+ * `credential_unavailable`; the forge refusing the read otherwise, or
+ * answering no pull request, is `verification_failed`; one that does not
+ * answer is `unreachable`. A session that is not on this environment, or is
+ * deleted, is `not_found` (data kind `session`). Linking one linked already
+ * with the state read changes nothing; a link after an unlink links it
+ * again, which discovery never does.
+ */
+export const forgePullRequestsLink = defineMethod({
+  name: "forge.pullRequests.link",
+  scope: "sessions:write",
+  kind: "command",
+  params: commandParams({ sessionId: SessionId, url: PullRequestUrlInput }),
+  result: summaryResult,
+  errors: [NotAPullRequestError, ForgeAccountMissingError, CredentialUnavailableError, VerificationFailedError, ForgeUnreachableError],
+});
+
+/**
+ * Unlinks a pull request from a session: `session.pull-request-unlinked`,
+ * as the client session, for the linked pull request the URL names (any
+ * page of it, on any origin that serves it). The unlink sticks: discovery
+ * never links a URL again whose latest event is an unlink, and only a
+ * person's link does. A URL no pull request of the session answers to
+ * changes nothing. A session that is not on this environment, or is
+ * deleted, is `not_found` (data kind `session`).
+ */
+export const forgePullRequestsUnlink = defineMethod({
+  name: "forge.pullRequests.unlink",
+  scope: "sessions:write",
+  kind: "command",
+  params: commandParams({ sessionId: SessionId, url: PullRequestUrlInput }),
+  result: summaryResult,
+  errors: [],
+});
+
+/**
+ * Reads a session's pull requests from the forge now, each that has not
+ * merged (a merged one never changes), and appends
+ * `session.pull-request-synced` for each whose state, merged-at or
+ * closed-at changed, as `system:forge`; answers them after. A read that
+ * fails keeps what the session held. A session that is not on this
+ * environment, or is deleted, is `not_found` (data kind `session`).
+ */
+export const forgePullRequestsRefresh = defineMethod({
+  name: "forge.pullRequests.refresh",
+  scope: "read",
+  kind: "query",
+  params: z.object({ sessionId: SessionId }),
+  result: z.object({ pullRequests: z.array(PullRequest).meta({ description: "The session's pull requests after the reads, in the order they were first linked." }) }),
+  errors: [],
 });

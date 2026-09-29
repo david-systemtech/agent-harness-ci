@@ -48,6 +48,7 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
@@ -287,6 +288,7 @@ export interface EnvironmentOptions {
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
+    /** Composes each run's standing instructions; preset: the composer with no layer filled (`instructions/composer.ts`). */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
@@ -985,6 +987,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...instructionMethods({ host }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, options.keyManagerTimeoutMs),
     // The routine store's commands and list (#521), on each routine's own stream.
@@ -1134,6 +1137,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   launcher.onQuery((query) => lifecycle.answer(query));
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
+  closers.push(forge.links.start());
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
   // verifications (#366), on the clock, and every fifteen minutes.
   keyManagerConnections.startSigningInAndVerifying();

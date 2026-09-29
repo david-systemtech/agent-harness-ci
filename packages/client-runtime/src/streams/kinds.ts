@@ -248,7 +248,8 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "prompt.parked":
       case "prompt.resolved":
         return data;
-      // The forge's events (#310) change no status: the forge accounts' cache and notices are #320's.
+      // The forge's events (#310) change no status: the request cache refreshes `forge.accounts.list` on them, and the
+      // notices queue raises the forge's rows (#320).
       case "forge.account.added":
       case "forge.account.updated":
       case "forge.account.primary-set":

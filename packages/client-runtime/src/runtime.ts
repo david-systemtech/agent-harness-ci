@@ -5,6 +5,8 @@ import type { Connections } from "./connections/registry.js";
 import type { Notice } from "./notices.js";
 import type { Commands } from "./outbox/outbox.js";
 import type { Drafts } from "./outbox/drafts.js";
+import type { CopyTarget } from "./copies.js";
+import type { Forges } from "./forges.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
@@ -16,6 +18,7 @@ import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
 import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
+import type { KnownDirectory } from "./projections/known-directories.js";
 import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
@@ -76,6 +79,16 @@ export interface Runtime {
     readonly usage: Observable<UsageView>;
     /** The mode picker for the environment: the contracts' modes in their order, each allowed up to the connection's ceiling. */
     modes(environmentId: string): Observable<ModePicker>;
+    /** The environments a copy from this one offers: every other enabled one this client holds an `admin` connection to, in the connection list's order (#320). */
+    copyTargets(environmentId: string): Observable<readonly CopyTarget[]>;
+    /**
+     * The directories the environment's sessions use (a directory's path, a
+     * worktree's repository, never a scratch workspace), each with its
+     * repository identity, last use and missing mark, most recent first, at
+     * most `KNOWN_DIRECTORY_LIMIT`: derived from the session list, cached
+     * offline with it, and stored nowhere.
+     */
+    knownDirectories(environmentId: string): Observable<readonly KnownDirectory[]>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;
@@ -102,12 +115,23 @@ export interface Runtime {
     /** Takes a notice off `projections.notices`, on this client only. */
     dismiss(noticeId: string): void;
   };
+  readonly knownDirectories: {
+    /**
+     * Takes a directory off `projections.knownDirectories(environmentId)`, on
+     * this client only (`hiddenDirectories`), until a session uses it after
+     * the hiding. Rejects with a `RangeError` when no session of the
+     * environment uses it.
+     */
+    hide(environmentId: string, path: string): Promise<void>;
+  };
   /** The `sessions:write` and `runs:drive` commands, through the outbox. */
   readonly commands: Commands;
   /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */
   readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */
   readonly requests: Requests;
+  /** Forge accounts beyond their cached list: this computer's `gh` handed over once, and copies to other environments, direct and never queued (#320). */
+  readonly forges: Forges;
   /**
    * The environment's time now, as this client reckons it from the server
    * time its last `hello` carried: what a snooze-until or a prompt's TTL is

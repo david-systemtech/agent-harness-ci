@@ -14,6 +14,7 @@ import {
   matchForgeAccount,
   normaliseRemote,
   parsePullRequestUrl,
+  pullRequestUrl,
   type ForgeRemote,
   type PullRequestReference,
   type ForgeVariableNames,
@@ -344,6 +345,24 @@ describe("the pull-request URL parser", () => {
 
   it.each(table)("reads %s", (_, kind, url, expected) => {
     expect(parsePullRequestUrl(kind, url)).toEqual(expected);
+  });
+});
+
+describe("a pull request's web URL", () => {
+  const pr = (origin: string, owner: string, repository: string, number: number): PullRequestReference => ({ origin, owner, repository, number });
+
+  it.each([
+    ["github", pr("https://github.com", "david", "agent-harness", 12), "https://github.com/david/agent-harness/pull/12"],
+    ["github", pr("https://ghe.example.com:8443", "team", "app.web", 7), "https://ghe.example.com:8443/team/app.web/pull/7"],
+    ["forgejo", pr("https://git.systemtech.dev:5526", "david", "agent-harness", 309), "https://git.systemtech.dev:5526/david/agent-harness/pulls/309"],
+    ["gitea", pr("http://100.101.102.103:3000", "gitea", "tea", 42), "http://100.101.102.103:3000/gitea/tea/pulls/42"],
+  ] as const)("on %s is the page the parser reads: %j at %s", (kind, reference, url) => {
+    expect(pullRequestUrl(kind, reference)).toBe(url);
+    expect(parsePullRequestUrl(kind, url)).toEqual(reference);
+  });
+
+  it("is none on the reserved GitLab, whose merge requests nothing reads yet", () => {
+    expect(pullRequestUrl("gitlab", pr("https://gitlab.com", "group", "project", 5))).toBeNull();
   });
 });
 

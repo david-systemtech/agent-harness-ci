@@ -5,13 +5,14 @@ import { createRuntime, writable } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
+import { WAIT_MS } from "../../environment/test/wire-client.js";
 import { App } from "../src/app.js";
 import { DEFAULT_KEYMAP } from "../src/keys.js";
 import { nodePlatform } from "../src/platform/node-platform.js";
 import type { LocalService } from "../src/platform/services.js";
 import { createRuntimeHost } from "../src/runtime-host.js";
 import type { Fault } from "../src/view.js";
-import { KEY, SIZE } from "./harness.js";
+import { KEY, SIZE, SMOKE_TEST_MS } from "./harness.js";
 
 /**
  * The rail through the real spine (docs/specs/tui.md, "Testing Decisions"),
@@ -26,10 +27,6 @@ import { KEY, SIZE } from "./harness.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-/** How long one wait may take, and the whole test: it fails with the frame before Vitest's own timeout would. */
-const WAIT_MS = 5000;
-const TEST_MS = 20_000;
-
 const noService: LocalService = {
   installed: async () => false,
   install: async () => ({ ok: false, message: "not in the smoke test" }),
@@ -38,10 +35,9 @@ const noService: LocalService = {
 };
 
 describe.sequential("the rail through the real spine", () => {
-  it("starts a session in a directory workspace from Enter on the environment's heading, then pins it and moves it into a new group", { timeout: TEST_MS + 10_000 }, async () => {
-    const ends = Date.now() + TEST_MS;
+  it("starts a session in a directory workspace from Enter on the environment's heading, then pins it and moves it into a new group", { timeout: SMOKE_TEST_MS }, async () => {
     const until = async (condition: () => boolean, what: () => string): Promise<void> => {
-      const deadline = Math.min(Date.now() + WAIT_MS, ends);
+      const deadline = Date.now() + WAIT_MS;
       while (!condition()) {
         if (Date.now() > deadline) throw new Error(`Timed out waiting: ${what()}`);
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -138,7 +134,7 @@ describe.sequential("the rail through the real spine", () => {
       const smoke = groups.result.groups.find((g) => g.name === "Smoke");
       return { smoke, moved: smoke && sessions.result.sessions.find((s) => s.groupId === smoke.id) };
     };
-    const deadline = Math.min(Date.now() + WAIT_MS, ends);
+    const deadline = Date.now() + WAIT_MS;
     let lists = await read();
     while (lists.moved === undefined && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));

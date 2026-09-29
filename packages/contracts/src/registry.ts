@@ -84,6 +84,7 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
+import { instructionsPreview } from "./methods/instructions.js";
 import {
   forgeAccountsAdd,
   forgeAccountsList,
@@ -94,6 +95,9 @@ import {
   forgeDetect,
   forgeGhProbe,
   forgeOrgsList,
+  forgePullRequestsLink,
+  forgePullRequestsRefresh,
+  forgePullRequestsUnlink,
 } from "./methods/forge.js";
 import {
   keyManagersCertificatePreview,
@@ -218,6 +222,7 @@ export const methods = [
   accountsHandoffRecommend,
   modelsList,
   commandsList,
+  instructionsPreview,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,
@@ -227,6 +232,9 @@ export const methods = [
   forgeGhProbe,
   forgeDetect,
   forgeOrgsList,
+  forgePullRequestsLink,
+  forgePullRequestsUnlink,
+  forgePullRequestsRefresh,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,

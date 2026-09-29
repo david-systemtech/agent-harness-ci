@@ -19,6 +19,7 @@ export * from "./forge-accounts.js";
 export * from "./forge-gh.js";
 export * from "./frames.js";
 export * from "./git-credential.js";
+export * from "./instructions.js";
 export * from "./key-managers.js";
 export * from "./key-manager-connections.js";
 export * from "./launcher.js";
@@ -74,6 +75,7 @@ export {
   KindUnsupportedError,
   MAX_FORGE_ALIASES,
   NotAForgeError,
+  NotAPullRequestError,
   VerificationFailedError,
 } from "./methods/forge.js";
 export {

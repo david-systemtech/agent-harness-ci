@@ -64,7 +64,7 @@ The window keeps its layout: a sidebar of every environment's sessions, a grid o
 ### How the renderer holds state
 
 - **One runtime per window.** Components read projections through `useSyncExternalStore` and act through `commands.dispatch`, `requests.call`, `drafts.set` and the runtime's composed commands; every affordance asks `capability`, every session verb reads its availability from `projections.runs.session`, and nothing reads flags, scopes or streams (ADR 0004) or keeps a copy of what a projection carries (ADR 0003).
-- **Presentation** lives in the renderer's one presentation module (the ADR 0003 lint's allowlisted module), in IndexedDB: the pane grid, each session pane's side column, the sidebar's width, visibility and view (groups or repositories), `collapsedHeadings` (keyed as the terminal UI keys them), text size, reading width, reasoning shown, the streaming fade, the light or dark preference, the cached theme, the GUI's key remaps, the last settings row, the first-launch mark, `hiddenDirectories` and whether to run an environment on this machine; each joins the lint's presentation keys.
+- **Presentation** lives in the renderer's one presentation module (the ADR 0003 lint's allowlisted module), in IndexedDB: the pane grid, each session pane's side column, the sidebar's width, visibility and view (groups or repositories), `collapsedHeadings` (keyed as the terminal UI keys them), text size, reading width, reasoning shown, the streaming fade, the light or dark preference, the cached theme, the GUI's key remaps, the last settings row, the first-launch mark and whether to run an environment on this machine; each joins the lint's presentation keys. The directories hidden from the picker (`hiddenDirectories`) are the client runtime's preference beside `environments.lastUsed` (#332), which the terminal UI's picker reads too.
 - **Carried forward** once they take props: transcript rows and streaming text, markdown, highlighting, the diff view, the inline permission, question and plan cards, the composer and slash menu, the plan-usage meter, status line, session rows, command palette, parked asks list, hand-off picker, the six side panes and the file viewer, the primitives and the `ui` set. **Not carried**: the store and its pane-state modules, the bridges, the preferences file, the mock bridge.
 
 ### The window and the sidebar
@@ -259,7 +259,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 
 **Owed by this workstream's build**:
 
-- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own; drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
+- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own (paid by #390); drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
 - With 88: this build turns the step registry's pane links into home row ids and each settings key's band into a row, since the rail reads them first (paid by #389); 88 then serves the `setup` subscription and fills this frame with the step cards.
 - To 93: the browser dock as a driver and the relay's handler registration on the runtime. To 91: Managed tools rows in About.
 

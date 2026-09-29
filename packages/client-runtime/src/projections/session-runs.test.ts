@@ -9,7 +9,7 @@ import { recorded } from "../../test/transcript.js";
 import { METHOD_FLAGS, type CapabilityAnswer } from "../capabilities.js";
 import { flush, type FakeAnswer, type FakeWire } from "../testing/fake-wire.js";
 import type { UserMessageEntry } from "./session.js";
-import { sessionVerbs, type VerbMethod, type VerbsInput } from "./verbs.js";
+import { sessionVerbs, stopFirstOffer, type VerbMethod, type VerbsInput } from "./verbs.js";
 
 /**
  * The queue and the rewound state per session on `projections.runs`, each
@@ -131,6 +131,35 @@ describe("each verb's availability", () => {
     // The verb is the newest message's: the terminal UI's ↑ takes the newest back.
     expect(verbs.withdraw).toMatchObject({ status: "absent", reason: "draft_full" });
     expect(sessionVerbs(input({ live: true, queued, draft: "short" })).verbs.withdraw).toEqual(PRESENT);
+  });
+});
+
+describe("the stop-first rewind's offer (#390)", () => {
+  const RUN_ID = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
+  const offer = (fields: Partial<VerbsInput>, liveRunId: string | undefined) => stopFirstOffer(sessionVerbs(input(fields)), liveRunId);
+
+  it("stops the live run for a rewind refused only because it is live, with nothing queued", () => {
+    expect(offer({ live: true }, RUN_ID)).toEqual({ stops: RUN_ID, rewind: { status: "absent", reason: "run_active", message: expect.any(String) } });
+  });
+
+  it("offers no stop while messages are queued, which the rewind would be refused over: withdraw them first", () => {
+    expect(offer({ live: true, queued: [message("m-1", "Also the tests", "provider", 3)] }, RUN_ID)).toEqual({
+      stops: null,
+      rewind: { status: "absent", reason: "queued_messages", message: "Messages are queued behind the live run: withdraw them first." },
+    });
+  });
+
+  it("offers no stop while the run is only starting, with no id to interrupt", () => {
+    expect(offer({ live: true }, undefined)).toEqual({
+      stops: null,
+      rewind: { status: "absent", reason: "run_active", message: "A run is starting on this session: once it is running, a rewind offers to stop it." },
+    });
+  });
+
+  it("leaves the rewind as it stands when no run is live, or it is absent for another reason", () => {
+    expect(offer({}, undefined)).toEqual({ stops: null, rewind: { status: "present" } });
+    const codex = { ...(capabilities as AdapterCapabilities), displayName: "Codex", rewind: false };
+    expect(offer({ live: true, adapter: codex }, RUN_ID)).toEqual({ stops: null, rewind: { status: "absent", reason: "adapter", message: "Codex cannot rewind a session." } });
   });
 });
 
@@ -424,6 +453,23 @@ describe("commands.rewind", () => {
     expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "rewind", answer: { ok: false, error: { code: "invalid_params" } } });
     expect(requests(wire, "sessions.create")).toEqual([]);
     expect(rejections(runtime)).toHaveLength(1);
+  });
+
+  it("in its stop-first form is refused at once, dispatching nothing, while the run is only starting, with no id to interrupt (#390)", async () => {
+    const { runtime, wire, env, sessionId, play, environments } = await opened();
+    await play(...firstRun);
+    // Another client's start: the list says starting before any run.started names the run.
+    environments[0]?.list.event(listEvent(5, sessionId, "session.activity-changed", {}, { activity: { state: "starting", since: "2026-09-24T01:05:03.456Z" } }));
+    await flush();
+    expect(runtime.projections.runs.session(env, sessionId).read().state).toBe("starting");
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT, { stopFirst: true })).toEqual({
+      kind: "refused",
+      reason: "run_active",
+      message: "A run is starting on this session: once it is running, a rewind offers to stop it.",
+    });
+    await flush();
+    expect(requests(wire, "runs.interrupt")).toEqual([]);
+    expect(requests(wire, "sessions.rewind")).toEqual([]);
   });
 
   it("answers any other refusal as the rewind's own, with its notice, and starts nothing", async () => {

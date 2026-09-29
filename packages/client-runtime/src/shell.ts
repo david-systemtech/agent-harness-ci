@@ -39,6 +39,8 @@ export interface Shell {
   readonly network?: ShellNetwork;
   /** The machine and the user the desktop runs as, for the client's label (`<user>@<hostname>`) and the platform's keys. */
   readonly system?: () => Promise<ShellSystem>;
+  /** This computer's `gh`, whose token a desktop hands over once to an environment that has none (ADR 0032; #320). */
+  readonly gh?: ShellGh;
 }
 
 /**
@@ -64,6 +66,7 @@ export const SHELL_MEMBERS = [
   "shell.http",
   "shell.network",
   "shell.system",
+  "shell.gh",
 ] as const;
 export type ShellMember = (typeof SHELL_MEMBERS)[number];
 
@@ -226,4 +229,20 @@ export interface ShellSystem {
   readonly hostname: string;
   /** The OS user's login name. */
   readonly user: string;
+}
+
+/**
+ * The `gh` signed in on the computer the desktop runs on (forge spec,
+ * "Credentials": the attending client's `gh`; ADR 0032). The runtime reads
+ * its token for one host and sends it once, in `forge.accounts.add`, and
+ * keeps it nowhere: not in documents, not in secrets.
+ */
+export interface ShellGh {
+  /**
+   * The token this computer's `gh` holds for `host` (`github.com`, or an
+   * Enterprise host with its port when it has one), as `gh auth token
+   * --hostname <host>` prints it for the account active there; undefined
+   * when `gh` is not installed or not signed in to that host.
+   */
+  token(host: string): Promise<string | undefined>;
 }

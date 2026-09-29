@@ -217,6 +217,8 @@ describe("the method registry", () => {
       "forge.accounts.update",
       "forge.accounts.remove",
       "forge.accounts.setPrimary",
+      "forge.pullRequests.link",
+      "forge.pullRequests.unlink",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
@@ -389,6 +391,7 @@ describe("the method registry", () => {
       | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
+      | "instructions.preview"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"
@@ -398,6 +401,9 @@ describe("the method registry", () => {
       | "forge.gh.probe"
       | "forge.detect"
       | "forge.orgs.list"
+      | "forge.pullRequests.link"
+      | "forge.pullRequests.unlink"
+      | "forge.pullRequests.refresh"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"

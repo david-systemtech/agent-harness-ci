@@ -1,7 +1,7 @@
 import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { SessionProjection, ToolCallEntry, TranscriptEntry } from "../projections/session.js";
-import { liveTasks, transcriptRows } from "./rows.js";
+import { forkedFrom, liveTasks, transcriptRows } from "./rows.js";
 
 /**
  * The transcript's rows as a pure function (docs/specs/tui.md, "Testing
@@ -135,6 +135,32 @@ describe("transcriptRows", () => {
     expect(folded?.kind === "rewound" && folded.rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Then", "assistant"]);
   });
 
+  it("draws a fork's forked entry as its first row, before what the fork says (#390)", () => {
+    const forked: TranscriptEntry = { kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2" };
+    const rows = transcriptRows(view([forked, message(5, "Carry on"), text(6, "Carrying on.")], [run(RUN, "ended")]));
+    expect(rows.map((row) => row.kind)).toEqual(["forked", "user", "assistant", "turn"]);
+    expect(rows[0]).toEqual({ kind: "forked", id: "forked:4", runId: null, entry: forked });
+  });
+});
+
+describe("forkedFrom", () => {
+  const forked = (atMessageId: string | null) => ({ kind: "forked" as const, sequence: 4, fromSessionId: "s-source", atMessageId });
+  const source = (items: readonly TranscriptEntry[], title: string | null = "Receipts") => ({ summary: title === null ? null : { title }, items });
+
+  it("names the source's title and the text of the message the fork was taken before", () => {
+    expect(forkedFrom(forked("m-2"), source([message(1, "Go"), message(2, "Then the tests")]))).toEqual({ title: "Receipts", anchor: "Then the tests" });
+    expect(forkedFrom(forked(null), source([message(1, "Go")]))).toEqual({ title: "Receipts", anchor: null });
+  });
+
+  it("finds the message inside a fold a later rewind of the source cut it into", () => {
+    const fold: TranscriptEntry = { kind: "rewound", sequence: 4, toMessageId: "m-2", text: "Then", undoable: true, items: [message(2, "Then the tests"), text(3, "Done.")] };
+    expect(forkedFrom(forked("m-2"), source([message(1, "Go"), fold])).anchor).toBe("Then the tests");
+  });
+
+  it("names neither while the source is not held, nor a message the source does not hold", () => {
+    expect(forkedFrom(forked("m-2"), undefined)).toEqual({ title: null, anchor: null });
+    expect(forkedFrom(forked("m-9"), source([message(1, "Go")], null))).toEqual({ title: null, anchor: null });
+  });
 });
 
 describe("liveTasks", () => {

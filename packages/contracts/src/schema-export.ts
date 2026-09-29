@@ -297,6 +297,7 @@ import {
   IdentityMismatchError,
   KindUnsupportedError,
   NotAForgeError,
+  NotAPullRequestError,
   VerificationFailedError,
 } from "./methods/forge.js";
 import {
@@ -339,6 +340,17 @@ import {
 } from "./key-manager-connections.js";
 import { AddressUnreachableError, CertificateRejectedError, KeyManagerVerificationFailedError, ProviderUnavailableError, SealedError, UnreachableError } from "./methods/key-managers.js";
 import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
+import {
+  INSTRUCTION_SESSION_EVENT_TYPES,
+  InstructionAlwaysOnSkill,
+  InstructionLayer,
+  InstructionLeftOut,
+  InstructionLeftOutReason,
+  InstructionManifest,
+  InstructionManifestLayer,
+  InstructionManifestPart,
+  InstructionPreviewPart,
+} from "./instructions.js";
 import {
   ClampReason,
   ContainmentAvailability,
@@ -468,12 +480,19 @@ const pascal = (words: string): string =>
 
 /**
  * The session and group event types whose payloads are fixed, each with its
- * payload, the prompt types, the transcript vocabulary and the permission
- * types among them; a type reserved by name for a workstream that has not
- * fixed its payload yet would be left out.
+ * payload, the prompt types, the transcript vocabulary, the permission
+ * types and the composed instructions among them; a type reserved by name
+ * for a workstream that has not fixed its payload yet would be left out.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
-  Object.entries({ ...SESSION_EVENT_TYPES, ...PROMPT_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...PERMISSION_SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
+  Object.entries({
+    ...SESSION_EVENT_TYPES,
+    ...PROMPT_EVENT_TYPES,
+    ...TRANSCRIPT_EVENT_TYPES,
+    ...PERMISSION_SESSION_EVENT_TYPES,
+    ...INSTRUCTION_SESSION_EVENT_TYPES,
+    ...GROUP_EVENT_TYPES,
+  } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
   );
 
@@ -808,6 +827,14 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },
   { path: "permissions/review-denial.json", title: "ReviewDenial", schema: ReviewDenial },
   { path: "permissions/review-run.json", title: "ReviewRun", schema: ReviewRun },
+  { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
+  { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
+  { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
+  { path: "instructions/always-on-skill.json", title: "InstructionAlwaysOnSkill", schema: InstructionAlwaysOnSkill },
+  { path: "instructions/left-out-reason.json", title: "InstructionLeftOutReason", schema: InstructionLeftOutReason },
+  { path: "instructions/left-out.json", title: "InstructionLeftOut", schema: InstructionLeftOut },
+  { path: "instructions/manifest.json", title: "InstructionManifest", schema: InstructionManifest },
+  { path: "instructions/preview-part.json", title: "InstructionPreviewPart", schema: InstructionPreviewPart },
   { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
   { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
   { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },
@@ -979,6 +1006,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
   { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
   { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
+  { path: "errors/not_a_pull_request.json", title: "NotAPullRequestError", schema: NotAPullRequestError },
   { path: "forge/errors/unreachable.json", title: "ForgeUnreachableError", schema: ForgeUnreachableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
