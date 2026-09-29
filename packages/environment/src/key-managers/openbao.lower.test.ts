@@ -208,6 +208,21 @@ describe("the error categories", () => {
   });
 });
 
+describe("a call on a kept connection", () => {
+  it("is made again on a new one when OpenBao closed it before answering, so OpenBao restarted with another certificate has that certificate rejected, however soon after the last answer", async () => {
+    const bao = await fakeOpenBao();
+    bao.token(PERSON_TOKEN, { policies: ["default"] });
+    const target = targetOf(bao);
+    expect(await openBaoProvider.lookUp(target, PERSON_TOKEN)).toMatchObject({ outcome: "found" });
+
+    // Restarted, every connection closed, and asked again before this process has read the kept one close.
+    bao.present("other-ca");
+    expect(await openBaoProvider.lookUp(target, PERSON_TOKEN)).toMatchObject({ outcome: "certificate-rejected" });
+    bao.present("leaf");
+    expect(await openBaoProvider.lookUp(target, PERSON_TOKEN)).toMatchObject({ outcome: "found" });
+  });
+});
+
 describe("a reference's read", () => {
   const V2_VALUE = "value-in-version-2-for-tests";
   const V1_VALUE = "value-in-version-1-for-tests";
