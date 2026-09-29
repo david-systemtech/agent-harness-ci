@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerTokenInformation",
+  "type": "object",
+  "properties": {
+    "displayName": {
+      "type": "string",
+      "description": "The token's display name, as the key manager answers it (approle, userpass-david)."
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+        "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+      },
+      "description": "The policies the login's token holds, as its lookup answers them."
+    },
+    "ttlSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The token's time to live when it was looked up, in seconds; 0 for a token that does not expire."
+    },
+    "renewable": {
+      "type": "boolean",
+      "description": "Whether the token can be renewed."
+    },
+    "expiresAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When the token expires; null for one that does not."
+    }
+  },
+  "required": [
+    "displayName",
+    "policies",
+    "ttlSeconds",
+    "renewable",
+    "expiresAt"
+  ],
+  "description": "What the login's lookup said of its token: display name, policies, time to live, whether it renews, and its expiry. Never the token or its id."
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerVaultEntry",
+  "type": "string",
+  "pattern": "^key-manager:[0-9a-f-]+:[0-9a-f-]+$",
+  "description": "The environment's vault entry holding a connection's credential: key-manager:<connection id>:<entry id>, one per credential given. Never the credential itself."
+}

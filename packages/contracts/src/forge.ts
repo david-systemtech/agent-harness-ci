@@ -33,14 +33,17 @@ const IPV6 = "\\[[0-9a-f:.]+\\]";
 const PORT = "(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])";
 
 /**
- * A forge origin (ADR 0020): `https`, or `http` for a LAN or tailnet
- * instance; the host lower-cased; the scheme's default port omitted; no
- * userinfo, path or trailing slash. Two origins are the same exactly when
- * their strings are.
+ * An origin as the contracts keep one: `https` or `http`, the host
+ * lower-cased, the scheme's default port omitted, no userinfo, path or
+ * trailing slash. Two origins are the same exactly when their strings are.
+ * A forge's origin and a key manager's address are both kept so.
  */
+export const HTTP_ORIGIN = new RegExp(`^(?:https://(?:${NAME}|${IPV6})(?::(?!443$)${PORT})?|http://(?:${NAME}|${IPV6})(?::(?!80$)${PORT})?)$`);
+
+/** A forge origin (ADR 0020): `https`, or `http` for a LAN or tailnet instance, kept as `HTTP_ORIGIN` says. */
 export const ForgeOrigin = z
   .string()
-  .regex(new RegExp(`^(?:https://(?:${NAME}|${IPV6})(?::(?!443$)${PORT})?|http://(?:${NAME}|${IPV6})(?::(?!80$)${PORT})?)$`))
+  .regex(HTTP_ORIGIN)
   .meta({
     description:
       "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash.",
@@ -188,6 +191,19 @@ const schemelessRemote = (text: string): ForgeRemote | null => {
   const [, user, host = "", rest = ""] = scp;
   if (!SCP_HOST.test(host)) return null;
   return (user === undefined ? bareHostPortRemote(host, rest) : null) ?? sshDerivedRemote(host, rest, user?.includes(":") ?? false);
+};
+
+/**
+ * The origin of an `https` or `http` URL that names nothing below it: no
+ * userinfo, no path beyond `/`, no query and no fragment; null for anything
+ * else. A key manager's address is kept so.
+ */
+export const httpOriginOf = (text: string): string | null => {
+  const trimmed = text.trim();
+  if (/[?#]/.test(trimmed)) return null;
+  const url = urlParts(trimmed);
+  if (url === null || !isOriginScheme(url.scheme) || url.userinfo !== null || (url.path !== "" && url.path !== "/")) return null;
+  return originOf(url.scheme, url.host, url.port);
 };
 
 /**

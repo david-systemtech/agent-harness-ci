@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerLabel",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 100,
+  "pattern": "^[^\\p{Cc}]+$",
+  "description": "A key-manager connection's label, which people know it by: 1 to 100 characters on one line."
+}

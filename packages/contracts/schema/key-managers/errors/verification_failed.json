@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerVerificationFailedError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "verification_failed"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "rejected",
+            "root_token"
+          ],
+          "description": "rejected: the key manager refused the credential. root_token: it signs in with the root policy, which the harness never holds."
+        }
+      },
+      "required": [
+        "connectionId",
+        "reason"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The key manager refused the credential, or it signs in as root, which the harness never holds: nothing was stored. data names the connection and the reason."
+}

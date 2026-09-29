@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "keyManagers.connections.signIn params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "credential": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "approle"
+            },
+            "roleId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The AppRole's role id."
+            },
+            "secretId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The AppRole's secret id."
+            }
+          },
+          "required": [
+            "method",
+            "roleId",
+            "secretId"
+          ],
+          "description": "An AppRole's role id and secret id."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "userpass"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[^\\p{Cc}]+$",
+              "description": "The userpass password: printable, on one line."
+            }
+          },
+          "required": [
+            "method",
+            "password"
+          ],
+          "description": "A userpass password; the username is the connection's."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "token"
+            },
+            "token": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The token."
+            }
+          },
+          "required": [
+            "method",
+            "token"
+          ],
+          "description": "A token, looked up to sign in."
+        }
+      ],
+      "description": "A key-manager connection's credential, sent once and never answered back: an AppRole's role id and secret id, a userpass password, or a token. The environment keeps it in its vault to sign in again by itself."
+    },
+    "mount": {
+      "description": "Where the credential's method is mounted; preset: the mount held for the same method, else the method's name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    },
+    "username": {
+      "description": "The username of a userpass login; preset: the one the connection holds.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+$"
+    }
+  },
+  "required": [
+    "commandId",
+    "connectionId",
+    "credential"
+  ]
+}

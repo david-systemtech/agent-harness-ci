@@ -983,6 +983,114 @@
       "title": "KeyManagerReference"
     },
     {
+      "path": "key-managers/address.json",
+      "title": "KeyManagerAddress"
+    },
+    {
+      "path": "key-managers/auth-method.json",
+      "title": "KeyManagerAuthMethod"
+    },
+    {
+      "path": "key-managers/mount.json",
+      "title": "KeyManagerMount"
+    },
+    {
+      "path": "key-managers/username.json",
+      "title": "KeyManagerUsername"
+    },
+    {
+      "path": "key-managers/token-role.json",
+      "title": "KeyManagerTokenRole"
+    },
+    {
+      "path": "key-managers/ca.json",
+      "title": "KeyManagerCa"
+    },
+    {
+      "path": "key-managers/policy.json",
+      "title": "KeyManagerPolicy"
+    },
+    {
+      "path": "key-managers/base-path.json",
+      "title": "KeyManagerBasePath"
+    },
+    {
+      "path": "key-managers/credential.json",
+      "title": "KeyManagerCredential"
+    },
+    {
+      "path": "key-managers/vault-entry.json",
+      "title": "KeyManagerVaultEntry"
+    },
+    {
+      "path": "key-managers/status-kind.json",
+      "title": "KeyManagerStatusKind"
+    },
+    {
+      "path": "key-managers/status.json",
+      "title": "KeyManagerStatus"
+    },
+    {
+      "path": "key-managers/token-information.json",
+      "title": "KeyManagerTokenInformation"
+    },
+    {
+      "path": "key-managers/copied-from.json",
+      "title": "KeyManagerCopiedFrom"
+    },
+    {
+      "path": "key-managers/imported-from.json",
+      "title": "KeyManagerImportedFrom"
+    },
+    {
+      "path": "key-managers/label.json",
+      "title": "KeyManagerLabel"
+    },
+    {
+      "path": "key-managers/connection-record.json",
+      "title": "KeyManagerConnectionRecord"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.added.json",
+      "title": "KeyManagerConnectionAddedPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.signed-in.json",
+      "title": "KeyManagerConnectionSignedInPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.signed-out.json",
+      "title": "KeyManagerConnectionSignedOutPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.updated.json",
+      "title": "KeyManagerConnectionUpdatedPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.connection.removed.json",
+      "title": "KeyManagerConnectionRemovedPayload"
+    },
+    {
+      "path": "key-managers/errors/verification_failed.json",
+      "title": "KeyManagerVerificationFailedError"
+    },
+    {
+      "path": "errors/unreachable.json",
+      "title": "UnreachableError"
+    },
+    {
+      "path": "errors/sealed.json",
+      "title": "SealedError"
+    },
+    {
+      "path": "errors/certificate_rejected.json",
+      "title": "CertificateRejectedError"
+    },
+    {
+      "path": "errors/provider_unavailable.json",
+      "title": "ProviderUnavailableError"
+    },
+    {
       "path": "scrub/shape-rule-id.json",
       "title": "ShapeRuleId"
     },
@@ -2915,6 +3023,98 @@
       "title": "forge.gh.probe error"
     },
     {
+      "path": "methods/keyManagers.list/params.json",
+      "title": "keyManagers.list params"
+    },
+    {
+      "path": "methods/keyManagers.list/result.json",
+      "title": "keyManagers.list result"
+    },
+    {
+      "path": "methods/keyManagers.list/error.json",
+      "title": "keyManagers.list error"
+    },
+    {
+      "path": "methods/keyManagers.connections.add/params.json",
+      "title": "keyManagers.connections.add params"
+    },
+    {
+      "path": "methods/keyManagers.connections.add/result.json",
+      "title": "keyManagers.connections.add result"
+    },
+    {
+      "path": "methods/keyManagers.connections.add/response.json",
+      "title": "keyManagers.connections.add response"
+    },
+    {
+      "path": "methods/keyManagers.connections.add/error.json",
+      "title": "keyManagers.connections.add error"
+    },
+    {
+      "path": "methods/keyManagers.connections.signIn/params.json",
+      "title": "keyManagers.connections.signIn params"
+    },
+    {
+      "path": "methods/keyManagers.connections.signIn/result.json",
+      "title": "keyManagers.connections.signIn result"
+    },
+    {
+      "path": "methods/keyManagers.connections.signIn/response.json",
+      "title": "keyManagers.connections.signIn response"
+    },
+    {
+      "path": "methods/keyManagers.connections.signIn/error.json",
+      "title": "keyManagers.connections.signIn error"
+    },
+    {
+      "path": "methods/keyManagers.connections.update/params.json",
+      "title": "keyManagers.connections.update params"
+    },
+    {
+      "path": "methods/keyManagers.connections.update/result.json",
+      "title": "keyManagers.connections.update result"
+    },
+    {
+      "path": "methods/keyManagers.connections.update/response.json",
+      "title": "keyManagers.connections.update response"
+    },
+    {
+      "path": "methods/keyManagers.connections.update/error.json",
+      "title": "keyManagers.connections.update error"
+    },
+    {
+      "path": "methods/keyManagers.connections.signOut/params.json",
+      "title": "keyManagers.connections.signOut params"
+    },
+    {
+      "path": "methods/keyManagers.connections.signOut/result.json",
+      "title": "keyManagers.connections.signOut result"
+    },
+    {
+      "path": "methods/keyManagers.connections.signOut/response.json",
+      "title": "keyManagers.connections.signOut response"
+    },
+    {
+      "path": "methods/keyManagers.connections.signOut/error.json",
+      "title": "keyManagers.connections.signOut error"
+    },
+    {
+      "path": "methods/keyManagers.connections.remove/params.json",
+      "title": "keyManagers.connections.remove params"
+    },
+    {
+      "path": "methods/keyManagers.connections.remove/result.json",
+      "title": "keyManagers.connections.remove result"
+    },
+    {
+      "path": "methods/keyManagers.connections.remove/response.json",
+      "title": "keyManagers.connections.remove response"
+    },
+    {
+      "path": "methods/keyManagers.connections.remove/error.json",
+      "title": "keyManagers.connections.remove error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -4102,6 +4302,65 @@
       "params": "methods/forge.gh.probe/params.json",
       "result": "methods/forge.gh.probe/result.json",
       "error": "methods/forge.gh.probe/error.json"
+    },
+    {
+      "name": "keyManagers.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.list/params.json",
+      "result": "methods/keyManagers.list/result.json",
+      "error": "methods/keyManagers.list/error.json"
+    },
+    {
+      "name": "keyManagers.connections.add",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.add/params.json",
+      "result": "methods/keyManagers.connections.add/result.json",
+      "response": "methods/keyManagers.connections.add/response.json",
+      "error": "methods/keyManagers.connections.add/error.json"
+    },
+    {
+      "name": "keyManagers.connections.signIn",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.signIn/params.json",
+      "result": "methods/keyManagers.connections.signIn/result.json",
+      "response": "methods/keyManagers.connections.signIn/response.json",
+      "error": "methods/keyManagers.connections.signIn/error.json"
+    },
+    {
+      "name": "keyManagers.connections.update",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.update/params.json",
+      "result": "methods/keyManagers.connections.update/result.json",
+      "response": "methods/keyManagers.connections.update/response.json",
+      "error": "methods/keyManagers.connections.update/error.json"
+    },
+    {
+      "name": "keyManagers.connections.signOut",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.signOut/params.json",
+      "result": "methods/keyManagers.connections.signOut/result.json",
+      "response": "methods/keyManagers.connections.signOut/response.json",
+      "error": "methods/keyManagers.connections.signOut/error.json"
+    },
+    {
+      "name": "keyManagers.connections.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.remove/params.json",
+      "result": "methods/keyManagers.connections.remove/result.json",
+      "response": "methods/keyManagers.connections.remove/response.json",
+      "error": "methods/keyManagers.connections.remove/error.json"
     },
     {
       "name": "settings.get",
