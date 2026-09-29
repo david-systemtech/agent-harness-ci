@@ -1509,6 +1509,9 @@ describe("the process environment (#307)", () => {
     expect(query.closed).toBe(true);
     expect(prompts.map((prompt) => prompt.uuid)).toEqual([changed.prompt[0]?.messageId, queued.messageId]);
     expect(fresh.env["HARNESS_GENERATION"]).toBe("2");
+    // Let go by the adapter, not exited: the pool's record of the session's process is the fresh one's, whose release it holds.
+    await flush();
+    expect(port).not.toContain("exited");
     fresh.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [changed.prompt[0]?.messageId as string, queued.messageId]), sdk.result(PROVIDER_SESSION));
     await drain(second);
     second.release();
