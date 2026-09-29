@@ -118,7 +118,7 @@ describe("an environment's look before anyone sets it", () => {
     expect(colours.size).toBeGreaterThan(1);
   });
 
-  it("answers environment.subscribe's snapshot with the look beside the status", async () => {
+  it("answers environment.subscribe's snapshot with the look beside the status and Set up's results", async () => {
     const t = await start({ platform: "win32" });
     const client = await t.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
@@ -126,6 +126,7 @@ describe("an environment's look before anyone sets it", () => {
     expect(snapshot.payload).toEqual({
       status: expect.objectContaining({ readiness: "ready" }) as unknown,
       environment: { name: "mnl", icon: "desktop", colour: (await discoveredLook(t.address)).colour },
+      setup: expect.any(Array) as unknown,
     });
   });
 
