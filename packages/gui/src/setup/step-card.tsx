@@ -1,5 +1,5 @@
 import { SETUP_ACTION_WORDS, lastGoodWords, planSetupAction, restoreStep, stepLine, uuidv7, type SetupActionPlan, type SetupStepView } from "@agent-harness/client-runtime";
-import { REGISTERED_STEP_IDS, STEP_ORDER, settingsRow, type RegisteredStepId, type StepId } from "@agent-harness/contracts";
+import { STEP_ORDER, settingsRow } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import { useLocalService } from "../connections/local-service.js";
 import { useSettings } from "../settings/settings-window.js";
@@ -7,9 +7,6 @@ import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { useChecklist } from "./checklist-window.js";
 import { HealthDot } from "./health-dot.js";
-
-/** Whether this build can ask the environment to check `step` alone (`setup.check`'s `step` names a registered step). */
-export const isRegisteredStep = (step: StepId): step is RegisteredStepId => (REGISTERED_STEP_IDS as readonly StepId[]).includes(step);
 
 /**
  * Carries out a named action on the environment checked (`planSetupAction`):
@@ -48,9 +45,10 @@ const useSetupActions = (environmentId: string, say: (line: string) => void) => 
  * A step's card in the full checklist (docs/specs/gui.md, "Set up in the
  * window"), until #88 fills each with its own: its state and line (pending,
  * aged, the last good result beneath one that could not check), its named
- * actions, Check now where Check again is not among them, a link to its
- * home row, and Continue to the next step, or Finish on the last, which sets
- * the first-launch mark.
+ * actions, Check now where Check again is not among them (a check of the
+ * step, or of every step for one this build cannot ask about alone), a link
+ * to its home row, and Continue to the next step, or Finish on the last,
+ * which sets the first-launch mark.
  */
 export const StepCard = ({ environmentId, step }: { readonly environmentId: string; readonly step: SetupStepView }) => {
   const runtime = useRuntime();
@@ -77,9 +75,7 @@ export const StepCard = ({ environmentId, step }: { readonly environmentId: stri
             {SETUP_ACTION_WORDS[action]}
           </Button>
         ))}
-        {isRegisteredStep(step.id) && !actions.includes("check-again") && (
-          <Button onClick={() => void runtime.setup.check(environmentId, step.id as RegisteredStepId)}>Check now</Button>
-        )}
+        {!actions.includes("check-again") && <Button onClick={() => void act(planSetupAction(step, "check-again"))}>Check now</Button>}
         <Button onClick={() => leave(step.home, environmentId)}>Open {settingsRow(step.home).label}</Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}

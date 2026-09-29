@@ -356,3 +356,23 @@ describe("the header's Set up line", () => {
     expect(within(header).queryByRole("button", { name: /^Set up on/ })).toBeNull();
   });
 });
+
+describe("an environment the checklist cannot reach", () => {
+  it("says since when, its results kept beneath, and offers this machine's environment, its service down, a start", async () => {
+    // With the setup flag, the results come on the environment's stream, which the runtime keeps across a restart.
+    const first = await renderApp({ environments: [{ name: "desk", reach: "local", environmentId: "0199aa00-0000-7000-8000-00000000d35c", capabilities: ["setup"] }] });
+    await screen.findByText(NO_SESSION);
+    await openSettings(first);
+    await waitFor(() => expect(railDots()).toContain("Permissions: done"));
+    first.environment("desk").discovery("nothing");
+    const app = await first.remount();
+    app.shell.answer("service.start", async () => app.environment("desk").discovery("ready"));
+
+    const pane = await setupPane(app);
+    expect(await within(pane).findByText("desk is not running: its results are from before it stopped.")).toBeDefined();
+    expect(within(pane).getByText(/^On desk: 6 done, 0 need attention, 0 skipped/)).toBeDefined();
+    await app.user.click(within(pane).getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(within(pane).queryByText(/is not running/)).toBeNull());
+    expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1);
+  });
+});

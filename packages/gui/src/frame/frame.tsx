@@ -38,31 +38,34 @@ export const Frame = () => {
   };
   const { shown } = useSettings();
   const checklist = useChecklist();
-  if (checklist.shown) return <ChecklistView />;
   return (
     <TerminalPanesProvider>
-      <div className="flex h-dvh flex-col bg-abyss text-ink">
-        <Header />
-        {shown ? (
-          <SettingsView />
-        ) : (
-          <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
-            <Panel
-              id={SIDEBAR}
-              defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
-              minSize={SIDEBAR_LEAST}
-              maxSize={SIDEBAR_MOST}
-              groupResizeBehavior="preserve-pixel-size"
-            >
-              <SidebarRegion />
-            </Panel>
-            <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
-            <Panel id={SESSION_PANES}>
-              <SessionPaneRegion />
-            </Panel>
-          </Group>
-        )}
-      </div>
+      {checklist.shown ? (
+        <ChecklistView />
+      ) : (
+        <div className="flex h-dvh flex-col bg-abyss text-ink">
+          <Header />
+          {shown ? (
+            <SettingsView />
+          ) : (
+            <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
+              <Panel
+                id={SIDEBAR}
+                defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
+                minSize={SIDEBAR_LEAST}
+                maxSize={SIDEBAR_MOST}
+                groupResizeBehavior="preserve-pixel-size"
+              >
+                <SidebarRegion />
+              </Panel>
+              <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
+              <Panel id={SESSION_PANES}>
+                <SessionPaneRegion />
+              </Panel>
+            </Group>
+          )}
+        </div>
+      )}
     </TerminalPanesProvider>
   );
 };
