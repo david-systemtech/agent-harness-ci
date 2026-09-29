@@ -1,9 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { SETUP_PENDING_MS } from "@agent-harness/client-runtime";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
-import { SETTINGS, denylistPresets } from "@agent-harness/contracts";
+import { SETTINGS, STEP_ORDER, denylistPresets } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../test/harness.js";
 
 /**
  * Set up in the window (docs/specs/gui.md, "Set up in the window"; the Set
@@ -38,6 +38,12 @@ const setupPane = async (app: RenderedApp) => {
   const open = await openSettings(app);
   return within(open).getByRole("region", { name: "Set up" });
 };
+
+/**
+ * An environment's Set up with results for these steps alone, and none for any other, whichever this build registers:
+ * the counts and dots a test reads stay as it scripts them as more steps are registered.
+ */
+const onlySteps = (results: ScriptedSetup): ScriptedSetup => ({ ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])), ...results });
 
 /** A first launch on this machine's environment, `desk`, as `given` scripts it, with Set up open over the window. */
 const firstLaunch = async (given: Partial<ScriptedEnvironment> = {}) => {
@@ -94,6 +100,9 @@ describe("the first-launch mark", () => {
   });
 });
 
+/** The six steps both environments give results for, each done. */
+const PASSING: ScriptedSetup = { account: {}, "your-machines": {}, forges: {}, browser: {}, permissions: {}, appearance: {} };
+
 /** Two environments: `desk`, this machine's, with Permissions needing attention and Browser skipped; `laptop`, paired, with the `setup` flag and Appearance needing attention. */
 const twoEnvironments = async () => {
   const app = await renderApp({
@@ -101,16 +110,20 @@ const twoEnvironments = async () => {
       {
         name: "desk",
         reach: "local",
-        setup: {
+        setup: onlySteps({
+          ...PASSING,
           permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] },
           browser: { state: "skipped", reason: "No Chrome is paired." },
-        },
+        }),
       },
       {
         name: "laptop",
         reach: "paired",
         capabilities: ["setup"],
-        setup: { appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] } },
+        setup: onlySteps({
+          ...PASSING,
+          appearance: { state: "needs-attention", reason: "Theme \"Olive\" has 1 seed clamped.", failing: ["appearance.contrast"], actions: ["restore"] },
+        }),
       },
     ],
   });
@@ -360,7 +373,9 @@ describe("the header's Set up line", () => {
 describe("an environment the checklist cannot reach", () => {
   it("says since when, its results kept beneath, and offers this machine's environment, its service down, a start", async () => {
     // With the setup flag, the results come on the environment's stream, which the runtime keeps across a restart.
-    const first = await renderApp({ environments: [{ name: "desk", reach: "local", environmentId: "0199aa00-0000-7000-8000-00000000d35c", capabilities: ["setup"] }] });
+    const first = await renderApp({
+      environments: [{ name: "desk", reach: "local", environmentId: "0199aa00-0000-7000-8000-00000000d35c", capabilities: ["setup"], setup: onlySteps(PASSING) }],
+    });
     await screen.findByText(NO_SESSION);
     await openSettings(first);
     await waitFor(() => expect(railDots()).toContain("Permissions: done"));

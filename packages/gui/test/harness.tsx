@@ -19,7 +19,13 @@ import { App } from "../src/app.js";
 import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
 import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
 
-export { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedEnvironment } from "@agent-harness/client-runtime/testing/scripted-environment";
+export {
+  scriptedWorld,
+  type EnvironmentHandle,
+  type Script,
+  type ScriptedEnvironment,
+  type ScriptedSetup,
+} from "@agent-harness/client-runtime/testing/scripted-environment";
 
 /**
  * The GUI's test harness (docs/specs/gui.md, "Testing Decisions"): the app
