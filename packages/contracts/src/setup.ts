@@ -33,7 +33,7 @@ export const SETUP_ACTIONS = [
 ] as const;
 export const SetupAction = z.enum(SETUP_ACTIONS).meta({
   description:
-    "A named action a step's result offers, from ADR 0031's fixed vocabulary: sign-in-again, pull-now, check-again, unpair, pair-another, install, update, reload, set-up-this-machine, restore (the Permissions step: the denylist's presets), move.",
+    "A named action a step's result offers, from ADR 0031's fixed vocabulary: sign-in-again, pull-now, check-again, unpair, pair-another, install, update, reload, set-up-this-machine, restore (the Permissions step: the denylist's presets; the Appearance step: the preset theme, written through settings.update), move.",
 });
 export type SetupAction = z.infer<typeof SetupAction>;
 

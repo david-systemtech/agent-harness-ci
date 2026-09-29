@@ -1707,6 +1707,10 @@
       "title": "SettingsEventType"
     },
     {
+      "path": "settings/notices/settings.changed.json",
+      "title": "SettingsChangedNoticePayload"
+    },
+    {
       "path": "settings/band-id.json",
       "title": "SettingsBandId"
     },

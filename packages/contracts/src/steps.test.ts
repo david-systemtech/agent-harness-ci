@@ -163,9 +163,9 @@ const stepOf = (id: string): LooseStep => {
 const appearance = stepOf("appearance");
 const account = stepOf("account");
 const permissions = stepOf("permissions");
-/** The Appearance step's keys alone (the auto-settle keys and the transcript compaction window): the table its broken-on-purpose registries are checked against. */
-const sessionSettings = Object.fromEntries(
-  [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays" as const].map((key) => [key, SETTINGS[key]]),
+/** The Appearance step's keys alone (the auto-settle keys, the transcript compaction window and the theme): the table its broken-on-purpose registries are checked against. */
+const appearanceSettings = Object.fromEntries(
+  [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays" as const, "appearance.theme" as const].map((key) => [key, SETTINGS[key]]),
 ) as LooseSettings;
 
 describe("the step registry", () => {
@@ -192,9 +192,21 @@ describe("the step registry", () => {
   });
 
   it("puts both auto-settle keys and the transcript compaction window under the Appearance entry, on environments.service", () => {
-    expect(appearance.writes).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
+    expect(appearance.writes).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "appearance.theme"]);
     expect(appearance.links).toEqual([{ row: "environments.service" }]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "appearance", row: "environments.service" });
+  });
+
+  it("gives the Appearance entry the theme on its home row appearance.theme, the state check appearance.contrast with Restore, and never skips it (ADR 0023, ADR 0031; #391)", () => {
+    expect(appearance.home).toBe("appearance.theme");
+    expect(appearance.writes).toContain("appearance.theme");
+    expect(appearance.checks.map((check) => check.key)).toContain("appearance.theme");
+    expect(SETTINGS["appearance.theme"].step).toEqual({ id: "appearance", row: "appearance.theme" });
+    expect(appearance.stateChecks).toEqual([
+      { id: "appearance.contrast", holds: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.", actions: ["restore"] },
+    ]);
+    expect(appearance.skippable).toBe(false);
+    expect(appearance.skip).toBeUndefined();
   });
 
   it("puts the five permission keys under the Permissions entry, on its home row access.permissions (ADR 0027)", () => {
@@ -363,30 +375,32 @@ describe("the step registry", () => {
   it("fails when a key is written by a step other than the one it names, or by two", () => {
     const other: LooseStep = { id: "permissions", writes: ["sessions.autoSettleOnMerge"], checks: [], stateChecks: [], links: [], skippable: false };
     const withoutMerge = { ...appearance, writes: appearance.writes.filter((key) => key !== "sessions.autoSettleOnMerge"), checks: appearance.checks.filter((check) => check.key !== "sessions.autoSettleOnMerge") };
-    expect(stepRegistryProblems(sessionSettings, [withoutMerge, other])).toEqual([
+    expect(stepRegistryProblems(appearanceSettings, [withoutMerge, other])).toEqual([
       "sessions.autoSettleOnMerge: names appearance but permissions writes it",
       "permissions: needs one health check of sessions.autoSettleOnMerge",
     ]);
-    expect(stepRegistryProblems(sessionSettings, [appearance, { ...other, checks: [appearance.checks[1] as LooseStep["checks"][number]] }])).toEqual([
+    expect(stepRegistryProblems(appearanceSettings, [appearance, { ...other, checks: [appearance.checks[1] as LooseStep["checks"][number]] }])).toEqual([
       "sessions.autoSettleOnMerge: written by appearance, permissions",
     ]);
   });
 
   it("fails when a step writes a key that is not a setting, or writes a key it does not check", () => {
-    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, writes: [...appearance.writes, "appearance.theme"] }])).toEqual([
-      "appearance: writes appearance.theme, which is not a setting",
-      "appearance: needs one health check of appearance.theme",
+    expect(stepRegistryProblems(appearanceSettings, [{ ...appearance, writes: [...appearance.writes, "appearance.fontSize"] }])).toEqual([
+      "appearance: writes appearance.fontSize, which is not a setting",
+      "appearance: needs one health check of appearance.fontSize",
     ]);
-    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, checks: [] }])).toEqual([
+    expect(stepRegistryProblems(appearanceSettings, [{ ...appearance, checks: [] }])).toEqual([
       "appearance: needs one health check of sessions.autoSettleAfterIdle",
       "appearance: needs one health check of sessions.autoSettleOnMerge",
       "appearance: needs one health check of sessions.transcriptCompactAfterDays",
+      "appearance: needs one health check of appearance.theme",
     ]);
-    expect(stepRegistryProblems(sessionSettings, [appearance, appearance])).toEqual([
+    expect(stepRegistryProblems(appearanceSettings, [appearance, appearance])).toEqual([
       "appearance: registered twice",
       "sessions.autoSettleAfterIdle: written by appearance, appearance",
       "sessions.autoSettleOnMerge: written by appearance, appearance",
       "sessions.transcriptCompactAfterDays: written by appearance, appearance",
+      "appearance.theme: written by appearance, appearance",
     ]);
   });
 

@@ -724,8 +724,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "settings.changed",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -758,6 +759,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
+      { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -778,6 +780,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       { type: "usage.updated", payload: { accountId: "claude-max" } },
+      { type: "settings.changed", payload: { keys: [] } },
+      { type: "settings.changed", payload: { values: { "appearance.theme": null } } },
       validEnvelope,
     ],
   },

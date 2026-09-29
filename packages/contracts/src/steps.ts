@@ -174,9 +174,9 @@ export const anyValidValue =
  * #141 adds; Permissions (#129's
  * keys, #141's entry); and Appearance, for the auto-settle keys (session-state
  * spec, "Auto-settle: rules and settings") and the transcript compaction
- * window beside them (#123), which sit on `environments.service`. The other
- * steps arrive with Set up (#88), and Appearance gains its theme (ADR 0023)
- * there.
+ * window beside them (#123), which sit on `environments.service`, and the
+ * theme (ADR 0023, #391), whose contrast it checks. The other steps arrive
+ * with Set up (#88).
  */
 export const STEP_REGISTRY = [
   {
@@ -282,16 +282,26 @@ export const STEP_REGISTRY = [
   },
   {
     // The Appearance step (ADR 0023), at home on appearance.theme; the session keys it writes sit on
-    // environments.service, the environment's policy on its log (GUI spec), until Set up (#88) moves them.
+    // environments.service, the environment's policy on its log (GUI spec), until Set up (#88) moves them. The theme
+    // (#391) is a preference: done once set or preset (ADR 0031), unless a seed of it could not hold the theme
+    // package's rules where its role puts it, which the environment's contrast check derives both ladders to find;
+    // Restore writes the preset theme back through settings.update. Never skipped.
     id: "appearance",
     home: "appearance.theme",
-    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"],
+    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "appearance.theme"],
     checks: [
       { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
       { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
       { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
+      { key: "appearance.theme", check: anyValidValue("appearance.theme") },
     ],
-    stateChecks: [],
+    stateChecks: [
+      {
+        id: "appearance.contrast",
+        holds: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.",
+        actions: ["restore"],
+      },
+    ],
     links: [{ row: "environments.service" }],
     skippable: false,
     budgetSeconds: 5,
