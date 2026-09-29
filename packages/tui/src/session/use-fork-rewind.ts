@@ -1,12 +1,14 @@
 import {
   liveRunIdOf,
+  messageBack,
   oneLine,
   stopFirstOffer,
+  tooFarBack,
+  userMessagesOf,
   type RewindAnswer,
   type Runtime,
   type SessionProjection,
   type SessionRunsView,
-  type TranscriptEntry,
   type UserMessageEntry,
   type VerbAvailability,
 } from "@agent-harness/client-runtime";
@@ -31,17 +33,6 @@ import type { Opened } from "./use-session.js";
  * holding the anchored message as its draft; `/handoff` on it moves its next
  * run to another account, the runtime carrying the draft.
  */
-
-/** The user messages the picker lists and `/rewind n` and `/fork n` count back through: those a run has read, in the visible transcript, oldest first. */
-export const userMessagesOf = (items: readonly TranscriptEntry[]): readonly UserMessageEntry[] =>
-  items.filter((entry): entry is UserMessageEntry => entry.kind === "user-message" && entry.delivery !== "queued");
-
-/** The user message `back` messages from the end (1: the latest); undefined when there are fewer. */
-export const messageBack = (messages: readonly UserMessageEntry[], back: number): UserMessageEntry | undefined => (back >= 1 ? messages[messages.length - back] : undefined);
-
-/** What `/rewind n` or `/fork n` says when there are not `n` prompts to go back through. */
-export const tooFarBack = (count: number, verb: "rewind" | "fork from"): string =>
-  count === 0 ? `Nothing to ${verb}: no prompt has been sent in this session yet.` : `There ${count === 1 ? "is only 1 prompt" : `are only ${count} prompts`} to go back through.`;
 
 /** A user message as a line names it: its first line, cut. */
 export const messageWords = (text: string): string => oneLine(text, 80);

@@ -93,6 +93,16 @@ export {
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
+  SETUP_AGE_TICK_MS,
+  SETUP_CHECK_TIMEOUT_MS,
+  SETUP_PENDING_MS,
+  type SetupCounts,
+  type SetupReach,
+  type SetupResultView,
+  type SetupStepView,
+  type SetupView,
+} from "./projections/setup.js";
+export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
   type AcceptedReceipt,
@@ -212,6 +222,17 @@ export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
 export { matchCommands } from "./composer/commands.js";
+export {
+  FORK_USAGE,
+  REWIND_USAGE,
+  forkAsked,
+  messageBack,
+  rewindAsked,
+  tooFarBack,
+  userMessagesOf,
+  type ForkAsked,
+  type RewindAsked,
+} from "./composer/fork-rewind-commands.js";
 export { shellLine } from "./composer/shell-line.js";
 export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
 export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";

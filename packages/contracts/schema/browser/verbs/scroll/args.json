@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScrollArgs",
+  "type": "object",
+  "properties": {
+    "to": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": [
+                "up",
+                "down",
+                "left",
+                "right"
+              ],
+              "description": "Which way to scroll."
+            },
+            "amount": {
+              "description": "How far, in viewports; preset 1.",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "direction"
+          ],
+          "additionalProperties": false,
+          "description": "A direction and an amount."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "additionalProperties": false,
+          "description": "Scroll the element with this ref into view."
+        }
+      ],
+      "description": "Where to scroll: a direction and an amount in viewports, or to an element."
+    }
+  },
+  "required": [
+    "to"
+  ],
+  "description": "scroll: by a direction and an amount, or to an element."
+}

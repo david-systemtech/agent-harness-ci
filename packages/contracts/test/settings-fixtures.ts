@@ -29,6 +29,18 @@ const updatePresets = {
   "updates.idleWindowMinutes": 10,
   "updates.deferralCapHours": 24,
 };
+/** The browser keys (#541) at their presets: every value set holds them too. */
+const browserPresets = {
+  "browser.devSites": [],
+  "browser.evaluateEverywhere": false,
+  "browser.deepReadEverywhere": false,
+  "browser.reach": {},
+  "browser.headless.allowRuns": true,
+  "browser.headless.endpoint": null,
+  "browser.headless.executable": null,
+  "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
+  "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
+};
 /** A theme other than the preset: an orange accent (ADR 0023's example). */
 const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
 const presets = {
@@ -42,6 +54,7 @@ const presets = {
   ...permissionPresets,
   ...updatePresets,
   "appearance.theme": DEFAULT_THEME,
+  ...browserPresets,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -52,6 +65,8 @@ const changed = {
   "accounts.defaultEffort": "high",
   "providers.processIdleMinutes": 5,
   "appearance.theme": ember,
+  "browser.devSites": ["*.myapp.test"],
+  "browser.reach": { "claude-max": { chrome: { environmentId: commandId, chromeId: null } } },
 };
 
 const idleSpans: Fixtures = {
@@ -72,6 +87,8 @@ const patches: Fixtures = {
     { "providers.processIdleMinutes": 0 },
     { "accounts.defaultEffort": "" },
     { "updates.pinnedVersion": "v0.4.2" },
+    { "browser.headless.limits": { maxContexts: 0, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 } },
+    { "browser.blockedSites": ["*.paypal.com"] },
     { theme: "invalid-theme" },
     { "appearance.theme": "Ember" },
     { "appearance.theme": { name: "Ember" } },
@@ -102,7 +119,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
   "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
   "settings/settings-values.json": {
-    valid: [presets, { ...permissionPresets, ...updatePresets, ...changed }],
+    valid: [presets, { ...permissionPresets, ...updatePresets, ...browserPresets, ...changed }],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "invalid-theme" }, changed],
   },
   "settings/settings-patch.json": patches,

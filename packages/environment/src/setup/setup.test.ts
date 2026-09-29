@@ -50,6 +50,7 @@ describe("setup.check", () => {
       ["account", "done", [], []],
       ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
       ["forges", "skipped", [], []],
+      ["browser", "done", [], []],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],
     ]);

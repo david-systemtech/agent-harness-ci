@@ -439,3 +439,88 @@ describe("a refusal from the environment", () => {
     expect(inPane(app)?.sessionId).toBe(session);
   });
 });
+
+describe("/rewind and /fork typed at the composer", () => {
+  it("/rewind rewinds one prompt back, /rewind n that many, and /rewind undo takes the rewind back", async () => {
+    const { app, env, transcript, session } = await opened();
+    await converse(env, session, transcript, "Fix the receipts", "Add the tests", "Write the docs");
+    await write(app, "/rewind{Enter}");
+    await waitFor(() => expect(sent(env, "sessions.rewind")).toEqual([expect.objectContaining({ sessionId: session, messageId: env.messageId(session, "Write the docs") })]));
+    await within(transcript).findByRole("button", { name: "Rewound: Write the docs · 1 prompt cut" });
+    await waitFor(() => expect(box().value).toBe("Write the docs"));
+
+    await write(app, "{Control>}a{/Control}/rewind undo{Enter}");
+    await waitFor(() => expect(sent(env, "sessions.undoRewind")).toEqual([expect.objectContaining({ sessionId: session })]));
+    await within(transcript).findByText("Reply to Write the docs.");
+
+    await write(app, "{Control>}a{/Control}/rewind 2{Enter}");
+    await waitFor(() => expect(sent(env, "sessions.rewind")).toHaveLength(2));
+    expect(sent(env, "sessions.rewind")[1]).toEqual(expect.objectContaining({ messageId: env.messageId(session, "Add the tests") }));
+    expect(await within(transcript).findByRole("button", { name: "Rewound: Add the tests · 2 prompts cut" })).toBeTruthy();
+  });
+
+  it("/fork forks the whole session, opening on its forked row, and /fork n forks before the prompt n back, with it as the draft", async () => {
+    const { app, env, transcript, session } = await opened();
+    await converse(env, session, transcript, "Fix the receipts", "Add the tests");
+    await write(app, "/fork{Enter}");
+    await waitFor(() => expect(sent(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: session })]));
+    expect(sent(env, "sessions.fork")[0]).not.toHaveProperty("atMessageId");
+    await waitFor(() => expect(inPane(app)?.sessionId).toBe(String(sent(env, "sessions.fork")[0]?.["id"])));
+    expect(await within(await screen.findByRole("region", { name: "Transcript" })).findByRole("button", { name: "Forked from Receipts" })).toBeTruthy();
+
+    app.open("desk");
+    await waitFor(() => expect(inPane(app)?.sessionId).toBe(session));
+    await screen.findByText("Reply to Add the tests.");
+    await write(app, "/fork 2{Enter}");
+    await waitFor(() => expect(sent(env, "sessions.fork")).toHaveLength(2));
+    expect(sent(env, "sessions.fork")[1]).toEqual(expect.objectContaining({ sessionId: session, atMessageId: env.messageId(session, "Fix the receipts") }));
+    await waitFor(() => expect(inPane(app)?.sessionId).toBe(String(sent(env, "sessions.fork")[1]?.["id"])));
+    expect(await within(await screen.findByRole("region", { name: "Transcript" })).findByRole("button", { name: "Forked from Receipts at Fix the receipts" })).toBeTruthy();
+    await waitFor(() => expect(box().value).toBe("Fix the receipts"));
+  });
+
+  it("say in one line under the composer when there are fewer prompts than asked, and their usage for any other argument, sending nothing", async () => {
+    const { app, env, transcript, session } = await opened();
+    await write(app, "/rewind{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Nothing to rewind: no prompt has been sent in this session yet."));
+    await write(app, "/fork 1{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Nothing to fork from: no prompt has been sent in this session yet."));
+
+    await converse(env, session, transcript, "Fix the receipts", "Add the tests");
+    await write(app, "/rewind 3{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("There are only 2 prompts to go back through."));
+    await write(app, "/rewind soon{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Usage: /rewind [n | undo]: n prompts back, one by default; undo takes the rewind back."));
+    await write(app, "/fork 0{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Usage: /fork [n]: bare, the whole session; n, before the prompt n back."));
+    await write(app, "/rewind undo{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Nothing has been rewound."));
+    expect(env.requests("sessions.rewind")).toEqual([]);
+    expect(env.requests("sessions.fork")).toEqual([]);
+    expect(env.requests("sessions.undoRewind")).toEqual([]);
+  });
+
+  it("say a verb's reason, or the environment's refusal, under the composer: a typed /rewind never stops a live run", async () => {
+    const { app, env, transcript, session } = await withLiveRun({ receipts: { "sessions.fork": { rejected: "conflict", message: "The session is being deleted." } } });
+    await write(app, "/rewind 2{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Not rewound: A run is live on this session: stop it before rewinding."));
+    expect(env.requests("runs.interrupt")).toEqual([]);
+    expect(env.requests("sessions.rewind")).toEqual([]);
+
+    await write(app, "/fork 1{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Not forked: The session is being deleted."));
+    expect(lineUnder(transcript, "Write the docs")).toBeUndefined();
+    expect(inPane(app)?.sessionId).toBe(session);
+  });
+
+  it("say the adapter's reason when it cannot fork or rewind", async () => {
+    const { app, env, transcript, session } = await opened({ provider: { fork: false, rewind: false } });
+    await converse(env, session, transcript, "Fix the receipts");
+    await write(app, "/fork{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Not forked: Claude cannot fork a session."));
+    await write(app, "/rewind{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Not rewound: Claude cannot rewind a session."));
+    expect(env.requests("sessions.fork")).toEqual([]);
+    expect(env.requests("sessions.rewind")).toEqual([]);
+  });
+});

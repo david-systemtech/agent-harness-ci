@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgeRefused",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "refused"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Why, as a sentence for a person."
+    }
+  },
+  "required": [
+    "type",
+    "reason"
+  ],
+  "description": "refused: either side, the socket is refused or ending, and why."
+}
