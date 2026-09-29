@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
+import { fakePty } from "../../test/fake-pty.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import { updateSettings } from "../../test/shelf.js";
+import { openTerminal } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -103,5 +105,75 @@ describe("the environment's credentials.injection", () => {
 
     expect(await givenTo(t, session.id)).toEqual({});
     expect(supplied).toEqual([]);
+  });
+});
+
+describe("an account's entry in credentials.injectionByAccount", () => {
+  it("outranks the environment's value for that account's runs, either way, and leaves another account's runs to the environment's", async () => {
+    const { t, client, supplied } = await withSupplier();
+    await set(client, { "credentials.injection": "deny", "credentials.injectionByAccount": { "claude-max": "allow" } });
+    const max = await create(client, { account: "claude-max" });
+    const work = await create(client, { account: WORK });
+
+    await runTo(t, client, max.id);
+    await runTo(t, client, work.id);
+
+    expect(await givenTo(t, max.id)).toEqual({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    expect(await givenTo(t, work.id)).toEqual({});
+    expect(supplied.map((scope) => scope.accountId)).toEqual(["claude-max"]);
+
+    await set(client, { "credentials.injection": "allow", "credentials.injectionByAccount": { [WORK]: "deny" } });
+    await runTo(t, client, max.id, "Again");
+    await runTo(t, client, work.id, "Again");
+
+    expect(await givenTo(t, max.id)).toEqual({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    expect(await givenTo(t, work.id)).toEqual({});
+    expect(supplied.map((scope) => scope.accountId)).toEqual(["claude-max", "claude-max"]);
+  });
+
+  it("governs the session's terminal as it governs its runs", async () => {
+    const pty = fakePty();
+    const { t, client, supplied } = await withSupplier({ terminals: { pty, shell: () => ({ file: "/bin/sh", args: [] }) } });
+    await set(client, { "credentials.injectionByAccount": { [WORK]: "deny" } });
+    const work = await create(client, { account: WORK });
+    const max = await create(client, { account: "claude-max" });
+
+    await openTerminal(client, work.id);
+    await openTerminal(client, max.id);
+
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(2));
+    expect(pty.spawned[0]?.options.env).not.toHaveProperty("HARNESS_TEST_TOKEN");
+    expect(pty.spawned[1]?.options.env).toMatchObject({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    expect(supplied.map((scope) => [scope.sessionId, scope.accountId])).toEqual([[max.id, "claude-max"]]);
+  });
+});
+
+describe("the process key", () => {
+  /** The key the session's latest run was handed, read as JSON. */
+  const keyOf = (t: TestEnvironment): unknown => JSON.parse(t.adapter.lastRun().input.processEnvironment.key);
+
+  it("names the answer and the level that decided it, so changing either gives the session's next run a fresh process and a settings write that changes neither does not", async () => {
+    const { t, client } = await withSupplier();
+    const session = await create(client, { account: "claude-max" });
+    await runTo(t, client, session.id);
+    expect(keyOf(t)).toMatchObject({ injection: "allow", level: { kind: "environment" } });
+
+    // The same answer from another level: a fresh process.
+    await set(client, { "credentials.injectionByAccount": { "claude-max": "allow" } });
+    await runTo(t, client, session.id, "The account's now");
+    expect(keyOf(t)).toMatchObject({ injection: "allow", level: { kind: "account", id: "claude-max" } });
+    expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+
+    // The environment's value changed, but the account's entry still decides: the same process.
+    await set(client, { "credentials.injection": "deny", "credentials.injectionByAccount": { "claude-max": "allow", [WORK]: "deny" } });
+    await runTo(t, client, session.id, "Nothing changed for this account");
+    expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+
+    // Another answer at the same level: a fresh process, given nothing.
+    await set(client, { "credentials.injectionByAccount": { "claude-max": "deny" } });
+    await runTo(t, client, session.id, "Denied now");
+    expect(keyOf(t)).toEqual({ injection: "deny", level: { kind: "account", id: "claude-max" } });
+    expect(t.adapter.processesOf(session.id)).toHaveLength(3);
+    expect(await givenTo(t, session.id)).toEqual({});
   });
 });
