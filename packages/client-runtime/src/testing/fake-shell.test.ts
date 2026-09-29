@@ -39,17 +39,21 @@ describe("the recording fake shell", () => {
     const shell = fakeShell();
     expect(await shell.service.status()).toEqual({ installed: true, running: true, ready: true });
     expect(await shell.clipboard.readImage()).toBeUndefined();
+    expect(await shell.dialogs.openFileContents()).toEqual([]);
     await expect(shell.http("http://desk.test:7433/.well-known/agent-harness/environment")).rejects.toThrow("fetch failed");
 
     shell.answer("service.status", async () => ({ installed: false, running: false, ready: false }));
     shell.answer("clipboard.readImage", async () => ({ bytes: new Uint8Array([137, 80, 78, 71]), mediaType: "image/png" }));
     shell.answer("http", async (url) => ({ status: 200, json: async () => ({ asked: url }) }));
     shell.answer("system", async () => ({ platform: "darwin", architecture: "arm64", hostname: "laptop", user: "david" }));
+    shell.answer("dialogs.openFileContents", async () => [{ name: "notes.txt", size: 2, bytes: new Uint8Array([104, 105]) }]);
 
     expect(await shell.service.status()).toEqual({ installed: false, running: false, ready: false });
     expect(await shell.clipboard.readImage()).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), mediaType: "image/png" });
     expect(await (await shell.http("http://desk.test:7433/api/pair", { method: "POST" })).json()).toEqual({ asked: "http://desk.test:7433/api/pair" });
     expect(await shell.system()).toEqual({ platform: "darwin", architecture: "arm64", hostname: "laptop", user: "david" });
+    expect(await shell.dialogs.openFileContents({ multiple: true })).toEqual([{ name: "notes.txt", size: 2, bytes: new Uint8Array([104, 105]) }]);
+    expect(shell.calls).toContainEqual(["dialogs.openFileContents", { multiple: true }]);
     expect(shell.calls.filter(([member]) => member === "service.status")).toHaveLength(2);
     expect(shell.calls).toContainEqual(["http", "http://desk.test:7433/api/pair", { method: "POST" }]);
   });

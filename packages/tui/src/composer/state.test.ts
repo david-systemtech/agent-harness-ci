@@ -1,3 +1,4 @@
+import { matchCommands } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { editorOf } from "./editor.js";
 import {
@@ -8,7 +9,6 @@ import {
   composerOf,
   continued,
   expandedSnippet,
-  matchCommands,
   outgoing,
   pasted,
   pastedImage,

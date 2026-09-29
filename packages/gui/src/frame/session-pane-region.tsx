@@ -1,3 +1,5 @@
+import { Composer } from "../composer/composer.js";
+import { SlashCommands } from "../composer/slash-commands.js";
 import { Transcript } from "../transcript/transcript.js";
 import { usePresentation } from "../window-context.js";
 
@@ -17,7 +19,10 @@ export const SessionPaneRegion = () => {
         </section>
       ) : (
         <section aria-label="Session pane" className="flex min-h-0 flex-1 flex-col">
-          <Transcript key={`${session.environmentId} ${session.sessionId}`} environmentId={session.environmentId} sessionId={session.sessionId} />
+          <SlashCommands key={`${session.environmentId} ${session.sessionId}`}>
+            <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
+            <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+          </SlashCommands>
         </section>
       )}
     </main>

@@ -13,10 +13,17 @@ import { KeyContext, KeyDispatch, useKeyAction } from "./keys/key-dispatch.js";
  * wires its own actions; here a probe wires a few, and says which ran.
  */
 
-/** Wires `ids` wherever it is mounted, each saying it ran in the page's one status line. */
-const Wired = ({ ids, ran }: { readonly ids: readonly KeyActionId[]; readonly ran: (id: KeyActionId) => void }) => {
+/**
+ * Wires `ids` wherever it is mounted, each saying it ran in the page's one status line, and which of its keys ran it past
+ * the first; one of `declines` takes no key it is given.
+ */
+const Wired = ({ ids, ran, declines = [] }: { readonly ids: readonly KeyActionId[]; readonly ran: (id: string) => void; readonly declines?: readonly KeyActionId[] }) => {
   // The ids never change for a mounted probe, so the hooks run in the same order every render.
-  for (const id of ids) useKeyAction(id, () => ran(id));
+  for (const id of ids)
+    useKeyAction(id, (key) => {
+      if (declines.includes(id)) return false;
+      ran(key === 0 ? id : `${id} by its key ${key + 1}`);
+    });
   return null;
 };
 
@@ -25,13 +32,14 @@ interface WindowProps {
   readonly anywhere?: readonly KeyActionId[];
   readonly composer?: readonly KeyActionId[];
   readonly permission?: readonly KeyActionId[];
+  readonly declines?: readonly KeyActionId[];
 }
 
 /**
  * A window wiring `anywhere` as its own actions, a composer whose box answers the composer's conditions with
  * `composer` wired, a permission card with `permission` wired, a button in no region, and a status line.
  */
-const Window = ({ macOS, anywhere = [], composer = [], permission = [] }: WindowProps) => {
+const Window = ({ macOS, anywhere = [], composer = [], permission = [], declines = [] }: WindowProps) => {
   const [ran, setRan] = useState("nothing");
   const box = useRef<HTMLTextAreaElement>(null);
   return (
@@ -44,7 +52,7 @@ const Window = ({ macOS, anywhere = [], composer = [], permission = [] }: Window
           "composer.atStart": () => box.current?.selectionStart === 0 && box.current.selectionEnd === 0,
         }}
       >
-        <Wired ids={composer} ran={setRan} />
+        <Wired ids={composer} ran={setRan} declines={declines} />
         <textarea aria-label="Message" ref={box} />
       </KeyContext>
       <KeyContext context="permission">
@@ -141,5 +149,31 @@ describe("keys from the GUI column", () => {
     await user.click(screen.getByRole("button", { name: "Allow once" }));
     await user.keyboard("{Escape}");
     expect(ran()).toBe("Ran permission.deny");
+  });
+
+  it("tells the action which of its keys ran it, by its place in the column", async () => {
+    const user = userEvent.setup();
+    render(<Window macOS={false} composer={["composer.navigate"]} />);
+
+    await user.click(screen.getByRole("textbox", { name: "Message" }));
+    await user.keyboard("{ArrowUp}");
+    expect(ran()).toBe("Ran composer.navigate");
+    await user.keyboard("{ArrowDown}");
+    expect(ran()).toBe("Ran composer.navigate by its key 2");
+  });
+
+  it("offers a key an action declines to the next holder, then to the page", async () => {
+    const user = userEvent.setup();
+    render(<Window macOS={false} composer={["composer.withdrawLast", "composer.navigate", "composer.complete"]} declines={["composer.withdrawLast", "composer.complete"]} />);
+    const box = screen.getByRole("textbox", { name: "Message" });
+
+    await user.click(box);
+    await user.keyboard("{ArrowUp}");
+    expect(ran()).toBe("Ran composer.navigate");
+
+    // Tab declined is the page's: the focus moves on.
+    await user.keyboard("{Tab}");
+    expect(ran()).toBe("Ran composer.navigate");
+    expect(document.activeElement).not.toBe(box);
   });
 });

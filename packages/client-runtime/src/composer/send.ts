@@ -1,16 +1,22 @@
-import type { CapabilityAnswer, RunState, Runtime } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities, AttachmentInput, QueueHolder } from "@agent-harness/contracts";
+import type { CapabilityAnswer } from "../capabilities.js";
+import type { RunState, SessionRun } from "../projections/runs.js";
+import type { SessionProjection } from "../projections/session.js";
+import { liveRun } from "../transcript/rows.js";
+import type { Runtime } from "../runtime.js";
 
 /**
  * Sending, steering, queueing and interrupting (docs/specs/tui.md, "The
- * composer"; ADR 0022; the client-runtime spec's `runs:drive`). A send is
+ * composer"; docs/specs/gui.md, "A session pane"; ADR 0022; the
+ * client-runtime spec's `runs:drive`), as every renderer's composer does
+ * them. A send is
  * `runs.start` when the session has no live run and `runs.send` during
  * one, both under `runs:drive` and never queued by the outbox: while the
  * environment cannot take them, the send is refused at once with one line
  * and the composer is locked with the same reason (`capability`). During a
  * live run the message is the provider's to steer into the turn when its
  * adapter says it steers, else it waits on the queued line; the environment
- * says which in its answer and in `message.sent`, and the terminal only
+ * says which in its answer and in `message.sent`, and a renderer only
  * draws it.
  */
 
@@ -23,8 +29,17 @@ export const lockOf = (answer: CapabilityAnswer): Lock => (answer.status === "pr
 /** A run is live on the session as far as a send is concerned: running, parked on a prompt, or starting. */
 export const isLive = (state: RunState | undefined): boolean => state === "running" || state === "parked" || state === "starting";
 
+/**
+ * The run a send during a run joins and an interrupt stops: the one the
+ * session's transcript holds running, else the one its run state names while
+ * running or parked; undefined when none is known (a run still starting has
+ * no id yet).
+ */
+export const liveRunIdOf = (view: Pick<SessionProjection, "runs">, run: Pick<SessionRun, "state" | "runId"> | undefined): string | undefined =>
+  liveRun(view)?.runId ?? (run?.state === "running" || run?.state === "parked" ? (run.runId ?? undefined) : undefined);
+
 /** A message as the composer hands it over. */
-export interface Message {
+export interface OutgoingMessage {
   readonly text: string;
   readonly attachments: readonly AttachmentInput[];
 }
@@ -34,19 +49,31 @@ export type SendOutcome =
   | { readonly ok: false; readonly line: string };
 
 /**
- * Why the session's provider cannot take the message's attachments, when it
- * cannot: images need `imageInput`, files `fileInput` (claude-adapter spec).
- * Unknown until `providers.list` has answered, and then not refused here: the
- * environment refuses what the adapter cannot do.
+ * Why the session's provider cannot take `attachments`, when it cannot, in
+ * its own words and no more: images need `imageInput`, files `fileInput`
+ * (claude-adapter spec). Unknown until `providers.list` has answered, and
+ * then not refused here: the environment refuses what the adapter cannot do.
  */
-export const attachmentRefusal = (message: Message, provider: AdapterCapabilities | undefined): string | undefined => {
-  if (provider === undefined) return undefined;
-  const images = message.attachments.filter((a) => a.kind === "image").length;
-  const files = message.attachments.length - images;
-  if (!provider.imageInput && !provider.fileInput && message.attachments.length > 0) return `${provider.displayName} takes no attachments: nothing was sent.`;
-  if (images > 0 && !provider.imageInput) return `${provider.displayName} takes no images: nothing was sent.`;
-  if (files > 0 && !provider.fileInput) return `${provider.displayName} takes images but no other files: nothing was sent.`;
+const refusalOf = (attachments: readonly AttachmentInput[], provider: AdapterCapabilities | undefined): string | undefined => {
+  if (provider === undefined || attachments.length === 0) return undefined;
+  const images = attachments.filter((a) => a.kind === "image").length;
+  const files = attachments.length - images;
+  if (!provider.imageInput && !provider.fileInput) return `${provider.displayName} takes no attachments`;
+  if (images > 0 && !provider.imageInput) return `${provider.displayName} takes no images`;
+  if (files > 0 && !provider.fileInput) return `${provider.displayName} takes images but no other files`;
   return undefined;
+};
+
+/** Why the session's provider cannot take the message's attachments, when it cannot: the line that says nothing was sent. */
+export const attachmentRefusal = (message: OutgoingMessage, provider: AdapterCapabilities | undefined): string | undefined => {
+  const why = refusalOf(message.attachments, provider);
+  return why === undefined ? undefined : `${why}: nothing was sent.`;
+};
+
+/** Why the session's provider cannot take one attachment as it is added, when it cannot: the line that says it was not attached. */
+export const attachmentRefused = (attachment: AttachmentInput, provider: AdapterCapabilities | undefined): string | undefined => {
+  const why = refusalOf([attachment], provider);
+  return why === undefined ? undefined : `${why}: ${attachment.name} was not attached.`;
 };
 
 /**
@@ -59,7 +86,7 @@ export const sendMessage = async (
   runtime: Runtime,
   environmentId: string,
   sessionId: string,
-  message: Message,
+  message: OutgoingMessage,
   live: boolean,
   choice?: { readonly model: string; readonly effort: string | null },
 ): Promise<SendOutcome> => {

@@ -20,9 +20,10 @@ import { chordOfEvent, chordOfKey, type PressedKey } from "./chords.js";
  * region is offered to it first, then to each region around it, and last to
  * the window, so a picker's Esc comes before the window's. Within a context
  * the actions holding the key are asked narrowest condition first: one whose
- * condition the region says does not hold gives the key to the next, and a
- * key no wired action takes is left to the page. Keys the column writes
- * `off` are not bound. Remaps and the switch that turns Esc's stop on are
+ * condition the region says does not hold gives the key to the next, as does
+ * one that declines it (Tab with nothing to fill in), and a key no wired
+ * action takes is left to the page. Keys the column writes `off` are not
+ * bound. Remaps and the switch that turns Esc's stop on are
  * the Keyboard shortcuts pane's.
  */
 
@@ -30,7 +31,16 @@ import { chordOfEvent, chordOfKey, type PressedKey } from "./chords.js";
 interface Binding {
   readonly id: KeyActionId;
   readonly when: ActionCondition | undefined;
+  /** Which of the action's keys this is, by its place in the column: ↑ is `composer.navigate`'s first, ↓ its second. */
+  readonly key: number;
 }
+
+/**
+ * What a wired action does with a key the column binds it to, told which of
+ * its keys it was (by its place in the column); `false` declines it, and the
+ * key goes on as if the action were not wired.
+ */
+export type KeyActionRun = (key: number) => void | false;
 
 /** Who holds each key in each context (`holderKey`), narrowest condition first. */
 type Holders = ReadonlyMap<string, readonly Binding[]>;
@@ -42,10 +52,11 @@ const holdersOf = (macOS: boolean): Holders => {
   const holders = new Map<string, Binding[]>();
   for (const action of ACTIONS) {
     if (isCommandId(action.id) || action.gui.status !== "wired" || action.gui.off === true) continue;
-    for (const key of action.gui.keys) {
+    const { keys, when } = action.gui;
+    keys.forEach((key, place) => {
       const slot = holderKey(action.context, chordOfKey(key, macOS));
-      holders.set(slot, [...(holders.get(slot) ?? []), { id: action.id as KeyActionId, when: action.gui.when }]);
-    }
+      holders.set(slot, [...(holders.get(slot) ?? []), { id: action.id as KeyActionId, when, key: place }]);
+    });
   }
   const narrowestFirst = (a: Binding, b: Binding) => (a.when === b.when ? 0 : conditionWithin(a.when, b.when) ? -1 : 1);
   for (const bindings of holders.values()) bindings.sort(narrowestFirst);
@@ -60,7 +71,7 @@ interface Region {
   readonly context: ActionContext;
   readonly parent: Region | null;
   /** The actions wired here, each run by the key the column binds it to. */
-  readonly wired: Map<KeyActionId, () => void>;
+  readonly wired: Map<KeyActionId, KeyActionRun>;
   readonly conditions: { current: Conditions };
 }
 
@@ -72,7 +83,7 @@ interface Dispatch {
 const DispatchContext = createContext<Dispatch | null>(null);
 const RegionContext = createContext<Region | null>(null);
 
-/** Runs the action `region` has wired for the key `event` is, and says whether one ran. */
+/** Runs the action `region` has wired for the key `event` is, and says whether one took it. */
 const offer = (dispatch: Dispatch, region: Region, event: PressedKey): boolean => {
   const chord = chordOfEvent(event, dispatch.macOS);
   if (chord === undefined) return false;
@@ -80,7 +91,7 @@ const offer = (dispatch: Dispatch, region: Region, event: PressedKey): boolean =
     const run = region.wired.get(binding.id);
     if (run === undefined) continue;
     if (binding.when !== undefined && region.conditions.current[binding.when]?.() !== true) continue;
-    run();
+    if (run(binding.key) === false) continue;
     return true;
   }
   return false;
@@ -140,10 +151,11 @@ export const KeyContext = ({ context, conditions = {}, children }: { readonly co
 /**
  * Wires the action `id` to `run` for as long as the component is mounted:
  * the nearest region of the action's context runs it on the keys the GUI
- * column binds there. Throws when no region of that context holds the
- * component, since then no key could reach it.
+ * column binds there, and `run` may decline a key (`false`). Throws when no
+ * region of that context holds the component, since then no key could reach
+ * it.
  */
-export const useKeyAction = (id: KeyActionId, run: () => void): void => {
+export const useKeyAction = (id: KeyActionId, run: KeyActionRun): void => {
   const context = actionById(id)?.context;
   let region = use(RegionContext);
   while (region !== null && region.context !== context) region = region.parent;
@@ -153,7 +165,7 @@ export const useKeyAction = (id: KeyActionId, run: () => void): void => {
     latest.current = run;
   });
   useEffect(() => {
-    const wired = () => latest.current();
+    const wired: KeyActionRun = (key) => latest.current(key);
     region.wired.set(id, wired);
     return () => {
       if (region.wired.get(id) === wired) region.wired.delete(id);
