@@ -74,7 +74,7 @@ describe("the status line", () => {
     expect(await within(line).findByRole("button", { name: "Containment: ◐ workspace (default)" })).toBeTruthy();
   });
 
-  it("draws the environment's badge as a dot in its colour's token, whatever icon it names, until the window draws the icons (#323)", async () => {
+  it("draws the environment's badge as a dot in its colour's token, whatever icon it names, until the window draws the icons", async () => {
     await opened([desk({ hello: { environmentIcon: "laptop", environmentColour: "teal" } })]);
     const line = await screen.findByRole("region", { name: "Status line" });
     const dot = within(line).getByText("desk").previousElementSibling as HTMLElement;
