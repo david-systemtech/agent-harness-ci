@@ -71,27 +71,29 @@ const describe = (error: unknown): string => (error instanceof Error ? error.mes
 
 /** Asks each supplier for `scope` at once, and answers what they supplied, their release one. */
 const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope: ProcessEnvironmentScope): Promise<SuppliedVariables> => {
-  const outcomes = await Promise.allSettled(suppliers.map(async (supplier) => supplier.supply(scope)));
+  const answers = await Promise.all(
+    suppliers.map(async (supplier) => {
+      try {
+        return { name: supplier.name, supplied: await supplier.supply(scope) };
+      } catch (error) {
+        console.error(`The process-environment supplier ${supplier.name} failed for session ${scope.sessionId}; its variables are left out: ${describe(error)}`);
+        return null;
+      }
+    }),
+  );
+  const given = answers.filter((answer) => answer !== null);
+  // In the order they registered, so the later's value wins a name both give.
   const variables: Record<string, string> = {};
-  const releases: { readonly name: string; readonly release: () => void }[] = [];
-  outcomes.forEach((outcome, index) => {
-    const name = suppliers[index]?.name;
-    if (outcome.status === "rejected") {
-      console.error(`The process-environment supplier ${name} failed for session ${scope.sessionId}; its variables are left out: ${describe(outcome.reason)}`);
-      return;
-    }
-    Object.assign(variables, outcome.value.variables);
-    releases.push({ name: name ?? "", release: () => outcome.value.release() });
-  });
+  for (const { supplied } of given) Object.assign(variables, supplied.variables);
   let released = false;
   return {
     variables,
     release: () => {
       if (released) return;
       released = true;
-      for (const { name, release } of releases) {
+      for (const { name, supplied } of given) {
         try {
-          release();
+          supplied.release();
         } catch (error) {
           console.error(`Releasing what the process-environment supplier ${name} supplied for session ${scope.sessionId} failed:`, error);
         }
