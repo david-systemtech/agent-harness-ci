@@ -1,0 +1,45 @@
+/**
+ * The IPC between the preload and the main process: one channel per shell
+ * member, so the renderer can reach nothing but the members. Both sides
+ * import this module; the preload bundle carries its own copy.
+ */
+
+/**
+ * The name the preload gives the shell in the renderer's window
+ * (`window.desktopShell`), the one thing it exposes, where the desktop
+ * platform finds it.
+ */
+export const SHELL_GLOBAL = "desktopShell";
+
+/** The members the renderer awaits, each answered through `ipcMain.handle`. */
+export const ANSWERED = [
+  "dialogs.openFile",
+  "dialogs.openFileContents",
+  "dialogs.openDirectory",
+  "dialogs.save",
+  "clipboard.readText",
+  "clipboard.writeText",
+  "clipboard.readImage",
+  "openExternal",
+  "system",
+  "http",
+  "network.allow",
+  /** The renderer's first `deepLinks.onOpen`: answers the links held for it, and has the rest sent as they come. */
+  "deepLinks.listen",
+] as const;
+export type Answered = (typeof ANSWERED)[number];
+
+/** The members that answer nothing (`void` in the shell interface), each heard through `ipcMain.on`. */
+export const TOLD = ["window.setTitle", "window.focus", "window.setBadge", "window.setBackgroundColour"] as const;
+export type Told = (typeof TOLD)[number];
+
+export const channelOf = (member: Answered | Told): string => `shell:${member}`;
+
+/** The channel the main process sends each deep link on, once the renderer listens. */
+export const DEEP_LINK_CHANNEL = "shell:deepLinks.opened";
+
+/** What the main process answers an `http` call with; the preload gives the renderer its `json()`. */
+export interface HttpAnswer {
+  readonly status: number;
+  readonly body: string;
+}

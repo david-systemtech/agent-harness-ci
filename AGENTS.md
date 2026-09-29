@@ -42,7 +42,8 @@ See `docs/agents/domain.md`.
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `tui`, `gui` (the
 desktop window's renderer, a React app whose bundle runs in a browser tab
-too), and `cli`, the `agent-harness` binary). Node 24 or later: the LTS
+too), `desktop` (the Electron shell that carries the `gui` build), and `cli`,
+the `agent-harness` binary). Node 24 or later: the LTS
 line, whose `node:sqlite` has the busy `timeout` option and `isTransaction` the
 event log uses. The floor was 22.16, the first 22 release with both, until
 2026-09-28, when David raised it because Node 22 ends its life in April 2027.
@@ -66,6 +67,16 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   types. `pnpm --filter @agent-harness/gui build` writes its static bundle to
   `packages/gui/dist/` with Vite; never serve it or open it in a browser on
   the shared agent box.
+- The desktop shell (`packages/desktop`) takes Electron as a dev dependency
+  whose package downloads its binary the first time Node requires it, never
+  on install, so CI and the agent box hold none. Its tests drive the main
+  process's modules with Electron's modules faked and the platform injected
+  (`packages/desktop/test/fake-electron.ts` and `harness.ts`), and build the
+  preload bundle with Vite and evaluate it as the sandbox would; no test may
+  import `electron` or `src/main.ts`. What only a real window can prove is the
+  manual checklist in `docs/agents/desktop-checklist.md`, run (or listed as
+  not run, per platform) when the shell changes. Never run Electron on the
+  shared agent box.
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
@@ -86,7 +97,8 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
 - Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and
-  `agent-harness/no-session-types-in-shell`. The third,
+  `agent-harness/no-session-types-in-shell` (the shell interface module and
+  the whole `desktop` package, whose imports are Electron's too). The third,
   `agent-harness/no-relative-import-into`, refuses a relative import that
   resolves into a named workspace package however it is spelled (the
   environment reaching into a client's or the CLI's folder). The fourth,
