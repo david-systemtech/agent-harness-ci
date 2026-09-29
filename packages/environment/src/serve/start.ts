@@ -26,6 +26,7 @@ import {
   type EnvironmentReadiness,
   type EnvironmentStatus,
   type HealthDocument,
+  type MintedPairing,
   type Mode,
   type ReleaseSource,
   type RunOrigin,
@@ -469,6 +470,14 @@ export interface EnvironmentHandle {
    * reads through it; banks, routine endpoints and the skills check will.
    */
   readonly keyManagers: KeyManagerRegistry;
+  /**
+   * The pairing this start minted because the environment is a declared
+   * container that no client has paired with yet (ADR 0025; #349): such a
+   * container pairs from its own log, so `serve` prints it there, as `pair`
+   * prints one. Minted with `pair`'s preset scopes and ceiling, at every
+   * start until a code is first exchanged; undefined for any other start.
+   */
+  readonly startPairing: MintedPairing | undefined;
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -1138,6 +1147,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
+  // for `serve` to print there. A failed mint costs only the print; `pair` in the container mints one all the same.
+  let startPairing: MintedPairing | undefined;
+  if (detector.declared?.() === true && !pairings.everExchanged()) {
+    try {
+      startPairing = accessLog.atomically((tx) => pairings.create(tx, {}, SYSTEM.owner));
+    } catch (error) {
+      console.error("Minting the pairing a declared container prints at its start failed; run pair in the container for one:", error);
+    }
+  }
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
@@ -1216,6 +1235,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     forge,
     keyManagerConnections,
     keyManagers,
+    startPairing,
     close,
   };
 };
