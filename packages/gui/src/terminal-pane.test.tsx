@@ -5,7 +5,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 import { XTERM_FALLBACK_THEME } from "./terminal/xterm-fallback-theme.js";
-import { paintTheme } from "./theme/paint.js";
 
 /**
  * The Terminal pane (docs/specs/gui.md, "The seven panes and the grid";
@@ -197,7 +196,7 @@ describe("the Terminal pane", () => {
     expect(colourOf(".xterm-fg-0")).toBe(written(XTERM_FALLBACK_THEME.black));
     expect((pane().querySelector(".xterm-scrollable-element") as HTMLElement).style.backgroundColor).toBe(written(toHex(dark.inset)));
 
-    act(() => paintTheme(document.documentElement, DEFAULT_THEME, "light"));
+    act(() => app.presentation.set("lightOrDark", "light"));
     await waitFor(() => expect(colourOf(".xterm-rows")).toBe(written(toHex(derive(DEFAULT_THEME).light.tokens.ink))));
   });
 

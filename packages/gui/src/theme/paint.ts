@@ -1,16 +1,25 @@
-import type { Theme } from "@agent-harness/contracts";
-import { cssVariables, derive, type LadderName } from "@agent-harness/theme";
+import { ENVIRONMENT_COLOURS } from "@agent-harness/contracts";
+import { cssVariables, type Ladder, type LadderName } from "@agent-harness/theme";
 
 /**
- * Paints `theme`'s `ladder` on `root` (ADR 0023): every token as the CSS
- * variable the stylesheet's inline theme reads (`--beam`), and the colour
- * scheme the browser draws its own controls and scroll bars in.
+ * Paints `ladder` on `root` (ADR 0023): every token and environment colour
+ * as the CSS variable the stylesheet's inline theme reads (`--beam`,
+ * `--environment-teal`), and the colour scheme the browser draws its own
+ * controls and scroll bars in.
  */
-export const paintTheme = (root: HTMLElement, theme: Theme, ladder: LadderName): void => {
-  for (const [name, value] of Object.entries(cssVariables(derive(theme)[ladder]))) root.style.setProperty(name, value);
-  root.style.colorScheme = ladder;
+export const paintLadder = (root: HTMLElement, ladder: Ladder, name: LadderName): void => {
+  for (const [variable, value] of Object.entries(cssVariables(ladder))) root.style.setProperty(variable, value);
+  root.style.colorScheme = name;
 };
 
-/** The ladder this client's OS prefers: light when it says so, dark when it says dark or nothing (the recorded palette's own). */
-export const osLadder = (view: Window): LadderName =>
-  typeof view.matchMedia === "function" && view.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+/**
+ * An environment's colour as a component draws it (ADR 0023; environment
+ * colours are data, not theme): the token of its name, which the root
+ * carries for the ladder painted now, so it follows light or dark and the
+ * theme and is never a literal. None for no colour, or a name that is none
+ * of the twelve (a newer environment's).
+ */
+export const environmentColour = (colour: string | null): string | undefined => {
+  const name = ENVIRONMENT_COLOURS.find((known) => known === colour);
+  return name === undefined ? undefined : `var(--environment-${name})`;
+};

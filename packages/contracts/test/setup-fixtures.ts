@@ -56,8 +56,18 @@ const signedOutResult = {
   checkedAt: "2026-09-25T08:00:00.000Z",
 };
 
+const forgeRejected = {
+  step: "forges",
+  state: "needs-attention",
+  reason: "The forge refused the credential of david on git.example.com: Sign in again to give it a new one.",
+  failing: ["forges.identity"],
+  actions: ["sign-in-again", "check-again"],
+  targets: [{ action: "sign-in-again", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" }],
+  checkedAt: "2026-09-25T08:00:00.000Z",
+};
+
 export const setupSchemaFixtures: Record<string, Fixtures> = {
-  "setup/registered-step-id.json": { valid: ["account", "your-machines", "permissions", "appearance"], invalid: ["forges", "Permissions", ""] },
+  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "permissions", "appearance"], invalid: ["key-manager", "Permissions", ""] },
   "setup/action.json": {
     valid: ["restore", "check-again", "set-up-this-machine", "start-service", "import-again", "try-again", "write-it-myself", "start-over", "revise"],
     invalid: ["Restore", "reboot", "try again", ""],
@@ -87,6 +97,8 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { ...timedOut, step: "account", lastGood: { state: "skipped", reason: skipped.reason, checkedAt: skipped.checkedAt } },
       signedOutResult,
       { ...needsAttention, targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "Paths" }] },
+      { ...skipped, step: "forges", reason: "No forge account is on this environment." },
+      forgeRejected,
     ],
     invalid: [
       { ...signedOutResult, targets: [{ ...signedOut, kind: "workspace" }] },
@@ -100,7 +112,7 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { ...done, state: "pending" },
       { ...needsAttention, actions: ["reboot"] },
       { ...done, checkedAt: "yesterday" },
-      { ...done, step: "forges" },
+      { ...done, step: "key-manager" },
       { state: "done", reason: "x", failing: [], actions: [], checkedAt: "2026-09-25T08:00:00.000Z" },
     ],
   },
@@ -108,7 +120,7 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
 
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
-    params: { valid: [{}, { step: "permissions" }], invalid: [{ step: "forges" }, { step: "" }, { step: ["permissions"] }] },
+    params: { valid: [{}, { step: "permissions" }, { step: "forges" }], invalid: [{ step: "key-manager" }, { step: "" }, { step: ["permissions"] }] },
     result: { valid: [{ results: [] }, { results: [done, needsAttention, timedOut, signedOutResult] }], invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }] },
   },
 };

@@ -22,12 +22,13 @@ import {
   type ForgeProblem,
   type ForgeTokenInformation,
   type GhProbe,
+  type KeyManagerReferenceHolder,
   type MethodName,
   type ParamsOf,
   type ResultOf,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
-import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
+import { noKeyManagerConnections, type KeyManagerRegistry, type ReferenceRefusal } from "../key-managers/registry.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { Address } from "../serve/http.js";
@@ -128,7 +129,7 @@ export interface ForgeServiceOptions {
   readonly callTimeoutMs?: number;
   /** The environment's own `gh`, behind the Managed tools seam #91's registry replaces; preset: the `gh` on this process's PATH. */
   readonly gh?: ManagedGh;
-  /** The key-manager registry's resolve seam, which #91 fills; preset: no key-manager connection, so every reference is unavailable. */
+  /** The key-manager registry's resolve seam, the environment's over its connections (#370); preset: no key-manager connection, so every reference is unavailable. */
   readonly keyManagers?: KeyManagerRegistry;
   /** A client session's label, which a token its client's `gh` handed over records beside its id. */
   readonly clientSessionLabel: (clientSessionId: string) => string | undefined;
@@ -195,14 +196,19 @@ export interface CredentialProbe {
 export type ForgeCredential =
   /** The token, and the release that ends its registration for scrubbing: call it when the operation ends. */
   | { readonly outcome: "resolved"; readonly token: string; readonly release: ScrubRelease }
-  /** No token: `needs-credential` for a copy awaiting one, `credential-unavailable` for `gh`, a key manager or the vault giving none. */
-  | { readonly outcome: "unavailable"; readonly problem: ForgeProblem };
+  /**
+   * No token: `needs-credential` for a copy awaiting one, `credential-unavailable` for `gh`, a key manager or the vault
+   * giving none; a key-manager reference's with the refusal its resolve answered, which an add or update answers.
+   */
+  | { readonly outcome: "unavailable"; readonly problem: ForgeProblem; readonly refusal?: ReferenceRefusal };
 
 export interface ForgeService extends ForgeOperations {
   /** Registers every stored token the vault holds with its forms, and deletes the forge entries no forge account holds; startup runs it once, before the wire opens. */
   start(): Promise<void>;
   /** The forge accounts, in the order they were added. */
   list(): ForgeAccountRecord[];
+  /** The forge accounts whose credential is a reference through the key-manager connection `connectionId`, which hold back its removal (#370). */
+  referenceHolders(connectionId: string): KeyManagerReferenceHolder[];
   /**
    * Reads the forge account's credential for one operation, `purpose` in a
    * few words: every harness operation on a forge reads it again, and calls
@@ -367,7 +373,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       }
       case "reference": {
         const answer = await keyManagers.resolve({ reference: credential.reference, owner: `forge:${id}`, purpose });
-        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message) };
+        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message), refusal: answer.code };
         const own = register(id, answer.value, target.kind, target.login);
         return {
           outcome: "resolved",
@@ -524,8 +530,9 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const verificationFailed = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "refused" }>) =>
     ({ code: "verification_failed", message: `${answer.message} Nothing was stored.`, data: { origin, status: answer.status } }) as const;
 
-  const sourceUnavailable = (connectionId: string, problem: ForgeProblem) =>
-    ({ code: "credential_source_unavailable", message: `${problem.message} Nothing was changed.`, data: { connectionId } }) as const;
+  /** An add's or update's refusal of a reference that did not resolve: the refusal its resolve answered. */
+  const referenceRefused = (connectionId: string, refusal: ReferenceRefusal, problem: ForgeProblem) =>
+    ({ code: refusal, message: `${problem.message} Nothing was changed.`, data: { connectionId } }) as const;
 
   /** A command's rejection, answered as the handler it prepares. */
   const rejecting =
@@ -565,7 +572,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   /** A credential given to an add or update, heard from the forge before the transaction; `Code` is the refusals the caller adds. */
   type Checked<Code extends string> =
-    | { readonly rejected: CommandRejection<Code | "verification_failed" | "alias_identity_mismatch" | "credential_source_unavailable"> }
+    | { readonly rejected: CommandRejection<Code | "verification_failed" | "alias_identity_mismatch" | ReferenceRefusal> }
     | Accepted;
 
   interface Accepted {
@@ -602,7 +609,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
    * answered as, written to the vault; `gh` and a reference are read for
    * this one operation and asked about, their tokens let go again at once;
    * none asks nothing. A refusal stores nothing; a reference that cannot be
-   * read is `credential_source_unavailable`; a `gh` that gives no token, or a
+   * read is refused as its resolve answered (`credential_source_unavailable`,
+   * `reference_not_found`, `reference_denied`); a `gh` that gives no token, or a
    * forge that does not answer, leaves a problem.
    */
   const check = async <Code extends string>({ target, given, context, formed, purpose, refuse, aliases }: CheckRequest<Code>): Promise<Checked<Code>> => {
@@ -629,7 +637,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     const source: ForgeCredentialSource = given.kind === "gh" ? { kind: "gh", login: given.login } : { kind: "reference", reference: given.reference };
     const read = await readCredential({ ...target, credential: source }, purpose);
     if (read.outcome === "unavailable") {
-      if (source.kind === "reference") return { rejected: sourceUnavailable(source.reference.connectionId, read.problem) };
+      if (source.kind === "reference") return { rejected: referenceRefused(source.reference.connectionId, read.refusal ?? "credential_source_unavailable", read.problem) };
       return { source, identity: null, problem: read.problem, held: null, aliases: unverified };
     }
     try {
@@ -859,6 +867,13 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     },
 
     list: listSeen,
+
+    referenceHolders(connectionId) {
+      const id = connectionId.toLowerCase();
+      return listForgeAccounts(reader)
+        .filter((account) => account.credential.kind === "reference" && account.credential.reference.connectionId.toLowerCase() === id)
+        .map((account) => ({ kind: "forge-account", id: account.id, name: account.origin }));
+    },
 
     async resolveCredential(forgeAccountId, purpose) {
       const account = liveForgeAccount(reader, forgeAccountId.toLowerCase());

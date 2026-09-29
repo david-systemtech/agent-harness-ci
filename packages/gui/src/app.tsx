@@ -1,6 +1,4 @@
 import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
-import { DEFAULT_THEME } from "@agent-harness/contracts";
-import { useLayoutEffect } from "react";
 import { LocalServiceProvider } from "./connections/local-service.js";
 import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
@@ -8,7 +6,7 @@ import { KeyDispatch } from "./keys/key-dispatch.js";
 import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
 import { RunChoicesProvider } from "./status/run-choices.js";
-import { osLadder, paintTheme } from "./theme/paint.js";
+import { WindowTheme } from "./theme/window-theme.js";
 import { WindowProvider } from "./window-context.js";
 
 export interface AppProps {
@@ -26,27 +24,25 @@ export interface AppProps {
 
 /**
  * The desktop window's renderer (docs/specs/gui.md): the frame over one
- * client runtime, painted with the theme's tokens before its first frame
- * (the preset's, until the window reads a theme of its own), its keys
+ * client runtime, painted with the home environment's theme from its first
+ * frame (the one cached, until the window reads it again), its keys
  * dispatched through the GUI column of the shared action list, and the
  * command palette over it. What the window chose for a session's next runs
  * is held for the life of the window (`RunChoicesProvider`).
  */
-export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => {
-  useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
-  return (
-    <WindowProvider runtime={runtime} presentation={presentation} clock={clock} shell={shell}>
-      <LocalServiceProvider>
-        <PairingProvider>
-          <KeyDispatch macOS={macOS}>
-            <CommandPalette>
-              <RunChoicesProvider>
-                <Frame />
-              </RunChoicesProvider>
-            </CommandPalette>
-          </KeyDispatch>
-        </PairingProvider>
-      </LocalServiceProvider>
-    </WindowProvider>
-  );
-};
+export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => (
+  <WindowProvider runtime={runtime} presentation={presentation} clock={clock} shell={shell}>
+    <WindowTheme />
+    <LocalServiceProvider>
+      <PairingProvider>
+        <KeyDispatch macOS={macOS}>
+          <CommandPalette>
+            <RunChoicesProvider>
+              <Frame />
+            </RunChoicesProvider>
+          </CommandPalette>
+        </KeyDispatch>
+      </PairingProvider>
+    </LocalServiceProvider>
+  </WindowProvider>
+);
