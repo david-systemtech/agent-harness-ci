@@ -302,6 +302,7 @@ const WINDOW_COMMANDS = [
   "/attachSend an image or file with the next message",
   "/diffWhat this conversation changed, and the working tree's diff",
   "/tasksBackground work: what is running, and what a delegated agent did",
+  "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
 ];
 

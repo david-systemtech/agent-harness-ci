@@ -983,6 +983,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,
+      dataDir,
       environmentId: record.id,
       harnessVersion,
       launcher,

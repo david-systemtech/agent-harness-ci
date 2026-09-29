@@ -3510,6 +3510,59 @@
         "payload"
       ],
       "description": "A webhook endpoint was removed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "settings.changed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "keys": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "sessions.autoSettleAfterIdle",
+                  "sessions.autoSettleOnMerge",
+                  "sessions.transcriptCompactAfterDays",
+                  "accounts.defaultAccount",
+                  "accounts.defaultModelFamily",
+                  "accounts.defaultEffort",
+                  "providers.processIdleMinutes",
+                  "permissions.defaultCeiling",
+                  "permissions.unattended.mode",
+                  "permissions.unattended.bypassAcknowledgedAt",
+                  "permissions.parkedPrompt.ttl",
+                  "permissions.containment.default",
+                  "updates.autoUpdate",
+                  "updates.channel",
+                  "updates.pinnedVersion",
+                  "updates.idleWindowMinutes",
+                  "updates.deferralCapHours",
+                  "appearance.theme"
+                ],
+                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme."
+              },
+              "uniqueItems": true,
+              "description": "The keys whose values changed, each once, in the order settings.updated names them."
+            }
+          },
+          "required": [
+            "keys"
+          ],
+          "description": "settings.changed: settings changed on the environment; the keys that did, whose values a client reads again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "Settings changed on the environment, in the transaction of the settings.updated that changed them: the keys, whose values a client reads again."
     }
   ],
   "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."

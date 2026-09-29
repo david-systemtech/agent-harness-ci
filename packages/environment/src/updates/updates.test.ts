@@ -165,7 +165,8 @@ describe("updates.settings.set", () => {
     const answer = await setUpdates(client, { "updates.channel": "beta", "updates.idleWindowMinutes": 25, "updates.autoUpdate": true }, commandId);
 
     const values = { ...UPDATE_PRESETS, "updates.channel": "beta", "updates.idleWindowMinutes": 25 };
-    expect(answer).toEqual({ receipt: { status: "accepted", sequence: head + 1, changed: true }, result: { values } });
+    // The head after the settings.changed notice beside it (#391).
+    expect(answer).toEqual({ receipt: { status: "accepted", sequence: head + 2, changed: true }, result: { values } });
     expect(t.env.log.readStream({ kinds: ["settings"] }, head)).toEqual([
       expect.objectContaining({
         streamKind: "settings",
@@ -177,7 +178,7 @@ describe("updates.settings.set", () => {
         payload: { values: { "updates.channel": "beta", "updates.idleWindowMinutes": 25 } },
       }),
     ]);
-    expect(t.env.log.head()).toBe(head + 1);
+    expect(t.env.log.head()).toBe(head + 2);
     expect(await client.request("settings.get", {})).toEqual({ values: { ...presetSettings(), ...values } });
   });
 

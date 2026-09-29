@@ -102,6 +102,8 @@ export interface Requests {
 
 export interface RequestsHost {
   readonly clock: Clock;
+  /** How long a request waits for its answer. Preset `REQUEST_TIMEOUT_MS`. */
+  readonly timeoutMs?: number;
   capability(environmentId: string, method: MethodName): CapabilityAnswer;
   /** A request on the environment's ready socket; rejects when there is none, or when it closes first. */
   request(environmentId: string, method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
@@ -112,6 +114,7 @@ const failed = (code: RequestFailureCode, message: string, data?: Record<string,
 
 export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
   async call<N extends MethodName>(environmentId: string, method: N, params: ParamsOf<N>): Promise<RequestAnswer<N>> {
+    const timeoutMs = host.timeoutMs ?? REQUEST_TIMEOUT_MS;
     const entry = registry[method];
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
     if (OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
@@ -122,7 +125,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     if (!checked.success) return failed("invalid_params", `The params are not ${method}'s: ${checked.error.issues.map((i) => i.message).join("; ")}`);
 
     let timer: { cancel(): void } | undefined;
-    const timeout = new Promise<"timeout">((resolve) => (timer = host.clock.setTimeout(() => resolve("timeout"), REQUEST_TIMEOUT_MS)));
+    const timeout = new Promise<"timeout">((resolve) => (timer = host.clock.setTimeout(() => resolve("timeout"), timeoutMs)));
     let response: ResponseFrame | "timeout";
     try {
       response = await Promise.race([host.request(environmentId, method, checked.data as Record<string, unknown>), timeout]);
@@ -131,7 +134,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     } finally {
       timer?.cancel();
     }
-    if (response === "timeout") return failed("timeout", `The environment did not answer ${method} within ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+    if (response === "timeout") return failed("timeout", `The environment did not answer ${method} within ${timeoutMs / 1000} seconds.`);
     if (response.error) return failed(response.error.code, response.error.message, response.error.data);
     const schema = isCommand(entry) ? entry.response : entry.result;
     const result = schema.safeParse(response.result);
@@ -162,8 +165,12 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
  * the environment's sign-in, which a client attending it follows for its
  * verification URL and its end (#147); every step of an update (pending,
  * started, updated, failed, cancelled) `updates.status`, which the card and
- * About follow (#344); and every `forge.account.*` event the forge accounts
- * (#320), a missing origin (`forge.origin-missing`) changing none of them.
+ * About follow (#344); every `forge.account.*` event the forge accounts
+ * (#320), a missing origin (`forge.origin-missing`) changing none of them;
+ * and settings changing (`settings.changed`, appended with every
+ * `settings.updated`, #391) the settings, read through `settings.get` and,
+ * for the permission keys and the containment the status line shows,
+ * `permissions.settings.get`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -174,6 +181,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
   "forge.accounts.list": Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account.")),
+  "settings.get": ["settings.changed"],
+  "permissions.settings.get": ["settings.changed"],
 };
 
 export interface RequestCache {

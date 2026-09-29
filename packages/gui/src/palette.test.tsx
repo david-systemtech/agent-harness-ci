@@ -106,7 +106,7 @@ describe("its entries", () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");
     // Stop the run is app.interrupt, whose Esc is off until "Esc stops the run" is on: no key.
-    expect(entriesUnder("Anywhere")).toEqual(["Stop the runNothing is running in this session.", "Find in the conversationCtrl+F"]);
+    expect(entriesUnder("Anywhere")).toEqual(["Stop the runNothing is running in this session.", "Find in the conversationCtrl+F", "Show or hide the terminalCtrl+J"]);
     expect(entriesUnder("Writing a message")).toEqual([
       "Send it, steer a turn, run a row, send a failed checkEnter",
       "A newline instead of sendingShift+Enter",
@@ -122,6 +122,7 @@ describe("its entries", () => {
       "/attachSend an image or file with the next message",
       "/diffWhat this conversation changed, and the working tree's diff",
       "/tasksBackground work: what is running, and what a delegated agent did",
+      "/terminalOpen a terminal on the session's environment, in a pane",
       "/filesBrowse the workspace's files, and read one in the pager",
     ]);
     // Its own keys are not listed: the list's, and the one that opens it.
@@ -219,10 +220,12 @@ describe("choosing an entry", () => {
     // Nothing is running, so Stop the run is dim and the first entry that can be chosen is highlighted.
     expect(highlighted()).toBe("Find in the conversationCtrl+F");
     await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
+    await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toMatch(/^Send it/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Send it/);
-    await app.user.keyboard("{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });

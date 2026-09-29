@@ -311,8 +311,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
-  "updates.desktop.stage": "#354",
   // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and commands.
   "routines.history": "#523",
   "routines.runNow": "#523",

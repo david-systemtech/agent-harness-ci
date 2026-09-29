@@ -25,9 +25,10 @@
           "updates.channel",
           "updates.pinnedVersion",
           "updates.idleWindowMinutes",
-          "updates.deferralCapHours"
+          "updates.deferralCapHours",
+          "appearance.theme"
         ],
-        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours."
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme."
       },
       "uniqueItems": true
     }

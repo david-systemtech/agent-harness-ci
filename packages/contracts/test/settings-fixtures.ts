@@ -4,6 +4,7 @@
  * results for `settings.get` and `settings.update`. `fixtures.ts` folds them
  * into the package's fixture table.
  */
+import { DEFAULT_THEME } from "../src/index.js";
 
 interface Fixtures {
   readonly valid: readonly unknown[];
@@ -28,6 +29,8 @@ const updatePresets = {
   "updates.idleWindowMinutes": 10,
   "updates.deferralCapHours": 24,
 };
+/** A theme other than the preset: an orange accent (ADR 0023's example). */
+const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
 const presets = {
   "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
   "sessions.autoSettleOnMerge": false,
@@ -38,6 +41,7 @@ const presets = {
   "providers.processIdleMinutes": 30,
   ...permissionPresets,
   ...updatePresets,
+  "appearance.theme": DEFAULT_THEME,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -47,6 +51,7 @@ const changed = {
   "accounts.defaultModelFamily": "opus",
   "accounts.defaultEffort": "high",
   "providers.processIdleMinutes": 5,
+  "appearance.theme": ember,
 };
 
 const idleSpans: Fixtures = {
@@ -68,6 +73,8 @@ const patches: Fixtures = {
     { "accounts.defaultEffort": "" },
     { "updates.pinnedVersion": "v0.4.2" },
     { theme: "invalid-theme" },
+    { "appearance.theme": "Ember" },
+    { "appearance.theme": { name: "Ember" } },
     [],
   ],
 };
@@ -84,8 +91,9 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
       "providers.processIdleMinutes",
       "permissions.defaultCeiling",
       "updates.channel",
+      "appearance.theme",
     ],
-    invalid: ["theme", "updates.theme", ""],
+    invalid: ["theme", "updates.theme", "appearance.mode", ""],
   },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
   "settings/idle-span.json": idleSpans,
@@ -99,14 +107,19 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   },
   "settings/settings-patch.json": patches,
   "settings/settings-event-type.json": { valid: ["settings.updated"], invalid: ["setting.updated", ""] },
+  "settings/notices/settings.changed.json": {
+    valid: [{ keys: ["appearance.theme"] }, { keys: ["permissions.containment.default", "sessions.autoSettleOnMerge"] }],
+    invalid: [{}, { keys: [] }, { keys: ["theme"] }, { keys: ["appearance.theme", "appearance.theme"] }, { keys: "appearance.theme" }],
+  },
   "settings/events/settings.updated.json": {
     valid: [
       { values: changed },
       { values: { "sessions.autoSettleOnMerge": true } },
       { values: { "permissions.parkedPrompt.ttl": "never" } },
       { values: { "updates.channel": "beta", "updates.pinnedVersion": "0.4.2" } },
+      { values: { "appearance.theme": ember } },
     ],
-    invalid: [{}, { values: { theme: "invalid-theme" } }, { values: { "updates.deferralCapHours": 0 } }],
+    invalid: [{}, { values: { theme: "invalid-theme" } }, { values: { "updates.deferralCapHours": 0 } }, { values: { "appearance.theme": { ...ember, name: "" } } }],
   },
 };
 

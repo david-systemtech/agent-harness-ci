@@ -90,3 +90,11 @@ export const cssColour = (colour: Oklch): string => {
   const alpha = colour.alpha === undefined || colour.alpha >= 1 ? "" : ` / ${written(colour.alpha, 3)}`;
   return `oklch(${written(colour.l, 2)}% ${written(colour.c, 4)} ${written(colour.h, 2)}${alpha})`;
 };
+
+/** An `oklch()` as the stylesheet writes it (`cssColour`), read back; undefined for anything else. */
+export const readCssColour = (text: string): Oklch | undefined => {
+  const match = /^oklch\(([\d.]+)% ([\d.]+) ([\d.]+)(?: \/ ([\d.]+))?\)$/.exec(text.trim());
+  if (match === null) return undefined;
+  const [, l, c, h, alpha] = match.map(Number) as [number, number, number, number, number];
+  return { l, c, h, ...(match[4] !== undefined && { alpha }) };
+};

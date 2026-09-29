@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { Ceiling, presetPermissionSettings, presetSettings, type Scope } from "@agent-harness/contracts";
+import { Ceiling, DEFAULT_THEME, presetPermissionSettings, presetSettings, type EventFrame, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -31,7 +31,7 @@ const scopedClient = (t: TestEnvironment, scopes: Scope[]) =>
   t.client({ token: t.env.clientSessions.issue({ kind: "program", label: "a scoped program", scopes, ceiling: Ceiling.parse("acceptEdits") }).token });
 
 describe("settings.get", () => {
-  it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge, compaction after 90 days, no default account, family or effort, and the update keys' presets (#335)", async () => {
+  it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge, compaction after 90 days, no default account, family or effort, the update keys' presets (#335) and the Default theme (#391)", async () => {
     const t = await start();
     const client = await t.client();
     expect(await client.request("settings.get", {})).toEqual({
@@ -49,6 +49,7 @@ describe("settings.get", () => {
         "updates.pinnedVersion": null,
         "updates.idleWindowMinutes": 10,
         "updates.deferralCapHours": 24,
+        "appearance.theme": DEFAULT_THEME,
       },
     });
   });
@@ -80,7 +81,8 @@ describe("settings.update", () => {
     const answer = await updateSettings(client, { "sessions.autoSettleAfterIdle": { amount: 2, unit: "weeks" }, "sessions.autoSettleOnMerge": false }, commandId);
 
     const values = { ...presets, "sessions.autoSettleAfterIdle": { amount: 2, unit: "weeks" } };
-    expect(answer).toEqual({ receipt: { status: "accepted", sequence: head + 1, changed: true }, result: { values } });
+    // The head after the notice settings.changed, appended beside it on the environment's own stream (#391).
+    expect(answer).toEqual({ receipt: { status: "accepted", sequence: head + 2, changed: true }, result: { values } });
     expect(eventsAfter(t, head)).toEqual([
       expect.objectContaining({
         streamKind: "settings",
@@ -185,5 +187,69 @@ describe("settings.update", () => {
     const rebuilt = await again.request("environment.rebuildProjections", { commandId: randomUUID() });
     expect(rebuilt.result?.projectors).toEqual(expect.arrayContaining(["session-list", "settings"]));
     expect(await again.request("settings.get", {})).toEqual({ values: { ...presets, ...values } });
+  });
+});
+
+describe("settings.changed (GUI spec, \"Live\"; #391)", () => {
+  const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
+
+  /** Every event of the settings and environment streams after `sequence`, as its stream, type, payload, command and actor. */
+  const writtenAfter = (t: TestEnvironment, sequence: number) =>
+    t.env.log
+      .readStream({ kinds: ["settings", "environment"] }, sequence)
+      .map((event) => ({ streamKind: event.streamKind, streamId: event.streamId, type: event.type, payload: event.payload, commandId: event.commandId, actor: event.actor }));
+
+  it("is appended on the environment's own stream in the transaction of every settings.updated, whichever method wrote it, naming the keys that changed", async () => {
+    const t = await start();
+    const client = await t.client();
+    const actor = `client_session:${client.hello.clientSessionId}`;
+    const writes = [
+      { method: "settings.update", values: { "sessions.autoSettleOnMerge": true, "appearance.theme": ember } },
+      { method: "permissions.settings.set", values: { "permissions.defaultCeiling": "auto", "permissions.unattended.mode": "acceptEdits" } },
+      { method: "updates.settings.set", values: { "updates.idleWindowMinutes": 20 } },
+    ] as const;
+    const changed = [["sessions.autoSettleOnMerge", "appearance.theme"], ["permissions.defaultCeiling"], ["updates.idleWindowMinutes"]];
+    for (const [i, { method, values }] of writes.entries()) {
+      const head = t.env.log.head();
+      const commandId = randomUUID();
+      const { receipt } = (await client.request(method, { commandId, values } as never)) as { receipt: { status: string; sequence: number; changed: boolean } };
+      const keys = changed[i] as string[];
+      expect(writtenAfter(t, head), method).toEqual([
+        {
+          streamKind: "settings",
+          streamId: t.env.id,
+          type: "settings.updated",
+          payload: { values: Object.fromEntries(keys.map((key) => [key, (values as Record<string, unknown>)[key]])) },
+          commandId,
+          actor,
+        },
+        { streamKind: "environment", streamId: t.env.id, type: "settings.changed", payload: { keys }, commandId, actor },
+      ]);
+      // One transaction, the notice straight after the change: the receipt, written with both, names the notice as the head.
+      const [updated, notice] = t.env.log.readStream({ kinds: ["settings", "environment"] }, head);
+      expect(notice?.sequence, method).toBe((updated?.sequence ?? 0) + 1);
+      expect(receipt, method).toEqual({ status: "accepted", sequence: notice?.sequence, changed: true });
+    }
+  });
+
+  it("is not appended by a write that changes nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const head = t.env.log.head();
+    await updateSettings(client, { "appearance.theme": DEFAULT_THEME, "sessions.autoSettleOnMerge": false });
+    await client.request("permissions.settings.set", { commandId: randomUUID(), values: { "permissions.defaultCeiling": "acceptEdits" } });
+    await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.channel": "stable" } });
+    expect(writtenAfter(t, head)).toEqual([]);
+  });
+
+  it("reaches a client subscribed to environment.subscribe, as every notice does", async () => {
+    const t = await start();
+    const writer = await t.client();
+    const watcher = await t.client();
+    const { subscription } = await watcher.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    await watcher.next((frame) => frame.type === "synchronized" && "subscription" in frame && frame.subscription === subscription);
+    await updateSettings(writer, { "appearance.theme": ember });
+    const frame = await watcher.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription);
+    expect(frame.event).toMatchObject({ streamKind: "environment", type: "settings.changed", payload: { keys: ["appearance.theme"] } });
   });
 });
