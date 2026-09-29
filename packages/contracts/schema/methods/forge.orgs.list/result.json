@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.orgs.list result",
+  "type": "object",
+  "properties": {
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The user's login, or the organisation's name, as the forge answers it."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "organisation"
+            ],
+            "description": "user: the forge account's own; organisation: one it is a member of."
+          }
+        },
+        "required": [
+          "login",
+          "kind"
+        ],
+        "description": "An owner a repository may be created under on a forge: the user, or an organisation."
+      },
+      "description": "The user first, then each organisation in the order the forge lists them."
+    }
+  },
+  "required": [
+    "owners"
+  ]
+}

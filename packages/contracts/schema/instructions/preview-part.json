@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionPreviewPart",
+  "type": "object",
+  "properties": {
+    "layer": {
+      "type": "string",
+      "enum": [
+        "user",
+        "team-bank",
+        "project",
+        "session",
+        "persona",
+        "always-on"
+      ],
+      "description": "A layer of a run's standing instructions, in the order the text holds them: user (the orientation block, then owned instructions), team-bank, project, session, persona (a bot's), always-on (always-on skills)."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the part is, within its layer: orientation for the orientation block, else the id of the thing it renders."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The part's title, as a client heads it: Orientation for the orientation block."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The part's text, as the composed text holds it."
+    }
+  },
+  "required": [
+    "layer",
+    "id",
+    "title",
+    "text"
+  ],
+  "description": "A part of the composed text: its layer, its id, its title and its text."
+}
