@@ -9,8 +9,8 @@ import {
 } from "@agent-harness/contracts";
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { AutoMemory } from "./auto-memory.js";
+import type { AvailabilityWatcher } from "./availability.js";
 import { readRepositoryIdentity } from "./identity.js";
-import { isDirectory } from "./resolver.js";
 
 /**
  * The identity passes (workspace-picker spec, "Repository identity",
@@ -27,7 +27,13 @@ import { isDirectory } from "./resolver.js";
  *   create whose git timed out, and a directory that has since gained a
  *   remote join the by-repository view. Scratch workspaces, which the
  *   completions surface makes by the thousand and in which nothing is a
- *   checkout, are skipped.
+ *   checkout, are skipped. Whether the workspace is there is the
+ *   availability watcher's look (`availability.ts`, #699), within its time
+ *   bound and its gate, so a network mount whose server is gone holds
+ *   neither the thread pool nor a stop: a workspace that does not answer in
+ *   time, or that the watcher does not look at while its gate holds, is
+ *   passed over, no git run there, until the next start. The look marks the
+ *   session gone or back, as the watcher's own pass would.
  * - **Alias**: when a forge account is added, or its aliases change (one
  *   verified later, as `system:forge`), every identity whose host is a
  *   verified alias of one forge account takes that account's canonical
@@ -63,6 +69,8 @@ export interface IdentityPassesOptions {
   readonly forgeAccounts: () => readonly ForgeAccountOrigins[];
   /** Where a session whose key an identity changes has its auto memory carried. */
   readonly autoMemory: AutoMemory;
+  /** What looks at a candidate's workspace, within its bound and its gate, before the resolved pass asks git there (#328, #699). */
+  readonly availability: Pick<AvailabilityWatcher, "check">;
   /** How long each git call gets; preset: the hardened runner's 15 seconds. */
   readonly gitTimeoutMs?: number;
 }
@@ -71,7 +79,11 @@ export interface IdentityPassesOptions {
 export interface RunningPasses {
   /** Settles once the resolved pass has run, or has stopped. */
   readonly resolved: Promise<void>;
-  /** Stops both passes, starting no git call after this, and settles once the git calls and copies they have running are done. */
+  /**
+   * Stops both passes, starting no git call after this, and settles once the
+   * git calls and copies they have running are done; a look the resolved
+   * pass waits on is given up, not waited for.
+   */
   stop(): Promise<void>;
 }
 
@@ -105,6 +117,9 @@ export const onCanonicalHost = (identity: string, forgeAccounts: readonly ForgeA
 export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPasses => {
   const { log } = options;
   let stopped = false;
+  /** Settles as finding nothing once the passes stop: a look the resolved pass waits on gives way to it, so a stop waits on no look. */
+  let stopLooking: () => void = () => undefined;
+  const lookStopped = new Promise<"unknown">((resolve) => (stopLooking = () => resolve("unknown")));
   /** The alias pass's appends whose copies still run. */
   const copying = new Set<Promise<void>>();
 
@@ -140,7 +155,7 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
     const resolveNext = async (): Promise<void> => {
       for (let row = candidates.shift(); row !== undefined && !stopped; row = candidates.shift()) {
         const { path } = JSON.parse(row.workspace) as Workspace;
-        if (!(await isDirectory(path))) continue;
+        if ((await Promise.race([options.availability.check(row.id), lookStopped])) !== "present") continue;
         const identity = await readRepositoryIdentity(path, {
           forgeAccounts: options.forgeAccounts(),
           ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }),
@@ -196,6 +211,7 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
         resolved,
         stop: async () => {
           stopped = true;
+          stopLooking();
           unsubscribe();
           await Promise.all([resolved, ...copying]);
         },

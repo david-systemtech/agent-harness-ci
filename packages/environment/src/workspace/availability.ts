@@ -13,8 +13,9 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * leaves `updatedAt` where it was. It looks in a pass over every session
  * not deleted after each start and hourly, one session at a time; when
  * `runs.start`, `runs.send`, `runs.readNow` or `terminals.open` is about to
- * decide (`check`, before their transaction); and it takes what the
- * `files.*` methods and `diffs.workingTree` found (`found`). While a
+ * decide (`check`, before their transaction), and before the resolved
+ * identity pass asks git in a workspace (`check`, #699); and it takes what
+ * the `files.*` methods and `diffs.workingTree` found (`found`). While a
  * session is marked, its runs cannot start, take a message or read now
  * (`runs/run-decider.ts`), and no terminal opens on it
  * (`terminals/service.ts`); `sessions.setWorkspace` gives it a new
@@ -35,9 +36,9 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * mount that never comes back) holds that gate for the life of the
  * process: until one returns, the pass, the run commands and
  * `terminals.open` mark no other session, which they decide on by the mark
- * as it stands, as before the watcher; the file and diff methods' own
- * findings still mark it. The log says so once each time the gate starts
- * holding.
+ * as it stands, as before the watcher, and the resolved identity pass
+ * passes over every other; the file and diff methods' own findings still
+ * mark it. The log says so once each time the gate starts holding.
  */
 
 /** How long one look at a workspace directory may take before the directory counts as not there. A chosen default (#328). */
@@ -50,7 +51,7 @@ export const MAX_UNANSWERED = 2;
 export const PASS_INTERVAL_MS = 60 * 60_000;
 
 /** What a look found: the directory there, not there (or not answering), or nothing, since no look could be made. */
-type Finding = WorkspaceStatus | "unknown";
+export type Finding = WorkspaceStatus | "unknown";
 
 /** How the watcher looks, beside the environment's other workspace settings. */
 export interface AvailabilitySettings {
@@ -77,11 +78,12 @@ export interface RunningWatcher {
 export interface AvailabilityWatcher {
   /**
    * Looks at the session's workspace now and marks the session by what it
-   * found; settles once the mark is recorded. Looks for one session follow
-   * each other in the order asked, so the commands that wait on them keep
-   * their order. A session not here, or deleted, is not looked at.
+   * found; settles with what it found once the mark is recorded. Looks for
+   * one session follow each other in the order asked, so the commands that
+   * wait on them keep their order. A session not here, or deleted, is not
+   * looked at: `unknown`, as while the watcher is stopped or its gate holds.
    */
-  check(sessionId: string): Promise<void>;
+  check(sessionId: string): Promise<Finding>;
   /**
    * What a method needing the workspace found at `path` (the session's
    * recorded path, as it read it): marks the session, unless its workspace
@@ -131,7 +133,7 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
   /** How each look still waiting is answered finding nothing, when the watcher stops. */
   const waiting = new Set<() => void>();
   /** Each session's latest check, which the next one for it follows. */
-  const latest = new Map<string, Promise<void>>();
+  const latest = new Map<string, Promise<unknown>>();
   let stopped = false;
   /** Whether the last look found the gate held, so the log says so once per hold. */
   let held = false;
@@ -208,16 +210,17 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
     });
   };
 
-  /** Looks at the session's workspace and records what was found. */
-  const lookAt = async (sessionId: string): Promise<void> => {
+  /** Looks at the session's workspace, records what was found, and answers it. */
+  const lookAt = async (sessionId: string): Promise<Finding> => {
     const row = sessionRow(sessionId);
-    if (row === undefined || row.deleted_at !== null) return;
+    if (row === undefined || row.deleted_at !== null) return "unknown";
     const path = pathOf(row);
     const finding = await look(path);
     if (finding !== "unknown") record(sessionId, path, finding);
+    return finding;
   };
 
-  const check = (sessionId: string): Promise<void> => {
+  const check = (sessionId: string): Promise<Finding> => {
     const next = (latest.get(sessionId) ?? Promise.resolve()).then(() => lookAt(sessionId));
     latest.set(sessionId, next);
     // The one who asked hears a failure; this bookkeeping only lets go of the check, handled either way.

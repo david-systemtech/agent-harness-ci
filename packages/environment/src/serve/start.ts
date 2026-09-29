@@ -1362,12 +1362,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       console.error("Minting the pairing a declared container prints at its start failed; run pair in the container for one:", error);
     }
   }
-  // The identity passes (#329): sessions with no identity resolved again, past the gate, four git processes at a time; and
-  // every identity on a verified alias's host moved to its canonical host, from here on, as a forge account is added or verified.
+  // The identity passes (#329): sessions with no identity resolved again, past the gate, four git processes at a time, each
+  // workspace looked at first through the availability watcher, within its bound (#699); and every identity on a verified
+  // alias's host moved to its canonical host, from here on, as a forge account is added or verified.
   const identityPasses = createIdentityPasses({
     log,
     forgeAccounts,
     autoMemory,
+    availability,
     ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
   }).start();
   closers.push(() => identityPasses.stop());

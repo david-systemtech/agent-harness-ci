@@ -10,8 +10,10 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, deleteSession, get, listStream, patchOf } from "../../test/sessions.js";
 import { git, scriptedResolver } from "../../test/workspaces.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
-import { autoMemoryName, type MemoryPlace } from "./auto-memory.js";
+import { autoMemoryName, createAutoMemory, type MemoryPlace } from "./auto-memory.js";
+import { createAvailabilityWatcher, type AvailabilityWatcher } from "./availability.js";
 import { hashedName } from "./directory-names.js";
+import { createIdentityPasses } from "./identity-passes.js";
 
 /**
  * Identity after creation (workspace-picker spec, "Repository identity",
@@ -70,6 +72,17 @@ const created = async (client: WireClient, workspace: WorkspaceRequest): Promise
   if (result === undefined) throw new Error(`The create in ${JSON.stringify(workspace)} was not accepted.`);
   return { id, summary: result.summary };
 };
+
+/**
+ * How long a look may take in the tests of a workspace that never answers:
+ * short, since only that workspace's look ever reaches it, the scripted
+ * look answering every other path at once.
+ */
+const LOOK_BOUND_MS = 50;
+
+/** The identity passes over `t`'s log, looking through `watcher` rather than the environment's own, started. */
+const passesThrough = (t: TestEnvironment, watcher: AvailabilityWatcher) =>
+  createIdentityPasses({ log: t.env.log, forgeAccounts: () => [], autoMemory: createAutoMemory(join(t.dataDir, "auto-memory")), availability: watcher }).start();
 
 describe("the resolved pass", () => {
   it("gives a directory that gained a remote its identity after a restart on one data directory, as system:workspaces, updatedAt kept", async () => {
@@ -204,12 +217,105 @@ describe("the resolved pass", () => {
 
     const since = (id: string) => again.env.log.readStream({ kind: "session", id }, from);
     for (const { id } of [scratch, deleted, identified]) expect(since(id), id).toEqual([]);
-    // The availability watcher's pass runs beside this one after the start and marks the gone directory missing (#328),
-    // before this pass settles or after it: that mark alone is left out.
+    // The availability watcher marks the gone directory missing (#328), by the look this pass has it make (#699) or by its
+    // own pass beside this one, before this pass settles or after it: that mark alone is left out.
     const missingMark = ({ type, payload }: { type: string; payload: Record<string, unknown> }): boolean =>
       type === "session.workspace-status-changed" && payload["status"] === "missing";
     expect(since(gone.id).filter((event) => !missingMark(event)), gone.id).toEqual([]);
     expect((await get(await again.client(), identified.id)).repositoryIdentity).toBe("https://github.com/david/kept");
+  });
+
+  it("passes over a workspace whose look does not answer within the watcher's bound, as on a network mount whose server is gone, resolves the others, and lets the environment close (#699)", async () => {
+    const dataDir = dataDirectory();
+    const first = await start({ dataDir });
+    const client = await first.client();
+    const dead = repository();
+    const healthy = [repository(), repository()];
+    const deadSession = await created(client, { kind: "directory", path: dead });
+    const others = await Promise.all(healthy.map((path) => created(client, { kind: "directory", path })));
+    const from = first.env.log.head();
+    await first.close();
+    // Each would now give an identity, were git asked in it.
+    git(dead, "remote", "add", "origin", "https://github.com/david/dead.git");
+    healthy.forEach((path, index) => git(path, "remote", "add", "origin", `https://github.com/david/repository-${index}.git`));
+
+    const again = await start({
+      dataDir,
+      workspaces: {
+        // Every other path answers at once; the bound is only ever reached by the one that never does.
+        lookTimeoutMs: LOOK_BOUND_MS,
+        isDirectory: async (path) => (path === dead ? new Promise<boolean>(() => undefined) : true),
+      },
+    });
+    await again.env.workspaces.identityPass;
+
+    // The watcher marks it missing, as its own pass would; no identity is appended.
+    expect(again.env.log.readStream({ kind: "session", id: deadSession.id }, from).map((event) => event.type)).not.toContain("session.repository-identified");
+    const client2 = await again.client();
+    for (const [index, { id }] of others.entries()) expect((await get(client2, id)).repositoryIdentity).toBe(`https://github.com/david/repository-${index}`);
+    // The dead workspace's call has still not returned: the environment closes all the same.
+    await again.close();
+  });
+
+  it("settles its stop while a look it waits on is still out, within the look's bound and the watcher still looking (#699)", async () => {
+    const t = await start();
+    const path = repository();
+    const { id } = await created(await t.client(), { kind: "directory", path });
+    git(path, "remote", "add", "origin", "https://github.com/david/dead.git");
+    let answerDead: (there: boolean) => void = () => undefined;
+    let deadAsked: () => void = () => undefined;
+    const lookedAtDead = new Promise<void>((resolve) => (deadAsked = resolve));
+    const watcher = createAvailabilityWatcher({
+      log: t.env.log,
+      clock: t.clock,
+      // Never reached here: the stop is all that ends the pass's wait.
+      lookTimeoutMs: 60 * 60_000,
+      // The one workspace here, whose call returns only when the test lets it.
+      isDirectory: () => {
+        deadAsked();
+        return new Promise<boolean>((resolve) => (answerDead = resolve));
+      },
+    });
+    const from = t.env.log.head();
+    const passes = passesThrough(t, watcher);
+    await lookedAtDead;
+
+    await passes.stop();
+    await passes.resolved;
+
+    expect(t.env.log.readStream({ kind: "session", id }, from)).toEqual([]);
+    // The call returns at last, letting go of the watcher's look.
+    answerDead(true);
+  });
+
+  it("passes over a workspace the watcher does not look at while its gate holds, two looks overdue, running no git there (#699)", async () => {
+    const t = await start();
+    const client = await t.client();
+    const dead = [repository(), repository()];
+    const deadSessions = await Promise.all(dead.map((path) => created(client, { kind: "directory", path })));
+    const healthy = repository();
+    const { id } = await created(client, { kind: "directory", path: healthy });
+    for (const path of [...dead, healthy]) git(path, "remote", "add", "origin", "https://github.com/david/asked.git");
+    const asked: string[] = [];
+    const watcher = createAvailabilityWatcher({
+      log: t.env.log,
+      clock: t.clock,
+      lookTimeoutMs: LOOK_BOUND_MS,
+      isDirectory: async (path) => {
+        asked.push(path);
+        return dead.includes(path) ? new Promise<boolean>(() => undefined) : true;
+      },
+    });
+    // Both dead workspaces' looks wait out their bound: the gate holds.
+    for (const session of deadSessions) expect(await watcher.check(session.id)).toBe("missing");
+    const from = t.env.log.head();
+
+    const passes = passesThrough(t, watcher);
+    await passes.resolved;
+    await passes.stop();
+
+    expect(asked).not.toContain(healthy);
+    for (const sessionId of [id, ...deadSessions.map((session) => session.id)]) expect(t.env.log.readStream({ kind: "session", id: sessionId }, from), sessionId).toEqual([]);
   });
 });
 
