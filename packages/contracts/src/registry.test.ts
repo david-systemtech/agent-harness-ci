@@ -69,6 +69,8 @@ describe("the method registry", () => {
     const sessionMethods = methods.filter((m) => m.name.startsWith("sessions.") || m.name.startsWith("groups."));
     expect(Object.fromEntries(sessionMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "sessions.create": ["command", "sessions:write"],
+      // Giving a missing session a new workspace (workspace-picker spec, "Missing workspaces"; #328).
+      "sessions.setWorkspace": ["command", "sessions:write"],
       "sessions.rename": ["command", "sessions:write"],
       "sessions.archive": ["command", "sessions:write"],
       "sessions.unarchive": ["command", "sessions:write"],
@@ -341,6 +343,7 @@ describe("the method registry", () => {
       | "access.sessions.setCeiling"
       | "access.log.list"
       | "sessions.create"
+      | "sessions.setWorkspace"
       | "sessions.rename"
       | "sessions.archive"
       | "sessions.unarchive"

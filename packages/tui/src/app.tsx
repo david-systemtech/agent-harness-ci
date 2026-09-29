@@ -440,6 +440,9 @@ export const App = (props: AppProps) => {
   // The session on screen.
   const session = useSession(runtime, clock, request);
   const { opened, projection } = session;
+  // The open session's workspace, when the environment has found it gone (#328): read from its list row, as the rail's.
+  const openRow = opened ? list.rows.find((row) => row.environmentId === opened.environmentId && row.summary.id === opened.sessionId) : undefined;
+  const gone = openRow?.summary.workspaceMissingSince != null ? openRow.summary.workspace.path : undefined;
   const [view, setView] = useState<View>(FRESH_VIEW);
   const [viewport, setViewport] = useState(0);
   const [sending, setSending] = useState<readonly Sending[]>([]);
@@ -843,6 +846,10 @@ export const App = (props: AppProps) => {
     }
     if (session.lock.locked) {
       say(`Not sent: ${session.lock.reason}`);
+      return false;
+    }
+    if (gone !== undefined) {
+      say(`Not sent: ${gone} is gone; /cwd chooses a workspace for the session.`);
       return false;
     }
     const refused = attachmentRefusal(message, session.provider);
@@ -2284,6 +2291,7 @@ export const App = (props: AppProps) => {
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
         locked={opened && session.lock.locked ? session.lock.reason : undefined}
+        gone={gone}
         placeholder={placeholder}
         popup={popup}
         highlight={popup ? highlighted(composer.state, popup) : -1}

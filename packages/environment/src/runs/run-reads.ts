@@ -10,11 +10,13 @@ import { sessionStream } from "../sessions/streams.js";
  * Inside a command they read that command's own transaction.
  */
 
-/** A session as a run needs it: whether it is there, its place, the account and model it was created with, its mode and its own containment level. */
+/** A session as a run needs it: whether it is there, its place and whether it is missing, the account and model it was created with, its mode and its own containment level. */
 export interface SessionFacts {
   readonly deleted: boolean;
   readonly workspace: Workspace;
   readonly repositoryIdentity: string | null;
+  /** Since when the availability watcher has found the workspace gone (#328); null while it is present. */
+  readonly workspaceMissingSince: string | null;
   readonly account: string | null;
   readonly model: string | null;
   readonly mode: Mode | null;
@@ -29,8 +31,8 @@ export interface SessionFacts {
  * one `permissions.mode.set` last gave it (`session_modes`) when it has.
  */
 export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Reader, sessionId: string): SessionFacts | null => {
-  const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null }>(
-    "SELECT deleted_at, workspace, repository_identity FROM sessions WHERE id = ?",
+  const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null; workspace_missing_since: string | null }>(
+    "SELECT deleted_at, workspace, repository_identity, workspace_missing_since FROM sessions WHERE id = ?",
     sessionId,
   );
   if (row === undefined) return null;
@@ -40,6 +42,7 @@ export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Read
     deleted: row.deleted_at !== null,
     workspace: JSON.parse(row.workspace) as Workspace,
     repositoryIdentity: row.repository_identity,
+    workspaceMissingSince: row.workspace_missing_since,
     account: payload?.account ?? null,
     model: payload?.model ?? null,
     mode: readSessionMode(reader, sessionId) ?? payload?.mode ?? null,

@@ -4,10 +4,12 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { ClientTool } from "../adapter/seams.js";
 import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
-import type { CommandContext, MethodHandlers } from "../serve/methods.js";
+import type { CommandContext, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import type { AvailabilityWatcher } from "../workspace/availability.js";
+import { sessionWorkspace } from "../workspace/session.js";
 import { queueVerbMethods } from "./queue-verbs.js";
 import { decideInterrupt, decideSend, decideStart, decideStopTask, type RunFacts, type RunRefusal } from "./run-decider.js";
 import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
@@ -25,6 +27,14 @@ import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
  * `unavailable`. The one thing done before the commit is staging a queued
  * message's attachment bytes on disk (#185), so its receipt means a restart
  * keeps them; a stage that fails refuses the send `internal`.
+ *
+ * `runs.start`, `runs.send` and `runs.readNow` look at the session's
+ * workspace first (#328): each is a prepared command whose `prepare` has the
+ * availability watcher look, which marks the session missing, or clears the
+ * mark, before the transaction; the decider then refuses a session marked
+ * missing, `conflict` `workspace_missing`. The watcher's looks for one
+ * session follow each other, so these commands keep their order for a
+ * session; a command on a session not here is answered at once.
  */
 
 export interface RunMethodsOptions {
@@ -38,7 +48,12 @@ export interface RunMethodsOptions {
    * the ceiling it authenticated with stands in then.
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
+  /** What looks at a session's workspace before a run command decides (#328). */
+  readonly availability: Pick<AvailabilityWatcher, "check">;
 }
+
+/** The run commands that need the session's workspace, and so look at it first. */
+type WorkspaceCommand = "runs.start" | "runs.send" | "runs.readNow";
 
 /** A run to start with a message: on which session, for whom, from where, and what it asks for. */
 export interface RunStart {
@@ -146,8 +161,22 @@ export const sendIn = (
 const runAggregate = (runId: string): StreamRef => ({ kind: "run", id: runId });
 
 export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
-  const { log, host } = options;
+  const { log, host, availability } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+
+  /**
+   * `handler`, run once the availability watcher has looked at the session's
+   * workspace and marked it by what it found. A session not here, or
+   * deleted, needs no look: its refusal is answered at once, keeping the
+   * command's place among its socket's requests.
+   */
+  const lookingFirst = <N extends WorkspaceCommand>(handler: MethodHandler<N>): PreparedCommand<N> => ({
+    prepare: (params) => {
+      const sessionId = params.sessionId.toLowerCase();
+      if (sessionWorkspace(log, sessionId) === null) return handler;
+      return availability.check(sessionId).then(() => handler);
+    },
+  });
 
   /** The caller as a run's actor (#129): a client session, attended, under its ceiling as it is now. */
   const actorOf = (context: CommandContext): RunActor => ({
@@ -171,8 +200,10 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
     };
   };
 
+  const verbs = queueVerbMethods({ log, host, actorOf });
+
   return {
-    "runs.start": (params, context) => {
+    "runs.start": lookingFirst((params, context) => {
       const aggregate = sessionStream(params.sessionId.toLowerCase());
       const started = startRunIn(log, host, context.tx, { actor: context.actor, commandId: context.commandId }, {
         sessionId: params.sessionId,
@@ -186,9 +217,9 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       });
       if (started.rejected !== undefined) return { aggregate, rejected: started.rejected };
       return { aggregate, result: { runId: started.runId, messageId: started.messageId } };
-    },
+    }),
 
-    "runs.send": (params, context) => {
+    "runs.send": lookingFirst((params, context) => {
       const aggregate = sessionStream(params.sessionId.toLowerCase());
       const sent = sendIn(log, host, context.tx, { actor: context.actor, commandId: context.commandId }, {
         sessionId: params.sessionId,
@@ -199,7 +230,7 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       });
       if (sent.rejected !== undefined) return { aggregate, rejected: sent.rejected };
       return { aggregate, result: sent.result };
-    },
+    }),
 
     "runs.interrupt": (params, context) => {
       const runId = params.runId.toLowerCase();
@@ -222,7 +253,8 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       return { aggregate, result: { runId, taskId: params.taskId, ended: decision.ended } };
     },
 
-    // Read now and withdraw, on the provider's queue and the environment's (#228).
-    ...queueVerbMethods({ log, host, actorOf }),
+    // Read now and withdraw, on the provider's queue and the environment's (#228); read now looks at the workspace first.
+    "runs.readNow": lookingFirst(verbs["runs.readNow"]),
+    "runs.withdraw": verbs["runs.withdraw"],
   };
 };

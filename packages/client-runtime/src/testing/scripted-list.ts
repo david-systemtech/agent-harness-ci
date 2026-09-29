@@ -21,7 +21,8 @@ import type { ManualClock } from "./in-memory-platform.js";
  * The scripted environment's session list (`scripted-environment.ts`):
  * `sessions.subscribe` answered with a snapshot of the script's sessions
  * and groups and `synchronized`, and every organisation command a client
- * issues applied as the environment's deciders apply it, in short: the
+ * issues applied as the environment's deciders apply it, in short (a
+ * missing session given another workspace among them): the
  * event carrying its summary patch and the command's id on the list, then
  * the accepted receipt. A command the script rejects
  * changes nothing. A test holds a method's answers to see a command wait
@@ -89,6 +90,7 @@ export const LIST_COMMANDS = [
   "sessions.unsnooze",
   "sessions.delete",
   "sessions.restore",
+  "sessions.setWorkspace",
   "groups.create",
 ] as const;
 
@@ -134,10 +136,10 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
   const noSession = () => rejected("not_found", "No such session.", { kind: "session" });
 
   /**
-   * The workspace a create's request gives, as the environment's resolver
-   * gives it (#325): a directory as sent, `~` read as `SCRIPTED_HOME`, unless
-   * the script refuses it; scratch under a data directory; another session's
-   * shared. Or the refusal.
+   * The workspace a create's or a `sessions.setWorkspace`'s request gives,
+   * as the environment's resolver gives it (#325): a directory as sent, `~`
+   * read as `SCRIPTED_HOME`, unless the script refuses it; scratch under a
+   * data directory; another session's shared. Or the refusal.
    */
   const resolved = (request: WorkspaceRequest, id: string): { readonly workspace: Workspace; readonly repositoryIdentity: string | null } | FakeAnswer => {
     switch (request.kind) {
@@ -281,6 +283,17 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
         gone.delete(id);
         add(deleted.summary, commandId, "session.restored");
         return accepted({ summary: deleted.summary });
+      }
+      case "sessions.setWorkspace": {
+        // As the environment decides it (#328): only a missing session with no run live is given another workspace.
+        if (!session) return noSession();
+        if (session.activity.state !== "idle") return rejected("conflict", "A run of the session is live.", { reason: "run_active", sessionId: id });
+        if (session.workspaceMissingSince === null) {
+          return rejected("conflict", "The session's workspace is there.", { reason: "workspace_present", sessionId: id, path: session.workspace.path });
+        }
+        const place = resolved(params["workspace"] as WorkspaceRequest, id);
+        if (!("workspace" in place)) return place;
+        return set(id, { workspace: place.workspace, repositoryIdentity: place.repositoryIdentity, workspaceMissingSince: null }, commandId, "session.workspace-set");
       }
       case "groups.create": {
         const group: Group = { id: String(params["id"]), name: normaliseGroupName(String(params["name"])), orderKey: null, createdAt: now, updatedAt: now };

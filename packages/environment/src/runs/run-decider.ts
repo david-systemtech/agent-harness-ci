@@ -198,6 +198,22 @@ const conflict = (sessionId: string, reason: string, message: string, data: Json
   rejected: { code: "conflict", message, data: { reason, sessionId, ...data } },
 });
 
+/**
+ * The refusal of a run command on a session whose workspace the
+ * availability watcher has found gone (#328): nothing can run until
+ * `sessions.setWorkspace` gives the session another. Null when the
+ * workspace is not marked missing.
+ */
+const workspaceMissing = (sessionId: string, session: SessionFacts): { readonly rejected: RunRefusal } | null =>
+  session.workspaceMissingSince === null
+    ? null
+    : conflict(
+        sessionId,
+        "workspace_missing",
+        `The workspace ${session.workspace.path} of the session ${sessionId} is gone; give the session another with sessions.setWorkspace.`,
+        { path: session.workspace.path },
+      );
+
 /** The one refusal of a run that is not on this environment: never started, or its session purged. */
 export const runNotFound = (runId: string): RunRefusal => ({
   code: "not_found",
@@ -266,7 +282,8 @@ export const policyResolvedEvent = (runId: string, policy: RunPolicy): EventInpu
  * run's one, in the same append, so it precedes every event the provider
  * reports), then a `message.delivered` for each queued message it reads,
  * then `message.sent` for the message it starts with. A session not here is
- * not found; a live run is `run_active` (send is the way in); an account not
+ * not found; one whose workspace is missing is `workspace_missing`, with the
+ * path; a live run is `run_active` (send is the way in); an account not
  * here, or not signed in, is `account_unavailable`; an account with no mode
  * at or below the ceiling is `mode_unavailable`. A mode above the ceiling,
  * or one the account lacks, is lowered, never refused.
@@ -274,6 +291,8 @@ export const policyResolvedEvent = (runId: string, policy: RunPolicy): EventInpu
 export const decideStart = (facts: StartFacts, command: StartCommand): StartDecision => {
   const { session, sessionId, runId } = facts;
   if (session === null || session.deleted) return { rejected: sessionNotFound(sessionId) };
+  const missing = workspaceMissing(sessionId, session);
+  if (missing !== null) return missing;
   if (facts.live !== null) {
     return conflict(sessionId, "run_active", `A run of the session ${sessionId} is live; send the message to it with runs.send.`, { runId: facts.live.runId });
   }
@@ -366,11 +385,14 @@ export type SendDecision =
  * as `decideStart` does, the message its prompt. During a live run it is
  * queued: held by the provider when the adapter has a queue of its own,
  * else by the environment, which starts the next run with it when the turn
- * ends; `message.sent` records which.
+ * ends; `message.sent` records which. A session whose workspace is missing
+ * takes none, live run or not: `workspace_missing`.
  */
 export const decideSend = (facts: StartFacts, message: SentMessage, origin: RunOrigin = "client"): SendDecision => {
   const { session, sessionId, live } = facts;
   if (session === null || session.deleted) return { rejected: sessionNotFound(sessionId) };
+  const missing = workspaceMissing(sessionId, session);
+  if (missing !== null) return missing;
   if (live === null) {
     const started = decideStart(facts, { origin, message });
     if (started.rejected !== undefined) return started;
@@ -474,7 +496,8 @@ export type ReadNowDecision =
 
 /**
  * Reads the session's queue now (ADR 0022: `runs.readNow`). A session not
- * here is not found. With nothing queued, by the provider or the
+ * here is not found, and one whose workspace is missing `workspace_missing`,
+ * whatever is queued. With nothing queued, by the provider or the
  * environment, nothing happens. With a run live, it is to be interrupted
  * (the host re-owns what its provider held and starts the next run after
  * the end); with none, the run of the environment's queue starts now, as
@@ -485,6 +508,8 @@ export type ReadNowDecision =
 export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
   const { start, basis } = facts;
   if (start.session === null || start.session.deleted) return { rejected: sessionNotFound(start.sessionId) };
+  const missing = workspaceMissing(start.sessionId, start.session);
+  if (missing !== null) return missing;
   if (start.queued.length === 0 && facts.providerHeld.length === 0) return { nothing: true };
   if (facts.liveRunId !== null) return { interrupt: facts.liveRunId };
   // The provider holds messages with no run live to interrupt (a turn it opened waits to be adopted): that turn reads them.
