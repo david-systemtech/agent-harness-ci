@@ -68,7 +68,6 @@ export {
 export type { MintedPairing } from "./methods/access.js";
 export {
   AliasIdentityMismatchError,
-  CredentialSourceUnavailableError,
   ForgeAccountMissingError,
   ForgeOwner,
   ForgeUnreachableError,

@@ -2,7 +2,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import type { KeyManagerLoginPolicy, KeyManagerTokenInformation } from "@agent-harness/contracts";
 import { policyWrites } from "./policy-writes.js";
-import type { ConnectionProvider, LoginFailure, ProviderFailure, SignInTarget } from "./provider.js";
+import type { ConnectionProvider, ListAnswer, LoginFailure, ProviderFailure, SignInTarget } from "./provider.js";
 
 /**
  * The OpenBao provider (key-managers spec, "Providers": OpenBao and Vault
@@ -19,6 +19,16 @@ import type { ConnectionProvider, LoginFailure, ProviderFailure, SignInTarget } 
  * checks on those paths, which register no existence check; then each of
  * its policies' texts (`sys/policies/acl/<name>`), a policy it may not read
  * possibly writing.
+ *
+ * A reference is read (#370) from a KV mount of either version: version 1
+ * at `<mount>/<path>`, version 2 at `<mount>/data/<path>`, its value the
+ * text at the reference's key. Each mount's version is read from its UI
+ * endpoint (`sys/internal/ui/mounts/<mount>`), where options name version 2,
+ * and version 1 when a server has no such endpoint, as older ones answer
+ * 404; it is kept for the provider's life, which is the environment's, and
+ * nothing else is: every value is read again. A list is OpenBao's
+ * (`?list=true`), under `metadata/` on version 2; with no mount, the KV
+ * mounts the UI endpoint names.
  *
  * An answer other than a success falls into one of the provider's
  * categories: a 503 read against the seal status, sealed or not; a 429
@@ -269,47 +279,129 @@ const readPolicy: ConnectionProvider["readPolicy"] = async (target, token, name,
   return text === null ? { outcome: "not-found", message: `OpenBao at ${target.address} answered no text for the policy ${name}.` } : { outcome: "read", text };
 };
 
-export const openBaoProvider: ConnectionProvider = {
-  logIn,
+/** The KV versions a mount is, 1 or 2. */
+type KvVersion = 1 | 2;
 
-  lookUp,
+/** The names a list answered: `keys` under `data`, each a name; a folder's ends in `/`. */
+const keysIn = (body: unknown): string[] => {
+  const data = isRecord(body) ? body["data"] : undefined;
+  const keys = isRecord(data) ? data["keys"] : undefined;
+  return Array.isArray(keys) ? keys.filter((key): key is string => typeof key === "string" && key !== "") : [];
+};
 
-  async verify(target, token, { tokenRole, signal }) {
-    const seal = await call(target, "GET", "sys/seal-status", { signal });
-    if (seal.outcome !== "answered") return seal;
-    if (seal.status !== 200) return refusal(target, seal.status, seal.body, signal);
-    if (isRecord(seal.body) && seal.body["sealed"] === true) return sealedFailure(target);
+/** The KV mounts the UI endpoint's list names, as it names them (`personal/`), in its order. */
+const kvMountsIn = (body: unknown): string[] => {
+  const data = isRecord(body) ? body["data"] : undefined;
+  const secret = isRecord(data) ? data["secret"] : undefined;
+  if (!isRecord(secret)) return [];
+  return Object.entries(secret)
+    .filter(([, mount]) => isRecord(mount) && (mount["type"] === "kv" || mount["type"] === "generic"))
+    .map(([name]) => (name.endsWith("/") ? name : `${name}/`));
+};
 
-    const found = await lookUp(target, token, signal);
-    if (found.outcome !== "found") return found;
+/**
+ * A provider for OpenBao and Vault. Each keeps the KV version of every
+ * mount it has read from, for its life: the environment makes one, so a
+ * mount's version is read once per process.
+ */
+export const createOpenBaoProvider = (): ConnectionProvider => {
+  const kvVersions = new Map<string, KvVersion>();
 
-    const path = createPath(tokenRole);
-    const asked = await call(target, "POST", "sys/capabilities-self", { token, body: { paths: [path] }, signal });
-    if (asked.outcome !== "answered") return asked;
-    let canMint = false;
-    if (asked.status === 200) {
-      const capabilities = capabilitiesIn(asked.body, path);
-      canMint = capabilities.includes("update") || capabilities.includes("root");
-    } else {
-      // A login that may not ask its own capabilities cannot be shown to mint.
-      const refused = await readRefusal(target, "ask its capabilities", asked.status, asked.body, signal);
-      if (stopsVerification(refused)) return refused;
-    }
-
-    const policies: KeyManagerLoginPolicy[] = [];
-    for (const name of found.information.policies) {
-      const text = await readPolicy(target, token, name, signal);
-      if (text.outcome !== "read" && stopsVerification(text)) return text;
-      policies.push({ name, writes: text.outcome === "read" ? policyWrites(text.text) : "possibly" });
-    }
-    return { outcome: "verified", information: found.information, root: found.root, canMint, policies };
-  },
-
-  readPolicy,
-
-  async revoke(target, token) {
-    const reply = await call(target, "POST", "auth/token/revoke-self", { token });
+  /** The version of the KV mount `mount`: kept, else read from its UI endpoint with the login's token; a failure is not kept. */
+  const versionOf = async (target: SignInTarget, token: string, mount: string, signal?: AbortSignal): Promise<{ readonly outcome: "detected"; readonly version: KvVersion } | ProviderFailure> => {
+    const key = JSON.stringify([target.address, mount]);
+    const kept = kvVersions.get(key);
+    if (kept !== undefined) return { outcome: "detected", version: kept };
+    const reply = await call(target, "GET", `sys/internal/ui/mounts/${encodedPath(mount)}`, { token, signal });
     if (reply.outcome !== "answered") return reply;
-    return reply.status >= 200 && reply.status <= 299 ? { outcome: "revoked" } : refusal(target, reply.status, reply.body);
-  },
+    let version: KvVersion = 1;
+    if (reply.status === 200) {
+      const data = isRecord(reply.body) ? reply.body["data"] : undefined;
+      const options = isRecord(data) ? data["options"] : undefined;
+      version = isRecord(options) && options["version"] === "2" ? 2 : 1;
+    } else if (reply.status !== 404) {
+      return readRefusal(target, `see the mount ${mount}`, reply.status, reply.body, signal);
+    }
+    kvVersions.set(key, version);
+    return { outcome: "detected", version };
+  };
+
+  return {
+    logIn,
+
+    lookUp,
+
+    async verify(target, token, { tokenRole, signal }) {
+      const seal = await call(target, "GET", "sys/seal-status", { signal });
+      if (seal.outcome !== "answered") return seal;
+      if (seal.status !== 200) return refusal(target, seal.status, seal.body, signal);
+      if (isRecord(seal.body) && seal.body["sealed"] === true) return sealedFailure(target);
+
+      const found = await lookUp(target, token, signal);
+      if (found.outcome !== "found") return found;
+
+      const path = createPath(tokenRole);
+      const asked = await call(target, "POST", "sys/capabilities-self", { token, body: { paths: [path] }, signal });
+      if (asked.outcome !== "answered") return asked;
+      let canMint = false;
+      if (asked.status === 200) {
+        const capabilities = capabilitiesIn(asked.body, path);
+        canMint = capabilities.includes("update") || capabilities.includes("root");
+      } else {
+        // A login that may not ask its own capabilities cannot be shown to mint.
+        const refused = await readRefusal(target, "ask its capabilities", asked.status, asked.body, signal);
+        if (stopsVerification(refused)) return refused;
+      }
+
+      const policies: KeyManagerLoginPolicy[] = [];
+      for (const name of found.information.policies) {
+        const text = await readPolicy(target, token, name, signal);
+        if (text.outcome !== "read" && stopsVerification(text)) return text;
+        policies.push({ name, writes: text.outcome === "read" ? policyWrites(text.text) : "possibly" });
+      }
+      return { outcome: "verified", information: found.information, root: found.root, canMint, policies };
+    },
+
+    readPolicy,
+
+    async revoke(target, token) {
+      const reply = await call(target, "POST", "auth/token/revoke-self", { token });
+      if (reply.outcome !== "answered") return reply;
+      return reply.status >= 200 && reply.status <= 299 ? { outcome: "revoked" } : refusal(target, reply.status, reply.body);
+    },
+
+    async read(target, token, reference, signal) {
+      if (reference.provider !== "openbao") return { outcome: "not-found", message: `OpenBao at ${target.address} holds no ${reference.provider} reference.` };
+      const where = `${reference.mount}/${reference.path}`;
+      const detected = await versionOf(target, token, reference.mount, signal);
+      if (detected.outcome !== "detected") return detected;
+      const path = detected.version === 2 ? `${encodedPath(reference.mount)}/data/${encodedPath(reference.path)}` : encodedPath(where);
+      const reply = await call(target, "GET", path, { token, signal });
+      if (reply.outcome !== "answered") return reply;
+      if (reply.status !== 200) return readRefusal(target, `read ${where}`, reply.status, reply.body, signal);
+      const data = isRecord(reply.body) ? reply.body["data"] : undefined;
+      const fields = detected.version === 2 && isRecord(data) ? data["data"] : data;
+      const value = isRecord(fields) ? fields[reference.key] : undefined;
+      // Never the value in a line: a key holding no text is named, and what it holds is not.
+      if (typeof value !== "string" || value === "") return { outcome: "not-found", message: `OpenBao at ${target.address} holds no key ${reference.key} with text in ${where}.` };
+      return { outcome: "read", value };
+    },
+
+    async list(target, token, { mount, path }, signal): Promise<ListAnswer> {
+      if (mount === null) {
+        const reply = await call(target, "GET", "sys/internal/ui/mounts", { token, signal });
+        if (reply.outcome !== "answered") return reply;
+        if (reply.status !== 200) return readRefusal(target, "list the mounts", reply.status, reply.body, signal);
+        return { outcome: "listed", names: kvMountsIn(reply.body) };
+      }
+      const detected = await versionOf(target, token, mount, signal);
+      if (detected.outcome !== "detected") return detected;
+      const base = detected.version === 2 ? `${encodedPath(mount)}/metadata/` : `${encodedPath(mount)}/`;
+      const where = path === null ? mount : `${mount}/${path}`;
+      const reply = await call(target, "GET", `${base}${path === null ? "" : `${encodedPath(path)}/`}?list=true`, { token, signal });
+      if (reply.outcome !== "answered") return reply;
+      if (reply.status !== 200) return readRefusal(target, `list ${where}`, reply.status, reply.body, signal);
+      return { outcome: "listed", names: keysIn(reply.body) };
+    },
+  };
 };

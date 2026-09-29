@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "CredentialSourceUnavailableError",
+  "title": "ReferenceNotFoundError",
   "type": "object",
   "properties": {
     "code": {
       "type": "string",
-      "const": "credential_source_unavailable"
+      "const": "reference_not_found"
     },
     "message": {
       "type": "string"
@@ -30,5 +30,5 @@
     "message",
     "data"
   ],
-  "description": "The key-manager reference could not be read: no key-manager connection on this environment holds it, the connection is not signed in, or the key manager could not be asked now. Nothing was changed; the message says which, and data names the connection."
+  "description": "The key manager holds nothing at the reference's locator: no secret at its path, or no key by its name in the secret. Nothing was changed; data names the connection."
 }
