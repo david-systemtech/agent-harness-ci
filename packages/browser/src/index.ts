@@ -4,4 +4,4 @@
  * page alike. It depends on contracts alone and imports no Node built-in and
  * no environment code, so the extension can depend on it.
  */
-export {};
+export { frameUntrusted } from "./frame.js";
