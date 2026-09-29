@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
   BYPASS_SENTENCE,
+  CHECK_BUDGETS_SECONDS,
+  DEFAULT_CADENCE_MINUTES,
   DENYLIST_SECTIONS,
   PERMISSION_SETTINGS_KEYS,
   SETTINGS,
@@ -22,7 +24,9 @@ import {
  * row are the row registry's test, `settings-rows.test.ts`); the steps stand in
  * the milestone-1 order, link only to steps of it, write state only through
  * registered methods, confirm only keys they write, and name their state
- * checks for themselves (#141). The Permissions entry names every settings
+ * checks for themselves (#141); each declares its check's budget and its
+ * cadence, one under the hour with its reason, and only a skippable step a
+ * skip check, one of its own (ADR 0031; #308). The Permissions entry names every settings
  * key the permissions spec writes and the denylist's four sections. Each
  * check is a plain function over the tables, so each failure it exists to
  * catch is shown failing on a table broken on purpose.
@@ -41,6 +45,10 @@ interface LooseStep {
   readonly stateChecks: readonly { readonly id: string; readonly holds: string; readonly actions: readonly string[] }[];
   readonly links: readonly ({ readonly row: string } | { readonly step: string })[];
   readonly skippable: boolean;
+  /** Optional here, so a table missing one can be written. */
+  readonly budgetSeconds?: number;
+  readonly cadence?: { readonly minutes: number; readonly reason?: string };
+  readonly skip?: string;
 }
 
 /** What is wrong with the two tables together. */
@@ -73,7 +81,10 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
  * order or out of it, a link to a step that is not in the order or to
  * itself, state written through a method that is not registered, a
  * confirmation of a key the step does not write, a state check not named
- * `<step>.<what>` or named twice, or an action outside ADR 0031's vocabulary.
+ * `<step>.<what>` or named twice, an action outside ADR 0031's vocabulary,
+ * a budget that is none of ADR 0031's three, a cadence that is no whole
+ * number of minutes or leaves the hour without a reason, or a skip check on
+ * a step that may not be skipped or that names none of its own state checks.
  */
 const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
   const problems: string[] = [];
@@ -100,6 +111,17 @@ const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
       for (const action of check.actions) {
         if (!(SETUP_ACTIONS as readonly string[]).includes(action)) problems.push(`${step.id}: ${check.id} offers ${action}, which is no named action`);
       }
+    }
+    if (step.budgetSeconds === undefined) problems.push(`${step.id}: declares no budget`);
+    else if (!(CHECK_BUDGETS_SECONDS as readonly number[]).includes(step.budgetSeconds)) problems.push(`${step.id}: a budget of ${step.budgetSeconds} s is not 5, 10 or 30 s`);
+    if (step.cadence === undefined) problems.push(`${step.id}: declares no cadence`);
+    else if (!Number.isInteger(step.cadence.minutes) || step.cadence.minutes < 1) problems.push(`${step.id}: a cadence of ${step.cadence.minutes} minutes is no whole number of minutes`);
+    else if (step.cadence.minutes !== DEFAULT_CADENCE_MINUTES && !step.cadence.reason?.trim()) {
+      problems.push(`${step.id}: a cadence of ${step.cadence.minutes} minutes states no reason for leaving the hour`);
+    }
+    if (step.skip !== undefined) {
+      if (!step.skippable) problems.push(`${step.id}: names the skip check ${step.skip} but may not be skipped`);
+      if (!step.stateChecks.some((check) => check.id === step.skip)) problems.push(`${step.id}: its skip check ${step.skip} is none of its state checks`);
     }
   });
   const checkIds = steps.flatMap((step) => step.stateChecks.map((check) => check.id));
@@ -252,6 +274,35 @@ describe("the step registry", () => {
     for (const key of UPDATE_SETTINGS_KEYS) expect(checkOf(key)?.(presets[key]), key).toBe(true);
     expect(checkOf("updates.pinnedVersion")?.("0.4.2")).toBe(true);
     expect(checkOf("updates.idleWindowMinutes")?.(0)).toBe("updates.idleWindowMinutes does not hold a valid value.");
+  });
+
+  it("gives every registered entry a budget of five seconds and an hourly cadence (#308)", () => {
+    expect(STEP_REGISTRY.map((step) => [step.id, step.budgetSeconds, step.cadence])).toEqual([
+      ["account", 5, { minutes: 60 }],
+      ["your-machines", 5, { minutes: 60 }],
+      ["permissions", 5, { minutes: 60 }],
+      ["appearance", 5, { minutes: 60 }],
+    ]);
+  });
+
+  it("fails an entry with no budget, a budget outside ADR 0031's three, no cadence, a cadence of no whole minutes, or a cadence under the hour with no reason", () => {
+    const { budgetSeconds: _budget, cadence: _cadence, ...bare } = appearance;
+    expect(stepShapeProblems([bare])).toEqual(["appearance: declares no budget", "appearance: declares no cadence"]);
+    expect(stepShapeProblems([{ ...appearance, budgetSeconds: 7 }])).toEqual(["appearance: a budget of 7 s is not 5, 10 or 30 s"]);
+    expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 0.5 } }])).toEqual(["appearance: a cadence of 0.5 minutes is no whole number of minutes"]);
+    expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 15 } }])).toEqual(["appearance: a cadence of 15 minutes states no reason for leaving the hour"]);
+    expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 15, reason: " " } }])).toHaveLength(1);
+    expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 120 } }])).toEqual(["appearance: a cadence of 120 minutes states no reason for leaving the hour"]);
+    expect(stepShapeProblems([{ ...appearance, budgetSeconds: 30, cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
+  });
+
+  it("fails a skip check on a step that may not be skipped, or one that names none of the step's own state checks", () => {
+    const present = { id: "account.present", holds: "At least one account is added.", actions: [] };
+    expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present], skip: "account.present" }])).toEqual([]);
+    expect(stepShapeProblems([{ ...account, stateChecks: [present], skip: "account.present" }])).toEqual(["account: names the skip check account.present but may not be skipped"]);
+    expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present], skip: "permissions.not-root" }])).toEqual([
+      "account: its skip check permissions.not-root is none of its state checks",
+    ]);
   });
 
   it("fails a step out of the order or outside it, a link to no step or to itself, state through no method, a confirmation of an unwritten key, and a misnamed, doubled or unknown state check", () => {

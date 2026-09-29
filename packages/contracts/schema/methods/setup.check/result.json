@@ -25,7 +25,7 @@
               "needs-attention",
               "skipped"
             ],
-            "description": "What a step's check found: done, needs-attention, or skipped (a skippable step a person skipped; never a preference step)."
+            "description": "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step)."
           },
           "reason": {
             "type": "string",
@@ -38,7 +38,7 @@
               "type": "string",
               "minLength": 1
             },
-            "description": "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); empty when done."
+            "description": "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); on a result that timed out, the state checks that had not answered; empty when done or skipped."
           },
           "actions": {
             "type": "array",
@@ -59,13 +59,43 @@
               ],
               "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary: sign-in-again, pull-now, check-again, unpair, pair-another, install, update, reload, set-up-this-machine, restore (the Permissions step: the denylist's presets), move."
             },
-            "description": "The actions to offer beside the reason: those of the checks that failed, each once; empty when done."
+            "description": "The actions to offer beside the reason: those of the checks that failed, each once, or check-again alone on a result that timed out; empty when done or skipped."
           },
           "checkedAt": {
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
             "description": "When the check ran, on the environment's clock."
+          },
+          "lastGood": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "skipped"
+                ],
+                "description": "What the step's last good result found: done, or skipped."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "That result's line."
+              },
+              "checkedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When that check ran, on the environment's clock."
+              }
+            },
+            "required": [
+              "state",
+              "reason",
+              "checkedAt"
+            ],
+            "description": "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated; absent when there has been none since the environment started."
           }
         },
         "required": [
@@ -76,7 +106,7 @@
           "actions",
           "checkedAt"
         ],
-        "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and when it ran (ADR 0031)."
+        "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031)."
       },
       "description": "The step's result, or every registered step's in the milestone-1 order."
     }
