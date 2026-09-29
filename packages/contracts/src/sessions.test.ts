@@ -141,6 +141,20 @@ describe("the summary field table", () => {
     expect(SESSION_EVENT_TYPES["session.workspace-status-changed"].payload.safeParse({ status: "moved" }).success).toBe(false);
   });
 
+  it("keeps the place on sessions.create while sessions.setWorkspace, a sessions:write command, gives a missing session another with session.workspace-set, list-flagged, which no transcript fold drops", () => {
+    // ADR 0003's field table: the command that first writes the place stays its owner (#328).
+    expect(SUMMARY_FIELD_OWNERS.workspace).toEqual({ command: "sessions.create" });
+    expect(SUMMARY_FIELD_OWNERS.repositoryIdentity).toEqual({ command: "sessions.create" });
+    expect(registry["sessions.setWorkspace"]).toMatchObject({ kind: "command", scope: "sessions:write" });
+    expect(registry["sessions.setWorkspace"].params.shape.workspace).toBe(WorkspaceRequest);
+    expect(isListEvent("session", "session.workspace-set")).toBe(true);
+    expect(Object.hasOwn(TRANSCRIPT_EVENT_TYPES, "session.workspace-set")).toBe(false);
+    const payload = SESSION_EVENT_TYPES["session.workspace-set"].payload;
+    // A recorded workspace, never a request: the environment resolved it.
+    expect(payload.safeParse({ workspace: { kind: "scratch", path: "/data/scratch/s" }, repositoryIdentity: null }).success).toBe(true);
+    expect(payload.safeParse({ workspace: { kind: "scratch" }, repositoryIdentity: null }).success).toBe(false);
+  });
+
   it("gives the identity passes session.repository-identified, list-flagged, which no transcript fold drops, while the identity stays sessions.create's", () => {
     const payload = SESSION_EVENT_TYPES["session.repository-identified"].payload;
     expect(SUMMARY_FIELD_OWNERS.repositoryIdentity).toEqual({ command: "sessions.create" });

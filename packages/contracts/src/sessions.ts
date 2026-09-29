@@ -604,6 +604,17 @@ export const SessionWorkspaceStatusChangedPayload = z
   });
 export type SessionWorkspaceStatusChangedPayload = z.infer<typeof SessionWorkspaceStatusChangedPayload>;
 
+export const SessionWorkspaceSetPayload = z
+  .object({
+    workspace: Workspace,
+    repositoryIdentity: RepositoryIdentity.nullable().meta({ description: "The new workspace's repository identity, resolved afresh; null outside a repository." }),
+  })
+  .meta({
+    description:
+      "session.workspace-set: sessions.setWorkspace gave the session, whose workspace was missing, the workspace its request resolved to, with that workspace's repository identity; it clears workspaceMissingSince and moves updatedAt.",
+  });
+export type SessionWorkspaceSetPayload = z.infer<typeof SessionWorkspaceSetPayload>;
+
 /** Why an identity pass gave a session its repository identity after creation (workspace-picker spec, "Repository identity"). */
 export const REPOSITORY_IDENTIFIED_REASONS = ["resolved", "alias"] as const;
 export const RepositoryIdentifiedReason = z.enum(REPOSITORY_IDENTIFIED_REASONS).meta({
@@ -674,6 +685,7 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-unlinked": listed(SessionPullRequestUnlinkedPayload, SummaryPatch),
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
   "session.workspace-status-changed": listed(SessionWorkspaceStatusChangedPayload, SummaryPatch),
+  "session.workspace-set": listed(SessionWorkspaceSetPayload, SummaryPatch),
   "session.repository-identified": listed(SessionRepositoryIdentifiedPayload, SummaryPatch),
 } as const satisfies Record<string, EventTypeEntry>;
 

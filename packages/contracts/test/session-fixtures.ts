@@ -217,6 +217,14 @@ const eventPayloads: Record<string, Fixtures> = {
       { repositoryIdentity: "https://github.com/david/agent-harness", reason: "moved" },
     ],
   },
+  "session.workspace-set": {
+    valid: [
+      { workspace, repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" },
+      { workspace: worktree, repositoryIdentity: null },
+      { workspace: scratch, repositoryIdentity: null },
+    ],
+    invalid: [{}, { workspace }, { workspace: { kind: "scratch" }, repositoryIdentity: null }, { workspace, repositoryIdentity: "" }],
+  },
   "group.created": {
     valid: [{ name: "Brandsolidate", orderKey: null }, { name: "Cool-Jams", orderKey: "m" }],
     invalid: [{ name: "Brandsolidate" }, { name: "", orderKey: null }],
@@ -349,6 +357,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         ...invalidWorkspaceRequests.map((request) => ({ commandId, id: sessionId, workspace: request })),
         { commandId, id: sessionId, workspace, mode: "dontAsk" },
       ],
+    },
+    result: summaryResult,
+  },
+  "sessions.setWorkspace": {
+    params: {
+      valid: workspaceRequests.map((request) => ({ ...target, workspace: request })),
+      invalid: [target, { commandId, workspace }, { ...target, sessionId: "s-1", workspace }, ...invalidWorkspaceRequests.map((request) => ({ ...target, workspace: request }))],
     },
     result: summaryResult,
   },
