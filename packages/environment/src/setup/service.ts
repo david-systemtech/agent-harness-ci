@@ -76,8 +76,21 @@ const readResult = (json: string | undefined): StepResult | undefined => {
   }
 };
 
-/** Whether two results of a step differ in nothing but when they were checked. */
-const sameButCheckedAt = (a: StepResult, b: StepResult): boolean => isDeepStrictEqual({ ...a, checkedAt: "" }, { ...b, checkedAt: "" });
+/**
+ * Whether a cached row holds `result` but for when it was checked. The row
+ * is compared as written, not as this build reads it: one a newer version
+ * wrote may offer a verb or name a kind of item this build's reading leaves
+ * out (#693), and a result without them differs from it, so a client that
+ * heard the newer one is told.
+ */
+const sameButCheckedAt = (row: string | undefined, result: StepResult): boolean => {
+  if (row === undefined) return false;
+  try {
+    return isDeepStrictEqual({ ...(JSON.parse(row) as object), checkedAt: "" }, { ...result, checkedAt: "" });
+  } catch {
+    return false;
+  }
+};
 
 /** The last good result a step's cached result leaves for one that timed out or could not check: it, when it passed; else the one it carried. */
 const lastGoodOf = (cached: StepResult | undefined): LastGood | undefined => {
@@ -97,9 +110,9 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
   /** Writes `result` to its step's row, and appends its notice when it changed. */
   const keep = (result: StepResult): void => {
     log.atomically((tx) => {
-      const cached = cachedResult(result.step);
+      const row = log.setupResults.read(result.step);
       log.setupResults.write(tx, result.step, JSON.stringify(result));
-      if (cached !== undefined && sameButCheckedAt(cached, result)) return;
+      if (sameButCheckedAt(row, result)) return;
       log.append(stream, [{ type: "setup.result-changed", payload: result }], { actor: SETUP_ACTOR, tx });
     });
   };

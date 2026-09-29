@@ -290,8 +290,8 @@ describe("the result cache", () => {
     const t = await start({ setupSteps });
     const client = await t.client();
     const account = await check(client, "account");
-    // The lower seam: a row whose action this build's vocabulary does not hold, and one that is not JSON.
-    const unreadable = { ...account, step: "permissions", actions: ["reboot"] };
+    // The lower seam: a row with a state this build does not have, and one that is not JSON.
+    const unreadable = { ...account, step: "permissions", state: "pending" };
     t.env.log.atomically((tx) => {
       t.env.log.setupResults.write(tx, "permissions", JSON.stringify(unreadable));
       t.env.log.setupResults.write(tx, "appearance", "{");
@@ -303,5 +303,26 @@ describe("the result cache", () => {
     await client.next(isSetupNotice(subscription));
     expect(noticed(client, subscription)).toEqual([permissions]);
     expect((await snapshot(t, client)).setup).toEqual([account, permissions]);
+  });
+
+  it("reads a row a newer version wrote in a vocabulary this build lacks, leaving out what it does not know, and notices a result that differs from the row as written (#693)", async () => {
+    const { answers, setupSteps } = scriptedRegistry();
+    const t = await start({ setupSteps });
+    const client = await t.client();
+    answers.permissions = { reason: "The paths section of the denylist is missing ~/.aws; Restore puts it back." };
+    const first = await check(client, "permissions");
+    // The lower seam: the row as a newer version, since rolled back from, wrote it, offering a verb this build's vocabulary lacks.
+    t.env.log.atomically((tx) => t.env.log.setupResults.write(tx, "permissions", JSON.stringify({ ...first, actions: ["restore", "rotate-token"] })));
+    expect((await snapshot(t, client)).setup?.find((result) => result.step === "permissions")).toEqual(first);
+
+    // This build's check finds the same, without the verb: a client that heard the newer result is told it no longer holds.
+    const subscription = await watch(client, t.env.log.head());
+    const head = t.env.log.head();
+    t.clock.advance(MINUTE);
+    const again = await check(client, "permissions");
+    expect(again).toEqual({ ...first, checkedAt: after(MINUTE) });
+    expect(t.env.log.head()).toBe(head + 1);
+    await client.next(isSetupNotice(subscription));
+    expect(noticed(client, subscription)).toEqual([again]);
   });
 });
