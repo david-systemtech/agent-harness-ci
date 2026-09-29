@@ -49,7 +49,7 @@ Every rule cites its decision; a rule marked chosen default was left open by the
 - **Contracts**: the record; the kind (`github`, `forgejo`, `gitea`; `gitlab` reserved, unproduced in milestone 1); the normaliser, slug and variable derivations and URL parsers as pure functions; the methods, errors and events; the Forges registry entry.
 - **Environment**: the **ForgeService**, an in-process service the banks, skills, routines, launcher and Set up workstreams call, and the only thing that reaches a forge (ADR 0012): the forge-account store (projector, vault entries, verification scheduler), one **provider** per kind, the **injection composer**, the **credential route**, the **pull-request sync** and the step's checks.
 - **CLI**: the verb `git-credential` (ADR 0020).
-- **Client runtime**: `forge.accounts.list` in the request cache, refreshed on `forge.account.*`; a platform capability reading the local `gh` token, present in the desktop shell, absent-with-reason in a browser tab (ADR 0032, ADR 0004).
+- **Client runtime**: `forge.accounts.list` in the request cache, refreshed on `forge.account.*`; a platform capability reading the local `gh` token, present in the desktop shell, absent-with-reason in a browser tab (ADR 0032, ADR 0004). As built (#320): the shell's `gh` member (`shell.gh`), `forges.handOverGh` and `forges.copy` with `projections.copyTargets`, and the forge notices; the client-runtime spec's notes on #320 hold their rules.
 
 ### The forge account record
 
