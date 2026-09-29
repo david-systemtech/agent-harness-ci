@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
   BROWSER_SETTINGS_KEYS,
+  CREDENTIAL_SETTINGS_KEYS,
   DEFAULT_THEME,
   EVENT_TYPES,
   IdleSpan,
@@ -31,7 +32,7 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391) and the browser keys (#541)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391), the browser keys (#541) and the injection keys (#367)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -44,6 +45,7 @@ describe("the settings keys", () => {
       ...UPDATE_SETTINGS_KEYS,
       "appearance.theme",
       ...BROWSER_SETTINGS_KEYS,
+      ...CREDENTIAL_SETTINGS_KEYS,
     ]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
@@ -70,6 +72,8 @@ describe("the settings keys", () => {
       "browser.headless.executable": null,
       "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
       "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
+      "credentials.injection": "allow",
+      "credentials.injectionByAccount": {},
     });
     for (const key of SETTINGS_KEYS) expect(SETTINGS[key].schema.safeParse(SETTINGS[key].preset).success, key).toBe(true);
   });
@@ -85,6 +89,7 @@ describe("the settings keys", () => {
       "providers.processIdleMinutes",
       "appearance.theme",
       ...BROWSER_SETTINGS_KEYS,
+      ...CREDENTIAL_SETTINGS_KEYS,
     ]);
     for (const key of PERMISSION_SETTINGS_KEYS) {
       expect(SETTINGS[key].writtenBy, key).toBe("permissions.settings.set");

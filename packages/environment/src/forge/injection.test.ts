@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { ENVIRONMENT_ADDRESS_VARIABLE, RUN_SECRET_VARIABLE, formatHostPort, registry, type KeyManagerReference } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
-import type { InjectionAnswer } from "../adapter/process-environment.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { fakePty } from "../../test/fake-pty.js";
@@ -10,6 +9,7 @@ import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute, gitHost, pasted, 
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create } from "../../test/sessions.js";
+import { updateSettings } from "../../test/shelf.js";
 import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -326,18 +326,18 @@ describe("a process's secret and tokens", () => {
 });
 
 describe("a deny injection answer", () => {
-  it("removes the variables and the helper, and a run allowed after is served by a fresh process that has them", async () => {
+  it("removes the variables and the helper, and a run allowed after is served by a fresh process that has them: the injection setting governs the forge's part (#367)", async () => {
     const forge = await fakeForge();
-    let answer: InjectionAnswer = "deny";
-    const t = await start(forge, { adapterSeams: { injection: () => answer } });
+    const t = await start(forge);
     const client = await t.client();
     await twoForges(forge, client);
+    await updateSettings(client, { "credentials.injection": "deny" });
     const session = await create(client);
 
     await runTo(t, client, session.id);
 
     expect(await spawnedWith(t, session.id)).toEqual({});
-    answer = "allow";
+    await updateSettings(client, { "credentials.injection": "allow" });
     await runTo(t, client, session.id, "Allowed now");
     expect(t.adapter.processesOf(session.id)).toHaveLength(2);
     expect(await spawnedWith(t, session.id)).toMatchObject({ FORGE_HOME_TOKEN: TOKEN, GIT_CONFIG_COUNT: "4" });

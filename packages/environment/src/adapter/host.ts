@@ -94,7 +94,7 @@ import type {
 import { composeInstructions, instructionsDigest } from "../instructions/composer.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import { createProcessEnvironments, type ProcessEnvironmentScope } from "./process-environment.js";
+import { createProcessEnvironments, runOverrideOf, type ProcessEnvironmentScope } from "./process-environment.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
@@ -1388,13 +1388,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /**
    * A run's process environment (#307), built as every run's is when its
-   * adapter is asked for the run, which is once per run: each spawn's
+   * adapter is asked for the run, which is once per run, for its session,
+   * account and actor, a routine's own injection its override (#367): each spawn's
    * release is reported to the pool against the session's process as it is
    * now, so the pool's letting it go releases it, and it runs once, whoever
    * calls it first.
    */
   const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
-    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind, override: runOverrideOf(plan.actor) });
     const report = pool.supplied(plan.sessionId);
     return {
       key: built.key,
