@@ -112,6 +112,14 @@ export interface PresentationValues {
    * no longer holds opens Set up (ADR 0027); null until a row is opened.
    */
   readonly settingsRow: string | null;
+  /**
+   * The first-launch mark (docs/specs/gui.md, "Set up in the window"): set
+   * once Set up, the whole window on first launch, is finished or closed.
+   * While it is unset, each launch opens Set up as the whole window once the
+   * home environment is ready; one left for a row of Settings stays shut
+   * for the rest of that launch (`setup/checklist-window.tsx`).
+   */
+  readonly firstLaunchDone: boolean;
 }
 
 export type PresentationKey = keyof PresentationValues;
@@ -129,6 +137,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   lightOrDark: "system",
   cachedTheme: null,
   settingsRow: null,
+  firstLaunchDone: false,
 });
 
 /** The document the presentation is kept in, and the format this build writes. */
@@ -172,6 +181,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   lightOrDark: (stored) => LIGHT_OR_DARK.find((preference) => preference === stored),
   cachedTheme: (stored) => (stored === null ? null : Theme.safeParse(stored).data),
   settingsRow: (stored) => (stored === null || typeof stored === "string" ? stored : undefined),
+  firstLaunchDone: (stored) => (typeof stored === "boolean" ? stored : undefined),
 };
 
 export interface Presentation {

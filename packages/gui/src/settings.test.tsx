@@ -251,8 +251,12 @@ describe("a row whose feature is not built", () => {
     ).toEqual(["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"]);
     expect((within(field(model, "providers.processIdleMinutes")).getByRole("textbox") as HTMLInputElement).value).toBe("30");
 
+    // A step's link opens the full checklist on its card; closing it comes back to Settings.
     await app.user.click(within(model).getByRole("button", { name: "Open the Account step in Set up" }));
-    expect(pane("Set up")).toBeDefined();
+    const checklist = screen.getByRole("region", { name: "Set up" });
+    expect(within(checklist).getByRole("region", { name: "Account" })).toBeDefined();
+    await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
+    expect(pane("Default account and model")).toBeDefined();
 
     const service = await openRow(app, "Service");
     expect(within(field(service, "sessions.autoSettleOnMerge")).getByRole("switch").getAttribute("aria-checked")).toBe("false");

@@ -8,6 +8,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create, workspace } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
+import type { InjectionDecision } from "../adapter/process-environment.js";
 import { undecidedTrust, type InstructionScope } from "../adapter/seams.js";
 import type { OrientationContent } from "../instructions/orientation.js";
 
@@ -279,6 +280,75 @@ describe("the forges section", () => {
     ).toBe(true);
     expect(one).toContain(`- home: ${hostOf(forge)} (Forgejo), login david: verified, unchanged since 2026-09-24 00:00 UTC.`);
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([none, one]);
+  });
+
+  it("tells a run denied injection its forges and primary, and in one line that it is given no forge variables or git credential and who denied it; allowed after, the next run gets the whole section in a fresh process", async () => {
+    const forge = await fakeForge();
+    let decision: InjectionDecision = { answer: "deny", level: { kind: "account", id: "claude-max" } };
+    const t = await start(forge, { adapterSeams: { injection: () => decision } });
+    const client = await t.client();
+    forge.user(TOKEN, DAVID);
+    forge.user(OTHER_TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
+    await added(client, { url: "https://github.com", credential: pasted(OTHER_TOKEN) });
+    await added(client, { url: "https://git.example", kind: "forgejo", slug: "copy", credential: { kind: "none" } });
+    const session = await create(client);
+
+    const denied = await runTo(t, client, session.id);
+    decision = { answer: "allow", level: { kind: "environment" } };
+    const allowed = await runTo(t, client, session.id, "Allowed now");
+
+    expect(
+      denied.endsWith(
+        [
+          "## Forges",
+          [
+            `- home: ${hostOf(forge)} (Forgejo), login david: verified, unchanged since 2026-09-24 00:00 UTC.`,
+            "- github: GitHub, login david: verified, unchanged since 2026-09-24 00:00 UTC.",
+            "- copy: git.example (Forgejo), login not known yet: needs a credential since 2026-09-24 00:00 UTC. This forge account has no credential on this environment: give it one in Set up, Forges.",
+          ].join("\n"),
+          `Your primary forge is ${hostOf(forge)} (Forgejo); GitHub and git.example (Forgejo) are also connected. Repositories go to the primary forge unless the user names another.`,
+          "This run is given no forge variables or git credential: credential injection is denied for it by the account claude-max. ssh uses the user's own keys.",
+        ].join("\n\n"),
+      ),
+      denied,
+    ).toBe(true);
+    for (const withheld of ["FORGE_", "GH_TOKEN", "API base", "just works", "Writes not known to work", "Left out of runs"]) expect(denied).not.toContain(withheld);
+    expect(allowed).toContain("Variables each run is given, by slug");
+    expect(allowed).toContain(`- home: FORGE_HOME_URL, FORGE_URL, FORGE_HOME_TOKEN, FORGE_TOKEN, FORGE_HOME_KIND and FORGE_KIND; API base ${forge.origin}/api/v1.`);
+    expect(allowed).toContain("Writes not known to work, by slug:");
+    expect(allowed).toContain("- copy: no credential on this environment yet, so runs get no variables or git credential for it.");
+    expect(allowed).toContain(`Git over https to these origins just works, the harness's credential helper answering for it: ${forge.origin} and https://github.com.`);
+    expect(allowed).not.toContain("credential injection is denied");
+    expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([denied, allowed]);
+  });
+
+  it("names who denied the run injection: this environment's setting, or the routine or bot by id, each answer a fresh process", async () => {
+    const forge = await fakeForge();
+    const routine = "c0ffee00-0000-4000-8000-00000000000a";
+    const bot = "c0ffee00-0000-4000-8000-00000000000b";
+    const levels: InjectionDecision["level"][] = [{ kind: "environment" }, { kind: "routine", id: routine }, { kind: "bot", id: bot }];
+    let level = levels[0] as InjectionDecision["level"];
+    const t = await start(forge, { adapterSeams: { injection: () => ({ answer: "deny", level }) } });
+    const client = await t.client();
+    forge.user(TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
+    const session = await create(client);
+
+    const texts: string[] = [];
+    for (const denying of levels) {
+      level = denying;
+      texts.push(await runTo(t, client, session.id, `Denied by ${denying.kind}`));
+    }
+
+    const given = "This run is given no forge variables or git credential: credential injection is denied for it by";
+    const ssh = "ssh uses the user's own keys.";
+    expect(texts.map((text) => text.split("\n\n").at(-1))).toEqual([
+      `${given} this environment's setting. ${ssh}`,
+      `${given} the routine ${routine}. ${ssh}`,
+      `${given} the bot ${bot}. ${ssh}`,
+    ]);
+    expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual(texts);
   });
 
   it("names a renamed slug and its variables, and the next run gets a fresh process", async () => {

@@ -69,6 +69,7 @@ export const FORBIDDEN_WORDS = [
 export const PRESENTATION_KEYS: readonly string[] = [
   "cachedTheme",
   "collapsedHeadings",
+  "firstLaunchDone",
   "hiddenDirectories",
   "lightOrDark",
   "paneLayout",

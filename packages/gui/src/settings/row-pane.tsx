@@ -3,12 +3,14 @@ import { FIRST_ROW, STEP_LABELS, settingsRow, type SettingsRowId } from "@agent-
 import { useId, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
+import { useChecklist } from "../setup/checklist-window.js";
+import { SetupPane } from "../setup/setup-pane.js";
 import { Button } from "../ui/index.js";
 import { useClientVersion, useObservable, useRuntime } from "../window-context.js";
 import { EnvironmentPicker } from "./environment-picker.js";
 import { GenericEditor, reachWords } from "./generic-editor.js";
 import { dimReason } from "./rail.js";
-import { usePickedEnvironment, useSettings } from "./settings-window.js";
+import { usePickedEnvironment } from "./settings-window.js";
 
 /** One environment's part of an `everywhere` row: its heading with its name, icon and colour, then what the row holds of it. */
 const EnvironmentGroup = ({ view, children }: { readonly view: EnvironmentView; readonly children: ReactNode }) => {
@@ -63,12 +65,12 @@ const RowKeys = ({ row }: { readonly row: SettingsRowId }) => {
 /**
  * What a row whose feature is not built shows (docs/specs/gui.md, "Settings:
  * the rail, the rows and the addresses"): its hint, a link to each step of
- * Set up it belongs to, and the generic editor for its keys; a placeholder
- * row, its hint and why it is dim.
+ * Set up it belongs to, which opens the full checklist on that step, and the
+ * generic editor for its keys; a placeholder row, its hint and why it is dim.
  */
 const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);
-  const { open } = useSettings();
+  const { open } = useChecklist();
   const dim = dimReason(entry);
   const steps = rowSteps(row);
   return (
@@ -81,7 +83,7 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
           {steps.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {steps.map((step) => (
-                <Button key={step} onClick={() => open(FIRST_ROW)}>
+                <Button key={step} onClick={() => open(step)}>
                   Open the {STEP_LABELS[step]} step in Set up
                 </Button>
               ))}
@@ -98,7 +100,9 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
  * A row's pane (ADR 0027): its heading, then in its header what its scope
  * gives it (an `environment` row's picker, none for `everywhere` and
  * `client` rows), About with this client's version pinned above its picker
- * as the one line that belongs to no environment, then what the row holds.
+ * as the one line that belongs to no environment, then what the row holds:
+ * Set up's checklist on its row, the unbuilt row's hint, links and keys on
+ * the others.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);
@@ -113,7 +117,7 @@ export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
         {row === "about.about" && <p className="text-sm text-ink">This client: {version}</p>}
         {entry.scope === "environment" && <EnvironmentPicker />}
       </header>
-      <UnbuiltRow row={row} />
+      {row === FIRST_ROW ? <SetupPane /> : <UnbuiltRow row={row} />}
     </section>
   );
 };
