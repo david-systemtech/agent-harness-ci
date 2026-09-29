@@ -299,7 +299,8 @@ const PROVIDER_COMMANDS = [
 ];
 
 /**
- * The slash commands the window wires (the composer's, the side column's, #408, and the status line's pickers, #402), in
+ * The slash commands the window wires (the composer's, the side column's, #408, the status line's pickers, #402, and the
+ * session pane's fork and rewind, #665), in
  * the shared list's order, as the menu and the palette list them; the menu offers the first `MENU_ROWS` at once.
  */
 const WINDOW_COMMANDS = [
@@ -313,6 +314,8 @@ const WINDOW_COMMANDS = [
   "/containmentSet how contained this session's runs are",
   "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
+  "/forkFork this session n prompts back; bare, at the end",
+  "/rewindRewind n prompts, one by default; undo takes the rewind back",
 ];
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */

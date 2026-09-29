@@ -26,6 +26,7 @@ import {
   ttlWords,
   typedPath,
   undoableFold,
+  userMessagesOf,
   withdrawQueued,
   type BrowseRow,
   type Clock,
@@ -107,7 +108,7 @@ import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./scree
 import { PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
-import { useForkRewind, userMessagesOf } from "./session/use-fork-rewind.js";
+import { useForkRewind } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
