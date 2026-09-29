@@ -1,0 +1,10 @@
+{
+  // The desktop's main process and its preload: Node's types and Electron's, which the `electron` package carries.
+  // The preload runs in the window's sandbox and is bundled into one CommonJS file by Vite (vite.config.ts); tsc
+  // only checks it there.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "references": [{ "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }]
+}

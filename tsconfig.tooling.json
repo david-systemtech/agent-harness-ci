@@ -29,6 +29,7 @@
     { "path": "packages/client-runtime" },
     { "path": "packages/theme" },
     { "path": "packages/tui" },
+    { "path": "packages/desktop" },
     { "path": "packages/cli" }
   ]
 }
