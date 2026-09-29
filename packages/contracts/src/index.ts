@@ -122,4 +122,5 @@ export * from "./update-route.js";
 export * from "./update-settings.js";
 export * from "./updates.js";
 export * from "./usage.js";
+export * from "./workspaces.js";
 export * from "./write-commands.js";

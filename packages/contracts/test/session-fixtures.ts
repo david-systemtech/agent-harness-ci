@@ -256,6 +256,14 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/workspace-request.json": { valid: workspaceRequests, invalid: invalidWorkspaceRequests },
   "sessions/workspace-status.json": { valid: ["missing", "present"], invalid: ["gone", ""] },
   "sessions/workspace-problem.json": { valid: ["does_not_exist", "not_a_directory", "not_readable", "reserved"], invalid: ["missing", ""] },
+  "sessions/absolute-path.json": {
+    valid: ["/", "/work/agent-harness", "C:\\Users\\david", "D:/code", "\\\\nas\\share"],
+    invalid: ["", "work/agent-harness", "~", "~/code", "./a", "C:", 7],
+  },
+  "sessions/requested-directory.json": {
+    valid: ["/work/agent-harness", "~", "~/code", "~\\code", "C:\\Users\\david", "\\\\nas\\share"],
+    invalid: ["", "work/agent-harness", "~david/code", "./a", "..", 7],
+  },
   "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
   "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
