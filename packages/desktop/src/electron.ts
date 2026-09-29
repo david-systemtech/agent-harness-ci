@@ -81,6 +81,11 @@ export type RequestListener = (details: { readonly url: string }, answer: (respo
 
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
+  /**
+   * Electron (25 and later) hands `will-navigate` one details object,
+   * `Event<WebContentsWillNavigateEventParams>`: the URL beside
+   * `preventDefault`. The positional arguments after it are deprecated.
+   */
   on(name: "will-navigate", listener: (details: NavigationDetails) => void): unknown;
   setWindowOpenHandler(handler: (details: { readonly url: string }) => { action: "deny" }): void;
   send(channel: string, ...args: unknown[]): void;

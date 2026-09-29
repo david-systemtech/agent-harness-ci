@@ -63,7 +63,7 @@ export interface FakeContents extends ElectronContents {
   readonly sent: Call[];
   /** Hears each later message sent to the page on `channel`, as the page's `ipcRenderer.on` does. */
   listen(channel: string, listener: (...args: unknown[]) => void): void;
-  /** Fires `will-navigate` for `url`, as a link clicked or `location` set would. */
+  /** Fires `will-navigate` for `url`, as a link clicked or `location` set would: one details object, as Electron 25 and later hand it. */
   navigate(url: string): Navigation;
   /** Asks the window-open handler about `url`, as `window.open` or a `target="_blank"` link would. */
   openWindow(url: string): { readonly action: string };
