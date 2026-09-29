@@ -16,6 +16,7 @@ import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
 import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
+import type { KnownDirectory } from "./projections/known-directories.js";
 import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
@@ -76,6 +77,14 @@ export interface Runtime {
     readonly usage: Observable<UsageView>;
     /** The mode picker for the environment: the contracts' modes in their order, each allowed up to the connection's ceiling. */
     modes(environmentId: string): Observable<ModePicker>;
+    /**
+     * The directories the environment's sessions use (a directory's path, a
+     * worktree's repository, never a scratch workspace), each with its
+     * repository identity, last use and missing mark, most recent first, at
+     * most `KNOWN_DIRECTORY_LIMIT`: derived from the session list, cached
+     * offline with it, and stored nowhere.
+     */
+    knownDirectories(environmentId: string): Observable<readonly KnownDirectory[]>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;
