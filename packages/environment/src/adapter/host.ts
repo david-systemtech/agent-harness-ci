@@ -5,6 +5,7 @@ import {
   SESSION_STREAM_KIND,
   lowerMode,
   type AdapterCapabilityFlag,
+  type ContainmentLevel,
   type IssueInput,
   type JsonObject,
   type MessageDeliveredPayload,
@@ -41,7 +42,7 @@ import {
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
-import { actorOfPolicy, type RunActor } from "../permissions/resolver.js";
+import { EVERY_MODE, actorOfPolicy, type RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import {
   environmentQueue,
@@ -94,7 +95,7 @@ import type {
 import { composeInstructions, instructionsDigest } from "../instructions/composer.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import { createProcessEnvironments, runOverrideOf, type ProcessEnvironmentScope } from "./process-environment.js";
+import { createProcessEnvironments, runOverrideOf, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
@@ -218,12 +219,14 @@ export interface AdapterHostOptions {
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
   /**
-   * Builds each run's process environment (#307, `process-environment.ts`)
-   * from the suppliers registered with it and the injection answer, as its
-   * adapter is asked for the run. Preset: none registered, so every run's
-   * key is empty and nothing is supplied.
+   * The process environments' registry (#307, `process-environment.ts`):
+   * each run's injection answer, asked once as it launches and carried in
+   * its instruction scope (#380), and its process environment, built from
+   * the suppliers registered with it under that answer as its adapter is
+   * asked for the run. Preset: none registered, so every run's key is empty
+   * and nothing is supplied.
    */
-  readonly processEnvironment?: (scope: ProcessEnvironmentScope) => ProcessEnvironment;
+  readonly processEnvironments?: Pick<ProcessEnvironments, "decide" | "of">;
   /**
    * Where a contained run may write beside its workspace: each session's
    * scratch and temporary directories (#133). Preset: a root of the host's
@@ -599,7 +602,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
-  const processEnvironment = options.processEnvironment ?? createProcessEnvironments().of;
+  const processEnvironments = options.processEnvironments ?? createProcessEnvironments();
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -1337,13 +1340,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
     readonly repositoryIdentity: string | null;
     readonly origin: RunActorKind;
+    readonly containment: ContainmentLevel;
+    readonly injection: InjectionDecision;
   }): InstructionScope => ({
     sessionId: run.sessionId,
     accountId: run.account.id,
@@ -1351,11 +1356,26 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // The trust gate (#500) records decisions: until then every repository is undecided.
     trust: undecidedTrust(run.workspace, run.repositoryIdentity),
     origin: run.origin,
+    containment: run.containment,
+    injection: run.injection,
     bot: null,
     // The always-on layer (#507) fills a run's extra names.
     alwaysOn: [],
     channel: run.account.descriptor.instructionChannel,
   });
+
+  /**
+   * The containment level a run a client starts would have now
+   * (`instructions.preview`): the session's own level, else the default,
+   * lowered to what can be enforced. Containment is resolved apart from the
+   * mode (ADR 0006), so it is asked with every mode available under the
+   * highest ceiling, which no account's modes can refuse.
+   */
+  const containmentNow = (level: ContainmentLevel | null): ContainmentLevel => {
+    const policy = resolvePolicy({ actor: { kind: "client", ceiling: "bypassPermissions", clientSessionId: null }, requested: null, accountModes: EVERY_MODE, containment: level });
+    if ("refused" in policy) throw new Error(`The containment level could not be resolved: ${policy.refused}`);
+    return policy.containment.effective;
+  };
 
   /**
    * Composes a live run's instructions and records them
@@ -1386,16 +1406,24 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
+  /** A run's provider process as its process environment and its injection answer are asked for: its session, its account, who started it, and a routine's own injection as its override (#367). */
+  const holderOf = (plan: PlannedRun): ProcessEnvironmentScope => ({
+    sessionId: plan.sessionId,
+    accountId: plan.account.id,
+    origin: plan.actor.kind,
+    holder: "provider-process",
+    override: runOverrideOf(plan.actor),
+  });
+
   /**
    * A run's process environment (#307), built as every run's is when its
-   * adapter is asked for the run, which is once per run, for its session,
-   * account and actor, a routine's own injection its override (#367): each spawn's
-   * release is reported to the pool against the session's process as it is
-   * now, so the pool's letting it go releases it, and it runs once, whoever
-   * calls it first.
+   * adapter is asked for the run, which is once per run, under the injection
+   * answer the run launched with: each spawn's release is reported to the
+   * pool against the session's process as it is now, so the pool's letting
+   * it go releases it, and it runs once, whoever calls it first.
    */
-  const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
-    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind, holder: "provider-process", override: runOverrideOf(plan.actor) });
+  const processEnvironmentOf = (plan: PlannedRun, injection: InjectionDecision): ProcessEnvironment => {
+    const built = processEnvironments.of(holderOf(plan), injection);
     const report = pool.supplied(plan.sessionId);
     return {
       key: built.key,
@@ -1422,7 +1450,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }),
     ];
     const entry = register(plan, prompt, true);
-    const scope = instructionScope({ ...plan, origin: plan.actor.kind });
+    // One injection answer for the run: what its instructions tell it and what its process is given.
+    const injection = processEnvironments.decide(holderOf(plan));
+    const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection });
     const start = (composed: ComposedInstructions): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1448,7 +1478,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             trusted: false,
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
-            processEnvironment: processEnvironmentOf(plan),
+            processEnvironment: processEnvironmentOf(plan, injection),
             prompt,
           },
           contextFor(entry),
@@ -1960,17 +1990,29 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
     async previewInstructions(target) {
-      let run: { readonly sessionId: string | null; readonly accountId: string | null; readonly workspace: Workspace; readonly repositoryIdentity: string | null };
+      let run: {
+        readonly sessionId: string | null;
+        readonly accountId: string | null;
+        readonly workspace: Workspace;
+        readonly repositoryIdentity: string | null;
+        readonly containment: ContainmentLevel | null;
+      };
       if ("sessionId" in target) {
         const sessionId = target.sessionId.toLowerCase();
         const session = readSessionFacts(log, reader, sessionId);
         if (session === null || session.deleted) {
           throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
         }
-        run = { sessionId, accountId: session.account ?? accounts.defaultId(), workspace: session.workspace, repositoryIdentity: session.repositoryIdentity };
+        run = {
+          sessionId,
+          accountId: session.account ?? accounts.defaultId(),
+          workspace: session.workspace,
+          repositoryIdentity: session.repositoryIdentity,
+          containment: session.containment,
+        };
       } else {
-        // A new session's repository identity is read when it is made; until then it has none.
-        run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null };
+        // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
+        run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
       }
       const { accountId } = run;
       const facts = accountId === null ? null : accounts.facts(accountId);
@@ -1979,7 +2021,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
       }
       // As a run a client starts would be composed: with no extra always-on names.
-      return instructions(instructionScope({ ...run, account: facts, origin: "client" }));
+      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
+      return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment), injection }));
     },
     continueSession(sessionId) {
       if (closing || changingMode.has(sessionId)) return;

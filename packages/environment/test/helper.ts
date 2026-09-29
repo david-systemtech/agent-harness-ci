@@ -106,6 +106,8 @@ export interface TestEnvironmentOptions {
   readonly launcher?: TestLauncher;
   /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
+  /** Sections registered with the OrientationRenderer after the environment's own (#380); preset: none. */
+  readonly orientationSections?: EnvironmentOptions["orientationSections"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
@@ -317,6 +319,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
+    ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
