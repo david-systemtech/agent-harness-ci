@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
+import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
 
 // The repository's own lint configuration, run on this package: the dependency rule holds it to contracts alone.
 const root = join(import.meta.dirname, "../../..");
@@ -18,7 +19,7 @@ describe("the theme package under the repository's lint", () => {
     const problems = results.flatMap((r) => r.messages.map((m) => `${r.filePath}:${m.line} ${m.ruleId}: ${m.message}`));
     expect(problems).toEqual([]);
     expect(results.length).toBeGreaterThan(1);
-  });
+  }, WHOLE_PACKAGE_LINT_MS);
 
   it("imports contracts and its own modules, and nothing else: no UI, no runtime, no Node built-in", async () => {
     expect(await ruleIds('import { DEFAULT_THEME } from "@agent-harness/contracts";\nimport { contrastRatio } from "./oklch.js";\nexport { DEFAULT_THEME, contrastRatio };\n')).toEqual([]);

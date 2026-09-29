@@ -19,6 +19,7 @@
     "@radix-ui/react-toast": "1.2.23",
     "@radix-ui/react-tooltip": "1.2.16",
     "cmdk": "1.1.1",
+    "lowlight": "3.3.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",

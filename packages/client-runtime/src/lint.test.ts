@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 import { PRESENTATION_KEYS } from "../../../eslint-rules/no-client-organisation-state.js";
+import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
 import { PREFERENCE_KEYS } from "./connections/records.js";
 
 // The repository's own lint configuration, run on this package: ADR 0003's
@@ -22,7 +23,7 @@ describe("the client runtime under the repository's lint", () => {
     const problems = results.flatMap((r) => r.messages.map((m) => `${r.filePath}:${m.line} ${m.ruleId}: ${m.message}`));
     expect(problems).toEqual([]);
     expect(results.length).toBeGreaterThan(10);
-  });
+  }, WHOLE_PACKAGE_LINT_MS);
 
   it("reads the preference key schema: a key named after a session field fails it", async () => {
     const file = "packages/client-runtime/src/connections/records.ts";

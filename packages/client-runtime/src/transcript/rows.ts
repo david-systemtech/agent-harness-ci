@@ -10,6 +10,7 @@ import type {
   ToolCallEntry,
   UserMessageEntry,
 } from "../projections/session.js";
+import { isLiveTask } from "./tasks.js";
 
 /**
  * The transcript's rows (docs/specs/tui.md, "The transcript: a projection of
@@ -193,5 +194,5 @@ export const lastReply = (view: Pick<SessionProjection, "items">): AssistantEntr
 export const liveTasks = (view: Pick<SessionProjection, "items">, runId: string | undefined): readonly DelegatedWorkRow[] => {
   if (runId === undefined) return [];
   const ledger = view.items.findLast((entry) => entry.kind === "tasks" && entry.runId === runId);
-  return ledger?.kind === "tasks" ? ledger.tasks.filter((task) => task.status === "running" || task.status === "pending" || task.status === "paused") : [];
+  return ledger?.kind === "tasks" ? ledger.tasks.filter(isLiveTask) : [];
 };

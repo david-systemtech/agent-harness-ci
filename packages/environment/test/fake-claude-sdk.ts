@@ -1,4 +1,7 @@
-import type { CanUseTool, HookJSONOutput, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, HookJSONOutput, McpSdkServerConfigWithInstance, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 /**
  * The Agent SDK's transport, scripted (claude-adapter spec, "Testing
@@ -183,6 +186,26 @@ export class FakeQuery {
     let output: HookJSONOutput = {};
     for (const matcher of matchers) for (const hook of matcher.hooks) output = await hook(hookInput, toolUseID, { signal: extra.signal ?? new AbortController().signal });
     return output;
+  }
+
+  /**
+   * Calls a tool of an in-process server the run was given, as the CLI
+   * does: an MCP client connected to the server's instance over MCP's
+   * in-memory transport, the call naming its `tool_use` id in `_meta`.
+   * Answers the content blocks the CLI would receive.
+   */
+  async callTool(server: string, tool: string, args: Record<string, unknown>, toolUseID = `toolu_${Math.random().toString(36).slice(2)}`): Promise<CallToolResult> {
+    const config = this.options.mcpServers?.[server];
+    if (config === undefined || config.type !== "sdk" || !("instance" in config)) throw new Error(`The run was given no in-process server ${server}.`);
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await (config as McpSdkServerConfigWithInstance).instance.connect(serverSide);
+    const client = new Client({ name: "claude-code", version: "fake" });
+    await client.connect(clientSide);
+    try {
+      return (await client.callTool({ name: tool, arguments: args, _meta: { "claudecode/toolUseId": toolUseID } })) as CallToolResult;
+    } finally {
+      await client.close();
+    }
   }
 
   // The pinned SDK's run-time signature: `interrupt(e)`, taking `{cancelQueued}` its declarations omit.

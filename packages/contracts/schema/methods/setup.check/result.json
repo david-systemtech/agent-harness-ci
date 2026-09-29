@@ -25,7 +25,7 @@
               "needs-attention",
               "skipped"
             ],
-            "description": "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step)."
+            "description": "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step). Skipped is derived from the environment's state each time the step is checked, never recorded: nothing a person does skips a step."
           },
           "reason": {
             "type": "string",
@@ -55,11 +55,82 @@
                 "reload",
                 "set-up-this-machine",
                 "restore",
-                "move"
+                "move",
+                "start-service",
+                "import-again",
+                "try-again",
+                "write-it-myself",
+                "start-over",
+                "revise"
               ],
-              "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary: sign-in-again, pull-now, check-again, unpair, pair-another, install, update, reload, set-up-this-machine, restore (the Permissions step: the denylist's presets), move."
+              "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact)."
             },
             "description": "The actions to offer beside the reason: those of the checks that failed, each once, or check-again alone on a result that timed out; empty when done or skipped."
+          },
+          "targets": {
+            "description": "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once; absent when no check that failed named one.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "sign-in-again",
+                    "pull-now",
+                    "check-again",
+                    "unpair",
+                    "pair-another",
+                    "install",
+                    "update",
+                    "reload",
+                    "set-up-this-machine",
+                    "restore",
+                    "move",
+                    "start-service",
+                    "import-again",
+                    "try-again",
+                    "write-it-myself",
+                    "start-over",
+                    "revise"
+                  ],
+                  "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary and the verbs the step decisions added to it: sign-in-again (opens the sign-in of each account, forge account or key-manager connection it targets); pull-now (pulls the skill sources it targets now); check-again (runs the step's check again through setup.check); unpair (unpairs the Chrome it targets); pair-another (pairs another Chrome); install (installs the tool it targets); update (updates the tool it targets, or this machine); reload (shows how to reload the extension in the Chrome it targets); set-up-this-machine (switches the checklist to the environment it targets); restore (runs the step's restore method: the Permissions step's puts the denylist's missing presets back); move (opens the Move card, which moves stored tokens into a key manager); start-service (starts the local environment's service when it is down); import-again (runs the step's import again, for real rather than as a dry run, after one that failed part way); try-again (continues the authoring session it targets where its run stopped); write-it-myself (opens the step's artefact to write by hand: the bank's checkout, or the Instructions editor); start-over (starts a new authoring session for the step, the old one staying); revise (starts an authoring session that revises the step's artefact)."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "forge-account",
+                    "key-manager-connection",
+                    "tool",
+                    "skill-source",
+                    "chrome",
+                    "session",
+                    "bank",
+                    "denylist-section",
+                    "environment"
+                  ],
+                  "description": "The kind of item a result's action applies to: account (a provider account), forge-account, key-manager-connection, tool (a managed tool), skill-source, chrome (a paired Chrome), session (an authoring session), bank (a memory bank), denylist-section, or environment."
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The item's id, as the methods behind its action name it: an account's id, a forge account's origin, a denylist section's name, a session's id."
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The item as a person reads it, for the client to name beside the action."
+                }
+              },
+              "required": [
+                "action",
+                "kind",
+                "id",
+                "label"
+              ],
+              "description": "One item a result's action applies to: the action it serves, and the item's kind, id and label (Sign in again opens that account's sign-in, Pull now pulls that source, Try again continues that session)."
+            }
           },
           "checkedAt": {
             "type": "string",
@@ -106,7 +177,7 @@
           "actions",
           "checkedAt"
         ],
-        "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031)."
+        "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and the items they apply to, when it ran and, when it timed out or could not check, the last good result beneath it (ADR 0031)."
       },
       "description": "The step's result, or every registered step's in the milestone-1 order."
     }
