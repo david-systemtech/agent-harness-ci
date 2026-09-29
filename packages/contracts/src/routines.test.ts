@@ -267,7 +267,7 @@ describe("a listed routine", () => {
   it("adds to the definition and state the next due time, the effective mode with its clamp, and the attention codes", () => {
     expect(ListedRoutine.parse(listed)).toEqual(listed);
     const clamped = { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" };
-    expect(ListedRoutine.safeParse({ ...listed, nextDueAt: null, mode: clamped, attention: ["clamped", "account_signed_out"] }).success).toBe(true);
+    expect(ListedRoutine.safeParse({ ...listed, definition: saved, nextDueAt: null, mode: clamped, attention: ["clamped", "account_signed_out"] }).success).toBe(true);
     for (const field of Object.keys(listed)) expect(ListedRoutine.safeParse(without(listed, field)).success, field).toBe(false);
   });
 

@@ -68,10 +68,11 @@ export const state = {
   failureStreak: 0,
 };
 
+/** The routine enabled and listed: next due on Monday 2026-10-05 at 03:00 in Manila, which is Sunday 19:00 in UTC. */
 export const listed = {
-  definition: saved,
+  definition: { ...saved, enabled: true },
   state,
-  nextDueAt: "2026-10-05T19:00:00.000Z",
+  nextDueAt: "2026-10-04T19:00:00.000Z",
   mode: { requested: "acceptEdits", effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null },
   attention: [],
 };
@@ -321,7 +322,7 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["broken", ""],
   },
   "routines/listed-routine.json": {
-    valid: [listed, { ...listed, nextDueAt: null, attention: ["clamped", "failing"] }],
+    valid: [listed, { ...listed, definition: saved, nextDueAt: null, attention: ["clamped", "failing"] }],
     invalid: [without(listed, "mode"), { ...listed, attention: ["failing", "failing"] }, { ...listed, attention: ["broken"] }],
   },
   "routines/pre-check-failure.json": {
