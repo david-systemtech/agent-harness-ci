@@ -11,6 +11,7 @@ import {
 import { useMemo, useState } from "react";
 import { KeyContext, useKeyAction, type Offer } from "../keys/key-dispatch.js";
 import { useSessionQueue } from "../queue/session-queue.js";
+import { useModelChoice } from "../status/run-choices.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
 import { Button } from "../ui/index.js";
@@ -38,6 +39,8 @@ export interface ComposerProps {
  *   the environment queues or steers; Shift+Enter breaks the line. A run
  *   command never waits in the outbox: while no run can start the composer is
  *   locked with `capability`'s line, and a send is refused at once with it.
+ * - **The model** the status line's model picker chose goes with the
+ *   session's next `runs.start` (#402).
  * - **Slash commands.** `/` opens the commands the window wires and the
  *   provider's own; a name of the shared list is the window's, any other
  *   word goes to the agent as typed.
@@ -71,6 +74,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose, attachments.dialog);
   const queue = useSessionQueue();
+  const [choice] = useModelChoice(environmentId, sessionId);
 
   const sending = runtime.capability(environmentId, "runs.send");
   const lock = lockOf(sending);
@@ -98,7 +102,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     box.put("");
     attachments.set([]);
     say(undefined);
-    void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
+    void sendMessage(runtime, environmentId, sessionId, message, live, choice).then((outcome) => {
       if (outcome.ok) return;
       say(outcome.line);
       // What was not sent comes back into an empty box, so it is not lost.

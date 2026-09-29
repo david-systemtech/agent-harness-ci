@@ -7,6 +7,7 @@ import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
 import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
+import { RunChoicesProvider } from "./status/run-choices.js";
 import { osLadder, paintTheme } from "./theme/paint.js";
 import { WindowProvider } from "./window-context.js";
 
@@ -28,7 +29,8 @@ export interface AppProps {
  * client runtime, painted with the theme's tokens before its first frame
  * (the preset's, until the window reads a theme of its own), its keys
  * dispatched through the GUI column of the shared action list, and the
- * command palette over it.
+ * command palette over it. What the window chose for a session's next runs
+ * is held for the life of the window (`RunChoicesProvider`).
  */
 export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => {
   useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
@@ -38,7 +40,9 @@ export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) =>
         <PairingProvider>
           <KeyDispatch macOS={macOS}>
             <CommandPalette>
-              <Frame />
+              <RunChoicesProvider>
+                <Frame />
+              </RunChoicesProvider>
             </CommandPalette>
           </KeyDispatch>
         </PairingProvider>
