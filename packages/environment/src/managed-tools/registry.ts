@@ -4,6 +4,7 @@ import {
   MANAGED_TOOLS,
   ToolsUpdatedPayload,
   compareToolVersions,
+  managedTool,
   type ManagedTool,
   type ManagedToolAction,
   type ManagedToolInstallMethod,
@@ -32,9 +33,10 @@ import { runCommand } from "./run.js";
  * environment's start and on a refresh a client asks for (Set up or About
  * opening), at most every fifteen minutes; clients never probe. A probe
  * that changes rows appends `tools.updated` with them, against the rows the
- * log last carried, so the first probe after a restart that finds what was
- * there raises none. The sign-in director's managed tool and the forge's
- * `gh` read their rows here.
+ * log last carried (a tool it never carried is not installed), so the first
+ * probe after a restart that finds what was there raises none, and neither
+ * does a first start that finds no tool. The sign-in director's managed
+ * tool and the forge's `gh` read their rows here.
  */
 
 /** Who the log says appended `tools.updated`. */
@@ -175,11 +177,15 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
     return { ...notInstalled(tool), path: found.path, realpath: found.realpath, version, method, status: statusOf(tool, version, method), action: actionOf(method) };
   };
 
-  /** Appends the rows that differ from what the log last carried; a failed append leaves them to the next probe. */
+  /**
+   * Appends the rows that differ from what the log last carried, a tool it
+   * never carried reading as not installed; a failed append leaves them to
+   * the next probe.
+   */
   const notice = (found: readonly ManagedToolRow[]): void => {
     recorded ??= readRecorded();
     const known = recorded;
-    const changed = found.filter((row) => !isDeepStrictEqual(row, known.get(row.tool)));
+    const changed = found.filter((row) => !isDeepStrictEqual(row, known.get(row.tool) ?? notInstalled(managedTool(row.tool))));
     if (changed.length === 0) return;
     try {
       log.append(stream, [{ type: "tools.updated", payload: { tools: changed } }], { actor: MANAGED_TOOLS_ACTOR });

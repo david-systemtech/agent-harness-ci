@@ -319,14 +319,21 @@ describe("the probe's cadence", () => {
 });
 
 describe("tools.updated", () => {
+  it("is not raised by a first start that finds no tool: a tool the log never carried is not installed", async () => {
+    const { client } = await withTools(fakePath());
+    await list(client);
+    expect(await toolsEvents(client, 0)).toEqual([]);
+  });
+
   it("is raised by a probe that changes rows, carrying those rows; a probe that changes nothing raises none", async () => {
     const path = fakePath();
     path.install("gh", { output: "gh version 2.63.2 (2024-12-05)" });
     const { t, client } = await withTools(path);
     const first = await list(client);
 
+    // The first start found gh; the others are not installed, which a tool the log never carried is.
     const events = await toolsEvents(client, 0);
-    expect(events.map((event) => event.payload)).toEqual([{ tools: first.tools }]);
+    expect(events.map((event) => event.payload)).toEqual([{ tools: [rowOf(first.tools, "gh")] }]);
     expect(events[0]?.actor).toEqual({ kind: "system", id: "managed-tools" });
 
     const from = t.env.log.head();
@@ -352,7 +359,7 @@ describe("tools.updated", () => {
     path.install("op", { output: "2.30.0" });
     const { client } = await withTools(path, { dataDir, clock });
     const rows = (await list(client)).tools;
-    expect((await toolsEvents(client, 0)).map((event) => event.payload)).toEqual([{ tools: firstRows }, { tools: [rowOf(rows, "op")] }]);
+    expect((await toolsEvents(client, 0)).map((event) => event.payload)).toEqual([{ tools: [rowOf(firstRows, "gh")] }, { tools: [rowOf(rows, "op")] }]);
   });
 });
 
