@@ -1,4 +1,5 @@
 import type { InjectionAnswer, RunActorKind } from "@agent-harness/contracts";
+import type { PolicyActor } from "../permissions/resolver.js";
 import type { ProcessEnvironment, SuppliedVariables } from "./contract.js";
 
 export type { InjectionAnswer };
@@ -52,6 +53,12 @@ export interface InjectionDecision<Level extends InjectionLevel = InjectionLevel
 
 /** A run's own override, which outranks every setting: its routine's or bot's `allow` or `deny`. */
 export type RunInjectionOverride = InjectionDecision<RunInjectionLevel>;
+
+/** A run's own override from who started it (#367): a routine's or bot's injection, its level the routine or bot; null for anyone else, or one that inherits. */
+export const runOverrideOf = (actor: PolicyActor): RunInjectionOverride | null =>
+  (actor.kind === "routine" || actor.kind === "bot") && actor.injection !== undefined
+    ? { answer: actor.injection.answer, level: { kind: actor.kind, id: actor.injection.id } }
+    : null;
 
 /** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), and who started it (a client, for a terminal). */
 export interface ProcessEnvironmentScope {

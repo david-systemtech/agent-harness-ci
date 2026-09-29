@@ -224,7 +224,7 @@ import {
   HeadlessExecutable,
   HeadlessLimits,
 } from "./browser-settings.js";
-import { CredentialInjection, CredentialInjectionByAccount, InjectionAnswer } from "./credential-settings.js";
+import { CredentialInjection, CredentialInjectionByAccount, InjectionAnswer, RunInjection } from "./credential-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -779,6 +779,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/username.json", title: "KeyManagerUsername", schema: KeyManagerUsername },
   { path: "key-managers/token-role.json", title: "KeyManagerTokenRole", schema: KeyManagerTokenRole },
   { path: "key-managers/injection-answer.json", title: "InjectionAnswer", schema: InjectionAnswer },
+  { path: "key-managers/run-injection.json", title: "RunInjection", schema: RunInjection },
   { path: "key-managers/ca.json", title: "KeyManagerCa", schema: KeyManagerCa },
   { path: "key-managers/policy.json", title: "KeyManagerPolicy", schema: KeyManagerPolicy },
   { path: "key-managers/policy-writes.json", title: "KeyManagerPolicyWrites", schema: KeyManagerPolicyWrites },

@@ -21,6 +21,21 @@ export const InjectionAnswer = z.enum(INJECTION_ANSWERS).meta({
 });
 export type InjectionAnswer = z.infer<typeof InjectionAnswer>;
 
+/**
+ * A run's own injection (#367): its routine's `allow` or `deny`, later a
+ * bot's, which outranks its account's entry and the environment's value.
+ * Recorded on the run's policy, so a run the environment starts after it
+ * for the same routine (from its queue, or an update's continuation) keeps
+ * it. A routine's `inherit` is no override: the run records none.
+ */
+export const RunInjection = z
+  .object({
+    answer: InjectionAnswer,
+    id: z.string().min(1).meta({ description: "The id of the routine (or bot, as the policy's actorKind says) whose own injection it is." }),
+  })
+  .meta({ description: "A run's own credential injection: its routine's or bot's allow or deny, which outranks its account's entry and the environment's value." });
+export type RunInjection = z.infer<typeof RunInjection>;
+
 export const CredentialInjection = InjectionAnswer.meta({
   description:
     "credentials.injection: whether runs on this environment receive credentials (the forge variables and credential helper, and the key managers' block), unless an account's entry or a routine's own injection says otherwise. Preset allow.",

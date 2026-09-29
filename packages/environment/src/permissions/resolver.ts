@@ -9,6 +9,7 @@ import {
   type ModeResolution,
   type PermissionSettingsValues,
   type RunActorKind,
+  type RunInjection,
   type RunPolicy,
   type UnattendedMode,
 } from "@agent-harness/contracts";
@@ -46,11 +47,21 @@ export type PolicyActor =
       readonly kind: Extract<RunActorKind, "routine" | "bot">;
       /** The routine's or bot's name, recorded on the run's policy for the Unattended review (#131). */
       readonly name?: string | null;
+      /**
+       * The routine's or bot's own credential injection (#367), `allow` or
+       * `deny` with its id, recorded on the run's policy; absent for its
+       * `inherit`, when its account's entry or the environment's value
+       * answers. A client session and a completions request have none.
+       */
+      readonly injection?: RunInjection;
     }
   | { readonly kind: "completions"; readonly attended: boolean };
 
 /** The routine's or bot's name a run's policy records; null for anyone else, or a routine or bot that gave none. */
 const actorName = (actor: PolicyActor): string | null => (actor.kind === "routine" || actor.kind === "bot" ? actor.name || null : null);
+
+/** The routine's or bot's own injection a run's policy records; undefined for anyone else, or one that inherits. */
+const actorInjection = (actor: PolicyActor): RunInjection | undefined => (actor.kind === "routine" || actor.kind === "bot" ? actor.injection : undefined);
 
 /** Whether a person is present for a run `actor` started. */
 export const isAttended = (actor: PolicyActor): boolean => (actor.kind === "completions" ? actor.attended : actor.kind === "client");
@@ -69,6 +80,7 @@ export type RunActor = PolicyActor & {
  * it, since the log does not say which: the actor a run the environment
  * starts after a restart is resolved for, the queue's (#131) and an update's
  * continuation (#345) alike. A ceiling lowered since is therefore not read.
+ * A routine's or bot's own injection comes back with it (#367).
  */
 export const actorOfPolicy = (policy: RunPolicy): RunActor => {
   const ceiling = policy.mode.ceiling;
@@ -76,7 +88,7 @@ export const actorOfPolicy = (policy: RunPolicy): RunActor => {
     ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
     : policy.actorKind === "client"
       ? { kind: "client", ceiling, clientSessionId: null }
-      : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
+      : { kind: policy.actorKind, name: policy.actorName, ...(policy.injection !== undefined && { injection: policy.injection }), ceiling, clientSessionId: null };
 };
 
 /** The settings the resolver reads. */
@@ -167,6 +179,7 @@ export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
   const start = startingMode(input.requested, attended, input.settings.unattendedMode);
   const mode = clampMode(input.requested, start, input.ceiling, input.accountModes);
   if (mode === null) return { refused: noModeAvailable(input.ceiling) };
+  const injection = actorInjection(input.actor);
   return {
     actorKind: input.actor.kind,
     actorName: actorName(input.actor),
@@ -174,5 +187,6 @@ export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
     mode,
     containment: resolveContainment(input.containment, input.settings.containmentDefault, input.enforceable),
     unattendedDefaultApplied,
+    ...(injection !== undefined && { injection }),
   };
 };
