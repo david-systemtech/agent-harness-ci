@@ -162,7 +162,7 @@ export const ManagedToolRow = z
   .object({
     tool: ManagedToolName,
     label: z.string().min(1).max(64).meta({ description: "What the row calls the tool: claude's is claude in your terminal." }),
-    path: z.string().min(1).nullable().meta({ description: "Where the name resolved on the login shell's PATH (the User path on Windows); null when it is not installed." }),
+    path: z.string().min(1).nullable().meta({ description: "Where the name resolved on the login shell's PATH (on Windows, the machine and user Path a new logon composes); null when it is not installed." }),
     realpath: z.string().min(1).nullable().meta({ description: "The path with every link resolved, which the install method is read from; null when it is not installed." }),
     version: ManagedToolVersion.nullable().meta({ description: "The version its --version reported within five seconds; null when it is not installed or none was read." }),
     minimum: ManagedToolVersion.nullable().meta({ description: "The tool's declared minimum; null for one that is never required." }),

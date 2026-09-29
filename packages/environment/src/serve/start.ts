@@ -345,7 +345,7 @@ export interface EnvironmentOptions {
    * shell's PATH, which the forge's `gh` and the sign-in director's managed
    * tool are found on too; how it asks which system package owns a tool;
    * the environment its commands, and `gh`'s, start from. Preset: the
-   * user's login shell (the User path on Windows), `dpkg -S` then `rpm -qf`
+   * user's login shell (the machine and user Path on Windows), `dpkg -S` then `rpm -qf`
    * on Linux, this process's environment; tests put fake tools on a PATH of
    * their own and script the package owner.
    */

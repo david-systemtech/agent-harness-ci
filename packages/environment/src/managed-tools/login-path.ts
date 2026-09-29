@@ -9,10 +9,12 @@ import { runCommand } from "./run.js";
  * User path on Windows"), which the Managed tools registry resolves each
  * tool on: a service's own PATH is the one its service manager gave it, and
  * misses what a profile adds (Homebrew's, mise's, `~/.local/bin`). Read by
- * running the user's login shell, the one terminals start, and asking it for
- * `$PATH` between two markers, so whatever the profile prints around it is
- * left aside; on Windows, the machine's and the user's Path from the
- * registry, as a new logon composes them.
+ * running the user's login shell, the one terminals start, and having it
+ * run `printenv PATH` between two marker lines, so whatever the profile
+ * prints around it is left aside, and the PATH is the one the shell exports,
+ * colon-joined whatever the shell's own quoting (fish's, nushell's); on
+ * Windows, the machine's and the user's Path from the registry, as a new
+ * logon composes them.
  */
 
 export interface LoginPathOptions {
@@ -47,9 +49,9 @@ export const readLoginPath = async (options: LoginPathOptions): Promise<string> 
   const shell = options.shell ?? loginShell(platform);
   const marker = `path-${randomBytes(8).toString("hex")}`;
   const flags = LOGIN_FLAG_ALONE.has(basename(shell.file)) ? [] : shell.args;
-  const answer = await runCommand(shell.file, [...flags, "-c", `printf '%s%s%s' '${marker}' "$PATH" '${marker}'`], run);
+  const answer = await runCommand(shell.file, [...flags, "-c", `echo ${marker}; printenv PATH; echo ${marker}`], run);
   if (answer.outcome !== "exited") throw new Error(`The login shell ${shell.file} did not give its PATH: ${answer.outcome === "missing" ? "it is not installed" : answer.why}.`);
-  const path = new RegExp(`${marker}([^\\n]*)${marker}`).exec(answer.stdout)?.[1];
+  const path = new RegExp(`${marker}\\r?\\n([^\\r\\n]*)\\r?\\n${marker}`).exec(answer.stdout)?.[1];
   if (path === undefined || path === "") throw new Error(`The login shell ${shell.file} did not give its PATH: it exited with code ${answer.code ?? "none"}.`);
   return path;
 };

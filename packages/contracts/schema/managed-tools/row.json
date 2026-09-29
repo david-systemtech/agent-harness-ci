@@ -32,7 +32,7 @@
           "type": "null"
         }
       ],
-      "description": "Where the name resolved on the login shell's PATH (the User path on Windows); null when it is not installed."
+      "description": "Where the name resolved on the login shell's PATH (on Windows, the machine and user Path a new logon composes); null when it is not installed."
     },
     "realpath": {
       "anyOf": [

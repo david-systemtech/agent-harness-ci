@@ -25,8 +25,8 @@ import { runCommand } from "./run.js";
 /**
  * The Managed tools registry (key-managers spec, "Managed tools"; ADR 0011,
  * ADR 0026): one row per tool of the contracts' table, as the environment's
- * last probe found it. A probe reads the login shell's PATH (the User path
- * on Windows), resolves each tool's name on it, takes its realpath and
+ * last probe found it. A probe reads the login shell's PATH (the machine and
+ * user Path on Windows), resolves each tool's name on it, takes its realpath and
  * passes over the harness's own files, runs its `--version` within five
  * seconds on the environment's clock, and reads its install method from
  * where it is, then from the system package that owns it. Probes run at the
