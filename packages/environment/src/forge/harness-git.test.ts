@@ -168,6 +168,31 @@ describe("the harness's git on an origin a forge account covers", () => {
     expect(refused.status).toBe(401);
   });
 
+  it("scrubs git's standard error of the operation's secret and of shape-rule hits before answering it", async () => {
+    hostileMachineGit(tempDir, onCleanup);
+    const forge = await fakeForge();
+    forge.gitRepository("david/bank", { private: true });
+    forge.user(TOKEN, DAVID);
+    // A helper that says too much on its standard error, which git passes on as its own; the shape is put together here, never written in the source.
+    const dir = tempDir("agent-harness-helper-");
+    const record = join(dir, "record");
+    const command = join(dir, "noisy helper");
+    const shaped = ["gh", "p_", "Fake0Test9".repeat(4).slice(0, 36)].join("");
+    writeFileSync(command, `#!/bin/sh\ncat > /dev/null\nprintf '%s' "$AGENT_HARNESS_RUN_SECRET" > '${record}'\necho "helper saw $AGENT_HARNESS_RUN_SECRET and ${shaped}" >&2\necho quit=1\n`);
+    chmodSync(command, 0o755);
+    const t = await start({ forgeFetch: forge.fetch, harnessCommand: [command] });
+    await added(await t.client(), { url: forge.origin, kind: "forgejo" });
+
+    const answer = await t.env.forge.git({ operation: "clone", repository: `${forge.origin}/david/bank.git`, cwd: tempDir(), directory: "bank", purpose: "clone a bank" });
+    expect(answer.outcome).toBe("ran");
+    if (answer.outcome !== "ran") return;
+    const secret = readFileSync(record, "utf8");
+    expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(answer.git.stderr).toContain("helper saw [redacted] and [redacted]");
+    expect(answer.git.stderr).not.toContain(secret);
+    expect(answer.git.stderr).not.toContain(shaped);
+  });
+
   it("gives git the canonical origin's URL for a remote on an alias, and resets the chain on every origin the forge account is served on", async () => {
     hostileMachineGit(tempDir, onCleanup);
     const forge = await fakeForge();
