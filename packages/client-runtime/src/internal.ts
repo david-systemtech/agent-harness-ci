@@ -19,7 +19,9 @@ import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { ACCOUNT_DEFAULT_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
+import { createKeyManagers } from "./key-managers.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
+import { createKeyManagerNotices } from "./projections/key-manager-notices.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
@@ -81,8 +83,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         }
       }
       if (stream !== "environment") return;
-      // The forge's rows read every forge event, history too, for the origins and problems it names (#320).
+      // The forge's rows read every forge event, history too, for the origins and problems it names (#320); the key managers'
+      // every connection's event, for the labels and statuses it names (#384).
       forgeNotices.heard(environmentId, event, news);
+      keyManagerNotices.heard(environmentId, event, news);
       // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
       // again. Only news says how it was settled (`environmentNotices.heard`, below).
       if (event.type === "prompt.resolved") {
@@ -174,19 +178,32 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         resolve(later);
       });
     });
+  /** Reads what `read` answers once the environment's connection is ready (null once it cannot be): a row heard while catching up after a reconnect comes before it is, when no request may go yet. */
+  const whenReady = async <T>(environmentId: string, read: () => Promise<T | null>): Promise<T | null> => ((await readyAgain(environmentId)) ? read() : null);
   const forgeNotices = createForgeNotices({
     notices,
     name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? "The environment",
     held: (environmentId) => requestCache.peek(environmentId, "forge.accounts.list", {})?.accounts ?? null,
-    list: async (environmentId) => {
-      // A row heard while catching up after a reconnect comes before the connection is ready, when no request may go yet.
-      if (!(await readyAgain(environmentId))) return null;
-      const answer = await call(environmentId, "forge.accounts.list", {});
-      return answer.ok ? answer.result.accounts : null;
-    },
+    list: (environmentId) =>
+      whenReady(environmentId, async () => {
+        const answer = await call(environmentId, "forge.accounts.list", {});
+        return answer.ok ? answer.result.accounts : null;
+      }),
     report,
   });
   registry.seams.onForget((environmentId) => forgeNotices.forget(environmentId));
+  const keyManagerNotices = createKeyManagerNotices({
+    notices,
+    name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? "The environment",
+    held: (environmentId) => requestCache.peek(environmentId, "keyManagers.list", {})?.connections ?? null,
+    list: (environmentId) =>
+      whenReady(environmentId, async () => {
+        const answer = await call(environmentId, "keyManagers.list", {});
+        return answer.ok ? answer.result.connections : null;
+      }),
+    report,
+  });
+  registry.seams.onForget((environmentId) => keyManagerNotices.forget(environmentId));
 
   // The projections of #142: runs and parked asks, one session's transcript, accounts, models and plan usage, the mode picker,
   // and the calls the environment addresses to this client.
@@ -339,6 +356,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     desktopUpdate: { view: desktopUpdate.view, restart: () => desktopUpdate.restart(), applyBundledServer: () => desktopUpdate.applyBundledServer() },
     setup: { check: (environmentId, step) => setup.check(environmentId, step) },
     forges: createForges({ clock: platform.clock, shell: platform.shell, capability, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
+    keyManagers: createKeyManagers({ clock: platform.clock, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
     capability,
     close() {
       closing ??= (async () => {
@@ -352,6 +370,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         runs.close();
         clientCalls.close();
         forgeNotices.close();
+        keyManagerNotices.close();
         setup.close();
         requestCache.close();
         await made.close();

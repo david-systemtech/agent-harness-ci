@@ -38,9 +38,10 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * request cache fetches it again on every update notice (#344). A
  * routine's client-notice delivery (ADR 0008) is owed: no event on the
  * environment's stream carries it yet (#92). The forge's rows are
- * `forge-notices.ts`'s (#320). A key manager's failed
- * verification (ADR 0011) is `key-manager.connection.verified` (#366), whose
- * row is the client runtime's key-manager part (#384). `settings.changed`
+ * `forge-notices.ts`'s (#320). A key-manager connection's status rows (ADR
+ * 0011: a failed verification raises a client notice) are
+ * `key-manager-notices.ts`'s (#384); Move's events raise none, since its
+ * answer and the cached `keyManagers.move.list` show them. `settings.changed`
  * (#391) raises none: what changed shows where the settings are read, which
  * the request cache fetches again on it. `skills.updated` (#494) raises
  * none: it refreshes the cached `skills.get`.
@@ -168,7 +169,8 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "forge.account.removed":
         case "forge.origin-missing":
           return;
-        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) and Move's are the client runtime's key-manager part (#384).
+        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) are `key-manager-notices.ts`'s,
+        // which reads history too; Move's events raise none: its answer and the cached keyManagers.move.list show them (#384).
         case "key-manager.connection.added":
         case "key-manager.connection.signed-in":
         case "key-manager.connection.signed-out":

@@ -34,9 +34,17 @@ const gatedByPrefix = (prefix: string, flag: KnownCapabilityFlag): Partial<Recor
  * Registered methods that need a flag as well as their scope; a workstream
  * that gates a method adds it here. Every `forge.*` method needs `forge`
  * (#320): without it the environment holds no forge accounts, and a client
- * shows Forges absent with the reason (forge spec, "Wire methods").
+ * shows Forges absent with the reason (forge spec, "Wire methods"). Every
+ * `keyManagers.*` method needs `keyManagers`, and every `tools.*` method
+ * `managedTools` (#384): without them a client shows the Key managers pane
+ * and Managed tools absent with the reason (key-managers spec, "Wire
+ * methods").
  */
-export const METHOD_FLAGS: Partial<Readonly<Record<MethodName, KnownCapabilityFlag>>> = gatedByPrefix("forge.", "forge");
+export const METHOD_FLAGS: Partial<Readonly<Record<MethodName, KnownCapabilityFlag>>> = {
+  ...gatedByPrefix("forge.", "forge"),
+  ...gatedByPrefix("keyManagers.", "keyManagers"),
+  ...gatedByPrefix("tools.", "managedTools"),
+};
 
 export type AbsentReason = "unsupported" | "scope" | "unreachable" | "not-ready" | "no-shell";
 
