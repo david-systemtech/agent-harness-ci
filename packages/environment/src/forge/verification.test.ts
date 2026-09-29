@@ -8,6 +8,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted, saidBack, saidBackOnceHeld, update, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import { create, refusal } from "../../test/sessions.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -24,8 +25,9 @@ import { scriptedResolver } from "../../test/workspaces.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** An environment with no Set up step, whose Forges check would verify forge accounts beside the verifications counted here (#571). */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  const t = await startTestEnvironment({ setupSteps: NO_SETUP_STEPS, ...options });
   onCleanup(() => t.close());
   return t;
 };

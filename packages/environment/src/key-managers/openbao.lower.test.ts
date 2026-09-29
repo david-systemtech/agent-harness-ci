@@ -338,3 +338,69 @@ describe("a list", () => {
     expect(await openBaoProvider.list(targetOf(bao), PERSON_TOKEN, { mount: "hidden", path: null })).toMatchObject({ outcome: "denied" });
   });
 });
+
+describe("a write (#371)", () => {
+  /** A fake OpenBao whose version 2 mount personal and version 1 mount legacy the token may write under harness, and read. */
+  const withWritable = async () => {
+    const bao = await fakeOpenBao();
+    bao.policy("writer", `path "personal/data/harness/*" { capabilities = ["create", "update", "read"] }
+path "legacy/harness/*" { capabilities = ["create", "update", "read"] }
+path "personal/data/notes" { capabilities = ["read"] }
+path "personal/data/replacing/*" { capabilities = ["update", "read"] }`);
+    bao.token(PERSON_TOKEN, { policies: ["default", "writer"] });
+    bao.kv("personal", 2);
+    bao.kv("legacy", 1);
+    return bao;
+  };
+  const reference = (mount: string, path: string) => ({ provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount, path, key: "token" }) as const;
+  const fields = { note: "a note", service: "git.example.com", added: "2026-09-24" };
+
+  it("writes the value with its fields on either version, keeping what else the entry held, and asks for the entry first", async () => {
+    const bao = await withWritable();
+    bao.secret("legacy", "harness/forge-home", { owner: "david" });
+    const provider = createOpenBaoProvider();
+
+    expect(await provider.write(targetOf(bao), PERSON_TOKEN, { reference: reference("personal", "harness/forge-home"), value: "value-for-tests", fields, overwrite: false })).toEqual({ outcome: "written" });
+    expect(await provider.write(targetOf(bao), PERSON_TOKEN, { reference: reference("legacy", "harness/forge-home"), value: "value-for-tests", fields, overwrite: false })).toEqual({ outcome: "written" });
+
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({ token: "value-for-tests", ...fields });
+    expect(bao.stored("legacy", "harness/forge-home")).toEqual({ owner: "david", token: "value-for-tests", ...fields });
+    expect(bao.requests.filter((request) => !request.path.startsWith("sys/"))).toEqual([
+      { method: "GET", path: "personal/data/harness/forge-home" },
+      { method: "POST", path: "personal/data/harness/forge-home" },
+      { method: "GET", path: "legacy/harness/forge-home" },
+      { method: "POST", path: "legacy/harness/forge-home" },
+    ]);
+  });
+
+  it("leaves a different value there as it was unless it overwrites; the same value is written again", async () => {
+    const bao = await withWritable();
+    bao.secret("personal", "harness/forge-home", { token: "another-value-for-tests" });
+    const at = reference("personal", "harness/forge-home");
+
+    expect(await openBaoProvider.write(targetOf(bao), PERSON_TOKEN, { reference: at, value: "value-for-tests", fields, overwrite: false })).toEqual({ outcome: "exists" });
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({ token: "another-value-for-tests" });
+    expect(await openBaoProvider.write(targetOf(bao), PERSON_TOKEN, { reference: at, value: "value-for-tests", fields, overwrite: true })).toEqual({ outcome: "written" });
+    expect(await openBaoProvider.write(targetOf(bao), PERSON_TOKEN, { reference: at, value: "value-for-tests", fields: { note: "again" }, overwrite: false })).toEqual({ outcome: "written" });
+    expect(bao.stored("personal", "harness/forge-home")).toMatchObject({ token: "value-for-tests", note: "again" });
+  });
+
+  it("takes a value at the key that is no text for a different value too", async () => {
+    const bao = await withWritable();
+    bao.secret("personal", "harness/forge-home", { token: { nested: "value" } });
+    const at = reference("personal", "harness/forge-home");
+
+    expect(await openBaoProvider.write(targetOf(bao), PERSON_TOKEN, { reference: at, value: "value-for-tests", fields, overwrite: false })).toEqual({ outcome: "exists" });
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({ token: { nested: "value" } });
+  });
+
+  it("is denied where the login may not write, and a write check answers whether it may create an entry", async () => {
+    const bao = await withWritable();
+    expect(await openBaoProvider.write(targetOf(bao), PERSON_TOKEN, { reference: reference("personal", "notes"), value: "value-for-tests", fields, overwrite: false })).toMatchObject({ outcome: "denied" });
+    expect(await openBaoProvider.canWrite(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "harness/entry" })).toEqual({ outcome: "checked", writable: true });
+    expect(await openBaoProvider.canWrite(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "notes" })).toEqual({ outcome: "checked", writable: false });
+    expect(await openBaoProvider.canWrite(targetOf(bao), PERSON_TOKEN, { mount: "legacy", path: "harness/entry" })).toEqual({ outcome: "checked", writable: true });
+    // update alone replaces a secret that is there and creates none.
+    expect(await openBaoProvider.canWrite(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "replacing/entry" })).toEqual({ outcome: "checked", writable: false });
+  });
+});

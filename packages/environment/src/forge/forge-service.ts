@@ -28,6 +28,7 @@ import {
   type ResultOf,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import type { MoveSource } from "../key-managers/moves.js";
 import { noKeyManagerConnections, type KeyManagerRegistry, type ReferenceRefusal } from "../key-managers/registry.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
@@ -47,6 +48,7 @@ import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
 import { detectForge, type Detection } from "./detection.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
+import { createForgeMoveSource } from "./move-source.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -104,6 +106,8 @@ import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-li
  *   forge account may create a repository under are read live, never kept.
  * - **A session's pull requests** (#317): linked, found at a run's end and
  *   kept current through the operations (`pull-request-links.ts`).
+ * - **Move** (#371): the forge accounts holding a pasted token are a Move
+ *   source (`move-source.ts`), swapped to a reference through `update`.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -268,6 +272,8 @@ export interface ForgeService extends ForgeOperations {
   owners(forgeAccountId: string): Promise<ResultOf<"forge.orgs.list">>;
   /** A session's pull requests (#317): linked, found at a run's end, and kept current. */
   readonly links: PullRequestLinks;
+  /** The forge accounts holding a pasted token, as a Move takes them into a key manager (#371). */
+  readonly moveSource: MoveSource;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -960,6 +966,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     ...operations,
 
     links,
+
+    moveSource: createForgeMoveSource({ log, reader, vault, update }),
 
     secrets,
 

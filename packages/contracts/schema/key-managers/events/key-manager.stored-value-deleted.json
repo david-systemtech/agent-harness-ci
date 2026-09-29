@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerStoredValueDeletedPayload",
+  "type": "object",
+  "properties": {
+    "item": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "forge-account"
+          ],
+          "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\p{Cc}]+$",
+          "description": "The item's id with its owner: a forge account's id."
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "description": "An item Move takes, by its kind and its owner's id for it."
+    },
+    "storedAt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\p{Cc}]+$",
+      "description": "Where the stored value was kept."
+    }
+  },
+  "required": [
+    "item",
+    "storedAt"
+  ],
+  "description": "key-manager.stored-value-deleted: a stored value a move left behind, its delete having failed, was deleted at a later start; recorded as system:key-manager."
+}

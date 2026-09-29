@@ -1131,12 +1131,56 @@
       "title": "KeyManagerConnectionPoliciesSetPayload"
     },
     {
+      "path": "key-managers/events/key-manager.connection.base-path-set.json",
+      "title": "KeyManagerConnectionBasePathSetPayload"
+    },
+    {
       "path": "key-managers/events/key-manager.connection.verified.json",
       "title": "KeyManagerConnectionVerifiedPayload"
     },
     {
       "path": "key-managers/events/key-manager.connection.removed.json",
       "title": "KeyManagerConnectionRemovedPayload"
+    },
+    {
+      "path": "key-managers/move-item-kind.json",
+      "title": "KeyManagerMoveItemKind"
+    },
+    {
+      "path": "key-managers/move-item-ref.json",
+      "title": "KeyManagerMoveItemRef"
+    },
+    {
+      "path": "key-managers/move-target.json",
+      "title": "KeyManagerMoveTarget"
+    },
+    {
+      "path": "key-managers/move-item.json",
+      "title": "KeyManagerMoveItem"
+    },
+    {
+      "path": "key-managers/move-step.json",
+      "title": "KeyManagerMoveStep"
+    },
+    {
+      "path": "key-managers/move-item-result.json",
+      "title": "KeyManagerMoveItemResult"
+    },
+    {
+      "path": "key-managers/stored-at.json",
+      "title": "KeyManagerStoredAt"
+    },
+    {
+      "path": "key-managers/errors/target_exists.json",
+      "title": "KeyManagerTargetExistsError"
+    },
+    {
+      "path": "key-managers/events/key-manager.moved.json",
+      "title": "KeyManagerMovedPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.stored-value-deleted.json",
+      "title": "KeyManagerStoredValueDeletedPayload"
     },
     {
       "path": "key-managers/errors/verification_failed.json",
@@ -3979,6 +4023,22 @@
       "title": "keyManagers.connections.setPolicies error"
     },
     {
+      "path": "methods/keyManagers.connections.setBasePath/params.json",
+      "title": "keyManagers.connections.setBasePath params"
+    },
+    {
+      "path": "methods/keyManagers.connections.setBasePath/result.json",
+      "title": "keyManagers.connections.setBasePath result"
+    },
+    {
+      "path": "methods/keyManagers.connections.setBasePath/response.json",
+      "title": "keyManagers.connections.setBasePath response"
+    },
+    {
+      "path": "methods/keyManagers.connections.setBasePath/error.json",
+      "title": "keyManagers.connections.setBasePath error"
+    },
+    {
       "path": "methods/keyManagers.connections.signOut/params.json",
       "title": "keyManagers.connections.signOut params"
     },
@@ -4057,6 +4117,34 @@
     {
       "path": "methods/keyManagers.references.browse/error.json",
       "title": "keyManagers.references.browse error"
+    },
+    {
+      "path": "methods/keyManagers.move.list/params.json",
+      "title": "keyManagers.move.list params"
+    },
+    {
+      "path": "methods/keyManagers.move.list/result.json",
+      "title": "keyManagers.move.list result"
+    },
+    {
+      "path": "methods/keyManagers.move.list/error.json",
+      "title": "keyManagers.move.list error"
+    },
+    {
+      "path": "methods/keyManagers.move/params.json",
+      "title": "keyManagers.move params"
+    },
+    {
+      "path": "methods/keyManagers.move/result.json",
+      "title": "keyManagers.move result"
+    },
+    {
+      "path": "methods/keyManagers.move/response.json",
+      "title": "keyManagers.move response"
+    },
+    {
+      "path": "methods/keyManagers.move/error.json",
+      "title": "keyManagers.move error"
     },
     {
       "path": "methods/settings.get/params.json",
@@ -5691,6 +5779,16 @@
       "error": "methods/keyManagers.connections.setPolicies/error.json"
     },
     {
+      "name": "keyManagers.connections.setBasePath",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.setBasePath/params.json",
+      "result": "methods/keyManagers.connections.setBasePath/result.json",
+      "response": "methods/keyManagers.connections.setBasePath/response.json",
+      "error": "methods/keyManagers.connections.setBasePath/error.json"
+    },
+    {
       "name": "keyManagers.connections.signOut",
       "scope": "admin",
       "kind": "command",
@@ -5745,6 +5843,25 @@
       "params": "methods/keyManagers.references.browse/params.json",
       "result": "methods/keyManagers.references.browse/result.json",
       "error": "methods/keyManagers.references.browse/error.json"
+    },
+    {
+      "name": "keyManagers.move.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.move.list/params.json",
+      "result": "methods/keyManagers.move.list/result.json",
+      "error": "methods/keyManagers.move.list/error.json"
+    },
+    {
+      "name": "keyManagers.move",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.move/params.json",
+      "result": "methods/keyManagers.move/result.json",
+      "response": "methods/keyManagers.move/response.json",
+      "error": "methods/keyManagers.move/error.json"
     },
     {
       "name": "settings.get",

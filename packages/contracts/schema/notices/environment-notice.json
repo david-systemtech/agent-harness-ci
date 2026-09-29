@@ -3052,6 +3052,43 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "key-manager.connection.base-path-set"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+            },
+            "basePath": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+              "description": "Where Move keeps the harness's secrets on the connection from now on."
+            }
+          },
+          "required": [
+            "connectionId",
+            "basePath"
+          ],
+          "description": "key-manager.connection.base-path-set: a person set where Move keeps the harness's secrets on the connection (#371)."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "Where Move keeps the harness's secrets on a key-manager connection was set."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "key-manager.connection.verified"
         },
         "payload": {
@@ -3249,6 +3286,301 @@
         "payload"
       ],
       "description": "A key-manager connection was removed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "key-manager.moved"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "The connection the item was moved to."
+            },
+            "item": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "forge-account"
+                  ],
+                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The item's id with its owner: a forge account's id."
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "description": "An item Move takes, by its kind and its owner's id for it."
+            },
+            "reference": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "openbao"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "mount": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                      "description": "The KV mount, as personal or secret/team: no slash at either end."
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                      "description": "The secret's path under the mount, as harness/forge-github."
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The key inside the secret whose value is read."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "mount",
+                    "path",
+                    "key"
+                  ],
+                  "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "doppler"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "pattern": "^[A-Z_][A-Z0-9_]*$",
+                      "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
+                    },
+                    "project": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The project, when the connection's token does not fix one."
+                    },
+                    "config": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The config, when the connection's token does not fix one."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "name"
+                  ],
+                  "description": "A Doppler secret by name, with its project and config when the token does not fix them."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "onepassword"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "vault": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The vault, by name or id."
+                    },
+                    "item": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The item, by name or id."
+                    },
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The field whose value is read."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "vault",
+                    "item",
+                    "field"
+                  ],
+                  "description": "A 1Password field, as an op:// reference names it: vault, item and field."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "const": "bitwarden"
+                    },
+                    "connectionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The key-manager connection the reference is read through."
+                    },
+                    "secretId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "The secret's id, which is what is read."
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\p{Cc}]+$",
+                      "description": "The secret's key, for display only."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "connectionId",
+                    "secretId",
+                    "key"
+                  ],
+                  "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
+                }
+              ],
+              "description": "Where it went: the reference the item holds now."
+            },
+            "undeleted": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "Where an owning service keeps a stored value, never the value: a forge account's vault entry (forge:<forge account id>:<entry id>)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Where the stored value is kept still when its delete failed, which the next start deletes; null once it was deleted."
+            }
+          },
+          "required": [
+            "connectionId",
+            "item",
+            "reference",
+            "undeleted"
+          ],
+          "description": "key-manager.moved: an item's stored value was written to a key manager, read back, and the item swapped to the reference. Never the value."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "An item's stored value was moved into a key manager, and the item swapped to the reference."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "key-manager.stored-value-deleted"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "item": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "forge-account"
+                  ],
+                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The item's id with its owner: a forge account's id."
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "description": "An item Move takes, by its kind and its owner's id for it."
+            },
+            "storedAt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\p{Cc}]+$",
+              "description": "Where the stored value was kept."
+            }
+          },
+          "required": [
+            "item",
+            "storedAt"
+          ],
+          "description": "key-manager.stored-value-deleted: a stored value a move left behind, its delete having failed, was deleted at a later start; recorded as system:key-manager."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A stored value a move left behind was deleted at a later start."
     },
     {
       "type": "object",
@@ -3743,7 +4075,7 @@
                 "reason",
                 "checkedAt"
               ],
-              "description": "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated; absent when there has been none since the environment started."
+              "description": "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated: the step's cached result when that passed, else the last good result the cached one carried, so it survives a restart; absent when there is neither."
             }
           },
           "required": [

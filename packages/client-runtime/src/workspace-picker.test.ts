@@ -1,12 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { TestEnvironment } from "../../environment/test/helper.js";
-import { git } from "../../environment/test/workspaces.js";
 import { failingFetch, holds, useHarness } from "../test/harness.js";
+import { pickerFixtures } from "../test/picker.js";
 import type { Runtime } from "./runtime.js";
 import { MANUAL_CLOCK_START, inMemoryDocuments, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
@@ -21,6 +18,7 @@ import { MANUAL_CLOCK_START, inMemoryDocuments, inMemoryPlatform } from "./testi
  */
 
 const harness = useHarness();
+const { directory, repository, twoEnvironments, create } = pickerFixtures(harness);
 
 /** The identity every spelling of the harness's own repository comes down to. */
 const IDENTITY = "https://git.systemtech.dev/david/agent-harness";
@@ -28,42 +26,8 @@ const IDENTITY = "https://git.systemtech.dev/david/agent-harness";
 /** An instant `ms` after the environments' manual clocks start. */
 const after = (ms: number) => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
 
-/** A directory of the test's own, removed after it. */
-const directory = (): string => {
-  const path = mkdtempSync(join(tmpdir(), "agent-harness-known-"));
-  harness.onCleanup(() => rmSync(path, { recursive: true, force: true }));
-  return path;
-};
-
-/** A repository with one commit and `remotes` (name to URL) in a directory of the test's own. */
-const repository = (remotes: Record<string, string> = {}): string => {
-  const path = directory();
-  git(path, "init", "-q");
-  git(path, "commit", "-q", "--allow-empty", "-m", "first");
-  for (const [name, url] of Object.entries(remotes)) git(path, "remote", "add", name, url);
-  return path;
-};
-
-/** A runtime paired with two in-process environments, desk first. */
-const twoEnvironments = async (runtime?: Runtime) => {
-  const desk = await harness.environment({ name: "desk" });
-  const laptop = await harness.environment({ name: "laptop" });
-  const client = runtime ?? harness.runtime(inMemoryPlatform());
-  await client.start();
-  for (const t of [desk, laptop]) await client.connections.add({ link: (await t.createPairing()).link });
-  return { desk, laptop, runtime: client };
-};
-
 /** The paths of the environment's known directories, as the runtime lists them now. */
 const paths = (runtime: Runtime, t: TestEnvironment): string[] => runtime.projections.knownDirectories(t.env.id).read().map((directory) => directory.path);
-
-/** Creates a session on `t` in `workspace` through the runtime, and waits for its row. */
-const create = async (runtime: Runtime, t: TestEnvironment, workspace: WorkspaceRequest, title?: string): Promise<string> => {
-  const id = randomUUID();
-  expect(await runtime.commands.dispatch(t.env.id, "sessions.create", { id, workspace, ...(title !== undefined && { title }) })).toMatchObject({ ok: true });
-  await holds(runtime.projections.sessionList, (view) => view.rows.some((row) => row.summary.id === id));
-  return id;
-};
 
 describe("projections.knownDirectories", () => {
   it("lists the directories the environment's sessions use, most recent first, each with its identity, last use and missing mark, never a scratch workspace", async () => {
@@ -139,7 +103,7 @@ describe("projections.knownDirectories", () => {
   it("is derived from the session list and stored nowhere: offline it reads from the list's cache, less what this client hid", async () => {
     const documents = inMemoryDocuments();
     const platform = inMemoryPlatform({ documents });
-    const { desk, runtime } = await twoEnvironments(harness.runtime(platform));
+    const { desk, runtime } = await twoEnvironments({ runtime: harness.runtime(platform) });
     const mistake = directory();
     const used = directory();
     await create(runtime, desk, { kind: "directory", path: mistake });
@@ -178,11 +142,11 @@ describe("the by-repository headings", () => {
 
   it("put one repository's sessions from both environments under one heading, labelled by the identity's path, whatever each clone's spelling of the remote", async () => {
     const { desk, laptop, runtime } = await twoEnvironments();
-    await create(runtime, desk, { kind: "directory", path: repository({ origin: "ssh://git@git.systemtech.dev:2222/david/agent-harness.git" }) }, "over ssh");
-    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://git.systemtech.dev:5526/david/agent-harness" }) }, "over https");
+    await create(runtime, desk, { kind: "directory", path: repository({ origin: "ssh://git@git.systemtech.dev:2222/david/agent-harness.git" }) }, { title: "over ssh" });
+    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://git.systemtech.dev:5526/david/agent-harness" }) }, { title: "over https" });
     const scp = repository({ upstream: "git@git.systemtech.dev:David/Agent-Harness.git" });
     mkdirSync(join(scp, "packages"));
-    await create(runtime, laptop, { kind: "directory", path: join(scp, "packages") }, "over scp, in a subdirectory");
+    await create(runtime, laptop, { kind: "directory", path: join(scp, "packages") }, { title: "over scp, in a subdirectory" });
 
     const [heading, ...rest] = runtime.projections.sessionList.read().repositories;
     expect(heading).toMatchObject({ kind: "repository", repositoryIdentity: IDENTITY, label: "david/agent-harness" });
@@ -198,9 +162,9 @@ describe("the by-repository headings", () => {
 
   it("label a heading with its host too when another heading shares its path", async () => {
     const { desk, laptop, runtime } = await twoEnvironments();
-    await create(runtime, desk, { kind: "directory", path: repository({ origin: "https://github.com/David/Agent-Harness.git" }) }, "the mirror");
-    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "git@git.systemtech.dev:david/agent-harness.git" }) }, "the forge");
-    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/cool-jams" }) }, "the shop");
+    await create(runtime, desk, { kind: "directory", path: repository({ origin: "https://github.com/David/Agent-Harness.git" }) }, { title: "the mirror" });
+    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "git@git.systemtech.dev:david/agent-harness.git" }) }, { title: "the forge" });
+    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/cool-jams" }) }, { title: "the shop" });
 
     expect(headings(runtime).slice(0, 3)).toEqual([
       ["git.systemtech.dev/david/agent-harness", ["the forge"]],
@@ -211,10 +175,10 @@ describe("the by-repository headings", () => {
 
   it("end with a heading per environment for its sessions with no identity, in the connection list's order", async () => {
     const { desk, laptop, runtime } = await twoEnvironments();
-    await create(runtime, laptop, { kind: "directory", path: repository() }, "a repository with no remote");
-    await create(runtime, desk, { kind: "directory", path: directory() }, "a plain directory");
-    await create(runtime, desk, { kind: "scratch" }, "a question");
-    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/cool-jams" }) }, "the shop");
+    await create(runtime, laptop, { kind: "directory", path: repository() }, { title: "a repository with no remote" });
+    await create(runtime, desk, { kind: "directory", path: directory() }, { title: "a plain directory" });
+    await create(runtime, desk, { kind: "scratch" }, { title: "a question" });
+    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/cool-jams" }) }, { title: "the shop" });
 
     expect(headings(runtime)).toEqual([
       ["x/cool-jams", ["the shop"]],

@@ -16,6 +16,7 @@ import { documentsProjection, type SessionDocument } from "./projections/documen
 import { environmentsProjection } from "./projections/environments.js";
 import { hideKnownDirectory, knownDirectoriesProjection, type KnownDirectoriesHost, type KnownDirectory } from "./projections/known-directories.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
+import { ACCOUNT_DEFAULT_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
@@ -119,6 +120,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
     sessionRuns: (environmentId, sessionId) => sessionRuns(`${environmentId} ${sessionId.toLowerCase()}`),
     flushDrafts: () => drafts.flush(),
+    setLastUsed: (environmentId) => registry.setLastUsed(environmentId),
   });
   const drafts = createDrafts({
     clock: platform.clock,
@@ -261,6 +263,17 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     // The request cache gives the same observable for the same environment and query.
     source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
+  const newSessionHost: NewSessionHost = {
+    records: registry.list,
+    environments,
+    sessionList: sessionList.view,
+    preferences: registry.preferences,
+    usage,
+    accounts: accountsProjections,
+    models: modelsProjections,
+    knownDirectories,
+    defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...ACCOUNT_DEFAULT_KEYS] }),
+  };
 
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.
@@ -299,6 +312,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       modes: (environmentId) => modesProjections(environmentId),
       copyTargets: (environmentId) => copyTargets(environmentId),
       knownDirectories: (environmentId) => knownDirectories(environmentId),
+      newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
@@ -312,6 +326,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
       rewind: (environmentId, sessionId, messageId, options) => outbox.rewind(environmentId, sessionId, messageId, options),
       fork: (environmentId, sessionId, options) => outbox.fork(environmentId, sessionId, options),
+      startSession: (environmentId, choice) => outbox.startSession(environmentId, choice),
     },
     drafts: {
       set: (environmentId, sessionId, draft) => drafts.set(environmentId, sessionId, draft),

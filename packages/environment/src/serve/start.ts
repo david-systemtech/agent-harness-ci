@@ -105,6 +105,8 @@ import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
+import { keyManagerMovesProjector } from "../key-managers/move-store.js";
+import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
@@ -128,6 +130,7 @@ import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods } from "../setup/methods.js";
+import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
@@ -362,6 +365,12 @@ export interface EnvironmentOptions {
    */
   readonly keyManagerTimeoutMs?: number;
   /**
+   * The Move sources registered at start (#371): each owning service's
+   * items holding a stored value. Preset: the forge's; banks (#90) and
+   * routine webhook endpoints (#92) join it. Tests script one.
+   */
+  readonly moveSources?: readonly MoveSource[];
+  /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
    * called once, the first time it is asked for. Preset: the bundled
    * binary's `--version` (`adapters/claude/version.ts`); tests script it.
@@ -478,6 +487,11 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /** Set up's in-process seams (#571). */
+  readonly setup: {
+    /** Settles once this start's pass (#571), run past the settle, has checked every registered step: what a routines start pass (#535) and a test wait on. */
+    readonly startPass: Promise<void>;
+  };
   /** The workspaces' in-process seams (#329). */
   readonly workspaces: {
     /** For a repository identity, the directory a session on it works from here, else scratch: what a routine's move (#92) and hand-off re-resolve through. */
@@ -500,6 +514,11 @@ export interface EnvironmentHandle {
    * reads through it; banks, routine endpoints and the skills check will.
    */
   readonly keyManagers: KeyManagerRegistry;
+  /** Move stored tokens (#371). */
+  readonly keyManagerMoves: {
+    /** Settles once this start, past the gate, has tried again to delete every stored value a Move left behind. */
+    readonly leftBehindDeleted: Promise<void>;
+  };
   /**
    * Where the harness's services register what they put into every provider
    * process and terminal the environment starts (#307): the forge's (#315),
@@ -621,6 +640,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       keyManagerConnectionsProjector,
+      keyManagerMovesProjector,
       routinesProjector,
       ...(options.projectors ?? []),
     ]) {
@@ -644,7 +664,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
   // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
   // connection's removal.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references } = await step("identity", async () => {
+  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -705,6 +725,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => forgeService.close());
     await forgeService.start();
+    // Move stored tokens (#371): each owning service's items holding a stored value, the forge's first.
+    const keyManagerMoves = createKeyManagerMoves({
+      log,
+      clock,
+      environmentId: loaded.id,
+      scrub,
+      connections,
+      registry,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+    });
+    for (const source of options.moveSources ?? [forgeService.moveSource]) keyManagerMoves.register(source);
     capabilities.push("forge", "keyManagers");
     return {
       record: loaded,
@@ -715,6 +746,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagerConnections: connections,
       keyManagers: registry,
       references: keyManagerReferences,
+      moves: keyManagerMoves,
     };
   });
 
@@ -1022,26 +1054,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
-  const setup = createSetupService({
-    log,
-    clock,
-    presets: settingsPresets(),
-    stream: environmentStream,
-    steps: options.setupSteps ?? {
-      steps: STEP_REGISTRY,
-      stateChecks: environmentStateChecks({
-        log,
-        containment,
-        isRoot,
-        dataDir,
-        releaseChannel: () => channelChecks.releaseChannelHolds(),
-        updates: () => updates.machineHolds(channelChecks.status().newest),
-        hostUpdater: () => hostUpdater.holds(),
-        forge,
-        clock,
-      }),
-    },
-  });
+  const setupSteps: SetupSteps = options.setupSteps ?? {
+    steps: STEP_REGISTRY,
+    stateChecks: environmentStateChecks({
+      log,
+      containment,
+      isRoot,
+      dataDir,
+      releaseChannel: () => channelChecks.releaseChannelHolds(),
+      updates: () => updates.machineHolds(channelChecks.status().newest),
+      hostUpdater: () => hostUpdater.holds(),
+      forge,
+      clock,
+    }),
+  };
+  const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
   const table = createMethodTable({
     ...lifecycle.handlers,
@@ -1085,7 +1112,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...accountMethods({ accounts, host }),
     ...instructionMethods({ host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections, references, options.keyManagerTimeoutMs),
+    ...keyManagerMethods(keyManagerConnections, references, moves, options.keyManagerTimeoutMs),
     // The routine store's commands and list (#521), on each routine's own stream.
     ...routineMethods({
       log,
@@ -1241,6 +1268,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
+  // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
+  // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
+  // no client needed. The routines scheduler's start pass (#535) runs after this one's.
+  const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
+  closers.push(() => setupScheduler.stop());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
@@ -1272,6 +1304,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
   // verifications (#366), on the clock, and every fifteen minutes.
   keyManagerConnections.startSigningInAndVerifying();
+  // The stored values a Move left behind, its delete having failed (#371): deleted again, now, past the gate.
+  const leftBehindDeleted = moves.deleteLeftBehind();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
   // The release channel's checks: two minutes from now, then hourly (#346).
@@ -1343,8 +1377,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     forge,
     keyManagerConnections,
     keyManagers,
+    keyManagerMoves: { leftBehindDeleted },
     processEnvironments,
     startPairing,
+    setup: { startPass: setupScheduler.startPass },
     workspaces: {
       checkoutIndex: createCheckoutIndex(log),
       identityPass: identityPasses.resolved,

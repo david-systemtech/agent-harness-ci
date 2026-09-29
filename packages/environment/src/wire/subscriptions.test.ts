@@ -5,6 +5,7 @@ import {
   EnvironmentNotice,
   defineMethod,
   errorSchema,
+  registry,
   subscriptionParams,
   type EventFrame,
   type Frame,
@@ -658,7 +659,8 @@ describe("environment.subscribe", () => {
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     const synchronized = await frame(client, subscription, "synchronized");
 
-    const events = framesOf(client, subscription).filter((f): f is EventFrame => f.type === "event");
+    // Set up's start pass's results follow it (#571).
+    const events = framesOf(client, subscription).filter((f): f is EventFrame => f.type === "event" && f.event.type === "environment.started");
     expect(events).toHaveLength(1);
     const [started] = events;
     expect(started?.event).toMatchObject({
@@ -689,8 +691,9 @@ describe("environment.subscribe", () => {
     expect(EnvironmentNotice.parse(live.event).type).toBe("environment.draining");
   });
 
-  it("snapshots the environment's status, and Set up's cached results, none on a fresh environment, when its notices after the cursor are out of bounds", async () => {
+  it("snapshots the environment's status, and Set up's cached results, every registered step's once the start pass has run, when its notices after the cursor are out of bounds", async () => {
     const t = await start();
+    await t.env.setup.startPass;
     const notices: EventInput[] = Array.from({ length: REPLAY_BOUND.events }, () => ({
       type: "environment.started",
       payload: { harnessVersion: HARNESS_VERSION, protocolVersion: 1 },
@@ -698,12 +701,15 @@ describe("environment.subscribe", () => {
     const client = await t.client();
     const { events } = t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, notices, { actor: "system:test" });
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
-    expect(await frame(client, subscription, "snapshot")).toEqual({
+    const snapshot = await frame(client, subscription, "snapshot");
+    expect(snapshot).toMatchObject({
       type: "snapshot",
       subscription,
       sequence: events.at(-1)?.sequence,
-      payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: [] },
+      payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } },
     });
+    const { setup } = registry["environment.subscribe"].result.parse(snapshot.payload);
+    expect(setup?.map((result) => result.step)).toEqual(["account", "your-machines", "forges", "browser", "permissions", "appearance"]);
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);
   });
@@ -729,7 +735,7 @@ describe("environment.subscribe", () => {
     const client = await t.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     await frame(client, subscription, "synchronized");
-    const types = framesOf(client, subscription).flatMap((f) => (f.type === "event" ? [f.event.type] : []));
+    const types = framesOf(client, subscription).flatMap((f) => (f.type === "event" && f.event.type !== "setup.result-changed" ? [f.event.type] : []));
     expect(types).toEqual(["environment.started"]);
   });
 
@@ -741,7 +747,7 @@ describe("environment.subscribe", () => {
     const client = await again.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     await frame(client, subscription, "synchronized");
-    const types = framesOf(client, subscription).flatMap((f) => (f.type === "event" ? [f.event.type] : []));
+    const types = framesOf(client, subscription).flatMap((f) => (f.type === "event" && f.event.type !== "setup.result-changed" ? [f.event.type] : []));
     expect(types).toEqual(["environment.started", "environment.started"]);
   });
 });

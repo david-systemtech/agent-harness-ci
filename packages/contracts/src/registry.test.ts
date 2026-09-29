@@ -231,8 +231,10 @@ describe("the method registry", () => {
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
       "keyManagers.connections.setPolicies",
+      "keyManagers.connections.setBasePath",
       "keyManagers.connections.signOut",
       "keyManagers.connections.remove",
+      "keyManagers.move",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -426,6 +428,9 @@ describe("the method registry", () => {
       | "keyManagers.certificate.preview"
       | "keyManagers.references.check"
       | "keyManagers.references.browse"
+      | "keyManagers.connections.setBasePath"
+      | "keyManagers.move.list"
+      | "keyManagers.move"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"
