@@ -124,9 +124,12 @@ const EnvironmentSnapshot = registry["environment.subscribe"].result;
 const SnapshotStatus = EnvironmentSnapshot.pick({ status: true });
 
 /**
- * The results a snapshot's `setup` carries that this build can read: one of
- * a step this build does not register (a newer environment's) is left out,
- * as a notice this client does not know is, and the others still read.
+ * The results a snapshot's `setup` carries that this build can read. One of
+ * a step this build does not register reads, since a result names any step
+ * of the milestone-1 order (#672); one this build cannot read (a later
+ * shape: a step past that order, an action or a target kind it does not
+ * know) is left out, as a notice this client does not know is, and the
+ * others still read.
  */
 const readResults = (value: unknown): StepResult[] => {
   if (value === undefined) return [];

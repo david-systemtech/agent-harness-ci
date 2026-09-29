@@ -117,7 +117,11 @@ export interface SetupView {
   readonly counts: SetupCounts;
 }
 
-/** Each registered step's cadence, in milliseconds (ADR 0031); a step this build does not register has no result to age. */
+/**
+ * Each registered step's cadence, in milliseconds (ADR 0031). A result of a
+ * step this build does not register, which a newer environment gives
+ * (#672), ages against the hour a step has unless its entry gives another.
+ */
 const CADENCES_MS: ReadonlyMap<StepId, number> = new Map(STEP_REGISTRY.map((step) => [step.id, step.cadence.minutes * 60_000]));
 const cadenceOf = (step: StepId): number => CADENCES_MS.get(step) ?? DEFAULT_CADENCE_MINUTES * 60_000;
 
@@ -217,7 +221,7 @@ export const createSetup = (host: SetupHost): Setup => {
   const compute = (environmentId: string, records: readonly ConnectionRecord[], environments: ReadonlyMap<string, StreamState<EnvironmentData>>): SetupView => {
     const reach = reachOf(records.find((record) => record.environmentId === environmentId));
     const stream = environments.get(environmentId);
-    const streamed = new Map((stream?.data?.setup ?? []).map((result) => [result.step as StepId, result]));
+    const streamed = new Map((stream?.data?.setup ?? []).map((result) => [result.step, result]));
     const answered = answers.get(environmentId);
     const live = stream?.freshness === "live";
     const reachable = reach.status === "reachable";
