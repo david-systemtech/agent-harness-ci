@@ -20,9 +20,11 @@ export type { InjectionAnswer };
  * environment's seam reads `credentials.injection` and
  * `credentials.injectionByAccount`). On `deny` no supplier is asked
  * anything. A seam that throws denies, logged. The key is empty while no
- * supplier is registered. Otherwise it names the answer, its level and, on
- * `allow`, each supplier's part, in the order they were registered, so a
- * changed answer, level or part is a changed key.
+ * supplier is registered, and on `allow` while every supplier's part is
+ * empty, as the key managers' is with no injecting connection (#368).
+ * Otherwise it names the answer, its level and, on `allow`, each
+ * supplier's part that is not empty, in the order they were registered, so
+ * a changed answer, level or part is a changed key.
  *
  * A supplier's variables are asked at each spawn, every supplier at once;
  * where two name one variable, the one registered later wins. A supplier
@@ -30,6 +32,9 @@ export type { InjectionAnswer };
  * the variables when its supply does: nothing is supplied in its place.
  * The release calls each supplier's release once, a failure logged.
  */
+
+/** What a holder is (#368): a run's provider process or a session's terminal; the key managers' run tokens name it in their metadata. */
+export type HolderKind = "provider-process" | "terminal";
 
 /**
  * The level that decided a holder's injection answer (#367): the
@@ -60,11 +65,12 @@ export const runOverrideOf = (actor: PolicyActor): RunInjectionOverride | null =
     ? { answer: actor.injection.answer, level: { kind: actor.kind, id: actor.injection.id } }
     : null;
 
-/** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), and who started it (a client, for a terminal). */
+/** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), who started it (a client, for a terminal), what it is, and its run's own injection override. */
 export interface ProcessEnvironmentScope {
   readonly sessionId: string;
   readonly accountId: string | null;
   readonly origin: RunActorKind;
+  readonly holder: HolderKind;
   /** The run's own injection override (a routine's `allow` or `deny`, #92's firing); null for none, as for a client's run, a completions request's and a terminal. */
   readonly override: RunInjectionOverride | null;
 }
@@ -224,8 +230,9 @@ export const createProcessEnvironments = (injection: InjectionSeam = presetInjec
         }
       });
       const asked = parts.map((part) => part.supplier);
+      const named = parts.filter((part) => part.key !== "");
       return {
-        key: JSON.stringify({ injection: answer, level, suppliers: parts.map((part) => [part.supplier.name, part.key]) }),
+        key: named.length === 0 ? "" : JSON.stringify({ injection: answer, level, suppliers: named.map((part) => [part.supplier.name, part.key]) }),
         supply: () => supplyAll(asked, scope),
       };
     },

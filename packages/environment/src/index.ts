@@ -104,6 +104,7 @@ export {
   EMPTY_PROCESS_ENVIRONMENT,
   createProcessEnvironments,
   presetInjection,
+  type HolderKind,
   type InjectionAnswer,
   type InjectionSeam,
   type ProcessEnvironmentScope,

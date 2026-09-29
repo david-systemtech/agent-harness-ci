@@ -331,6 +331,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "key-manager.connection.updated":
       case "key-manager.connection.policies-set":
       case "key-manager.connection.base-path-set":
+      case "key-manager.connection.injected-set":
       case "key-manager.connection.verified":
       case "key-manager.connection.removed":
       case "key-manager.moved":

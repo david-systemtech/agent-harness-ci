@@ -238,6 +238,7 @@ describe("the method registry", () => {
       "keyManagers.connections.update",
       "keyManagers.connections.setPolicies",
       "keyManagers.connections.setBasePath",
+      "keyManagers.connections.setInjected",
       "keyManagers.connections.signOut",
       "keyManagers.connections.remove",
       "keyManagers.move",
@@ -439,6 +440,7 @@ describe("the method registry", () => {
       | "keyManagers.references.check"
       | "keyManagers.references.browse"
       | "keyManagers.connections.setBasePath"
+      | "keyManagers.connections.setInjected"
       | "keyManagers.move.list"
       | "keyManagers.move"
       | "keyManagers.move.copyValue"

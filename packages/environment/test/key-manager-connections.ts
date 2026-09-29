@@ -52,6 +52,10 @@ export const setPolicies = (client: WireClient, connectionId: string, ticks: rea
 export const setBasePath = (client: WireClient, connectionId: string, basePath: string): Promise<ResponseOf<"keyManagers.connections.setBasePath">> =>
   client.request("keyManagers.connections.setBasePath", { commandId: randomUUID(), connectionId, basePath });
 
+/** Sends `keyManagers.connections.setInjected` for the connection (#368). */
+export const setInjected = (client: WireClient, connectionId: string): Promise<ResponseOf<"keyManagers.connections.setInjected">> =>
+  client.request("keyManagers.connections.setInjected", { commandId: randomUUID(), connectionId });
+
 export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> => (await client.request("keyManagers.list", {})).connections;
 
 /** `keyManagers.move.list`: the items holding a stored value, with their targets (#371). */

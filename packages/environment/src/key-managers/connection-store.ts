@@ -3,6 +3,7 @@ import {
   type KeyManagerAuthMethod,
   type KeyManagerConnectionAddedPayload,
   type KeyManagerConnectionBasePathSetPayload,
+  type KeyManagerConnectionInjectedSetPayload,
   type KeyManagerConnectionPoliciesSetPayload,
   type KeyManagerConnectionRecord,
   type KeyManagerConnectionRemovedPayload,
@@ -18,6 +19,7 @@ import {
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { OPENBAO_BLOCK_NAMES } from "./openbao-block.js";
 
 /**
  * The key-manager connections' read model (key-managers spec, "The
@@ -33,6 +35,14 @@ import type { Reader } from "../sessions/session-tables.js";
  * partial unique indexes hold one live connection per provider and address,
  * and one injecting connection per provider, which the connections check
  * before they append.
+ *
+ * Each row counts its **credential generation** (#368): what runs are given
+ * of the connection changed, so the process environment's key gives the
+ * next run a fresh process. A person's sign-in with a credential, a
+ * sign-out, a new address, CA or token role, new ticks and the injects flag
+ * (the first sign-in's, and `injected-set` on both the connection it moves
+ * to and the one it moves from) raise it; the environment's own sign-in
+ * from the kept credential, a verification, a label and a base path do not.
  */
 
 export const KEY_MANAGER_CONNECTIONS_PROJECTOR = "key-manager-connections";
@@ -58,6 +68,7 @@ export const KEY_MANAGER_CONNECTIONS_TABLES = {
     can_mint INTEGER CHECK (can_mint IN (0, 1)),
     verified_at TEXT,
     credential TEXT,
+    credential_generation INTEGER NOT NULL DEFAULT 0,
     copied_from TEXT,
     imported_from TEXT,
     created_at TEXT NOT NULL,
@@ -110,8 +121,15 @@ const added = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnec
   );
 };
 
+/** Raises the connection's credential generation: what runs are given of it changed. */
+const raiseGeneration = (db: ProjectionDb, connectionId: string): void => {
+  db.run("UPDATE key_manager_connections SET credential_generation = credential_generation + 1 WHERE id = ?", connectionId);
+};
+
 const signedIn = (db: ProjectionDb, payload: KeyManagerConnectionSignedInPayload): void => {
   const { connectionId } = payload;
+  // A person's credential, or the connection now injecting; never the environment's own sign-in from the kept credential alone.
+  if (payload.credential !== undefined || payload.injects === true) raiseGeneration(db, connectionId);
   moveStatus(db, connectionId, payload.status);
   db.run("UPDATE key_manager_connections SET token_information = ? WHERE id = ?", jsonOrNull(payload.tokenInformation), connectionId);
   if (payload.credential !== undefined) db.run("UPDATE key_manager_connections SET credential = ? WHERE id = ?", payload.credential, connectionId);
@@ -124,16 +142,28 @@ const signedIn = (db: ProjectionDb, payload: KeyManagerConnectionSignedInPayload
 
 const signedOut = (db: ProjectionDb, payload: KeyManagerConnectionSignedOutPayload): void => {
   moveStatus(db, payload.connectionId, payload.status);
+  raiseGeneration(db, payload.connectionId);
   // Signed out, it no longer injects: the next of its provider signed in does. What the login was known by goes with it.
   db.run("UPDATE key_manager_connections SET token_information = NULL, policies = NULL, can_mint = NULL, credential = NULL, injects = 0 WHERE id = ?", payload.connectionId);
 };
 
 const policiesSet = (db: ProjectionDb, payload: KeyManagerConnectionPoliciesSetPayload): void => {
   db.run("UPDATE key_manager_connections SET ticks = ? WHERE id = ?", json(payload.ticks), payload.connectionId);
+  raiseGeneration(db, payload.connectionId);
 };
 
 const basePathSet = (db: ProjectionDb, payload: KeyManagerConnectionBasePathSetPayload): void => {
   db.run("UPDATE key_manager_connections SET base_path = ? WHERE id = ?", payload.basePath, payload.connectionId);
+};
+
+const injectedSet = (db: ProjectionDb, payload: KeyManagerConnectionInjectedSetPayload): void => {
+  // The one it replaces first, so the one injecting connection per provider holds throughout.
+  if (payload.replaced !== null) {
+    db.run("UPDATE key_manager_connections SET injects = 0 WHERE id = ?", payload.replaced);
+    raiseGeneration(db, payload.replaced);
+  }
+  db.run("UPDATE key_manager_connections SET injects = 1 WHERE id = ?", payload.connectionId);
+  raiseGeneration(db, payload.connectionId);
 };
 
 const verified = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnectionVerifiedPayload): void => {
@@ -155,6 +185,7 @@ const updated = (db: ProjectionDb, payload: KeyManagerConnectionUpdatedPayload):
   if (payload.address !== undefined) db.run("UPDATE key_manager_connections SET address = ? WHERE id = ?", payload.address, connectionId);
   if (payload.ca !== undefined) db.run("UPDATE key_manager_connections SET ca = ? WHERE id = ?", payload.ca, connectionId);
   if (payload.tokenRole !== undefined) db.run("UPDATE key_manager_connections SET token_role = ? WHERE id = ?", payload.tokenRole, connectionId);
+  if (payload.address !== undefined || payload.ca !== undefined || payload.tokenRole !== undefined) raiseGeneration(db, connectionId);
 };
 
 const removed = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnectionRemovedPayload): void => {
@@ -180,6 +211,8 @@ export const keyManagerConnectionsProjector: Projector = {
         return policiesSet(db, event.payload as KeyManagerConnectionPoliciesSetPayload);
       case "key-manager.connection.base-path-set":
         return basePathSet(db, event.payload as KeyManagerConnectionBasePathSetPayload);
+      case "key-manager.connection.injected-set":
+        return injectedSet(db, event.payload as KeyManagerConnectionInjectedSetPayload);
       case "key-manager.connection.verified":
         return verified(db, event, event.payload as KeyManagerConnectionVerifiedPayload);
       case "key-manager.connection.removed":
@@ -208,19 +241,22 @@ interface ConnectionRow {
   can_mint: number | null;
   verified_at: string | null;
   credential: string | null;
+  credential_generation: number;
   copied_from: string | null;
   imported_from: string | null;
   created_at: string;
 }
 
 const COLUMNS =
-  "id, provider, label, address, ca, method, mount, username, token_role, policies, ticks, base_path, injects, status, token_information, can_mint, verified_at, credential, copied_from, imported_from, created_at";
+  "id, provider, label, address, ca, method, mount, username, token_role, policies, ticks, base_path, injects, status, token_information, can_mint, verified_at, credential, credential_generation, copied_from, imported_from, created_at";
 
-/** A connection as the store holds it: its record, and the vault entry of its credential, which the record never shows. */
+/** A connection as the store holds it: its record, the vault entry of its credential and its credential generation, which the record never shows. */
 export interface StoredConnection {
   readonly record: KeyManagerConnectionRecord;
   /** The vault entry holding the credential; null for none. */
   readonly credential: string | null;
+  /** How many times what runs are given of it has changed (#368): what the process environment's key names. */
+  readonly generation: number;
 }
 
 const storedOf = (row: ConnectionRow): StoredConnection => ({
@@ -240,6 +276,8 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     // Suggested in memory from the provider (`connections.ts`), never kept.
     suggestedBasePath: null,
     injects: row.injects === 1,
+    // OpenBao's block alone this version gives (#368); the other providers' join with their tickets.
+    injectedVariables: row.injects === 1 && row.provider === "openbao" ? [...OPENBAO_BLOCK_NAMES] : [],
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),
     canMint: row.can_mint === null ? null : row.can_mint === 1,
@@ -249,6 +287,7 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     createdAt: row.created_at,
   },
   credential: row.credential,
+  generation: row.credential_generation,
 });
 
 /** The connections the environment holds, in the order they were added. */

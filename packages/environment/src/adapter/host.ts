@@ -1395,7 +1395,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * calls it first.
    */
   const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
-    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind, override: runOverrideOf(plan.actor) });
+    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind, holder: "provider-process", override: runOverrideOf(plan.actor) });
     const report = pool.supplied(plan.sessionId);
     return {
       key: built.key,

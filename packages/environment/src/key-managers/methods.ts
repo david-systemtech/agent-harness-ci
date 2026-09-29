@@ -8,7 +8,7 @@ import type { KeyManagerReferences } from "./references.js";
  * The key-manager connection methods on the method table (key-managers
  * spec, "Wire methods"): `keyManagers.list` at `read`; add, signIn and
  * update, prepared commands that hear from the key manager first, and
- * setPolicies, signOut and remove, at `admin`, each appending to the
+ * setPolicies, setInjected (#368), signOut and remove, at `admin`, each appending to the
  * environment stream; verify, the certificate preview and the references'
  * check and browse (#370), `admin` queries; setBasePath, an `admin`
  * command, the items to move at `read`, and the Move, a prepared `admin`
@@ -23,6 +23,7 @@ export const keyManagerMethods = (connections: KeyManagerConnections, references
   "keyManagers.connections.update": connections.update,
   "keyManagers.connections.setPolicies": connections.setPolicies,
   "keyManagers.connections.setBasePath": connections.setBasePath,
+  "keyManagers.connections.setInjected": connections.setInjected,
   "keyManagers.connections.signOut": connections.signOut,
   "keyManagers.connections.remove": connections.remove,
   "keyManagers.connections.verify": async ({ connectionId }) => ({ connections: await connections.verify(connectionId) }),

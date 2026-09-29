@@ -49,6 +49,7 @@ const record = {
   basePath: "personal/harness",
   suggestedBasePath: null,
   injects: true,
+  injectedVariables: ["BAO_ADDR", "BAO_TOKEN", "BAO_CACERT_BYTES", "VAULT_ADDR", "VAULT_TOKEN", "VAULT_CACERT_BYTES"],
   status: signedIn,
   tokenInformation,
   canMint: true,
@@ -68,6 +69,7 @@ const copy = {
   basePath: null,
   suggestedBasePath: "personal/harness",
   injects: false,
+  injectedVariables: [],
   status: awaiting,
   tokenInformation: null,
   canMint: null,
@@ -203,6 +205,13 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "key-managers/events/key-manager.connection.removed.json": { valid: [{ connectionId }], invalid: [{}, { connectionId: "openbao" }] },
+  "key-managers/events/key-manager.connection.injected-set.json": {
+    valid: [
+      { connectionId, replaced: otherId },
+      { connectionId, replaced: null },
+    ],
+    invalid: [{ connectionId }, { connectionId, replaced: "openbao" }, { replaced: null }],
+  },
   "key-managers/events/key-manager.connection.base-path-set.json": {
     valid: [{ connectionId, basePath: "personal/harness" }],
     invalid: [{ connectionId }, { connectionId, basePath: "personal/harness/" }, { basePath: "personal/harness" }],
@@ -374,6 +383,13 @@ export const keyManagerMethodFixtures: Record<string, { params: Fixtures; result
       invalid: [{ commandId, connectionId }, { commandId, connectionId, basePath: "/personal" }, { connectionId, basePath: "personal/harness" }],
     },
     result: { valid: [{ connection: record }], invalid: [{}, { connection: { ...record, suggestedBasePath: "/x" } }] },
+  },
+  "keyManagers.connections.setInjected": {
+    params: {
+      valid: [{ commandId, connectionId }],
+      invalid: [{ commandId }, { commandId, connectionId: "openbao" }, { connectionId }],
+    },
+    result: { valid: [{ connection: record }], invalid: [{}, { connection: { ...record, injectedVariables: "BAO_ADDR" } }] },
   },
   "keyManagers.move.list": {
     params: { valid: [{}], invalid: [[], "all"] },
