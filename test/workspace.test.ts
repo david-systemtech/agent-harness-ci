@@ -30,8 +30,9 @@ const runtimeDependencies = (m: Manifest): string[] => [
 ];
 
 describe("the workspace", () => {
-  it("holds the contracts, environment, client runtime, theme, terminal UI, GUI and desktop packages and the CLI", () => {
+  it("holds the contracts, environment, client runtime, theme, browser, terminal UI, GUI and desktop packages and the CLI", () => {
     expect(manifests.map((m) => m.name).sort()).toEqual([
+      "@agent-harness/browser",
       "@agent-harness/client-runtime",
       "@agent-harness/contracts",
       "@agent-harness/desktop",
@@ -56,6 +57,10 @@ describe("the workspace", () => {
 
   it("gives the theme package one runtime dependency, contracts: it holds no UI and no session state (ADR 0023)", () => {
     expect(runtimeDependencies(manifest("@agent-harness/theme"))).toEqual(["@agent-harness/contracts"]);
+  });
+
+  it("gives the browser package one runtime dependency, contracts: it runs in every browser, the extension's included, so it takes no environment code (browser spec)", () => {
+    expect(runtimeDependencies(manifest("@agent-harness/browser"))).toEqual(["@agent-harness/contracts"]);
   });
 
   it("gives the environment no runtime dependency on a client package or the CLI", () => {
