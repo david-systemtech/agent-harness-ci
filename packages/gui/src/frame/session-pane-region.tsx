@@ -5,6 +5,7 @@ import { SessionForkRewindProvider } from "../fork-rewind/session-fork-rewind.js
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
+import { PaneDocumentsProvider } from "../session/pane-documents.js";
 import { PaneLine, PaneLines } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
@@ -49,9 +50,11 @@ const NoSessionOpen = () => {
  * rewind for what offers them: the actions under each message, the rewound
  * fold and the rewound strip over the composer (#403); and beside it the
  * session's side column ("The seven panes and the grid"), whose refusals are
- * said on the pane's line and whose panes the pane's slash commands open.
- * Another session opened in the pane brings its own column, and its own
- * line, or the line handed to it as it opened.
+ * said on the pane's line and whose panes the pane's slash commands open. It
+ * holds what its documents are asked (the Preview's document, the call the
+ * transcript shows), which the transcript and the column both ask. Another
+ * session opened in the pane brings its own column, and its own line, or the
+ * line handed to it as it opened.
  */
 export const SessionPaneRegion = () => {
   const [layout] = usePresentation("paneLayout");
@@ -64,23 +67,25 @@ export const SessionPaneRegion = () => {
         ) : (
           <div className="flex min-h-0 flex-1">
             <PaneLine key={`${session.environmentId} ${session.sessionId}`} environmentId={session.environmentId} sessionId={session.sessionId}>
-              <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
-                <SlashCommands>
-                  <PaneDialogs environmentId={session.environmentId} sessionId={session.sessionId}>
-                    <SessionForkRewindProvider environmentId={session.environmentId} sessionId={session.sessionId}>
-                      <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
-                        <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
-                        <QueueStrip />
-                        <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
-                        <RewoundStrip />
-                        <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
-                        <StatusLine environmentId={session.environmentId} sessionId={session.sessionId} />
-                      </section>
-                      <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
-                    </SessionForkRewindProvider>
-                  </PaneDialogs>
-                </SlashCommands>
-              </SessionQueueProvider>
+              <PaneDocumentsProvider session={session}>
+                <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
+                  <SlashCommands>
+                    <PaneDialogs environmentId={session.environmentId} sessionId={session.sessionId}>
+                      <SessionForkRewindProvider environmentId={session.environmentId} sessionId={session.sessionId}>
+                        <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
+                          <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
+                          <QueueStrip />
+                          <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
+                          <RewoundStrip />
+                          <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+                          <StatusLine environmentId={session.environmentId} sessionId={session.sessionId} />
+                        </section>
+                        <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
+                      </SessionForkRewindProvider>
+                    </PaneDialogs>
+                  </SlashCommands>
+                </SessionQueueProvider>
+              </PaneDocumentsProvider>
             </PaneLine>
           </div>
         )}

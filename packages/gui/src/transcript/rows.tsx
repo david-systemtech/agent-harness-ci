@@ -17,21 +17,27 @@ import { UndoOnFold } from "../fork-rewind/rewound.js";
 import { classes } from "../ui/classes.js";
 import { Fold } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
-import { CallCard, CallsRow } from "./calls.js";
+import type { Revealed } from "../session/pane-documents.js";
+import { CallCard, CallsRow, useOpenedFor } from "./calls.js";
+import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
 import { StreamingText } from "./streaming-text.js";
 
 /**
- * What the transcript knows of its rows beyond the projection: what arrived
- * while it watched, how long each running call has been quiet, and whether
- * the rows are the session's own to act on.
+ * What the transcript knows of its rows beyond the entries: what arrived while it watched, how long each running call has
+ * been quiet, the workspace a call's document is placed under, the call it was last asked to show, and whether the rows
+ * are the session's own to act on.
  */
 export interface RowFacts {
   /** Whether the entry at `sequence` arrived while the transcript was watching, rather than being there when it opened. */
   arrived(sequence: number): boolean;
   /** How long a running call has said nothing, in milliseconds. */
   quietMs(toolCallId: string): number;
+  /** The session's workspace, which the documents its calls wrote are placed under; null draws no document tiles. */
+  readonly workspace: string | null;
+  /** The call the transcript was last asked to show, whose fold opens for it; null for none. */
+  readonly revealed: Revealed | null;
   /**
    * The rows are the session's own transcript (#403): each user message
    * offers Fork and Rewind. False where rows are only read: what a rewind
@@ -59,9 +65,9 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
         <AssistantText text={row.entry.text} streaming={row.entry.streaming} arrived={arrived(row.entry.sequence)} />
       );
     case "calls":
-      return <CallsRow calls={row.calls} quietMs={facts.quietMs} />;
+      return <CallsRow calls={row.calls} facts={facts} />;
     case "subagent":
-      return <Subagent entry={row.entry} quietMs={facts.quietMs} />;
+      return <Subagent entry={row.entry} facts={facts} />;
     case "prompt":
       return <Prompt entry={row.entry} />;
     case "command":
@@ -229,21 +235,24 @@ const Reasoning = ({ entry, arrived }: { readonly entry: AssistantEntry; readonl
   );
 };
 
-/** A subagent's calls, in one row naming its agent and the work that started it; unfolded, each call. */
-const Subagent = ({ entry, quietMs }: { readonly entry: SubagentEntry; readonly quietMs: (toolCallId: string) => number }) => {
-  const [open, setOpen] = useState(false);
+/** A subagent's calls, in one row naming its agent and the work that started it; unfolded, each call; under it, the documents they wrote. */
+const Subagent = ({ entry, facts }: { readonly entry: SubagentEntry; readonly facts: RowFacts }) => {
+  const [open, setOpen] = useOpenedFor(entry.calls, facts.revealed);
   const who = entry.task?.subagentType ?? "Agent";
   const what = entry.task?.description ?? "";
   const calls = `${entry.calls.length} ${entry.calls.length === 1 ? "call" : "calls"}`;
   const summary = `${who}${what.length > 0 ? `: ${oneLine(what, 120)}` : ""} · ${calls} · ${entry.running ? "running" : "done"}`;
   return (
-    <Fold open={open} onOpenChange={setOpen} summary={<Marked text={summary} />}>
-      <div className="flex flex-col gap-1.5 border-l border-hairline pl-3">
-        {entry.calls.map((call) => (
-          <CallCard key={call.toolCallId} call={call} quietMs={call.status === "running" ? quietMs(call.toolCallId) : 0} />
-        ))}
-      </div>
-    </Fold>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <Fold open={open} onOpenChange={setOpen} summary={<Marked text={summary} />}>
+        <div className="flex flex-col gap-1.5 border-l border-hairline pl-3">
+          {entry.calls.map((call) => (
+            <CallCard key={call.toolCallId} call={call} quietMs={call.status === "running" ? facts.quietMs(call.toolCallId) : 0} />
+          ))}
+        </div>
+      </Fold>
+      <DocumentTiles calls={entry.calls} workspace={facts.workspace} />
+    </div>
   );
 };
 

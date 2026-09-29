@@ -56,7 +56,8 @@ const signedOutResult = {
   checkedAt: "2026-09-25T08:00:00.000Z",
 };
 
-const forgeRejected = {
+/** A result that names what its action applies to: the payload of a `setup.result-changed` and an entry of the snapshot's `setup` too. */
+export const forgeRejected = {
   step: "forges",
   state: "needs-attention",
   reason: "The forge refused the credential of david on git.example.com: Sign in again to give it a new one.",

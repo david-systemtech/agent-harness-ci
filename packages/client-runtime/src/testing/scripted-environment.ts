@@ -290,6 +290,18 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   liveRun(sessionId: string): string | undefined;
   /** The id of the message sent to the session with `text`, the latest of that text; throws when none was. */
   messageId(sessionId: string, text: string): string;
+  /**
+   * The session's run `runId` writes `text` whole to `path` (relative to the workspace), as Claude's `Write` does: its
+   * `tool.started`, naming the file by its absolute path, and a `tool.ended` ok. `files.read` answers the text from then
+   * on, and `files.list` lists the path. Answers the call's id.
+   */
+  writeFile(sessionId: string, runId: string, path: string, text: string): string;
+  /**
+   * The session's run `runId` edits `path`, as Claude's `Edit` does: the first `oldText` in what `files.read` answers
+   * becomes `newText`, then its `tool.started` and a `tool.ended` ok. Throws for a file with no text to edit. Answers the
+   * call's id.
+   */
+  editFile(sessionId: string, runId: string, path: string, oldText: string, newText: string): string;
   /** The session's log as the environment holds it: every event appended since its snapshot, in order. */
   events(sessionId: string): readonly EventEnvelope[];
   /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
@@ -716,6 +728,27 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued, lastChoice.get(sessionId)).runId;
   };
 
+  // A run's file tools, as Claude's name them: the call, then the file as the environment reads it.
+  let fileCalls = 0;
+  const fileCall = (sessionId: string, runId: string, name: string, input: Record<string, unknown>): string => {
+    const toolCallId = `toolu-${name.toLowerCase()}-${++fileCalls}`;
+    emit(sessionId, "tool.started", { runId, toolCallId, name, input, title: null, agentId: null, parentToolCallId: null });
+    emit(sessionId, "tool.ended", { runId, toolCallId, status: "ok", output: null, durationMs: 20 });
+    return toolCallId;
+  };
+  const inWorkspaceOf = (sessionId: string, path: string) => `${summaryNow(sessionId).workspace.path.replace(/\/+$/, "")}/${path}`;
+  const writeFile: EnvironmentHandle["writeFile"] = (sessionId, runId, path, text) => {
+    contents.set(path, text);
+    if (!listed.includes(path)) listed.push(path);
+    return fileCall(sessionId, runId, "Write", { file_path: inWorkspaceOf(sessionId, path), content: text });
+  };
+  const editFile: EnvironmentHandle["editFile"] = (sessionId, runId, path, oldText, newText) => {
+    const text = contents.get(path);
+    if (typeof text !== "string") throw new Error(`${spec.name} holds no text at ${path} to edit.`);
+    contents.set(path, text.replace(oldText, () => newText));
+    return fileCall(sessionId, runId, "Edit", { file_path: inWorkspaceOf(sessionId, path), old_string: oldText, new_string: newText });
+  };
+
   // Parked prompts and their answers (`scripted-prompts.ts`).
   const { prompts, answer: answerPrompt } = scriptedPrompts({
     clock,
@@ -965,12 +998,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId });
     return acceptedWith({ summary });
   });
-  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: spec.filesTruncated ?? false, source: "git" } }));
+  // The workspace's files, which a run's writes and edits (`writeFile`, `editFile`) change.
+  const listed = [...(spec.files ?? [])];
+  const contents = new Map<string, ScriptedFile>(Object.entries(spec.fileContents ?? {}));
+  wire.answer("files.list", () => ({ result: { files: [...listed], truncated: spec.filesTruncated ?? false, source: "git" } }));
   wire.answer("files.read", (params) => {
     const path = String(params["path"]);
-    const file = spec.fileContents?.[path];
+    const file = contents.get(path);
     if (file === undefined) {
-      if ((spec.files ?? []).some((f) => f.startsWith(`${path}/`))) {
+      if (listed.some((f) => f.startsWith(`${path}/`))) {
         return { error: { code: "invalid_params", message: `${path} is not a file.`, data: { reason: "not_a_file" } } };
       }
       return { error: { code: "not_found", message: `No file ${path} in the workspace.`, data: { kind: "file" } } };
@@ -1708,6 +1744,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit,
     startRun,
     endRun,
+    writeFile,
+    editFile,
     liveRun: (sessionId) => live.get(sessionId),
     messageId(sessionId, text) {
       const sent = (logs.get(sessionId)?.events ?? []).filter((event) => event.type === "message.sent" && (event.payload as Record<string, unknown>)["text"] === text).at(-1);
