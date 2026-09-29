@@ -3,6 +3,7 @@ import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
 import { Sequence, Timestamp } from "./primitives.js";
+import { RepositoryIdentity } from "./repository-identity.js";
 
 /**
  * Session organisation state (session-state spec; ADR 0003): the session
@@ -603,6 +604,22 @@ export const SessionWorkspaceStatusChangedPayload = z
   });
 export type SessionWorkspaceStatusChangedPayload = z.infer<typeof SessionWorkspaceStatusChangedPayload>;
 
+/** Why an identity pass gave a session its repository identity after creation (workspace-picker spec, "Repository identity"). */
+export const REPOSITORY_IDENTIFIED_REASONS = ["resolved", "alias"] as const;
+export const RepositoryIdentifiedReason = z.enum(REPOSITORY_IDENTIFIED_REASONS).meta({
+  description:
+    "Why the session's repository identity changed after creation: resolved (the pass after a start found one for a session that had none) or alias (a forge account's verified alias moved the identity's host to the account's canonical host).",
+});
+export type RepositoryIdentifiedReason = z.infer<typeof RepositoryIdentifiedReason>;
+
+export const SessionRepositoryIdentifiedPayload = z
+  .object({ repositoryIdentity: RepositoryIdentity, reason: RepositoryIdentifiedReason })
+  .meta({
+    description:
+      "session.repository-identified: an identity pass of the environment (system:workspaces) gave the session this repository identity, resolved again or rewritten to a forge account's canonical host; updatedAt stays.",
+  });
+export type SessionRepositoryIdentifiedPayload = z.infer<typeof SessionRepositoryIdentifiedPayload>;
+
 export const SessionPullRequestLinkedPayload = PullRequest.meta({
   description: "session.pull-request-linked: a pull request was linked to the session (the forge workstream's).",
 });
@@ -657,6 +674,7 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-unlinked": listed(SessionPullRequestUnlinkedPayload, SummaryPatch),
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
   "session.workspace-status-changed": listed(SessionWorkspaceStatusChangedPayload, SummaryPatch),
+  "session.repository-identified": listed(SessionRepositoryIdentifiedPayload, SummaryPatch),
 } as const satisfies Record<string, EventTypeEntry>;
 
 /** The event types of the `group` stream, every one `list`-flagged with a `GroupPatch`. */
