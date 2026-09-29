@@ -139,6 +139,8 @@ import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
+import { trustMethods } from "../trust/methods.js";
+import { createTrustStore, trustProjector } from "../trust/store.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods } from "../setup/methods.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
@@ -702,6 +704,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagerMovesProjector,
       routinesProjector,
       lookProjector,
+      trustProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -897,6 +900,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injecting key-manager connections' blocks and each holder's run tokens (#368).
   processEnvironments.register(keyManagerConnections.processEnvironment);
 
+  // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
+  const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
+
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -995,6 +1001,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
+      // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
+      trust: (place) => trustStore.of(place),
       ...hostSeams,
       instructions,
       // The seam's servers, then the caller's own tools as the `client` server (#139).
@@ -1249,6 +1257,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
     ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
+    // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
+    ...trustMethods({
+      log,
+      environmentId: record.id,
+      store: trustStore,
+      clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+    }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,

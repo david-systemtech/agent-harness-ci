@@ -4535,6 +4535,25 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "trust.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "description": "trust.updated: a trust decision was recorded or revoked and has committed; a client reads trust.get and trust.list again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A trust decision was recorded or revoked, in the transaction of its trust event: a client reads trust.get and trust.list again."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "tools.updated"
         },
         "payload": {

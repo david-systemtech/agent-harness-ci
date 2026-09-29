@@ -7,6 +7,7 @@ import {
   type InstructionManifestLayer,
 } from "@agent-harness/contracts";
 import type { ComposedInstructions, InstructionComposer, InstructionPart, InstructionScope } from "../adapter/seams.js";
+import { projectParts } from "./project-layer.js";
 
 /**
  * The composer (skills-instructions spec, "Standing instructions and the
@@ -20,8 +21,9 @@ import type { ComposedInstructions, InstructionComposer, InstructionPart, Instru
  *    (#505);
  * 2. the team bank's (its seam, which #90's renderer fills);
  * 3. the project's, which Claude loads natively under trust beside the
- *    appended text, so nothing is added here (#500 gives an adapter without
- *    native project instructions the repository's `AGENTS.md`);
+ *    appended text, so nothing is added for it; an adapter without native
+ *    project instructions is handed the trusted repository's `AGENTS.md`,
+ *    else its `CLAUDE.md` (`project-layer.ts`, #500);
  * 4. the session's (its seam, which #506 fills);
  * 5. a bot's persona (its seam; empty until milestone 2);
  * 6. always-on skills (#507).
@@ -102,17 +104,17 @@ const manifestLayers = (parts: readonly InstructionPart[]): InstructionManifestL
 export const composeInstructions =
   (layers: InstructionLayers = {}): InstructionComposer =>
   async (scope) => {
-    const [orientation, teamBank, session, persona] = await Promise.all([
+    const [orientation, teamBank, project, session, persona] = await Promise.all([
       (layers.orientation ?? noOrientation)(scope),
       (layers.teamBank ?? nothing)(scope),
+      projectParts(scope),
       (layers.session ?? nothing)(scope),
       (layers.persona ?? nothing)(scope),
     ]);
     const given: Readonly<Record<InstructionLayer, readonly LayerPart[]>> = {
       user: orientationParts(orientation),
       "team-bank": teamBank,
-      // Claude reads a trusted repository's own instructions itself, beside the appended text.
-      project: [],
+      project,
       session,
       persona,
       "always-on": [],

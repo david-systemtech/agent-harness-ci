@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustOfferMcpServer",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Its name among the mcpServers of the repository's .mcp.json."
+    },
+    "loaded": {
+      "type": "boolean",
+      "const": false,
+      "description": "Never loaded: a run's tool servers are the environment's alone (strictMcpConfig)."
+    }
+  },
+  "required": [
+    "name",
+    "loaded"
+  ],
+  "description": "One of the MCP servers the repository's .mcp.json declares, marked not loaded: trust never admits it."
+}

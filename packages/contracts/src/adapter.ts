@@ -101,7 +101,8 @@ const flag = (description: string) => z.boolean().meta({ description });
 /**
  * What an adapter can do, static for its life (claude-adapter spec, "The
  * adapter contract"; ADR 0022 for the queue): a flag per optional power, its
- * instruction channel and the modes it maps. A client degrades
+ * instruction channel, whether it loads a trusted repository's own
+ * instructions itself (#500), and the modes it maps. A client degrades
  * absent-with-reason on a flag that is false (ADR 0004).
  */
 export const AdapterCapabilities = z
@@ -133,12 +134,18 @@ export const AdapterCapabilities = z
       "The adapter enforces a run's containment level through its provider's sandbox (#133, #140); without it only off is available to the runs of its accounts.",
     ),
     instructionChannel: InstructionChannel,
+    nativeProjectInstructions: flag(
+      "The provider loads a trusted repository's own instruction files itself (Claude: CLAUDE.md through its project settings); without it the composer hands it the repository's AGENTS.md, else CLAUDE.md, in the project layer.",
+    ),
     modes: z.array(ModeAvailability).meta({
       description:
         "The modes the adapter maps onto its provider (ADR 0006), each available or not with the reason; a run asking for an unavailable or unlisted mode gets the next lower available one.",
     }),
   })
-  .meta({ description: "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel and its modes." });
+  .meta({
+    description:
+      "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel, whether it loads a trusted repository's own instructions itself, and its modes.",
+  });
 export type AdapterCapabilities = z.infer<typeof AdapterCapabilities>;
 
 /** A command line, as an argument vector: the executable's arguments, never a shell string. */

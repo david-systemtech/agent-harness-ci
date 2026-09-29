@@ -174,7 +174,7 @@ describe("a run's launch", () => {
 });
 
 describe("the instruction scope", () => {
-  it("carries the session, account and workspace, the trust key undecided, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names and the account's channel", async () => {
+  it("carries the session, account and workspace, the trust key undecided, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
     const orientation = testOrientation();
     const identity = "https://git.example/david/receipts";
     const t = await start(orientation, {}, { workspaceResolver: scriptedResolver(() => ({ workspace, repositoryIdentity: identity })) });
@@ -199,6 +199,7 @@ describe("the instruction scope", () => {
         bot: null,
         alwaysOn: [],
         channel: { kind: "system-prompt-append", maxCharacters: null },
+        nativeProjectInstructions: true,
       },
       expect.objectContaining({ sessionId: id, origin: "routine", bot: null }),
       expect.objectContaining({ sessionId: id, origin: "completions", bot: null }),

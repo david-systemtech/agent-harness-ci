@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustState",
+  "type": "string",
+  "enum": [
+    "trusted",
+    "declined",
+    "undecided"
+  ],
+  "description": "A trust key's standing: trusted, declined, or undecided (no decision recorded: its runs go untrusted and a client may ask)."
+}

@@ -44,7 +44,8 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * answer and the cached `keyManagers.move.list` show them. `settings.changed`
  * (#391) raises none: what changed shows where the settings are read, which
  * the request cache fetches again on it. `skills.updated` (#494) raises
- * none: it refreshes the cached `skills.get`.
+ * none: it refreshes the cached `skills.get`; nor does `trust.updated`
+ * (#500), which refreshes the cached `trust.get` and `trust.list`.
  */
 
 export interface EnvironmentNoticeContext {
@@ -193,6 +194,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // The skill set changed (#494): the request cache reads skills.get again, and the Skills pane shows it.
         case "skills.updated":
+          return;
+        // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
+        case "trust.updated":
           return;
       }
     },

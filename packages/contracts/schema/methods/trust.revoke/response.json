@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "trust.revoke response",
+  "type": "object",
+  "properties": {
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "accepted"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head once the command committed: its last event, or the head it saw when it appended none."
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "False for a command that was accepted and changed nothing, so appended no event."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head when the command was rejected."
+            },
+            "changed": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "A stable error code in snake case."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "data"
+              ],
+              "description": "The rejection as an error: its code (the reason), a message for people and structured data."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed",
+            "reason",
+            "error"
+          ]
+        }
+      ],
+      "description": "A command's receipt: accepted (with the head sequence after it and whether it changed anything) or rejected (with the reason and the error). A retry with the same commandId answers the same receipt."
+    },
+    "result": {
+      "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
+      "type": "object",
+      "properties": {
+        "record": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                  "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                  "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+                }
+              ],
+              "description": "A trust key: the repository identity a decision applies to, or the absolute path of a main checkout or a workspace for a repository with none. A key whose host later becomes a verified forge alias is read on the forge account's canonical host."
+            },
+            "keyKind": {
+              "type": "string",
+              "enum": [
+                "identity",
+                "checkout",
+                "directory"
+              ],
+              "description": "What a trust key is: identity (the session's repository identity), checkout (its repository's main checkout, with no identity) or directory (its workspace path, in no repository)."
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "trusted",
+                "declined"
+              ],
+              "description": "A trust decision: trusted (the repository's own instructions, settings, hooks and skills load into its runs) or declined (they never do, and it is not asked again)."
+            },
+            "decidedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When the decision was recorded."
+            },
+            "clientSessionId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The client session that decided."
+            },
+            "clientLabel": {
+              "type": "string",
+              "description": "The client session's label when it decided."
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The session it was asked in; null for a decision on a key named directly (the Skills step's list)."
+            }
+          },
+          "required": [
+            "key",
+            "keyKind",
+            "decision",
+            "decidedAt",
+            "clientSessionId",
+            "clientLabel",
+            "sessionId"
+          ],
+          "description": "The record that was withdrawn."
+        }
+      },
+      "required": [
+        "record"
+      ]
+    }
+  },
+  "required": [
+    "receipt"
+  ]
+}

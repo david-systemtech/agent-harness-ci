@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustDeclinedPayload",
+  "type": "object",
+  "properties": {
+    "key": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+        }
+      ],
+      "description": "A trust key: the repository identity a decision applies to, or the absolute path of a main checkout or a workspace for a repository with none. A key whose host later becomes a verified forge alias is read on the forge account's canonical host."
+    },
+    "keyKind": {
+      "type": "string",
+      "enum": [
+        "identity",
+        "checkout",
+        "directory"
+      ],
+      "description": "What a trust key is: identity (the session's repository identity), checkout (its repository's main checkout, with no identity) or directory (its workspace path, in no repository)."
+    },
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The client session that decided."
+    },
+    "clientLabel": {
+      "type": "string",
+      "description": "The client session's label when it decided."
+    },
+    "sessionId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The session it was asked in; null for a decision on a key named directly (the Skills step's list)."
+    }
+  },
+  "required": [
+    "key",
+    "keyKind",
+    "clientSessionId",
+    "clientLabel",
+    "sessionId"
+  ],
+  "description": "trust.granted or trust.declined: a decision on a key, with the record's fields; the decision is the event's type, and when it was made is the event's occurredAt."
+}

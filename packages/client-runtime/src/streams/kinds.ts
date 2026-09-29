@@ -356,6 +356,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // The skill set changing (#494) changes no status: the request cache reads skills.get again.
       case "skills.updated":
         return data;
+      // A trust decision recorded or revoked (#500) changes no status: the request cache reads trust.get and trust.list again.
+      case "trust.updated":
+        return data;
     }
   },
   encode: (data) => data,

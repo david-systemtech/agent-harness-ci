@@ -361,7 +361,11 @@ export interface RunInput {
   readonly instructions: string;
   readonly target: RunTarget;
   readonly toolServers: readonly ToolServer[];
-  /** Whether the repository passed the trust gate (ADR 0009); false until the skills workstream records it. */
+  /**
+   * Whether the repository passed the trust gate (ADR 0009): the trust
+   * store's decision on its key, read as the run launched (#500); false for
+   * an undecided or declined repository and a scratch workspace.
+   */
   readonly trusted: boolean;
   /** The run's containment (`run.policy.resolved`): the adapter maps it onto its provider's sandbox. */
   readonly containment: RunContainment;

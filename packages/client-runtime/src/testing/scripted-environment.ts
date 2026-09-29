@@ -473,6 +473,7 @@ const providerOf = (changes: Partial<AdapterCapabilities> = {}): AdapterCapabili
     modeChange: true,
     containment: false,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
+    nativeProjectInstructions: true,
     modes: MODES.map((mode) => ({ mode, available: true as const, reason: null })),
     ...changes,
   });

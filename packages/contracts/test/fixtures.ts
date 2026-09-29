@@ -26,6 +26,7 @@ import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup
 import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
+import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 import { workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
@@ -546,6 +547,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...updateMethodFixtures,
   ...routineMethodFixtures,
   ...skillMethodFixtures,
+  ...trustMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -767,8 +769,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "settings.changed",
       "setup.result-changed",
       "skills.updated",
+      "trust.updated",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -807,6 +810,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
+      { type: "trust.updated", payload: {} },
       toolsUpdatedNotice.valid,
       validEnvironmentStartedEvent,
     ],
@@ -942,6 +946,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...keyManagerSchemaFixtures,
   ...managedToolSchemaFixtures,
   ...skillSchemaFixtures,
+  ...trustSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,
   ...usageSchemaFixtures,

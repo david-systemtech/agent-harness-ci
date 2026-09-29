@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrustEventType",
+  "type": "string",
+  "enum": [
+    "trust.granted",
+    "trust.declined",
+    "trust.revoked"
+  ],
+  "description": "The event types of the trust stream: trust.granted, trust.declined and trust.revoked."
+}

@@ -131,6 +131,10 @@
             ],
             "description": "An adapter's instruction channel: its kind and its character cap."
           },
+          "nativeProjectInstructions": {
+            "type": "boolean",
+            "description": "The provider loads a trusted repository's own instruction files itself (Claude: CLAUDE.md through its project settings); without it the composer hands it the repository's AGENTS.md, else CLAUDE.md, in the project layer."
+          },
           "modes": {
             "type": "array",
             "items": {
@@ -222,9 +226,10 @@
           "modeChange",
           "containment",
           "instructionChannel",
+          "nativeProjectInstructions",
           "modes"
         ],
-        "description": "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel and its modes."
+        "description": "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel, whether it loads a trusted repository's own instructions itself, and its modes."
       },
       "description": "One descriptor per adapter the environment holds, by provider."
     }

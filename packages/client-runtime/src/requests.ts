@@ -158,6 +158,9 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
 /** Every key-manager event: a connection's (`key-manager.connection.*`) and Move's. */
 const KEY_MANAGER_EVENTS: readonly string[] = [...Object.keys(KEY_MANAGER_EVENT_PAYLOADS), ...Object.keys(KEY_MANAGER_MOVE_EVENT_PAYLOADS)];
 
+/** What changes a trust key's decision, or the key itself: a decision recorded or revoked, and a forge account's aliases, whose canonical host a key is read on. */
+const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.account.added", "forge.account.updated", "forge.account.verified", "forge.account.removed"];
+
 /**
  * The notices after which one query's cached answer is fetched again: its
  * matching notices (#142). An account changing (`account.updated`: its
@@ -177,7 +180,10 @@ const KEY_MANAGER_EVENTS: readonly string[] = [...Object.keys(KEY_MANAGER_EVENT_
  * for the permission keys and the containment the status line shows,
  * `permissions.settings.get`; and the skill set changing
  * (`skills.updated`, a command or a read of the own directory, #494)
- * `skills.get`; every key-manager event, a connection's and Move's, the
+ * `skills.get`; a trust decision recorded or revoked (`trust.updated`,
+ * #500) `trust.get` and `trust.list`, as does a forge account added,
+ * updated, verified or removed, since a key is read on the canonical host
+ * of a verified alias; every key-manager event, a connection's and Move's, the
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; and a probe changing managed-tool
@@ -195,6 +201,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated"],
+  "trust.get": TRUST_REFRESH_NOTICES,
+  "trust.list": TRUST_REFRESH_NOTICES,
   "keyManagers.list": KEY_MANAGER_EVENTS,
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],

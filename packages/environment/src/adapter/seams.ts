@@ -10,9 +10,11 @@ import {
   type ModeAvailability,
   type PromptKind,
   type RunActorKind,
+  type TrustState,
   type Workspace,
 } from "@agent-harness/contracts";
 import { UNPROBED_REPORT } from "../permissions/containment.js";
+import { repositoryKey, type RepositoryKey, type RepositoryPlace } from "../workspace/repository-key.js";
 import type { InjectionDecision } from "./process-environment.js";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
 import type { GateDecision, GatedToolCall, PromptDecision, PromptDetail, RunContainment, ToolServer } from "./contract.js";
@@ -58,42 +60,28 @@ export type ToolServerFactory = (scope: ToolServerScope) => readonly ToolServer[
 export const noToolServers: ToolServerFactory = () => [];
 
 /**
- * A repository's trust key (skills spec, "The trust gate"): the session's
- * repository identity, else its repository's main checkout path, else its
- * workspace path; a scratch workspace has none.
+ * A repository's trust key (skills spec, "The trust gate"): its repository
+ * key (`workspace/repository-key.ts`), the session's repository identity,
+ * else its repository's main checkout, else its workspace path, on the
+ * canonical host of a verified forge alias; a scratch workspace has none.
  */
-export interface TrustKey {
-  readonly kind: "identity" | "checkout" | "directory";
-  readonly value: string;
-}
+export type TrustKey = RepositoryKey;
 
-/** Whether a repository is trusted on this environment: undecided until the trust gate records a decision. */
-export type TrustDecision = "trusted" | "declined" | "undecided";
-
-/** A run's trust as its instructions are composed under it: the key, null for a scratch workspace, and the decision. */
+/** A run's trust as it is launched and its instructions composed under it: the key, null for a scratch workspace, and the decision recorded for it. */
 export interface RunTrust {
   readonly key: TrustKey | null;
-  readonly decision: TrustDecision;
+  readonly decision: TrustState;
 }
 
 /**
- * The trust a run is composed under until the trust gate (#500) records
- * decisions and reads a directory's main checkout: the key from what the
- * session records (its repository identity, else a worktree's main
- * checkout, else the workspace path; none for a scratch workspace), and no
- * decision.
+ * The trust a run in a place goes under, read once as it launches (#500):
+ * the trust store's key and the decision recorded for it, which the run's
+ * `trusted` and its instruction scope both take. The environment's is the
+ * trust store (`trust/store.ts`); preset: the key, and no decision.
  */
-export const undecidedTrust = (workspace: Workspace, repositoryIdentity: string | null): RunTrust => ({
-  key:
-    workspace.kind === "scratch"
-      ? null
-      : repositoryIdentity !== null
-        ? { kind: "identity", value: repositoryIdentity }
-        : workspace.kind === "worktree"
-          ? { kind: "checkout", value: workspace.repository }
-          : { kind: "directory", value: workspace.path },
-  decision: "undecided",
-});
+export type TrustSeam = (place: RepositoryPlace) => RunTrust;
+
+export const undecidedTrust: TrustSeam = (place) => ({ key: repositoryKey(place), decision: "undecided" });
 
 /**
  * What a run's standing instructions are composed for (skills spec, "The
@@ -102,7 +90,8 @@ export const undecidedTrust = (workspace: Workspace, repositoryIdentity: string 
  * its effective containment level and its injection answer with the level
  * that decided it (#380), the bot it is for, the always-on names it asks for
  * beside its account's, and the instruction channel of its account's
- * adapter.
+ * adapter with whether that adapter loads a trusted repository's own
+ * instructions itself (#500).
  */
 export interface InstructionScope {
   readonly sessionId: string | null;
@@ -120,6 +109,8 @@ export interface InstructionScope {
   /** The run's extra always-on names, after its account's: empty until the always-on layer is built (#507). */
   readonly alwaysOn: readonly string[];
   readonly channel: InstructionChannel;
+  /** Whether the account's adapter loads a trusted repository's own instruction files itself; without it the project layer hands them over. */
+  readonly nativeProjectInstructions: boolean;
 }
 
 /** One part of a composed text: its layer, what it is (an id and its version), its title, and its text. */

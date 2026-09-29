@@ -64,6 +64,7 @@ export const capabilities = {
   modeChange: true,
   containment: false,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
+  nativeProjectInstructions: true,
   modes: [
     { mode: "plan", available: true, reason: null },
     { mode: "acceptEdits", available: true, reason: null },
@@ -322,6 +323,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
       { ...capabilities, steering: "yes" },
       { ...capabilities, provider: "Fake" },
       { ...capabilities, instructionChannel: undefined },
+      { ...capabilities, nativeProjectInstructions: undefined },
       { ...capabilities, modes: ["plan"] },
       { ...capabilities, modes: [{ mode: "auto", available: false, reason: null }] },
       { ...capabilities, modes: [{ mode: "default", available: true, reason: null }] },
