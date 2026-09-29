@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, DISCOVERY_PATH } from "@agent-harness/contracts";
-import { LAUNCHER_PROTOCOL } from "@agent-harness/contracts/launcher";
+import { LAUNCHER_PROTOCOL, type InstallAnswer } from "@agent-harness/contracts/launcher";
 import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -10,18 +10,24 @@ import {
   databaseFilesIn,
   fakeTimer,
   installVersion,
+  layOutVersion,
+  preflightRuns,
   readDatabase,
   scriptChild,
+  stagedFolder,
+  stageVersion,
   until,
   writeDatabase,
   type ChildEvent,
   type ChildStart,
   type FakeTimer,
   type ScriptedStart,
+  type VersionLayout,
 } from "../../test/launcher-fixtures.js";
 import { LAUNCHER_VERSION, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
 import { hasSnapshot, RESTORE_MARKER_FILE, snapshotDirectory, takeSnapshot } from "./snapshot.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
+import { completeVersions } from "./versions.js";
 
 /**
  * The launcher (launcher-update spec, "Versions and the launcher"; #337)
@@ -748,6 +754,199 @@ describe.runIf(posix)("a launcher started in the middle of an update", () => {
     expect(old).toMatchObject({ version: "0.4.0" });
     expect(databaseFilesIn(dataDir)).toEqual(before);
     expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "trial", reason: "interrupted" });
+  });
+});
+
+/** Whether no process is `pid` any more. */
+const gone = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+/** Every file and folder under `dir`, by its path relative to it, sorted; none when it is not there. */
+const treeOf = (dir: string): string[] => (existsSync(dir) ? (readdirSync(dir, { recursive: true }) as string[]).sort() : []);
+
+/**
+ * A data directory running 0.5.0 whose environment, once committed, asks
+ * `install?` for 0.6.0 staged in the staging area as `layout` says (or asks
+ * `ask` in its place), and the folder it staged.
+ */
+const beforeAnInstall = (layout: VersionLayout = {}, ask?: { version: string; staged: string }): { dataDir: string; staged: string } => {
+  const dataDir = dataDirectory();
+  installVersion(dataDir, "0.5.0");
+  writeServiceState(dataDir, state("0.5.0"));
+  const staged = stageVersion(dataDir, "0.6.0", layout);
+  scriptChild(dataDir, [{ install: ask ?? { version: "0.6.0", staged } }]);
+  return { dataDir, staged };
+};
+
+/** The answer the environment heard to its `install?`, and what it found as it heard it. */
+const installAnswer = async (running: Running): Promise<{ answer: InstallAnswer & { id: number }; complete: boolean; staged: boolean }> => {
+  const [answered] = await running.events("install-answered");
+  return answered as unknown as { answer: InstallAnswer & { id: number }; complete: boolean; staged: boolean };
+};
+
+describe.runIf(posix)("the launcher installing a staged version", () => {
+  it("runs the staged version's preflight on its own Node, renames it into the versions directory, its sentinel last, and only then answers installed", async () => {
+    const { dataDir, staged } = beforeAnInstall();
+    const stagedFiles = treeOf(staged);
+    const running = launch({ dataDir });
+    const heard = await installAnswer(running);
+    // By the time the environment hears installed, the version is complete in the versions directory and gone from the staging area.
+    expect(heard).toEqual({ ...heard, answer: { type: "installed", id: 3 }, complete: true, staged: false });
+    expect(preflightRuns(dataDir)).toEqual([{ version: "0.6.0", args: ["preflight"], pid: expect.any(Number) as unknown as number }]);
+    expect(treeOf(join(dataDir, "versions", "0.6.0"))).toEqual([...stagedFiles, ".complete"].sort());
+    expect(existsSync(staged)).toBe(false);
+    const report = `{"version":"0.6.0","protocolVersion":1,"launcherProtocol":${LAUNCHER_PROTOCOL},"databaseSchemaVersion":6,"bundledClaudeCodeVersion":"2.1.283"}`;
+    expect(running.log().filter((line) => /preflight|install/.test(line))).toEqual([
+      "launcher: running the preflight of 0.6.0",
+      `launcher: preflight of 0.6.0: ${report}`,
+      `launcher: installed 0.6.0 into ${join(dataDir, "versions")}: its preflight passed`,
+    ]);
+    // The preflight's 30 seconds went with its end.
+    expect(running.timer.pending()).toEqual([]);
+  });
+
+  it("answers installed without a second copy or a preflight for a version already complete in the versions directory, and clears the staged copy", async () => {
+    const { dataDir, staged } = beforeAnInstall();
+    installVersion(dataDir, "0.6.0");
+    writeFileSync(join(dataDir, "versions", "0.6.0", "installed-before"), "");
+    const before = treeOf(join(dataDir, "versions"));
+    const running = launch({ dataDir });
+    expect((await installAnswer(running)).answer).toEqual({ type: "installed", id: 3 });
+    expect(treeOf(join(dataDir, "versions"))).toEqual(before);
+    expect(preflightRuns(dataDir)).toEqual([]);
+    expect(existsSync(staged)).toBe(false);
+    expect(running.log()).toContain(`launcher: 0.6.0 is installed already, so ${staged} is not installed again`);
+  });
+
+  it("gives the preflight 30 seconds, then ends it and refuses preflight, with its output in the log and the versions directory as it was", async () => {
+    const { dataDir, staged } = beforeAnInstall({ preflight: { behaviour: "hang" } });
+    const before = treeOf(join(dataDir, "versions"));
+    const running = launch({ dataDir });
+    // Its output goes to the log as it comes, so what it was loading is there before it is ended.
+    await until("the preflight's output is logged", () => running.log().includes("launcher: preflight of 0.6.0: loading SQLite"));
+    expect(running.timer.pending()).toEqual([30_000]);
+    running.timer.runNext();
+    const heard = await installAnswer(running);
+    expect(heard.answer).toEqual({ type: "refused", id: 3, reason: "preflight" });
+    expect(heard.staged).toBe(true);
+    expect(treeOf(join(dataDir, "versions"))).toEqual(before);
+    expect(running.log()).toContain(`launcher: refuses install? of 0.6.0 from ${staged}: preflight, as its preflight did not finish within 30 s, so it was ended`);
+    const pid = preflightRuns(dataDir)[0]?.pid ?? 0;
+    await until("the preflight is gone", () => gone(pid));
+  });
+
+  it("refuses preflight when the preflight fails, with everything it printed in the log and the versions directory as it was", async () => {
+    const { dataDir, staged } = beforeAnInstall({ preflight: { behaviour: "fail" } });
+    const before = treeOf(join(dataDir, "versions"));
+    const running = launch({ dataDir });
+    expect((await installAnswer(running)).answer).toEqual({ type: "refused", id: 3, reason: "preflight" });
+    expect(treeOf(join(dataDir, "versions"))).toEqual(before);
+    const lines = running.log().filter((line) => /preflight|install/.test(line));
+    expect(lines[0]).toBe("launcher: running the preflight of 0.6.0");
+    // Its standard output and error are two streams, heard in whichever order they arrive, and all of it before the refusal.
+    expect(lines.slice(1, -1).sort()).toEqual([
+      "launcher: preflight of 0.6.0: agent-harness preflight failed: node-pty: node-pty did not load (invalid ELF header).",
+      "launcher: preflight of 0.6.0: loading SQLite, node-pty and the bundled Claude binary",
+    ]);
+    expect(lines.at(-1)).toBe(`launcher: refuses install? of 0.6.0 from ${staged}: preflight, as its preflight exited with code 1`);
+  });
+
+  it("refuses preflight when the preflight passes but reports another version", async () => {
+    const { dataDir, staged } = beforeAnInstall({ preflight: { reports: { version: "0.6.1" } } });
+    const running = launch({ dataDir });
+    expect((await installAnswer(running)).answer).toEqual({ type: "refused", id: 3, reason: "preflight" });
+    expect(running.log()).toContain(`launcher: refuses install? of 0.6.0 from ${staged}: preflight, as its preflight reported 0.6.1`);
+    expect(existsSync(join(dataDir, "versions", "0.6.0"))).toBe(false);
+  });
+
+  it("refuses launcher-protocol before the preflight runs when the version needs a higher launcher protocol than this launcher speaks", async () => {
+    const { dataDir, staged } = beforeAnInstall({ launcherProtocol: LAUNCHER_PROTOCOL + 1 });
+    const before = treeOf(join(dataDir, "versions"));
+    const running = launch({ dataDir });
+    expect((await installAnswer(running)).answer).toEqual({ type: "refused", id: 3, reason: "launcher-protocol" });
+    expect(preflightRuns(dataDir)).toEqual([]);
+    expect(treeOf(join(dataDir, "versions"))).toEqual(before);
+    expect(running.log()).toContain(
+      `launcher: refuses install? of 0.6.0 from ${staged}: launcher-protocol, as 0.6.0 needs launcher protocol ${LAUNCHER_PROTOCOL + 1} and this launcher speaks ${LAUNCHER_PROTOCOL}`,
+    );
+  });
+
+  it("refuses incomplete before the preflight runs when the staging folder lacks the version's Node, leaving the versions directory as it was", async () => {
+    const { dataDir, staged } = beforeAnInstall();
+    rmSync(join(staged, "node"), { recursive: true });
+    const before = treeOf(join(dataDir, "versions"));
+    const running = launch({ dataDir });
+    expect((await installAnswer(running)).answer).toEqual({ type: "refused", id: 3, reason: "incomplete" });
+    expect(preflightRuns(dataDir)).toEqual([]);
+    expect(treeOf(join(dataDir, "versions"))).toEqual(before);
+    expect(running.log()).toContain(`launcher: refuses install? of 0.6.0 from ${staged}: incomplete, as ${staged} has no Node runtime at ${join(staged, "node", "bin", "node")}`);
+  });
+
+  it("refuses disk before the preflight runs with less free than the 256 MiB a version needs to run, and io when the free space cannot be read", async () => {
+    const full = beforeAnInstall();
+    const refused = launch({ dataDir: full.dataDir, freeBytes: () => 256 * 1024 * 1024 - 1 });
+    expect((await installAnswer(refused)).answer).toEqual({ type: "refused", id: 3, reason: "disk" });
+    expect(refused.log()).toContain(`launcher: refuses install? of 0.6.0 from ${full.staged}: disk, as ${256 * 1024 * 1024 - 1} bytes are free and a version needs ${256 * 1024 * 1024} to run`);
+    expect(preflightRuns(full.dataDir)).toEqual([]);
+
+    const unread = beforeAnInstall();
+    const failed = launch({
+      dataDir: unread.dataDir,
+      freeBytes: () => {
+        throw new Error("statfs failed");
+      },
+    });
+    expect((await installAnswer(failed)).answer).toEqual({ type: "refused", id: 3, reason: "io" });
+    expect(failed.log()).toContain(`launcher: refuses install? of 0.6.0 from ${unread.staged}: io, as statfs failed`);
+
+    const room = beforeAnInstall();
+    const installed = launch({ dataDir: room.dataDir, freeBytes: () => 256 * 1024 * 1024 });
+    expect((await installAnswer(installed)).answer).toEqual({ type: "installed", id: 3 });
+  });
+
+  it("ends a preflight under way when the service manager stops it, and installs nothing", async () => {
+    const { dataDir } = beforeAnInstall({ preflight: { behaviour: "hang" } });
+    const running = launch({ dataDir });
+    await until("the preflight runs", () => preflightRuns(dataDir).length === 1);
+    await running.launcher.stop();
+    const pid = preflightRuns(dataDir)[0]?.pid ?? 0;
+    await until("the preflight is gone", () => gone(pid));
+    expect(existsSync(join(dataDir, "versions", "0.6.0"))).toBe(false);
+    expect(running.report().some((line) => line.event === "install-answered")).toBe(false);
+  });
+});
+
+/**
+ * How long the real preflight may take here: it runs through tsx, which loads
+ * and transforms the whole environment package first, 20 s and more on a
+ * loaded runner (#634). Its 30 seconds are on the test's timer, which never runs.
+ */
+const REAL_PREFLIGHT_MS = 120_000;
+
+// preflight, unlike serve, runs as any user, so this runs as root too.
+describe.runIf(posix)("the launcher over the real preflight", { timeout: REAL_PREFLIGHT_MS }, () => {
+  it("installs a staged version of this build, whose own preflight loads SQLite, node-pty and the bundled Claude binary", async () => {
+    const dataDir = dataDirectory();
+    installVersion(dataDir, "0.5.0");
+    writeServiceState(dataDir, state("0.5.0"));
+    const staged = stagedFolder(dataDir, HARNESS_VERSION);
+    layOutVersion(staged, HARNESS_VERSION, new URL("../main.ts", import.meta.url).pathname);
+    scriptChild(dataDir, [{ install: { version: HARNESS_VERSION, staged } }]);
+    const running = launch({ dataDir });
+    await until("the install is answered", () => running.report().some((line) => line.event === "install-answered"), REAL_PREFLIGHT_MS);
+    expect((await installAnswer(running)).answer).toEqual({ type: "installed", id: 3 });
+    expect(completeVersions(dataDir)).toContain(HARNESS_VERSION);
+    const printed = running.log().find((line) => line.startsWith(`launcher: preflight of ${HARNESS_VERSION}: {`));
+    expect(JSON.parse(printed?.slice(`launcher: preflight of ${HARNESS_VERSION}: `.length) ?? "null")).toMatchObject({
+      version: HARNESS_VERSION,
+      launcherProtocol: LAUNCHER_PROTOCOL,
+    });
   });
 });
 
