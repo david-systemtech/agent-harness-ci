@@ -161,6 +161,62 @@ describe("a login the environment made", () => {
   });
 });
 
+describe("a re-login that fails", () => {
+  /** How the fake OpenBao refuses the re-login, and the status each refusal gives, told apart as a verification's are. */
+  const refusals: [string, (bao: FakeOpenBao) => void, (bao: FakeOpenBao) => { readonly kind: string; readonly message: unknown }][] = [
+    [
+      "a credential refused",
+      (bao) => bao.approle(ROLE_ID, SECRET_ID, { status: 400, error: "invalid role or secret ID" }),
+      (bao) => ({ kind: "credential-rejected", message: `OpenBao at ${bao.address} refused the credential (HTTP 400: invalid role or secret ID). Sign in again in Set up, Key manager.` }),
+    ],
+    ["a sealed OpenBao", (bao) => bao.seal(), (bao) => ({ kind: "sealed", message: `OpenBao at ${bao.address} is sealed: unseal it to sign in.` })],
+    [
+      "a server error",
+      (bao) => bao.answer("POST auth/approle/login", { status: 500, error: "internal error" }),
+      (bao) => ({ kind: "unreachable", message: `OpenBao at ${bao.address} could not answer (HTTP 500: internal error).` }),
+    ],
+    [
+      "a request to slow down",
+      (bao) => bao.answer("POST auth/approle/login", { status: 429, error: "rate limit quota exceeded" }),
+      (bao) => ({ kind: "unreachable", message: `OpenBao at ${bao.address} asked the harness to slow down (HTTP 429: rate limit quota exceeded).` }),
+    ],
+    [
+      "a certificate that no longer verifies",
+      (bao) => bao.present("other-ca"),
+      // Node's name for the failure follows the chain it was shown.
+      () => ({ kind: "certificate-rejected", message: expect.stringMatching(/^The certificate of https:\/\/127\.0\.0\.1:\d+ does not verify against the pinned CA \([A-Z_]+\)\.$/) }),
+    ],
+  ];
+
+  for (const [what, refuse, status] of refusals) {
+    it(`sets the connection's status from its category: ${what}`, async () => {
+      // An hour at most, which its lookup names: due at forty minutes, with nothing to renew.
+      const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, explicitMaxTtlSeconds: 3600 });
+      const connection = await connected(client, bao);
+      refuse(bao);
+
+      t.clock.advance(40 * MINUTE);
+
+      await eventually(async () => expect((await list(client)).find((each) => each.id === connection.id)?.status).toEqual({ ...status(bao), since: after(40 * MINUTE) }));
+      expect(bao.minted).toHaveLength(1);
+    });
+  }
+
+  it("is tried again at the next verification, which signs in once OpenBao answers", async () => {
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, explicitMaxTtlSeconds: 3600 });
+    const connection = await connected(client, bao);
+    bao.answer("POST auth/approle/login", { status: 500, error: "internal error" });
+    t.clock.advance(40 * MINUTE);
+    await eventually(async () => expect((await list(client))[0]?.status.kind).toBe("unreachable"));
+
+    bao.answer("POST auth/approle/login", null);
+    const [again] = await verify(client, connection.id);
+
+    expect(again).toMatchObject({ status: { kind: "signed-in" }, tokenInformation: { expiresAt: after(100 * MINUTE) } });
+    expect(bao.minted).toHaveLength(2);
+  });
+});
+
 describe("after a re-login", () => {
   /**
    * Two sessions whose processes were given run tokens five minutes in, from
