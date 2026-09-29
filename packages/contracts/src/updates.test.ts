@@ -172,8 +172,22 @@ describe("the updates methods' params and answers", () => {
     expect(result.safeParse({ updateId: "u-1", toVersion: "0.5.0" }).success).toBe(false);
   });
 
-  it("refuse an update or a pin in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, a forge not answering, a manifest not its schema, an artefact that did not download or match, refused by the launcher's install, or with no launcher to switch", () => {
-    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "artefact", "install", "no_launcher"]);
+  it("refuse an update or a pin in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, a forge not answering, a manifest not its schema, an artefact that did not download or match, refused by the launcher's install, or with no launcher to switch; and updates.begin not managed outside or not ready (#348)", () => {
+    expect(UPDATE_CONFLICT_REASONS).toEqual([
+      "pinned",
+      "current",
+      "schema",
+      "launcher",
+      "in_progress",
+      "no_release_access",
+      "unreachable",
+      "manifest",
+      "artefact",
+      "install",
+      "no_launcher",
+      "not_outside",
+      "not_ready",
+    ]);
   });
 
   it("cancel with a commandId alone, answered with the withdrawn update", () => {

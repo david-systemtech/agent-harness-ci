@@ -232,7 +232,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  */
 export const OWED_HANDLERS = {
   // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
-  "updates.begin": "#348",
   "updates.desktop.stage": "#354",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
