@@ -19,6 +19,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { NO_INTERFACES, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { REPLAY_BOUND, type EventInput, type JsonObject, type StreamRef } from "../event-log/event-log.js";
+import { presetColour } from "../look/look.js";
 import { NO_LAUNCHER } from "../serve/launcher.js";
 import { HARNESS_VERSION, startEnvironment } from "../serve/start.js";
 import type { Outlet, SubscriptionHooks } from "./subscriptions.js";
@@ -691,8 +692,8 @@ describe("environment.subscribe", () => {
     expect(EnvironmentNotice.parse(live.event).type).toBe("environment.draining");
   });
 
-  it("snapshots the environment's status, and Set up's cached results, every registered step's once the start pass has run, when its notices after the cursor are out of bounds", async () => {
-    const t = await start();
+  it("snapshots the environment's status and look, and Set up's cached results, every registered step's once the start pass has run, when its notices after the cursor are out of bounds", async () => {
+    const t = await start({ name: "desk", platform: "linux" });
     await t.env.setup.startPass;
     const notices: EventInput[] = Array.from({ length: REPLAY_BOUND.events }, () => ({
       type: "environment.started",
@@ -706,7 +707,10 @@ describe("environment.subscribe", () => {
       type: "snapshot",
       subscription,
       sequence: events.at(-1)?.sequence,
-      payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } },
+      payload: {
+        status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
+        environment: { name: "desk", icon: "server", colour: presetColour(t.env.id) },
+      },
     });
     const { setup } = registry["environment.subscribe"].result.parse(snapshot.payload);
     expect(setup?.map((result) => result.step)).toEqual(["account", "your-machines", "forges", "browser", "permissions", "appearance"]);

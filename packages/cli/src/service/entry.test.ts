@@ -80,7 +80,7 @@ describe("the launcher entry", () => {
     expect(check).toBeLessThan(lines.findIndex((line) => line.includes("for /f")));
   });
 
-  it("passes no --name when it was given none, so an existing environment keeps its own and a new one takes the hostname", () => {
+  it("passes no --name when it was given none, so an existing environment keeps its own and a new one takes the hostname's first label", () => {
     for (const kind of ["sh", "cmd"] as const) {
       const entry = renderLauncherEntry(kind, { dataDir: "/data", port: 7500 });
       expect(entry, kind).toContain("launch --data-dir ");

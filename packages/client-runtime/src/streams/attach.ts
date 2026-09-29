@@ -108,6 +108,8 @@ export interface AttachOptions {
    * once the stream's state is set and before `changed` publishes it.
    */
   readonly applied?: (stream: LiveStream<unknown>, event: EventEnvelope, news: boolean) => void;
+  /** A snapshot replaced the stream's state: heard once it is set and before `changed` publishes it. */
+  readonly snapshotted?: (stream: LiveStream<unknown>) => void;
   /** The stream committed a new state. */
   readonly changed?: (stream: LiveStream<unknown>) => void;
   /** The subscription ended with a reason no rule here handles: `deleted`. */
@@ -196,8 +198,9 @@ export const createAttacher = (options: AttachOptions): Attacher => {
     if (stream.attachment !== token) return;
     switch (message.type) {
       case "snapshot": {
-        const next = input(stream, { type: "snapshot", sequence: message.sequence, payload: message.payload });
+        const next = step(stream.kind, stream.value.read(), { type: "snapshot", sequence: message.sequence, payload: message.payload });
         if (next.failed) return failed(stream, next.failed);
+        commit(stream, next, () => options.snapshotted?.(stream));
         stream.trimming = false;
         return;
       }

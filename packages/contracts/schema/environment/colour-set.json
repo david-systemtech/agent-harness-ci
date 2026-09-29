@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentColourSetPayload",
+  "type": "object",
+  "properties": {
+    "colour": {
+      "type": "string",
+      "enum": [
+        "red",
+        "orange",
+        "amber",
+        "yellow",
+        "lime",
+        "green",
+        "teal",
+        "cyan",
+        "blue",
+        "indigo",
+        "violet",
+        "pink"
+      ],
+      "description": "An environment's colour, by name: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet or pink. Never a literal: each client draws it with the theme's token for the name."
+    }
+  },
+  "required": [
+    "colour"
+  ],
+  "description": "The environment's new colour."
+}

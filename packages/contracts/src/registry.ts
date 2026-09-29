@@ -10,6 +10,9 @@ import {
 import {
   environmentDrain,
   environmentRebuildProjections,
+  environmentRename,
+  environmentSetColour,
+  environmentSetIcon,
   environmentStatus,
   environmentSubscribe,
 } from "./methods/environment.js";
@@ -167,6 +170,9 @@ export const methods = [
   environmentSubscribe,
   environmentDrain,
   environmentRebuildProjections,
+  environmentRename,
+  environmentSetIcon,
+  environmentSetColour,
   accessPairingsCreate,
   accessSessionsList,
   accessSessionsRevoke,

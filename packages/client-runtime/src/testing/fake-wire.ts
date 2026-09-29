@@ -10,6 +10,8 @@ import {
   type CapabilityFlags,
   type ClientSessionCredential,
   type DiscoveryDocument,
+  type EnvironmentColour,
+  type EnvironmentIcon,
   type EnvironmentStatus,
   type Frame,
   type HelloFrame,
@@ -46,6 +48,10 @@ export interface FakeWireOptions {
   readonly environmentId?: string;
   /** Preset `fake`. */
   readonly name?: string;
+  /** The icon discovery and `hello` say; preset none, as an environment from before icons says (#323). */
+  readonly icon?: EnvironmentIcon;
+  /** The colour discovery and `hello` say; preset none, as an environment from before colours says (#323). */
+  readonly colour?: EnvironmentColour;
   /** Preset: this build's `PROTOCOL_VERSION`. */
   readonly protocolVersion?: number;
   readonly capabilities?: CapabilityFlags;
@@ -61,7 +67,7 @@ export interface FakeServer {
   request(method: string): Promise<RequestFrame>;
   /** `expect("auth")`, then `hello(overrides)`: the environment accepts the socket. Resolves with the `auth` frame. */
   accept(overrides?: Partial<HelloFrame>): Promise<AuthFrame>;
-  /** Says `hello`: the environment's id, name, protocol and flags as discovery gives them (a staged discovery override included), and the client session last issued. */
+  /** Says `hello`: the environment's id, name, icon, colour, protocol and flags as discovery gives them (a staged discovery override included), and the client session last issued. */
   hello(overrides?: Partial<HelloFrame>): void;
   send(frame: Frame): void;
   ping(): void;
@@ -151,6 +157,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const document = (): DiscoveryDocument => ({
     environmentId,
     environmentName: name,
+    ...(options.icon !== undefined && { environmentIcon: options.icon }),
+    ...(options.colour !== undefined && { environmentColour: options.colour }),
     harnessVersion: FAKE_HARNESS_VERSION,
     protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
     capabilities: [...(options.capabilities ?? [])],
@@ -288,6 +296,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
         capabilities: discovery.capabilities,
         environmentId: discovery.environmentId,
         environmentName: discovery.environmentName,
+        ...(discovery.environmentIcon !== undefined && { environmentIcon: discovery.environmentIcon }),
+        ...(discovery.environmentColour !== undefined && { environmentColour: discovery.environmentColour }),
         clientSessionId: issued?.clientSessionId ?? "fake-client-session",
         scopes: issued?.scopes ?? [...SCOPES],
         ceiling: issued?.ceiling ?? Ceiling.parse("bypassPermissions"),

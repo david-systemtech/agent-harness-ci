@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "environment.setIcon params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "icon": {
+      "type": "string",
+      "enum": [
+        "laptop",
+        "desktop",
+        "server",
+        "nas",
+        "cloud",
+        "container",
+        "board",
+        "home",
+        "office",
+        "lab"
+      ],
+      "description": "An environment's icon, by name, one of the ten the enum lists (ADR 0025's fixed set): each client draws the name its own way, and the terminal UI draws none."
+    }
+  },
+  "required": [
+    "commandId",
+    "icon"
+  ]
+}

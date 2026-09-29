@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "environment.setIcon result",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The environment's name."
+    },
+    "icon": {
+      "type": "string",
+      "enum": [
+        "laptop",
+        "desktop",
+        "server",
+        "nas",
+        "cloud",
+        "container",
+        "board",
+        "home",
+        "office",
+        "lab"
+      ],
+      "description": "An environment's icon, by name, one of the ten the enum lists (ADR 0025's fixed set): each client draws the name its own way, and the terminal UI draws none."
+    },
+    "colour": {
+      "type": "string",
+      "enum": [
+        "red",
+        "orange",
+        "amber",
+        "yellow",
+        "lime",
+        "green",
+        "teal",
+        "cyan",
+        "blue",
+        "indigo",
+        "violet",
+        "pink"
+      ],
+      "description": "An environment's colour, by name: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet or pink. Never a literal: each client draws it with the theme's token for the name."
+    }
+  },
+  "required": [
+    "name",
+    "icon",
+    "colour"
+  ],
+  "description": "An environment's name, icon and colour, as it holds them now: what every client draws its badge from."
+}

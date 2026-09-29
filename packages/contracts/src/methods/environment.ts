@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { EnvironmentColour } from "../environment-colours.js";
+import { EnvironmentIcon, EnvironmentLook, EnvironmentName } from "../environment-look.js";
 import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
@@ -17,9 +19,10 @@ export const environmentStatus = defineMethod({
 /**
  * The environment's notices (`EnvironmentNotice`, the `environment` stream).
  * Its snapshot, sent when replay from the cursor is out of bounds, is the
- * status and every Set up step's cached result (#569: ADR 0031's `setup`
- * subscription, whose changes are the `setup.result-changed` notices), which
- * an environment without the `setup` flag leaves out.
+ * status, the environment's name, icon and colour (#323), and every Set up
+ * step's cached result (#569: ADR 0031's `setup` subscription, whose changes
+ * are the `setup.result-changed` notices); an environment from before the
+ * look leaves the look out, and one without the `setup` flag the results.
  */
 export const environmentSubscribe = defineMethod({
   name: "environment.subscribe",
@@ -27,6 +30,9 @@ export const environmentSubscribe = defineMethod({
   params: subscriptionParams({}),
   result: z.object({
     status: EnvironmentStatus,
+    environment: EnvironmentLook.optional().meta({
+      description: "The environment's name, icon and colour as of the snapshot; absent from an environment that predates them.",
+    }),
     setup: z.array(StepResult).optional().meta({
       description:
         "Every registered Set up step's latest result, as the environment's result cache holds it, in the step registry's order, each with when it was checked; a step never checked is absent. Absent from an environment without the setup flag.",
@@ -56,6 +62,40 @@ export const environmentRebuildProjections = defineMethod({
   scope: "admin",
   params: commandParams({}),
   result: z.object({ projectors: z.array(z.string().min(1)), sequence: Sequence }),
+  errors: [],
+  kind: "command",
+});
+
+/**
+ * The three commands that set what every client draws an environment's
+ * badge from (workspace-picker spec, "Name, icon and colour"), one per field
+ * as for sessions (ADR 0003), each appending its notice on the environment
+ * stream and answering the look as it now is. A value already held appends
+ * nothing: accepted, `changed: false`.
+ */
+export const environmentRename = defineMethod({
+  name: "environment.rename",
+  scope: "admin",
+  params: commandParams({ name: EnvironmentName }),
+  result: EnvironmentLook,
+  errors: [],
+  kind: "command",
+});
+
+export const environmentSetIcon = defineMethod({
+  name: "environment.setIcon",
+  scope: "admin",
+  params: commandParams({ icon: EnvironmentIcon }),
+  result: EnvironmentLook,
+  errors: [],
+  kind: "command",
+});
+
+export const environmentSetColour = defineMethod({
+  name: "environment.setColour",
+  scope: "admin",
+  params: commandParams({ colour: EnvironmentColour }),
+  result: EnvironmentLook,
   errors: [],
   kind: "command",
 });

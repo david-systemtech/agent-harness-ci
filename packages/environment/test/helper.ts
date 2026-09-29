@@ -84,6 +84,10 @@ export interface TestEnvironmentOptions {
   /** The harness version the environment runs as; preset: the package's. */
   readonly harnessVersion?: string;
   readonly name?: string;
+  /** The machine's hostname, whose first label names a new environment given no `name`; preset: the machine's. */
+  readonly hostname?: string;
+  /** The operating system an environment's preset icon follows; preset: the machine's. */
+  readonly platform?: NodeJS.Platform;
   /** The environment's own IANA time zone; preset: the process's. */
   readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
@@ -303,6 +307,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
+    ...(options.hostname !== undefined && { hostname: options.hostname }),
+    ...(options.platform !== undefined && { platform: options.platform }),
     ...(options.timeZone !== undefined && { timeZone: options.timeZone }),
     ...(options.harnessVersion !== undefined && { harnessVersion: options.harnessVersion }),
     ...(options.hooks !== undefined && { hooks: options.hooks }),

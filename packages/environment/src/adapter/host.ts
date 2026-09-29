@@ -79,6 +79,7 @@ import type {
   AdapterRun,
   AttachmentData,
   PermissionBroker,
+  ProcessEnvironment,
   PromptDecision,
   PromptMessage,
   PromptRequest,
@@ -93,6 +94,7 @@ import type {
 import { composeInstructions, instructionsDigest } from "../instructions/composer.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
+import { createProcessEnvironments, type ProcessEnvironmentScope } from "./process-environment.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
@@ -215,6 +217,13 @@ export interface AdapterHostOptions {
   readonly promptTtlMs?: () => number | null;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
+  /**
+   * Builds each run's process environment (#307, `process-environment.ts`)
+   * from the suppliers registered with it and the injection answer, as its
+   * adapter is asked for the run. Preset: none registered, so every run's
+   * key is empty and nothing is supplied.
+   */
+  readonly processEnvironment?: (scope: ProcessEnvironmentScope) => ProcessEnvironment;
   /**
    * Where a contained run may write beside its workspace: each session's
    * scratch and temporary directories (#133). Preset: a root of the host's
@@ -590,6 +599,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
+  const processEnvironment = options.processEnvironment ?? createProcessEnvironments().of;
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -1376,6 +1386,32 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
+  /**
+   * A run's process environment (#307), built as every run's is when its
+   * adapter is asked for the run, which is once per run: each spawn's
+   * release is reported to the pool against the session's process as it is
+   * now, so the pool's letting it go releases it, and it runs once, whoever
+   * calls it first.
+   */
+  const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
+    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+    const report = pool.supplied(plan.sessionId);
+    return {
+      key: built.key,
+      supply: async () => {
+        const supplied = await built.supply();
+        let released = false;
+        const release = (): void => {
+          if (released) return;
+          released = true;
+          supplied.release();
+        };
+        report(release);
+        return { variables: supplied.variables, release };
+      },
+    };
+  };
+
   const launch = (plan: PlannedRun): void => {
     const prompt: PromptMessage[] = [
       ...keptAnswers(plan.runId),
@@ -1411,6 +1447,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             trusted: false,
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
+            processEnvironment: processEnvironmentOf(plan),
             prompt,
           },
           contextFor(entry),

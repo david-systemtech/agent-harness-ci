@@ -50,6 +50,8 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
+import { readSessionFacts } from "../runs/run-reads.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -107,6 +109,7 @@ import { keyManagerMethods } from "../key-managers/methods.js";
 import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
+import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
@@ -227,8 +230,12 @@ export interface EnvironmentOptions {
   readonly harnessVersion?: string;
   /** The loopback port; preset `DEFAULT_PORT`; 0 picks a free one. */
   readonly port?: number;
-  /** The name a new environment is created with; preset: the machine's hostname. An existing environment keeps its own. */
+  /** The name a new environment is created with; preset: the hostname's first label. An existing environment keeps its own. */
   readonly name?: string;
+  /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
+  readonly hostname?: string;
+  /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
+  readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
   /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
@@ -321,6 +328,8 @@ export interface EnvironmentOptions {
     readonly resolvePolicy?: PolicySeam;
     /** The tool gate's rules; preset: the denylist's (#132, `permissions/denylist-gate.ts`). */
     readonly gateRules?: readonly ToolGateRule[];
+    /** Whether a holder's process environment is supplied at all (#307); preset: `allow`, until #91's setting answers it. */
+    readonly injection?: InjectionSeam;
   };
   /**
    * What this environment can enforce (#133), probed once as the adapter
@@ -330,7 +339,7 @@ export interface EnvironmentOptions {
    */
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub">;
+  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub" | "processEnvironment">;
   /**
    * The resolver `sessions.create` and the completions surface give a new
    * session its workspace through (#321). Preset: the environment's
@@ -442,6 +451,7 @@ const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; read
 /** A running environment. */
 export interface EnvironmentHandle {
   readonly id: string;
+  /** Its name now: the record's until `environment.rename` sets another (#323). */
   readonly name: string;
   readonly dataDir: string;
   /** Where the loopback listener is bound. */
@@ -534,6 +544,12 @@ export interface EnvironmentHandle {
     /** Settles once this start, past the gate, has tried again to delete every stored value a Move left behind. */
     readonly leftBehindDeleted: Promise<void>;
   };
+  /**
+   * Where the harness's services register what they put into every provider
+   * process and terminal the environment starts (#307): the forge's (#315),
+   * the key managers' (#91). None is registered by default.
+   */
+  readonly processEnvironments: Pick<ProcessEnvironments, "register">;
   /**
    * The pairing this start minted because the environment is a declared
    * container that no client has paired with yet (ADR 0025; #349): such a
@@ -659,6 +675,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
+      lookProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -685,7 +702,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
   // connection's removal. The Managed tools registry (#373) is made here too, before the forge, whose gh reads its row.
   const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
-    const name = (options.name ?? hostname()).trim();
+    const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
     const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
@@ -818,7 +835,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // close ends every run (and so lets go of what each left parked).
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
-  const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
+  // The injection seam is the process environment's; the rest are the host's.
+  const { injection, ...hostSeams } = options.adapterSeams ?? {};
+  const seamServers = hostSeams.toolServers ?? noToolServers;
+  // What the harness's services put into every provider process and terminal (#307): none registered until one does.
+  const processEnvironments = createProcessEnvironments(injection);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -902,6 +923,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       containmentDirectories: sessionDirectories,
+      processEnvironment: processEnvironments.of,
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
@@ -911,7 +933,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
-      ...options.adapterSeams,
+      ...hostSeams,
       // The seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });
@@ -935,8 +957,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => usagePool.close());
 
   const detector = options.containerDetector ?? processContainerDetector();
+  const inContainer = detector.inContainer();
   // A container with no launcher: a host-side updater manages its updates, and it never updates itself (ADR 0007).
-  const updatesManagedOutside = detector.inContainer() && !launcher.present();
+  const updatesManagedOutside = inContainer && !launcher.present();
   // Managed outside, the host-side updater's polls, the last kept in the data directory (#348).
   const hostUpdater = createHostUpdaterPolls({ clock, dataDir, managedOutside: updatesManagedOutside });
   // Under a launcher the environment can update itself to a client's version (ADR 0007); managed outside, while the
@@ -944,12 +967,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // `updates.status` says why. Read as discovery answers and as each hello is sent.
   const flags = (): CapabilityFlags => (launcher.present() || hostUpdater.selfUpdate() ? ["self-update", ...capabilities] : [...capabilities]);
 
+  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
+  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
+  // Its name, icon and colour (#323): the three commands' notices over the record's name and the presets, read where they
+  // are shown, so a rename shows in the next discovery answer, the next hello and the next snapshot.
+  const look = createEnvironmentLook({
+    log,
+    stream: environmentStream,
+    presets: { name: record.name, icon: presetIcon(inContainer, options.platform ?? process.platform), colour: presetColour(record.id) },
+  });
+
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
+    const { name, icon, colour } = look.read();
     const document: DiscoveryDocument = {
       environmentId: record.id,
-      environmentName: record.name,
+      environmentName: name,
+      environmentIcon: icon,
+      environmentColour: colour,
       harnessVersion,
       protocolVersion: PROTOCOL_VERSION,
       capabilities: flags(),
@@ -963,8 +999,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
-  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
-  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
@@ -977,8 +1011,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
     ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
   });
-  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion. Each
+  // holds its session's process environment as its runs' processes do (#307): the account its runs go through, a client's.
+  const terminalService = createTerminalService({
+    log,
+    clock,
+    scrub,
+    availability,
+    ...options.terminals,
+    processEnvironment: (sessionId) => {
+      const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client" });
+    },
+  });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
@@ -1033,7 +1078,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     stream: environmentStream,
     dataDir,
-    environmentName: record.name,
+    environmentName: look.read().name,
     harnessVersion,
     launcher,
     managedOutside: updatesManagedOutside,
@@ -1080,14 +1125,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       hostUpdater: () => hostUpdater.holds(),
       forge,
       clock,
+      look: () => look.read(),
     }),
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
   const table = createMethodTable({
     ...lifecycle.handlers,
-    // The snapshot, sent when replay from the cursor is out of bounds: the status now, and every step's cached result (#569).
-    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), setup: setup.cached() }) }),
+    // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
+    // result (#569).
+    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), environment: look.read(), setup: setup.cached() }) }),
+    ...look.handlers,
     // The rebuild joins the command's transaction, so it and the receipt commit together.
     "environment.rebuildProjections": () => ({
       aggregate: environmentStream,
@@ -1204,7 +1252,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
-    environment: record,
+    environment: { id: record.id, look: () => look.read() },
     capabilities: flags,
     clientSessions: socketSessions(clientSessions, accessLog.atomically),
     methods: table,
@@ -1359,7 +1407,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   return {
     id: record.id,
-    name: record.name,
+    get name() {
+      return look.read().name;
+    },
     dataDir,
     address: bound.address,
     addresses: bound.addresses,
@@ -1398,6 +1448,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },
+    processEnvironments,
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {

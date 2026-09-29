@@ -1,4 +1,14 @@
-import { Ceiling, EnvironmentId, ScopeSet, Timestamp, type ByeReason, type CapabilityFlags, type Scope } from "@agent-harness/contracts";
+import {
+  Ceiling,
+  EnvironmentColour,
+  EnvironmentIcon,
+  EnvironmentId,
+  ScopeSet,
+  Timestamp,
+  type ByeReason,
+  type CapabilityFlags,
+  type Scope,
+} from "@agent-harness/contracts";
 import type { ConnectionAction } from "./state-machine.js";
 
 /**
@@ -49,12 +59,17 @@ export type ConnectionPhase =
   | "draining"
   | "updating";
 
-/** What the client last learned about the environment: from discovery and `hello`. Kept through a block. */
+/**
+ * What the client last learned about the environment: from discovery and
+ * `hello`, and its name, icon and colour from its own stream's snapshot and
+ * notices too (#323). Kept through a block.
+ */
 export interface EnvironmentDescriptor {
   readonly name: string;
-  /** From `environment.status` once the workspace-picker workstream serves it; null until then. */
-  readonly icon: string | null;
-  readonly colour: string | null;
+  /** Null for an environment from before icons, which sends none. */
+  readonly icon: EnvironmentIcon | null;
+  /** A name, never a literal: a renderer paints it with its own token for the name. Null for an environment from before colours. */
+  readonly colour: EnvironmentColour | null;
   /** From the discovery document; `hello` does not carry it. */
   readonly harnessVersion: string | null;
   readonly protocolVersion: number | null;
@@ -175,8 +190,8 @@ const readDescriptor = (value: unknown): EnvironmentDescriptor | undefined => {
   const capabilities = d["capabilities"];
   return {
     name: d["name"],
-    icon: stringOrNull(d["icon"]),
-    colour: stringOrNull(d["colour"]),
+    icon: EnvironmentIcon.safeParse(d["icon"]).data ?? null,
+    colour: EnvironmentColour.safeParse(d["colour"]).data ?? null,
     harnessVersion: stringOrNull(d["harnessVersion"]),
     protocolVersion: typeof d["protocolVersion"] === "number" ? d["protocolVersion"] : null,
     capabilities: Array.isArray(capabilities) ? capabilities.filter(isString) : [],

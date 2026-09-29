@@ -19,6 +19,7 @@ import { manualClock } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ByeError, connectClient, openSocket, wireUrl } from "../../test/wire-client.js";
 import type { Address } from "../serve/http.js";
+import { presetColour } from "../look/look.js";
 import type { StartupStep } from "../serve/start.js";
 import { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire.js";
 
@@ -149,7 +150,7 @@ describe("the WebSocket", () => {
 
 describe("auth and hello", () => {
   it("answers a valid auth with hello: protocol, capabilities, environment, client session, scopes, ceiling, server time", async () => {
-    const t = await start({ name: "desk" });
+    const t = await start({ name: "desk", platform: "darwin" });
     t.clock.advance(5 * MINUTE);
     const credential = await t.bootstrap("tui");
     const client = await t.client({ token: credential.token });
@@ -162,6 +163,9 @@ describe("auth and hello", () => {
       capabilities: ["forge", "keyManagers", "managedTools", "setup"],
       environmentId: t.env.id,
       environmentName: "desk",
+      // Its icon and colour (#323), which until set are the platform's and a hash of its id's.
+      environmentIcon: "laptop",
+      environmentColour: presetColour(t.env.id),
       clientSessionId: credential.clientSessionId,
       scopes: [...SCOPES],
       ceiling: "bypassPermissions",

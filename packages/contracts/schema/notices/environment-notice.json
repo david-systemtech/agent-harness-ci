@@ -358,6 +358,114 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "environment.renamed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+              "description": "An environment's name as environment.rename takes it: 1 to 40 characters once trimmed, counted as code points, no control or format (zero-width) characters other than white space; kept trimmed with white space collapsed."
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "description": "The environment's new name, trimmed with its white space collapsed."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The environment was renamed: its new name, which every client's badge takes."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.icon-set"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "icon": {
+              "type": "string",
+              "enum": [
+                "laptop",
+                "desktop",
+                "server",
+                "nas",
+                "cloud",
+                "container",
+                "board",
+                "home",
+                "office",
+                "lab"
+              ],
+              "description": "An environment's icon, by name, one of the ten the enum lists (ADR 0025's fixed set): each client draws the name its own way, and the terminal UI draws none."
+            }
+          },
+          "required": [
+            "icon"
+          ],
+          "description": "The environment's new icon."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The environment took another icon, which every client's badge takes."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.colour-set"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "colour": {
+              "type": "string",
+              "enum": [
+                "red",
+                "orange",
+                "amber",
+                "yellow",
+                "lime",
+                "green",
+                "teal",
+                "cyan",
+                "blue",
+                "indigo",
+                "violet",
+                "pink"
+              ],
+              "description": "An environment's colour, by name: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet or pink. Never a literal: each client draws it with the theme's token for the name."
+            }
+          },
+          "required": [
+            "colour"
+          ],
+          "description": "The environment's new colour."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The environment took another colour, which every client's badge takes."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "account.updated"
         },
         "payload": {
