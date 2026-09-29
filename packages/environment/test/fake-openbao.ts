@@ -18,14 +18,16 @@ import { join } from "node:path";
  * (`token`, `root`), and `auth/token/revoke-self` revokes it. A token lives
  * from when it was issued for its time to live on the fake's clock, past
  * which OpenBao knows it no more: a token login's maximum life. Sealed on
- * demand, it answers 503 to everything but `sys/seal-status`, as OpenBao
- * does. A credential no script names is refused as OpenBao refuses it.
+ * demand, it answers 503 to everything but `sys/seal-status` and a route
+ * the test scripted (below), as OpenBao does. A credential no script names
+ * is refused as OpenBao refuses it.
  *
  * Policies are texts the test gives (#366): `sys/capabilities-self` answers
  * a token's capabilities on a path from its policies' texts, and
  * `sys/policies/acl/<name>` answers a policy's text to a token whose
  * policies grant `read` there. Any route can be scripted to answer
- * otherwise (an error that echoes a secret, an answer held back), and the
+ * otherwise (an error that echoes a secret, an answer held back), which it
+ * does sealed or not, ahead of every rule above; and the
  * certificate it presents swapped mid-test. Every request is recorded by
  * method and path, never with its token or body. Later tickets extend it
  * (child tokens, KV reads and writes).
