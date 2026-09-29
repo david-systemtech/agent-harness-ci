@@ -202,7 +202,11 @@ describe("the resolved pass", () => {
     const again = await start({ dataDir });
     await again.env.workspaces.identityPass;
 
-    for (const { id } of [scratch, deleted, gone, identified]) expect(again.env.log.readStream({ kind: "session", id }, from), id).toEqual([]);
+    // The availability watcher's pass runs beside this one after the start and marks the gone directory missing (#328),
+    // before this pass settles or after it: what this pass appended is everything else.
+    const appended = (id: string) =>
+      again.env.log.readStream({ kind: "session", id }, from).filter((event) => event.type !== "session.workspace-status-changed");
+    for (const { id } of [scratch, deleted, gone, identified]) expect(appended(id), id).toEqual([]);
     expect((await get(await again.client(), identified.id)).repositoryIdentity).toBe("https://github.com/david/kept");
   });
 });
