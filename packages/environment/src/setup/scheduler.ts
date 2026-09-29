@@ -23,7 +23,10 @@ import type { SetupService } from "./service.js";
  *   or a family ending in `*`), appended on any stream, has the step checked
  *   a second after it arrived, and every trigger inside that second joins
  *   the one check. `settings.updated` triggers a step only when the keys it
- *   names include one the step writes.
+ *   names include one the step writes. A change a step's checks read that
+ *   the log does not record is named to `trigger` in process, and triggers
+ *   the step the same way: each check of the release channel as it ends,
+ *   for Your machines (#679).
  *
  * A trigger, the cadence or a `setup.check` that arrives while the step's
  * check runs takes that run's result (`service.ts`): a check never runs
@@ -45,6 +48,12 @@ export interface SetupSchedulerOptions {
 export interface SetupScheduler {
   /** Settles once the start pass has checked every registered step. */
   readonly startPass: Promise<void>;
+  /**
+   * Something `step`'s checks read changed and no event records it: the step
+   * is checked as an event it names would have it checked. A step the
+   * registry does not hold is left alone.
+   */
+  trigger(step: RegisteredStepId): void;
   /** Stops the cadences and the triggers; a check running is left to finish. */
   stop(): void;
 }
@@ -119,6 +128,10 @@ export const startSetupScheduler = (options: SetupSchedulerOptions): SetupSchedu
 
   return {
     startPass,
+    trigger(id) {
+      const step = steps.find((entry) => entry.id === id);
+      if (step !== undefined) trigger(step);
+    },
     stop() {
       stopped = true;
       unsubscribe();

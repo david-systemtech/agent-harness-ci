@@ -1,14 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "KeyManagerMovedPayload",
+  "title": "keyManagers.move.copyValue result",
   "type": "object",
   "properties": {
-    "connectionId": {
-      "type": "string",
-      "format": "uuid",
-      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "The connection the item was moved to."
-    },
     "item": {
       "type": "object",
       "properties": {
@@ -200,29 +194,17 @@
           "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
         }
       ],
-      "description": "Where it went: the reference the item holds now."
+      "description": "The target to paste the value at: the reference the item holds once keyManagers.move with verifyOnly has read it back."
     },
-    "undeleted": {
-      "anyOf": [
-        {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "pattern": "^[^\\p{Cc}]+$",
-          "description": "Where an owning service keeps a stored value, never the value: a forge account's vault entry (forge:<forge account id>:<entry id>)."
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Where the stored value is kept still when its delete failed, which the next start deletes; null once it was deleted."
+    "value": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The item's stored value, unredacted: answered here once, and in no event, receipt or log line."
     }
   },
   "required": [
-    "connectionId",
     "item",
     "reference",
-    "undeleted"
-  ],
-  "description": "key-manager.moved: an item's stored value was written to a key manager, or pasted there by a person and verified (verifyOnly), read back, and the item swapped to the reference. Never the value."
+    "value"
+  ]
 }

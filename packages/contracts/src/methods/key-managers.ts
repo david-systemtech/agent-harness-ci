@@ -54,7 +54,10 @@ import { commandParams, defineMethod } from "../method.js";
  * Move (#371): `keyManagers.connections.setBasePath`, an `admin` command;
  * `keyManagers.move.list`, a `read` query; and `keyManagers.move`, a
  * prepared `admin` command that hears from the key manager and each item's
- * owner before its transaction. A stored value is never answered.
+ * owner before its transaction. A stored value is never answered, but for
+ * `keyManagers.move.copyValue` (#372), an `admin` command a client sends
+ * directly, never through its outbox, which answers one item's value once
+ * after a Move found its target was one the login cannot write.
  */
 
 /** The key manager refused the credential, or it signs in as root, which the harness never holds. */
@@ -402,14 +405,22 @@ export const keyManagersMoveList = defineMethod({
  * `conflict` reason `target_exists` unless `overwrite` is given; reads it
  * back and compares in constant time; swaps the item to the reference
  * through its owner's own command (`forge.accounts.update`); deletes the
- * stored value; and appends `key-manager.moved`. An item that fails is
- * answered with the step and why, the stored value left in place, as is a
- * copy written before a failed read-back or swap; a delete that fails is
- * tried again at the next start. A connection the environment does not hold
- * is `not_found`; one without a base path is `invalid_params`; one not
- * signed in is `credential_source_unavailable`; a provider a Move cannot
- * write to yet is `provider_unavailable`. Never a value, in the answer, an
- * event or a receipt.
+ * stored value; and appends `key-manager.moved`. Before it writes, it asks
+ * the key manager whether the login may write the target: one it may not
+ * is that item's `cannot_write` (#372), with nothing written, and
+ * `keyManagers.move.copyValue` then answers the value for a person to paste
+ * there. With `verifyOnly` nothing is written: each item's target is read
+ * back, compared, swapped to and the stored value deleted as above; a value
+ * there other than the stored one is `conflict` reason `read_back_differs`,
+ * and none `reference_not_found`, each leaving the item as it was. An item
+ * that fails is answered with the step and why, the stored value left in
+ * place, as is a copy written before a failed read-back or swap; a delete
+ * that fails is tried again at the next start. A connection the environment
+ * does not hold is `not_found`; one without a base path, or `overwrite`
+ * with `verifyOnly`, is `invalid_params`; one not signed in is
+ * `credential_source_unavailable`; a provider a Move cannot write to yet is
+ * `provider_unavailable`. Never a value, in the answer, an event or a
+ * receipt.
  */
 export const keyManagersMove = defineMethod({
   name: "keyManagers.move",
@@ -421,7 +432,44 @@ export const keyManagersMove = defineMethod({
       .union([z.literal("all"), z.array(KeyManagerMoveItemRef).min(1).max(256)])
       .meta({ description: "The items to move, or all: every item holding a stored value when the Move begins." }),
     overwrite: z.boolean().optional().meta({ description: "Replace a different value already at a target; absent or false refuses it conflict reason target_exists." }),
+    verifyOnly: z.boolean().optional().meta({
+      description:
+        "Write nothing: read back what a person pasted at each target, compare it with the stored value, and swap and delete as a Move does. A different value there is conflict reason read_back_differs, and none reference_not_found, each leaving the item as it was.",
+    }),
   }),
   result: z.object({ items: z.array(KeyManagerMoveItemResult).meta({ description: "Each item's outcome, in the order they were moved." }) }),
   errors: [CredentialSourceUnavailableError, ProviderUnavailableError],
+});
+
+/**
+ * Answers one item's stored value once, for a person to paste at its target
+ * on a connection whose login cannot write it (key-managers spec, "Move
+ * stored tokens"; ADR 0028's Copy the value; #372): the one answer that
+ * ever holds a stored value, which ADR 0020 otherwise never returns. It is
+ * offered once per `cannot_write` a Move answered for the item on the
+ * connection, until the first copy takes it, the item moves, or a later
+ * Move of the item that writes answers otherwise; a repeat of the command
+ * id is answered by its receipt alone, which never holds the value. Appends
+ * `key-manager.value-copied`, naming the item, the target and the client
+ * session, never the value. An `admin` command, sent directly and never
+ * queued in a client's outbox, so a call made while the environment is
+ * unreachable fails rather than a value waiting on a client. A connection
+ * the environment does not hold, an item holding no stored value, or one no
+ * copy is offered for (a Move is run first, again after a copy or a start)
+ * is `not_found`.
+ */
+export const keyManagersMoveCopyValue = defineMethod({
+  name: "keyManagers.move.copyValue",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    connectionId: KeyManagerConnectionId,
+    item: KeyManagerMoveItemRef.meta({ description: "The item whose stored value is answered: one a Move answered cannot_write on the connection." }),
+  }),
+  result: z.object({
+    item: KeyManagerMoveItemRef,
+    reference: KeyManagerReference.meta({ description: "The target to paste the value at: the reference the item holds once keyManagers.move with verifyOnly has read it back." }),
+    value: z.string().min(1).meta({ description: "The item's stored value, unredacted: answered here once, and in no event, receipt or log line." }),
+  }),
+  errors: [],
 });

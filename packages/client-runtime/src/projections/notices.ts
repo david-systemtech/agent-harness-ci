@@ -170,6 +170,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "key-manager.connection.removed":
         case "key-manager.moved":
         case "key-manager.stored-value-deleted":
+        case "key-manager.value-copied":
           return;
         // A probe changing managed-tool rows raises none: a newer version is a badge, and a required tool missing or below
         // its minimum is its step's health failure (ADR 0026); tools.list's cache follows it (#384).
