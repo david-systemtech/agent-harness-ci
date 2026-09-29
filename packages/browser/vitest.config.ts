@@ -1,4 +1,4 @@
 import { packageProject } from "../../vitest.shared.js";
 
-// The tests that read a page parse it in jsdom (`@vitest-environment jsdom`); the rest run under Node.
+// Every test runs under Node; one that reads a page parses it with jsdom (test/pages.ts).
 export default packageProject("browser");

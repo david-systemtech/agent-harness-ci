@@ -21,8 +21,8 @@
     "packages/*/test",
     "packages/*/src/**/*.test.ts"
   ],
-  // The GUI's and the browser package's tests run in jsdom and are checked with the DOM's types in each package's
-  // tsconfig.test.json.
+  // The GUI's tests run in jsdom and the browser package's parse pages with it, so each package's tsconfig.test.json
+  // checks them with the DOM's types.
   "exclude": ["packages/gui/src", "packages/gui/test", "packages/browser/src", "packages/browser/test"],
   "references": [
     { "path": "packages/contracts" },
