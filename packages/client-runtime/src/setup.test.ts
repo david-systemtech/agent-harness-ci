@@ -1,5 +1,6 @@
-import type { EnvironmentStatus } from "@agent-harness/contracts";
+import type { EnvironmentStatus, StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
+import { after } from "../test/environments.js";
 import { noticeEvent } from "../test/events.js";
 import { subscription, type Scripted } from "../test/scripted.js";
 import { attentionResult, doneResult } from "../test/setup.js";
@@ -50,6 +51,33 @@ const rows = (runtime: Runtime, env: string) =>
 
 const unregistered = (id: string) => ({ id, registered: false, result: null });
 
+/** The steps reading pending now. */
+const pending = (runtime: Runtime, env: string) => runtime.projections.setup(env).read().steps.flatMap((step) => (step.pending ? [step.id] : []));
+
+/** One step's result as the projection has it now. */
+const resultOf = (runtime: Runtime, env: string, id: string) => runtime.projections.setup(env).read().steps.find((step) => step.id === id)?.result ?? null;
+
+/** Answers each `setup.check` only when the test says: `answer` with results, or `fail` with an error code. */
+const heldChecks = (wire: FakeWire) => {
+  const waiting: ((body: { result: { results: StepResult[] } } | { error: { code: string; message: string; data: Record<string, unknown> } }) => void)[] = [];
+  wire.answer("setup.check", () => new Promise((resolve) => waiting.push(resolve)));
+  return {
+    answer: (results: StepResult[]) => waiting.shift()?.({ result: { results } }),
+    fail: (code: string) => waiting.shift()?.({ error: { code, message: `The check failed: ${code}.`, data: {} } }),
+  };
+};
+
+/** A runtime paired with a scripted environment with the flag, whose snapshot held Account done and Permissions needing attention; the projection followed. */
+const withResults = async () => {
+  const made = await paired();
+  made.environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), attentionResult("permissions", "permissions.denylist", ["restore"])] });
+  made.environment.synchronized(3);
+  await made.adding;
+  await flush();
+  onTestFinished(made.runtime.projections.setup(made.env).subscribe(() => undefined));
+  return made;
+};
+
 describe("projections.setup from the snapshot and the notices", () => {
   it("lists the eleven steps in order with their labels and home rows, fills from the snapshot's setup and applies each notice, with no call of its own", async () => {
     const { runtime, wire, env, environment, adding } = await paired();
@@ -96,5 +124,72 @@ describe("projections.setup from the snapshot and the notices", () => {
     expect(setup.read().counts).toEqual({ registered: 3, done: 3, needsAttention: 0, skipped: 0, attention: [] });
     expect(seen.length).toBeGreaterThan(0);
     expect(checksSent(wire)).toEqual([]);
+  });
+});
+
+describe("this client's own check", () => {
+  it("reads pending once half a second passes without its answer and stops at the answer, which it applies; a result published unasked never reads pending", async () => {
+    const { runtime, wire, clock, env, environment } = await withResults();
+    const checks = heldChecks(wire);
+
+    const checking = runtime.setup.check(env, "permissions");
+    await flush();
+    expect(checksSent(wire).map((frame) => frame.type === "request" && frame.params)).toEqual([{ step: "permissions" }]);
+    clock.advance(499);
+    await flush();
+    expect(pending(runtime, env)).toEqual([]);
+    // Account's result changes on the environment meanwhile, unasked: it shows at once and never pending.
+    environment.event(noticeEvent(4, env, "setup.result-changed", attentionResult("account", "account.signed-in", ["sign-in-again"], { checkedAt: after(499) })));
+    clock.advance(1);
+    await flush();
+    expect(pending(runtime, env)).toEqual(["permissions"]);
+    expect(resultOf(runtime, env, "account")).toMatchObject({ state: "needs-attention", checkedAt: after(499) });
+    clock.advance(9_000);
+    await flush();
+    expect(pending(runtime, env)).toEqual(["permissions"]);
+
+    // The answer finds what the cache held, so no notice comes: the answer itself is applied, with its checked-at.
+    checks.answer([attentionResult("permissions", "permissions.denylist", ["restore"], { checkedAt: after(1) })]);
+    expect(await checking).toMatchObject({ ok: true });
+    expect(pending(runtime, env)).toEqual([]);
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", checkedAt: after(1), stale: false });
+  });
+
+  it("stops reading pending at the request's failure, keeping the result held", async () => {
+    const { runtime, wire, clock, env } = await withResults();
+    const checks = heldChecks(wire);
+    const checking = runtime.setup.check(env, "account");
+    clock.advance(500);
+    await flush();
+    expect(pending(runtime, env)).toEqual(["account"]);
+    checks.fail("internal");
+    expect(await checking).toMatchObject({ ok: false, error: { code: "internal" } });
+    expect(pending(runtime, env)).toEqual([]);
+    expect(resultOf(runtime, env, "account")).toMatchObject({ state: "done", checkedAt: after(0) });
+  });
+
+  it("asks about every step when it names none, and an answer that comes within half a second never reads pending", async () => {
+    const { runtime, wire, clock, env } = await withResults();
+    const checks = heldChecks(wire);
+    const all = runtime.setup.check(env);
+    clock.advance(500);
+    await flush();
+    expect(checksSent(wire).map((frame) => frame.type === "request" && frame.params)).toEqual([{}]);
+    expect(pending(runtime, env)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
+    checks.answer([doneResult("account", { checkedAt: after(500) }), doneResult("permissions", { checkedAt: after(500) })]);
+    await all;
+    expect(pending(runtime, env)).toEqual([]);
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 2, done: 2, needsAttention: 0, skipped: 0, attention: [] });
+
+    const seen: string[][] = [];
+    onTestFinished(runtime.projections.setup(env).subscribe(() => seen.push(pending(runtime, env))));
+    const quick = runtime.setup.check(env, "account");
+    clock.advance(499);
+    await flush();
+    checks.answer([doneResult("account", { checkedAt: after(999) })]);
+    await quick;
+    clock.advance(1_000);
+    await flush();
+    expect(seen.flat()).toEqual([]);
   });
 });
