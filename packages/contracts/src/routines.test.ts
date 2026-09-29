@@ -27,9 +27,11 @@ import {
   FIRING_FAILURE_REASONS,
   FIRING_OUTCOMES,
   INTERRUPT_CAUSES,
+  OWED_HANDLERS,
   PRE_CHECK_FAILURES,
   ROUTINE_ATTENTION,
   ROUTINE_CHANGES,
+  ROUTINE_CONFLICT_REASONS,
   ROUTINE_DAYS,
   ROUTINE_EVENT_TYPES,
   ROUTINE_PRESETS,
@@ -37,12 +39,15 @@ import {
   ROUTINE_TRIGGERS,
   ROUTINE_WEBHOOK_VERSION,
   SESSION_EVENT_TYPES,
+  SESSION_WRITE_COMMANDS,
   SETTLED_BY,
   SKIP_REASONS,
   TRANSCRIPT_EVENT_TYPES,
   WEBHOOK_HEADERS,
+  DenylistedError,
   EnvironmentNotice,
   ListedRoutine,
+  OutputTooLargeError,
   PreCheckRecord,
   RoutineDefinition,
   RoutineDefinitionInput,
@@ -52,6 +57,8 @@ import {
   WebhookPayload,
   eventTypeEntry,
   isListEvent,
+  methods,
+  registry,
 } from "./index.js";
 
 /**
@@ -454,6 +461,138 @@ describe("the webhook payload", () => {
 
   it("goes with the three Standard Webhooks header names", () => {
     expect(WEBHOOK_HEADERS).toEqual({ id: "webhook-id", timestamp: "webhook-timestamp", signature: "webhook-signature" });
+  });
+});
+
+describe("the routines methods", () => {
+  it("have one scope each: the queries at read, the commands at sessions:write, run now and the pre-check's test at runs:drive, the endpoints' changes and test at admin", () => {
+    const routineMethods = methods.filter((m) => m.name.startsWith("routines."));
+    expect(Object.fromEntries(routineMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "routines.list": ["query", "read"],
+      "routines.history": ["query", "read"],
+      "routines.export": ["query", "read"],
+      "routines.checkImport": ["query", "read"],
+      "routines.scripts.list": ["query", "read"],
+      "routines.endpoints.list": ["query", "read"],
+      "routines.create": ["command", "sessions:write"],
+      "routines.update": ["command", "sessions:write"],
+      "routines.enable": ["command", "sessions:write"],
+      "routines.disable": ["command", "sessions:write"],
+      "routines.delete": ["command", "sessions:write"],
+      "routines.import": ["command", "sessions:write"],
+      "routines.runNow": ["command", "runs:drive"],
+      "routines.testPreCheck": ["query", "runs:drive"],
+      "routines.endpoints.set": ["command", "admin"],
+      "routines.endpoints.remove": ["command", "admin"],
+      "routines.endpoints.test": ["query", "admin"],
+    });
+  });
+
+  it("owe each handler to the ticket that builds it, so an environment answers each as not served yet", () => {
+    expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
+      "routines.list": "#521",
+      "routines.create": "#521",
+      "routines.update": "#521",
+      "routines.enable": "#521",
+      "routines.disable": "#521",
+      "routines.delete": "#521",
+      "routines.history": "#523",
+      "routines.runNow": "#523",
+      "routines.testPreCheck": "#526",
+      "routines.scripts.list": "#526",
+      "routines.export": "#528",
+      "routines.checkImport": "#528",
+      "routines.import": "#528",
+      "routines.endpoints.set": "#522",
+      "routines.endpoints.remove": "#522",
+      "routines.endpoints.list": "#522",
+      "routines.endpoints.test": "#522",
+    });
+  });
+
+  it("queue each sessions:write command in a client's outbox as ordered, never as a setter", () => {
+    for (const name of ["routines.create", "routines.update", "routines.enable", "routines.disable", "routines.delete", "routines.import"] as const) {
+      expect(SESSION_WRITE_COMMANDS[name], name).toHaveProperty("ordered");
+    }
+  });
+
+  it("refuse in conflict with reason name_taken or firing_running, and a pre-check's output_too_large and denylisted", () => {
+    expect(ROUTINE_CONFLICT_REASONS).toEqual(["name_taken", "firing_running"]);
+    expect(DenylistedError.parse({ code: "denylisted", message: "example.com is on the denylist.", data: { host: "example.com" } })).toEqual({
+      code: "denylisted",
+      message: "example.com is on the denylist.",
+      data: { host: "example.com" },
+    });
+    expect(OutputTooLargeError.parse({ code: "output_too_large", message: "The output passed 1 MiB.", data: { limitBytes: 1_048_576 } }).data).toEqual({ limitBytes: 1_048_576 });
+    for (const name of ["routines.create", "routines.update", "routines.import", "routines.testPreCheck", "routines.endpoints.set"] as const) {
+      expect(registry[name].error.safeParse({ code: "denylisted", message: "m", data: { host: "example.com" } }).success, name).toBe(true);
+    }
+    expect(registry["routines.testPreCheck"].error.safeParse({ code: "output_too_large", message: "m", data: { limitBytes: 1_048_576 } }).success).toBe(true);
+    expect(registry["routines.list"].error.safeParse({ code: "denylisted", message: "m", data: { host: "example.com" } }).success).toBe(false);
+  });
+
+  it("create a routine under the id its client minted, from a definition as written, and answer it as listed", () => {
+    const create = registry["routines.create"];
+    expect(create.params.parse({ commandId: firingId, routineId, definition: written }).definition).toEqual({ ...saved, timezone: undefined });
+    expect(create.params.safeParse({ commandId: firingId, routineId: "upstream-watch", definition: written }).success).toBe(false);
+    expect(create.params.safeParse({ commandId: firingId, definition: written }).success).toBe(false);
+  });
+
+  it("update any subset of a routine's fields, and never fill in a preset for a field left out", () => {
+    const update = registry["routines.update"];
+    expect(update.params.parse({ commandId: firingId, routineId, fields: { enabled: true } })).toEqual({ commandId: firingId, routineId, fields: { enabled: true } });
+    expect(update.params.parse({ commandId: firingId, routineId, fields: { preCheck: { kind: "script", path: "watch.sh" } } }).fields).toEqual({
+      preCheck: { kind: "script", path: "watch.sh", timeoutSeconds: 60 },
+    });
+    expect(update.params.safeParse({ commandId: firingId, routineId, fields: { silenceMarker: "" } }).success).toBe(false);
+  });
+
+  it("disable a routine with the copy it was moved to, and import from YAML under the ids given or in place of one routine's definition, never both", () => {
+    const disable = registry["routines.disable"];
+    expect(disable.params.safeParse({ commandId: firingId, routineId }).success).toBe(true);
+    expect(disable.params.safeParse({ commandId: firingId, routineId, movedTo: { environmentId: otherEnvironment, routineId } }).success).toBe(true);
+    const importing = registry["routines.import"];
+    const yaml = "kind: routine\nversion: 1\nname: Upstream watch\n";
+    expect(importing.params.safeParse({ commandId: firingId, yaml, routineIds: [routineId] }).success).toBe(true);
+    expect(importing.params.safeParse({ commandId: firingId, yaml, routineId, movedFrom: { environmentId: otherEnvironment, routineId } }).success).toBe(true);
+    expect(importing.params.safeParse({ commandId: firingId, yaml, routineIds: [routineId], routineId }).success).toBe(false);
+    expect(importing.params.safeParse({ commandId: firingId, yaml: "" }).success).toBe(false);
+  });
+
+  it("run a routine now, answering the entry id at once", () => {
+    const runNow = registry["routines.runNow"];
+    expect(runNow.params.safeParse({ commandId: firingId, routineId, withPreCheck: true }).success).toBe(true);
+    expect(runNow.result.parse({ entryId: firingId })).toEqual({ entryId: firingId });
+  });
+
+  it("test a routine's pre-check, or a pre-check and a workspace not yet saved, and answer what it found", () => {
+    const test = registry["routines.testPreCheck"];
+    const workspace = { kind: "scratch", repositoryIdentity: null };
+    expect(test.params.safeParse({ routineId }).success).toBe(true);
+    expect(test.params.parse({ preCheck: { kind: "script", path: "watch.sh" }, workspace })).toEqual({ preCheck: { kind: "script", path: "watch.sh", timeoutSeconds: 60 }, workspace });
+    expect(test.params.safeParse({}).success).toBe(false);
+    expect(test.params.safeParse({ routineId, preCheck: { kind: "url", url: "https://example.com" }, workspace }).success).toBe(false);
+    expect(test.params.safeParse({ preCheck: { kind: "url", url: "https://example.com" } }).success).toBe(false);
+    expect(test.result.parse(preCheck)).toEqual(preCheck);
+  });
+
+  it("list the routines, a history page newest first of 1 to 500, the scripts and the endpoints", () => {
+    expect(registry["routines.history"].params.safeParse({ routineId, before: firingId, limit: 500 }).success).toBe(true);
+    expect(registry["routines.history"].params.safeParse({ routineId, limit: 501 }).success).toBe(false);
+    expect(registry["routines.history"].params.safeParse({ routineId, limit: 0 }).success).toBe(false);
+    expect(registry["routines.history"].result.safeParse({ entries: [firing, skip] }).success).toBe(true);
+    expect(registry["routines.scripts.list"].result.safeParse({ directory: "/home/david/.agent-harness/scripts", scripts: [{ path: "upstream-watch.sh", executable: true }] }).success).toBe(true);
+  });
+
+  it("set an endpoint with a secret sent once, pasted or a key-manager reference, and test one for its status and time", () => {
+    const set = registry["routines.endpoints.set"];
+    const url = "https://hermes.example.com/webhooks/harness";
+    expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url }).success).toBe(true);
+    expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "pasted", secret: "token-for-tests" } }).success).toBe(true);
+    expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "reference", reference: { provider: "openbao", connectionId: otherEnvironment, mount: "personal", path: "agents/hermes", key: "webhook-secret" } } }).success).toBe(true);
+    expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "pasted", secret: "" } }).success).toBe(false);
+    expect(registry["routines.endpoints.test"].result.safeParse({ status: 204, durationMs: 83, error: null }).success).toBe(true);
+    expect(registry["routines.endpoints.test"].result.safeParse({ status: null, durationMs: 10_000, error: "No answer in ten seconds." }).success).toBe(true);
   });
 });
 

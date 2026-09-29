@@ -72,6 +72,7 @@ export {
   UnreachableError,
 } from "./methods/key-managers.js";
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
+export { DenylistedError, MAX_PRE_CHECK_OUTPUT_BYTES, OutputTooLargeError, ROUTINE_HISTORY_LIMIT, ROUTINE_HISTORY_MAX } from "./methods/routines.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {
   MAX_PROCESS_IDLE_MINUTES,

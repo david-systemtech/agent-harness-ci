@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "routines.endpoints.set result",
+  "type": "object",
+  "properties": {
+    "endpoint": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,40}$",
+          "description": "A webhook endpoint's name on its environment: 1 to 40 lower-case letters, digits and hyphens, unique."
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?:\\/\\/",
+          "description": "Where the endpoint's POSTs go: https, or http only to loopback, localhost, a private or tailnet address or a .ts.net name; with no userinfo, and its host off the denylist."
+        },
+        "secretKind": {
+          "type": "string",
+          "enum": [
+            "pasted",
+            "reference",
+            "missing"
+          ],
+          "description": "Where a webhook endpoint's secret is, never the secret: pasted (sent once and kept in the environment's vault), reference (a key-manager reference resolved per delivery) or missing (none, so a delivery to it fails)."
+        },
+        "lastResult": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                "result": {
+                  "type": "string",
+                  "enum": [
+                    "delivered",
+                    "retrying",
+                    "failed"
+                  ],
+                  "description": "What a delivery attempt came to: delivered, retrying (it failed and is retried at retryAt: a network error, a timeout, 408, 429 or 5xx) or failed (finally)."
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The HTTP status a webhook answered; null for a client notice, or when none came."
+                },
+                "error": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "What went wrong; null when it was delivered."
+                }
+              },
+              "required": [
+                "at",
+                "result",
+                "status",
+                "error"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the latest POST to it came to, a delivery's or a test's; null before the first."
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "secretKind",
+        "lastResult"
+      ],
+      "description": "A webhook endpoint the environment names for routines to deliver to: its name, URL, where its secret is, and its last result; never the secret."
+    }
+  },
+  "required": [
+    "endpoint"
+  ]
+}

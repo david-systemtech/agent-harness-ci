@@ -104,6 +104,25 @@ import {
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
 import {
+  routinesCheckImport,
+  routinesCreate,
+  routinesDelete,
+  routinesDisable,
+  routinesEnable,
+  routinesEndpointsList,
+  routinesEndpointsRemove,
+  routinesEndpointsSet,
+  routinesEndpointsTest,
+  routinesExport,
+  routinesHistory,
+  routinesImport,
+  routinesList,
+  routinesRunNow,
+  routinesScriptsList,
+  routinesTestPreCheck,
+  routinesUpdate,
+} from "./methods/routines.js";
+import {
   terminalsClose,
   terminalsList,
   terminalsOpen,
@@ -229,6 +248,23 @@ export const methods = [
   updatesSettingsSet,
   updatesBegin,
   updatesDesktopStage,
+  routinesList,
+  routinesHistory,
+  routinesExport,
+  routinesCheckImport,
+  routinesScriptsList,
+  routinesEndpointsList,
+  routinesCreate,
+  routinesUpdate,
+  routinesEnable,
+  routinesDisable,
+  routinesDelete,
+  routinesImport,
+  routinesRunNow,
+  routinesTestPreCheck,
+  routinesEndpointsSet,
+  routinesEndpointsRemove,
+  routinesEndpointsTest,
 ] as const;
 
 type Registered = (typeof methods)[number];
@@ -240,13 +276,32 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * Registered methods the environment does not serve yet, each with the
  * ticket that owes its handler. They are registered ahead of it so the
  * tickets that read their shapes need not queue behind it (the session
- * summary's field table, #114; the update vocabulary, #335); a method leaves
+ * summary's field table, #114; the update vocabulary, #335; the routine
+ * vocabulary, #519); a method leaves
  * this list in the change that serves it, and the wire's test refuses a
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
   // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
   "updates.desktop.stage": "#354",
+  // The routine vocabulary (#519) is registered ahead of the tickets that serve it.
+  "routines.list": "#521",
+  "routines.create": "#521",
+  "routines.update": "#521",
+  "routines.enable": "#521",
+  "routines.disable": "#521",
+  "routines.delete": "#521",
+  "routines.history": "#523",
+  "routines.runNow": "#523",
+  "routines.testPreCheck": "#526",
+  "routines.scripts.list": "#526",
+  "routines.export": "#528",
+  "routines.checkImport": "#528",
+  "routines.import": "#528",
+  "routines.endpoints.set": "#522",
+  "routines.endpoints.remove": "#522",
+  "routines.endpoints.list": "#522",
+  "routines.endpoints.test": "#522",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 

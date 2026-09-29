@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "routines.scripts.list result",
+  "type": "object",
+  "properties": {
+    "directory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The scripts directory on the environment's machine, where the OS user places scripts."
+    },
+    "scripts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The file's path relative to the scripts directory, as a pre-check names it."
+          },
+          "executable": {
+            "type": "boolean",
+            "description": "Whether the environment may run it: executable, or on Windows of an executable extension."
+          }
+        },
+        "required": [
+          "path",
+          "executable"
+        ],
+        "description": "A regular file in the scripts directory."
+      },
+      "description": "The directory's regular files."
+    }
+  },
+  "required": [
+    "directory",
+    "scripts"
+  ]
+}

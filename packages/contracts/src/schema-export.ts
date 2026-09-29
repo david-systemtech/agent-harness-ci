@@ -349,6 +349,7 @@ import {
 } from "./prompts.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
 import { REPOSITORY_IDENTITY_CASES } from "./repository-identity.js";
+import { DenylistedError, OutputTooLargeError } from "./methods/routines.js";
 import {
   CannotStartReason,
   DeliveredOutcome,
@@ -878,6 +879,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "routines/conflict-reason.json", title: "RoutineConflictReason", schema: RoutineConflictReason },
   { path: "routines/import-warnings.json", title: "RoutineImportWarnings", schema: RoutineImportWarnings },
   { path: "routines/import-check.json", title: "RoutineImportCheck", schema: RoutineImportCheck },
+  { path: "errors/denylisted.json", title: "DenylistedError", schema: DenylistedError },
+  { path: "errors/output_too_large.json", title: "OutputTooLargeError", schema: OutputTooLargeError },
   { path: "setup/step-id.json", title: "StepId", schema: StepId },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },

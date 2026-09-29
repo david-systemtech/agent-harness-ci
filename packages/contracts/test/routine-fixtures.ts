@@ -1,7 +1,8 @@
 /**
  * Fixtures for the routine vocabulary (routines spec; #519): a valid and an
  * invalid instance of every routine schema the export writes, the event and
- * notice payloads among them. `fixtures.ts` folds them into the package's
+ * notice payloads and the two errors among them, and params and results for
+ * the `routines.*` methods. `fixtures.ts` folds them into the package's
  * fixture table; the routine tests read the samples here.
  */
 
@@ -370,5 +371,123 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
       { index: 1, definition: null, issues: [{ code: "invalid_value", path: ["schedule", "day"], message: "Invalid option" }], warnings: { attention: [], workspace: null } },
     ],
     invalid: [{ index: -1, definition: saved, issues: [], warnings: { attention: [], workspace: null } }, { index: 0, definition: saved, issues: [] }],
+  },
+  "errors/denylisted.json": {
+    valid: [{ code: "denylisted", message: "example.com is on the denylist.", data: { host: "example.com" } }],
+    invalid: [{ code: "denylisted", message: "m", data: {} }, { code: "forbidden", message: "m", data: { host: "example.com" } }],
+  },
+  "errors/output_too_large.json": {
+    valid: [{ code: "output_too_large", message: "The output passed 1 MiB.", data: { limitBytes: 1_048_576 } }],
+    invalid: [{ code: "output_too_large", message: "m", data: {} }, { code: "output_too_large", message: "m", data: { limitBytes: 0 } }],
+  },
+};
+
+const listedResult: Fixtures = { valid: [{ routine: listed }], invalid: [{}, { routine: saved }] };
+const routineTarget: Fixtures = { valid: [{ commandId, routineId }], invalid: [{ commandId }, { routineId }, { commandId, routineId: "upstream-watch" }] };
+const moveTarget = { environmentId: otherEnvironment, routineId };
+const yaml = "kind: routine\nversion: 1\nname: Upstream watch\n";
+const reference = { provider: "openbao", connectionId: otherEnvironment, mount: "personal", path: "agents/hermes", key: "webhook-secret" };
+
+export const routineMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "routines.list": {
+    params: { valid: [{}], invalid: [[], "list"] },
+    result: { valid: [{ routines: [] }, { routines: [listed] }], invalid: [{}, { routines: [saved] }] },
+  },
+  "routines.history": {
+    params: {
+      valid: [{ routineId }, { routineId, before: firingId, limit: 500 }],
+      invalid: [{}, { routineId, limit: 0 }, { routineId, limit: 501 }, { routineId, before: "entry-1" }],
+    },
+    result: { valid: [{ entries: [] }, { entries: [firing, skip] }], invalid: [{}, { entries: [{ ...skip, kind: "tick" }] }] },
+  },
+  "routines.export": {
+    params: { valid: [{}, { routineIds: [routineId] }], invalid: [{ routineIds: [] }, { routineIds: [routineId, routineId] }, { routineIds: ["upstream-watch"] }] },
+    result: { valid: [{ yaml }], invalid: [{}, { yaml: "" }] },
+  },
+  "routines.checkImport": {
+    params: { valid: [{ yaml }, { yaml, routineId }], invalid: [{}, { yaml: "" }, { yaml, routineId: "upstream-watch" }] },
+    result: {
+      valid: [{ documents: [] }, { documents: [{ index: 0, definition: saved, issues: [], warnings: { attention: ["endpoint_missing"], workspace: scratch } }] }],
+      invalid: [{}, { documents: [{ index: 0, definition: saved, issues: [] }] }],
+    },
+  },
+  "routines.scripts.list": {
+    params: { valid: [{}], invalid: [[], "scripts"] },
+    result: {
+      valid: [{ directory: "/home/david/.local/state/agent-harness/scripts", scripts: [] }, { directory: "/srv/agent-harness/scripts", scripts: [{ path: "upstream-watch.sh", executable: true }] }],
+      invalid: [{ scripts: [] }, { directory: "/srv/scripts", scripts: [{ path: "watch.sh" }] }],
+    },
+  },
+  "routines.endpoints.list": {
+    params: { valid: [{}], invalid: [[], "endpoints"] },
+    result: { valid: [{ endpoints: [] }, { endpoints: [endpoint] }], invalid: [{}, { endpoints: [{ ...endpoint, secretKind: "token-for-tests" }] }] },
+  },
+  "routines.create": {
+    params: {
+      valid: [{ commandId, routineId, definition: written }, { commandId, routineId, definition: saved }],
+      invalid: [{ commandId, definition: written }, { commandId, routineId: "upstream-watch", definition: written }, { commandId, routineId, definition: without(written, "instructions") }],
+    },
+    result: listedResult,
+  },
+  "routines.update": {
+    params: {
+      valid: [{ commandId, routineId, fields: {} }, { commandId, routineId, fields: { enabled: true, preCheck: { kind: "script", path: "watch.sh" } } }],
+      invalid: [{ commandId, routineId }, { commandId, routineId, fields: { silenceMarker: "" } }, { routineId, fields: {} }],
+    },
+    result: listedResult,
+  },
+  "routines.enable": { params: routineTarget, result: listedResult },
+  "routines.disable": {
+    params: { valid: [{ commandId, routineId }, { commandId, routineId, movedTo: moveTarget }], invalid: [{ commandId }, { commandId, routineId, movedTo: { routineId } }] },
+    result: listedResult,
+  },
+  "routines.delete": { params: routineTarget, result: { valid: [{ routineId }], invalid: [{}, { routineId: "upstream-watch" }] } },
+  "routines.import": {
+    params: {
+      valid: [{ commandId, yaml }, { commandId, yaml, routineIds: [routineId] }, { commandId, yaml, routineId, movedFrom: moveTarget }],
+      invalid: [{ commandId, yaml: "" }, { commandId, yaml, routineIds: [routineId], routineId }, { commandId, yaml, routineIds: [] }, { yaml }],
+    },
+    result: {
+      valid: [{ routines: [listed], warnings: [{ attention: [], workspace: null }] }],
+      invalid: [{ routines: [listed] }, { routines: [saved], warnings: [] }],
+    },
+  },
+  "routines.runNow": {
+    params: { valid: [{ commandId, routineId }, { commandId, routineId, withPreCheck: true }], invalid: [{ commandId }, { commandId, routineId, withPreCheck: "yes" }] },
+    result: { valid: [{ entryId: firingId }], invalid: [{}, { entryId: "entry-1" }] },
+  },
+  "routines.testPreCheck": {
+    params: {
+      valid: [{ routineId }, { preCheck: { kind: "script", path: "watch.sh" }, workspace: scratch }, { preCheck: urlPreCheck, workspace: written.workspace }],
+      invalid: [{}, { routineId, preCheck: urlPreCheck, workspace: scratch }, { preCheck: urlPreCheck }, { workspace: scratch }, { routineId, workspace: scratch }],
+    },
+    result: preCheckRecords,
+  },
+  "routines.endpoints.set": {
+    params: {
+      valid: [
+        { commandId, name: "hermes-home", url: endpoint.url },
+        { commandId, name: "hermes-home", url: endpoint.url, secret: { kind: "pasted", secret: "token-for-tests" } },
+        { commandId, name: "hermes-home", url: endpoint.url, secret: { kind: "reference", reference } },
+      ],
+      invalid: [
+        { commandId, name: "Hermes", url: endpoint.url },
+        { commandId, name: "hermes-home", url: "ftp://example.com/hook" },
+        { commandId, name: "hermes-home", url: endpoint.url, secret: { kind: "pasted", secret: "" } },
+        { commandId, name: "hermes-home", url: endpoint.url, secret: { kind: "pasted", secret: "has a space" } },
+      ],
+    },
+    result: { valid: [{ endpoint }], invalid: [{}, { endpoint: without(endpoint, "url") }] },
+  },
+  "routines.endpoints.remove": {
+    params: { valid: [{ commandId, name: "hermes-home" }], invalid: [{ commandId }, { commandId, name: "Hermes" }] },
+    result: { valid: [{ name: "hermes-home" }], invalid: [{}, { name: "" }] },
+  },
+  "routines.endpoints.test": {
+    params: { valid: [{ name: "hermes-home" }], invalid: [{}, { name: "" }] },
+    result: {
+      valid: [{ status: 204, durationMs: 83, error: null }, { status: null, durationMs: 10_000, error: "No answer in ten seconds." }],
+      invalid: [{ status: 204, durationMs: 83 }, { status: 204, durationMs: -1, error: null }],
+    },
   },
 };

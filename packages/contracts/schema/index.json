@@ -2007,6 +2007,14 @@
       "title": "RoutineImportCheck"
     },
     {
+      "path": "errors/denylisted.json",
+      "title": "DenylistedError"
+    },
+    {
+      "path": "errors/output_too_large.json",
+      "title": "OutputTooLargeError"
+    },
+    {
       "path": "setup/step-id.json",
       "title": "StepId"
     },
@@ -3813,6 +3821,246 @@
     {
       "path": "methods/updates.desktop.stage/error.json",
       "title": "updates.desktop.stage error"
+    },
+    {
+      "path": "methods/routines.list/params.json",
+      "title": "routines.list params"
+    },
+    {
+      "path": "methods/routines.list/result.json",
+      "title": "routines.list result"
+    },
+    {
+      "path": "methods/routines.list/error.json",
+      "title": "routines.list error"
+    },
+    {
+      "path": "methods/routines.history/params.json",
+      "title": "routines.history params"
+    },
+    {
+      "path": "methods/routines.history/result.json",
+      "title": "routines.history result"
+    },
+    {
+      "path": "methods/routines.history/error.json",
+      "title": "routines.history error"
+    },
+    {
+      "path": "methods/routines.export/params.json",
+      "title": "routines.export params"
+    },
+    {
+      "path": "methods/routines.export/result.json",
+      "title": "routines.export result"
+    },
+    {
+      "path": "methods/routines.export/error.json",
+      "title": "routines.export error"
+    },
+    {
+      "path": "methods/routines.checkImport/params.json",
+      "title": "routines.checkImport params"
+    },
+    {
+      "path": "methods/routines.checkImport/result.json",
+      "title": "routines.checkImport result"
+    },
+    {
+      "path": "methods/routines.checkImport/error.json",
+      "title": "routines.checkImport error"
+    },
+    {
+      "path": "methods/routines.scripts.list/params.json",
+      "title": "routines.scripts.list params"
+    },
+    {
+      "path": "methods/routines.scripts.list/result.json",
+      "title": "routines.scripts.list result"
+    },
+    {
+      "path": "methods/routines.scripts.list/error.json",
+      "title": "routines.scripts.list error"
+    },
+    {
+      "path": "methods/routines.endpoints.list/params.json",
+      "title": "routines.endpoints.list params"
+    },
+    {
+      "path": "methods/routines.endpoints.list/result.json",
+      "title": "routines.endpoints.list result"
+    },
+    {
+      "path": "methods/routines.endpoints.list/error.json",
+      "title": "routines.endpoints.list error"
+    },
+    {
+      "path": "methods/routines.create/params.json",
+      "title": "routines.create params"
+    },
+    {
+      "path": "methods/routines.create/result.json",
+      "title": "routines.create result"
+    },
+    {
+      "path": "methods/routines.create/response.json",
+      "title": "routines.create response"
+    },
+    {
+      "path": "methods/routines.create/error.json",
+      "title": "routines.create error"
+    },
+    {
+      "path": "methods/routines.update/params.json",
+      "title": "routines.update params"
+    },
+    {
+      "path": "methods/routines.update/result.json",
+      "title": "routines.update result"
+    },
+    {
+      "path": "methods/routines.update/response.json",
+      "title": "routines.update response"
+    },
+    {
+      "path": "methods/routines.update/error.json",
+      "title": "routines.update error"
+    },
+    {
+      "path": "methods/routines.enable/params.json",
+      "title": "routines.enable params"
+    },
+    {
+      "path": "methods/routines.enable/result.json",
+      "title": "routines.enable result"
+    },
+    {
+      "path": "methods/routines.enable/response.json",
+      "title": "routines.enable response"
+    },
+    {
+      "path": "methods/routines.enable/error.json",
+      "title": "routines.enable error"
+    },
+    {
+      "path": "methods/routines.disable/params.json",
+      "title": "routines.disable params"
+    },
+    {
+      "path": "methods/routines.disable/result.json",
+      "title": "routines.disable result"
+    },
+    {
+      "path": "methods/routines.disable/response.json",
+      "title": "routines.disable response"
+    },
+    {
+      "path": "methods/routines.disable/error.json",
+      "title": "routines.disable error"
+    },
+    {
+      "path": "methods/routines.delete/params.json",
+      "title": "routines.delete params"
+    },
+    {
+      "path": "methods/routines.delete/result.json",
+      "title": "routines.delete result"
+    },
+    {
+      "path": "methods/routines.delete/response.json",
+      "title": "routines.delete response"
+    },
+    {
+      "path": "methods/routines.delete/error.json",
+      "title": "routines.delete error"
+    },
+    {
+      "path": "methods/routines.import/params.json",
+      "title": "routines.import params"
+    },
+    {
+      "path": "methods/routines.import/result.json",
+      "title": "routines.import result"
+    },
+    {
+      "path": "methods/routines.import/response.json",
+      "title": "routines.import response"
+    },
+    {
+      "path": "methods/routines.import/error.json",
+      "title": "routines.import error"
+    },
+    {
+      "path": "methods/routines.runNow/params.json",
+      "title": "routines.runNow params"
+    },
+    {
+      "path": "methods/routines.runNow/result.json",
+      "title": "routines.runNow result"
+    },
+    {
+      "path": "methods/routines.runNow/response.json",
+      "title": "routines.runNow response"
+    },
+    {
+      "path": "methods/routines.runNow/error.json",
+      "title": "routines.runNow error"
+    },
+    {
+      "path": "methods/routines.testPreCheck/params.json",
+      "title": "routines.testPreCheck params"
+    },
+    {
+      "path": "methods/routines.testPreCheck/result.json",
+      "title": "routines.testPreCheck result"
+    },
+    {
+      "path": "methods/routines.testPreCheck/error.json",
+      "title": "routines.testPreCheck error"
+    },
+    {
+      "path": "methods/routines.endpoints.set/params.json",
+      "title": "routines.endpoints.set params"
+    },
+    {
+      "path": "methods/routines.endpoints.set/result.json",
+      "title": "routines.endpoints.set result"
+    },
+    {
+      "path": "methods/routines.endpoints.set/response.json",
+      "title": "routines.endpoints.set response"
+    },
+    {
+      "path": "methods/routines.endpoints.set/error.json",
+      "title": "routines.endpoints.set error"
+    },
+    {
+      "path": "methods/routines.endpoints.remove/params.json",
+      "title": "routines.endpoints.remove params"
+    },
+    {
+      "path": "methods/routines.endpoints.remove/result.json",
+      "title": "routines.endpoints.remove result"
+    },
+    {
+      "path": "methods/routines.endpoints.remove/response.json",
+      "title": "routines.endpoints.remove response"
+    },
+    {
+      "path": "methods/routines.endpoints.remove/error.json",
+      "title": "routines.endpoints.remove error"
+    },
+    {
+      "path": "methods/routines.endpoints.test/params.json",
+      "title": "routines.endpoints.test params"
+    },
+    {
+      "path": "methods/routines.endpoints.test/result.json",
+      "title": "routines.endpoints.test result"
+    },
+    {
+      "path": "methods/routines.endpoints.test/error.json",
+      "title": "routines.endpoints.test error"
     }
   ],
   "cases": [
@@ -4917,6 +5165,168 @@
       "params": "methods/updates.desktop.stage/params.json",
       "result": "methods/updates.desktop.stage/result.json",
       "error": "methods/updates.desktop.stage/error.json"
+    },
+    {
+      "name": "routines.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.list/params.json",
+      "result": "methods/routines.list/result.json",
+      "error": "methods/routines.list/error.json"
+    },
+    {
+      "name": "routines.history",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.history/params.json",
+      "result": "methods/routines.history/result.json",
+      "error": "methods/routines.history/error.json"
+    },
+    {
+      "name": "routines.export",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.export/params.json",
+      "result": "methods/routines.export/result.json",
+      "error": "methods/routines.export/error.json"
+    },
+    {
+      "name": "routines.checkImport",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.checkImport/params.json",
+      "result": "methods/routines.checkImport/result.json",
+      "error": "methods/routines.checkImport/error.json"
+    },
+    {
+      "name": "routines.scripts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.scripts.list/params.json",
+      "result": "methods/routines.scripts.list/result.json",
+      "error": "methods/routines.scripts.list/error.json"
+    },
+    {
+      "name": "routines.endpoints.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.endpoints.list/params.json",
+      "result": "methods/routines.endpoints.list/result.json",
+      "error": "methods/routines.endpoints.list/error.json"
+    },
+    {
+      "name": "routines.create",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.create/params.json",
+      "result": "methods/routines.create/result.json",
+      "response": "methods/routines.create/response.json",
+      "error": "methods/routines.create/error.json"
+    },
+    {
+      "name": "routines.update",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.update/params.json",
+      "result": "methods/routines.update/result.json",
+      "response": "methods/routines.update/response.json",
+      "error": "methods/routines.update/error.json"
+    },
+    {
+      "name": "routines.enable",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.enable/params.json",
+      "result": "methods/routines.enable/result.json",
+      "response": "methods/routines.enable/response.json",
+      "error": "methods/routines.enable/error.json"
+    },
+    {
+      "name": "routines.disable",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.disable/params.json",
+      "result": "methods/routines.disable/result.json",
+      "response": "methods/routines.disable/response.json",
+      "error": "methods/routines.disable/error.json"
+    },
+    {
+      "name": "routines.delete",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.delete/params.json",
+      "result": "methods/routines.delete/result.json",
+      "response": "methods/routines.delete/response.json",
+      "error": "methods/routines.delete/error.json"
+    },
+    {
+      "name": "routines.import",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.import/params.json",
+      "result": "methods/routines.import/result.json",
+      "response": "methods/routines.import/response.json",
+      "error": "methods/routines.import/error.json"
+    },
+    {
+      "name": "routines.runNow",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.runNow/params.json",
+      "result": "methods/routines.runNow/result.json",
+      "response": "methods/routines.runNow/response.json",
+      "error": "methods/routines.runNow/error.json"
+    },
+    {
+      "name": "routines.testPreCheck",
+      "scope": "runs:drive",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.testPreCheck/params.json",
+      "result": "methods/routines.testPreCheck/result.json",
+      "error": "methods/routines.testPreCheck/error.json"
+    },
+    {
+      "name": "routines.endpoints.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.endpoints.set/params.json",
+      "result": "methods/routines.endpoints.set/result.json",
+      "response": "methods/routines.endpoints.set/response.json",
+      "error": "methods/routines.endpoints.set/error.json"
+    },
+    {
+      "name": "routines.endpoints.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/routines.endpoints.remove/params.json",
+      "result": "methods/routines.endpoints.remove/result.json",
+      "response": "methods/routines.endpoints.remove/response.json",
+      "error": "methods/routines.endpoints.remove/error.json"
+    },
+    {
+      "name": "routines.endpoints.test",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/routines.endpoints.test/params.json",
+      "result": "methods/routines.endpoints.test/result.json",
+      "error": "methods/routines.endpoints.test/error.json"
     }
   ]
 }
