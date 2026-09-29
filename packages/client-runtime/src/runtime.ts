@@ -19,6 +19,7 @@ import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
 import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
+import type { SessionDocument } from "./projections/documents.js";
 import type { KnownDirectory } from "./projections/known-directories.js";
 import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
@@ -64,6 +65,15 @@ export interface Runtime {
      * reading it never subscribes.
      */
     session(environmentId: string, sessionId: string): Observable<SessionProjection>;
+    /**
+     * The pages, SVGs and markdown one session wrote, most recently touched
+     * first: its write and edit tool calls folded into one entry per
+     * workspace path, each with the call that first wrote it and when, its
+     * last touch, its revisions and its size when last written whole
+     * (`sessionDocuments`). Following it follows the session as `session`
+     * does.
+     */
+    documents(environmentId: string, sessionId: string): Observable<readonly SessionDocument[]>;
     /**
      * Each session's run state, and the parked asks of every enabled
      * environment with their TTL countdowns; `runs.session(environmentId,

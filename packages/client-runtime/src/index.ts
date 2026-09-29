@@ -138,6 +138,15 @@ export type {
   UserMessageEntry,
 } from "./projections/session.js";
 export {
+  documentKindOf,
+  documentWritten,
+  sessionDocuments,
+  type DocumentKind,
+  type DocumentTouch,
+  type DocumentWrite,
+  type SessionDocument,
+} from "./projections/documents.js";
+export {
   COUNTDOWN_TICK_MS,
   adapterOf,
   type Countdown,
