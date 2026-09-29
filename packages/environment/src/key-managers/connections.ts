@@ -15,6 +15,7 @@ import {
   type KeyManagerStatus,
   type KeyManagerTokenInformation,
   type MethodName,
+  type ParamsOf,
   type ResultOf,
 } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
@@ -348,7 +349,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   };
 
   /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none. */
-  const settingsOf = (params: Parameters<KeyManagerConnections["add"]["prepare"]>[0], address: string) => {
+  const settingsOf = (params: ParamsOf<"keyManagers.connections.add">, address: string) => {
     if (params.provider !== "openbao") {
       for (const field of ["ca", "method", "mount", "username", "tokenRole"] as const) {
         if (params[field] !== undefined) invalid([field], `${field} is OpenBao's: a ${PROVIDER_NAMES[params.provider]} connection takes none.`);

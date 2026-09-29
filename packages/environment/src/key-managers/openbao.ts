@@ -18,7 +18,7 @@ import type { ConnectionProvider, ProviderFailure, SignInTarget } from "./provid
  */
 
 /** How long one call may take (ADR 0031's budget), past which OpenBao counts as unreachable. */
-export const OPENBAO_CALL_TIMEOUT_MS = 10_000;
+const OPENBAO_CALL_TIMEOUT_MS = 10_000;
 
 /** The most of an answer read: OpenBao's are small. */
 const MAX_ANSWER_BYTES = 1_048_576;
