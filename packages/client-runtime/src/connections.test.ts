@@ -39,7 +39,7 @@ describe("hello", () => {
         colour: null,
         harnessVersion: HARNESS_VERSION,
         protocolVersion: 1,
-        capabilities: ["forge", "keyManagers", "managedTools"],
+        capabilities: ["forge", "keyManagers", "managedTools", "setup"],
         lastSeen: platform.clock.now().toISOString(),
       },
     });

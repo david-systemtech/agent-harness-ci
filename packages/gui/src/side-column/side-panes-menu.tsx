@@ -25,7 +25,7 @@ const MenuFor = ({ session }: { readonly session: PaneSession }) => {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <Button className="ml-auto h-7 px-2 text-xs">Side panes</Button>
+        <Button className="h-7 px-2 text-xs">Side panes</Button>
       </MenuTrigger>
       <MenuContent align="end">
         {SIDE_PANES.map((pane) => {

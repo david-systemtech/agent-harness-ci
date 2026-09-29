@@ -92,6 +92,7 @@ describe("the preload bundle", () => {
       "localGrant",
       "network",
       "openExternal",
+      "preview",
       "secrets",
       "service",
       "system",
@@ -105,6 +106,7 @@ describe("the preload bundle", () => {
     expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["delete", "get", "set"]);
     expect(Object.keys(shell["localGrant"] ?? {})).toEqual(["read"]);
     expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["install", "start", "status"]);
+    expect(Object.keys(shell["preview"] ?? {})).toEqual(["grant"]);
     expect(shell).not.toHaveProperty("tray");
   });
 

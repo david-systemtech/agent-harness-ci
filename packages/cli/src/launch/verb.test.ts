@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { childReport, installVersion, until } from "../../test/launcher-fixtures.js";
 import { runCli } from "../cli.js";
+import { LAUNCHER_VERSION, RELAUNCH_EXIT_CODE } from "./launcher.js";
 import { writeServiceState } from "./state.js";
 
 /**
@@ -32,12 +33,25 @@ const tempDir = (): string => {
   return dir;
 };
 
-/** A data directory with 0.5.0 installed and active, the scripted child as its serve. */
-const dataDirectory = (): string => {
+/**
+ * A data directory with `version` installed and active, the scripted child
+ * as its serve. Preset: the launcher's own version, as the launcher entry
+ * starts the active version's launcher; any other is handed over to.
+ */
+const dataDirectory = (version = LAUNCHER_VERSION): string => {
   const dataDir = join(tempDir(), "data");
   mkdirSync(dataDir);
-  installVersion(dataDir, "0.5.0");
-  writeServiceState(dataDir, { activeVersion: "0.5.0", previousVersion: null, launcherVersion: "0.5.0", pendingUpdate: null, watchDeadline: null });
+  installVersion(dataDir, version);
+  writeServiceState(dataDir, {
+    activeVersion: version,
+    previousVersion: null,
+    launcherVersion: version,
+    pendingUpdate: null,
+    watchDeadline: null,
+    watchedUpdateId: null,
+    stagedVersion: null,
+    failedHandover: null,
+  });
   return dataDir;
 };
 
@@ -92,7 +106,15 @@ describe.runIf(posix)("agent-harness launch", () => {
     expect(childReport(dataDir).filter((line) => line.event === "drained")).toMatchObject([{ trigger: "launcher" }]);
     expect(launcher.stderr()).toBe("");
     const lines = launcher.stdout().trimEnd().split("\n").map((line) => line.replace(/^\S+ /, ""));
-    expect(lines.slice(0, 3)).toEqual([expect.stringMatching(/^launcher: spawned 0\.5\.0 as pid \d+$/), "launcher: 0.5.0 committed", "launcher: stopping: draining 0.5.0"]);
+    expect(lines.slice(0, 3)).toEqual([expect.stringMatching(/^launcher: spawned \d+\.\d+\.\d+ as pid \d+$/), `launcher: ${LAUNCHER_VERSION} committed`, `launcher: stopping: draining ${LAUNCHER_VERSION}`]);
+  });
+
+  it("ends its process with the relaunch code once it has handed over, no wait of its own keeping the process", async () => {
+    const dataDir = dataDirectory("0.5.0");
+    const launcher = run(new URL("../main.ts", import.meta.url).pathname, ["launch", "--data-dir", dataDir]);
+    expect(await launcher.exited).toBe(RELAUNCH_EXIT_CODE);
+    expect(launcher.stderr()).toBe("");
+    expect(childReport(dataDir).filter((line) => line.event === "drained")).toMatchObject([{ trigger: "launcher" }]);
   });
 
   it("runs until the process is asked to stop, printing the service log's lines", async () => {
@@ -109,7 +131,11 @@ describe.runIf(posix)("agent-harness launch", () => {
     expect(childReport(dataDir)[0]?.["args"]).toEqual(["serve", "--data-dir", dataDir, "--port", "7433"]);
     stop();
     expect(await exit).toBe(0);
-    expect(stdout).toMatch(/^\S+ launcher: spawned 0\.5\.0 as pid \d+\n\S+ launcher: 0\.5\.0 committed\n\S+ launcher: stopping: draining 0\.5\.0\n/);
+    expect(stdout.split("\n").map((line) => line.replace(/^\S+ /, "")).slice(0, 3)).toEqual([
+      expect.stringMatching(/^launcher: spawned \S+ as pid \d+$/),
+      `launcher: ${LAUNCHER_VERSION} committed`,
+      `launcher: stopping: draining ${LAUNCHER_VERSION}`,
+    ]);
   });
 
   it("passes --name to every serve it starts, which names a new environment with it at its first start", async () => {
@@ -125,6 +151,20 @@ describe.runIf(posix)("agent-harness launch", () => {
     expect(childReport(dataDir)[0]?.["args"]).toEqual(["serve", "--data-dir", dataDir, "--port", "7433", "--name", "David's desk"]);
     stop();
     expect(await exit).toBe(0);
+  });
+
+  it("exits with the relaunch code once it has handed over to the launcher of an active version that is not its own", async () => {
+    const dataDir = dataDirectory("0.5.0");
+    let stdout = "";
+    const exit = await runCli(["launch", "--data-dir", dataDir], {
+      stdout: (text) => (stdout += text),
+      stderr: () => undefined,
+      stopRequested: () => new Promise(() => undefined),
+    });
+    expect(exit).toBe(RELAUNCH_EXIT_CODE);
+    expect(readFileSync(join(dataDir, "launcher-version"), "utf8")).toBe("0.5.0\n");
+    expect(readFileSync(join(dataDir, "launcher-handover"), "utf8")).toBe(`${LAUNCHER_VERSION}\n0.5.0\n`);
+    expect(stdout).toContain(`launcher: handing over to the launcher of 0.5.0: ${join(dataDir, "launcher-version")} names it`);
   });
 });
 

@@ -139,9 +139,10 @@
                   "closed",
                   "failed",
                   "exited",
-                  "rewound"
+                  "rewound",
+                  "moved"
                 ],
-                "description": "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own), rewound (its session was rewound, so the next run starts from the rewind's point on a fresh process; a background task it held ends with it)."
+                "description": "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own), rewound (its session was rewound, so the next run starts from the rewind's point on a fresh process; a background task it held ends with it), moved (its session was given a new workspace by sessions.setWorkspace, so the next run starts in it on a fresh process)."
               },
               {
                 "type": "null"

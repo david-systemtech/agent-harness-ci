@@ -1,0 +1,277 @@
+import { spawn } from "node:child_process";
+import * as nodeFs from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import {
+  LAUNCHER_PROTOCOL,
+  parsePreflightReport,
+  RELEASE_VERSION_PATTERN,
+  STAGING_DIRECTORY,
+  type InstallAnswer,
+  type InstallRefusal,
+  type PreflightReport,
+} from "@agent-harness/contracts/launcher";
+import { syncDirectory, syncTree, writeFileDurably, type DurableFs } from "./durable.js";
+import type { LauncherTimer } from "./launcher.js";
+import { SNAPSHOT_MARGIN_BYTES } from "./snapshot.js";
+import { declaredVersion, isComplete, VERSION_SENTINEL, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
+
+/**
+ * Installing a staged version (launcher-update spec, "Preflight" and
+ * "Launcher protocol"; ADR 0007): the launcher's answer to `install?
+ * {version, staged}`. A version the environment unpacked into the staging
+ * area is installed only once it has proved, on this machine, that it can
+ * load what it needs: its own `preflight` passed within 30 seconds. Only then
+ * is its folder renamed into the versions directory, its sentinel written
+ * last. Before the preflight runs, a version that is not whole, that needs a
+ * launcher protocol this launcher does not speak, or that the disk has no
+ * room to run is refused; a refused install leaves the versions directory as
+ * it was. A version already complete there is answered installed as it is.
+ *
+ * The launcher protocol is read from what the version declares
+ * (`declaredVersion`), so a version this launcher cannot host is never run,
+ * not even its preflight: each release's environment runs under the previous
+ * release's launcher, and a breaking launcher change ships across two.
+ */
+
+/** How long a staged version's preflight may run before it is ended and the install refused. */
+export const PREFLIGHT_TIMEOUT_MS = 30_000;
+
+/**
+ * The free room an install asks for on the data directory's disk: the room a
+ * version needs to run, the snapshot's margin, which a switch to it asks
+ * for again beyond the database's copy. A version is renamed into place, so
+ * its own files take no more.
+ */
+export const INSTALL_ROOM_BYTES = SNAPSHOT_MARGIN_BYTES;
+
+/**
+ * How much of a preflight's output the launcher takes: that much goes to the
+ * service log, saying so once past it, and that much of its standard output
+ * is kept to read its report from, which is one short line.
+ */
+const PREFLIGHT_OUTPUT_CHARACTERS = 64 * 1024;
+
+export interface InstallerOptions {
+  /** The data directory, whose staging area the versions come from and whose versions directory they go into. */
+  readonly dataDir: string;
+  /** The launcher's timer, which the preflight's limit runs on. */
+  readonly timer: Pick<LauncherTimer, "after">;
+  /** The bytes free on the disk holding the data directory. */
+  readonly freeBytes: (dataDir: string) => number;
+  /** Writes one step to the service log. */
+  readonly log: (text: string) => void;
+  /** The file calls that change something. Preset: node's own. */
+  readonly fs?: DurableFs;
+  /** The platform, which says whether a directory can be fsynced. Preset: this one. */
+  readonly platform?: NodeJS.Platform;
+}
+
+export interface Installer {
+  /**
+   * Answers `install?` for `version` staged at `staged` once it is decided,
+   * or with nothing when the launcher stopped first. Installs run one at a
+   * time, in the order they were asked.
+   */
+  install(version: string, staged: string): Promise<InstallAnswer | undefined>;
+  /** Ends a preflight under way; nothing is installed or answered from now on. */
+  stop(): void;
+}
+
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Whether `error` says the disk had no room: full, or over the user's quota. */
+const noRoom = (error: unknown): boolean => ["ENOSPC", "EDQUOT"].includes((error as NodeJS.ErrnoException).code ?? "");
+
+/** Whether `staged` is a folder directly in the staging area of `dataDir` (links resolved), never a link to one. */
+const inStagingArea = (dataDir: string, staged: string): boolean => {
+  try {
+    return realpathSync(dirname(resolve(staged))) === realpathSync(join(dataDir, STAGING_DIRECTORY)) && lstatSync(staged).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+const isFile = (path: string): boolean => {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Why the folder `staged` is not a whole `version` staged for install, or
+ * the launcher protocol it declares: it must be a folder in the staging area
+ * holding the version's own Node runtime, its CLI's entry, and a package
+ * declaring this version and a launcher protocol.
+ */
+const inspectStaged = (dataDir: string, version: string, staged: string): { readonly launcherProtocol: number } | { readonly problem: string } => {
+  if (!inStagingArea(dataDir, staged)) return { problem: `${staged} is not a folder of the staging area ${join(dataDir, STAGING_DIRECTORY)}` };
+  const [node, entry] = versionCommand(staged);
+  if (!isFile(node)) return { problem: `${staged} has no Node runtime at ${node}` };
+  if (!isFile(entry)) return { problem: `${staged} has no CLI entry at ${entry}` };
+  const declared = declaredVersion(staged);
+  if ("problem" in declared) return declared;
+  if (declared.version !== version) return { problem: `${staged} holds ${declared.version}` };
+  return { launcherProtocol: declared.launcherProtocol };
+};
+
+/**
+ * Moves the version staged at `staged` into the versions directory of
+ * `dataDir` as `version`, durably and in this order: its files and folders
+ * are put on disk, a folder of the version without its sentinel (what an
+ * install cut short left, no version) is removed, the staged folder is
+ * renamed into place and both directories put on disk, and the sentinel is
+ * written last. A failure once it is renamed moves it back to the staging
+ * area, so the versions directory is left as it was, and throws.
+ */
+export const moveIntoVersions = (dataDir: string, version: string, staged: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
+  const target = versionDirectory(dataDir, version);
+  syncTree(staged, fs, platform);
+  fs.rmSync(target, { force: true, recursive: true });
+  fs.renameSync(staged, target);
+  try {
+    syncDirectory(join(dataDir, VERSIONS_DIRECTORY), fs, platform);
+    syncDirectory(dirname(staged), fs, platform);
+    writeFileDurably(join(target, VERSION_SENTINEL), "", fs, platform);
+  } catch (error) {
+    try {
+      fs.renameSync(target, staged);
+    } catch {
+      fs.rmSync(target, { force: true, recursive: true });
+    }
+    throw error;
+  }
+};
+
+/** How a preflight ended: its report once it exited 0 having printed one, else why it failed. */
+type PreflightRun = { readonly report: PreflightReport } | { readonly failure: string };
+
+/** Starts the launcher's installer on `options.dataDir`. */
+export const createInstaller = (options: InstallerOptions): Installer => {
+  const { dataDir, timer, freeBytes, log, fs = nodeFs, platform = process.platform } = options;
+  const versions = join(dataDir, VERSIONS_DIRECTORY);
+  let stopped = false;
+  /** Ends the preflight under way, if one is. */
+  let endPreflight: (() => void) | undefined;
+  /** The installs asked so far, each after the one before. */
+  let queue: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Runs `version`'s preflight in `folder` on the version's own Node, with
+   * its output going to the service log line by line as it comes, and
+   * settles once it has ended: exited, failed to start, or been ended at
+   * its limit or by a stop.
+   */
+  const runPreflight = (version: string, folder: string): Promise<PreflightRun> =>
+    new Promise((settle) => {
+      const [node, entry] = versionCommand(folder);
+      const child = spawn(node, [entry, "preflight"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      let settled = false;
+      let report = "";
+      let logged = 0;
+      const partial = { stdout: "", stderr: "" };
+      const say = (line: string) => {
+        if (logged > PREFLIGHT_OUTPUT_CHARACTERS) return;
+        logged += line.length;
+        log(logged > PREFLIGHT_OUTPUT_CHARACTERS ? `preflight of ${version}: its further output is not logged` : `preflight of ${version}: ${line}`);
+      };
+      const hear = (stream: "stdout" | "stderr", chunk: string) => {
+        if (settled) return;
+        if (stream === "stdout" && report.length < PREFLIGHT_OUTPUT_CHARACTERS) report += chunk;
+        const lines = (partial[stream] + chunk).split(/\r?\n/);
+        partial[stream] = lines.pop() ?? "";
+        for (const line of lines) if (line !== "") say(line);
+      };
+      const finish = (run: PreflightRun) => {
+        if (settled) return;
+        for (const rest of [partial.stdout, partial.stderr]) if (rest !== "") say(rest);
+        settled = true;
+        cancelLimit();
+        endPreflight = undefined;
+        settle(run);
+      };
+      const end = (failure: string) => {
+        child.kill("SIGKILL");
+        finish({ failure });
+      };
+      const cancelLimit = timer.after(PREFLIGHT_TIMEOUT_MS, () => end(`did not finish within ${PREFLIGHT_TIMEOUT_MS / 1000} s, so it was ended`));
+      endPreflight = () => end("was ended as the launcher stopped");
+      child.stdout.setEncoding("utf8").on("data", (chunk: string) => hear("stdout", chunk));
+      child.stderr.setEncoding("utf8").on("data", (chunk: string) => hear("stderr", chunk));
+      child.on("error", (error) => finish({ failure: `could not be run: ${error.message}` }));
+      // Closed once it has exited and all it printed has been read.
+      child.on("close", (code, signal) => {
+        if (code !== 0) return finish({ failure: code === null ? `was ended by ${signal}` : `exited with code ${code}` });
+        const parsed = parsePreflightReport(report);
+        finish(parsed === undefined ? { failure: "printed no preflight report" } : { report: parsed });
+      });
+    });
+
+  /** Decides `install?` of `version` from `staged`, refusing with `refuse`: every step in the order the spec gives, the preflight last before the move. */
+  const decide = async (version: string, staged: string, refuse: (reason: InstallRefusal, why: string) => InstallAnswer): Promise<InstallAnswer | undefined> => {
+    const needs = (launcherProtocol: number) => `${version} needs launcher protocol ${launcherProtocol} and this launcher speaks ${LAUNCHER_PROTOCOL}`;
+    if (!RELEASE_VERSION_PATTERN.test(version)) return refuse("incomplete", `${JSON.stringify(version)} is not a release version, which is all the versions directory holds`);
+    if (isComplete(dataDir, version)) {
+      log(`${version} is installed already, so ${staged} is not installed again`);
+      // The staged copy is of no use now; failing to remove it costs only the room it takes.
+      if (inStagingArea(dataDir, staged)) {
+        try {
+          fs.rmSync(staged, { force: true, recursive: true });
+        } catch (error) {
+          log(`${staged} could not be removed: ${messageOf(error)}`);
+        }
+      }
+      return { type: "installed" };
+    }
+    const inspected = inspectStaged(dataDir, version, staged);
+    if ("problem" in inspected) return refuse("incomplete", inspected.problem);
+    if (inspected.launcherProtocol > LAUNCHER_PROTOCOL) return refuse("launcher-protocol", needs(inspected.launcherProtocol));
+    try {
+      const free = freeBytes(dataDir);
+      if (free < INSTALL_ROOM_BYTES) return refuse("disk", `${free} bytes are free and a version needs ${INSTALL_ROOM_BYTES} to run`);
+    } catch (error) {
+      return refuse("io", messageOf(error));
+    }
+    log(`running the preflight of ${version}`);
+    const run = await runPreflight(version, staged);
+    if (stopped) return undefined;
+    if ("failure" in run) return refuse("preflight", `its preflight ${run.failure}`);
+    if (run.report.version !== version) return refuse("preflight", `its preflight reported ${run.report.version}`);
+    if (run.report.launcherProtocol > LAUNCHER_PROTOCOL) return refuse("launcher-protocol", needs(run.report.launcherProtocol));
+    try {
+      moveIntoVersions(dataDir, version, staged, fs, platform);
+    } catch (error) {
+      return refuse(noRoom(error) ? "disk" : "io", `it could not be moved into ${versions}: ${messageOf(error)}`);
+    }
+    log(`installed ${version} into ${versions}: its preflight passed`);
+    return { type: "installed" };
+  };
+
+  const installOne = async (version: string, staged: string): Promise<InstallAnswer | undefined> => {
+    if (stopped) return undefined;
+    const refuse = (reason: InstallRefusal, why: string): InstallAnswer => {
+      log(`refuses install? of ${version} from ${staged}: ${reason}, as ${why}`);
+      return { type: "refused", reason };
+    };
+    try {
+      return await decide(version, staged, refuse);
+    } catch (error) {
+      // Anything else that failed (the preflight could not be spawned at all, say) failed as a write would.
+      return refuse("io", messageOf(error));
+    }
+  };
+
+  return {
+    install: (version, staged) => {
+      const answer = queue.then(() => installOne(version, staged));
+      queue = answer;
+      return answer;
+    },
+    stop: () => {
+      stopped = true;
+      endPreflight?.();
+    },
+  };
+};

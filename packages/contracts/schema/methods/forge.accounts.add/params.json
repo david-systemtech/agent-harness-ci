@@ -28,7 +28,7 @@
         "forgejo",
         "gitea"
       ],
-      "description": "The kind of forge the URL is on: github, forgejo, gitea; optional for github.com, which is GitHub. gitlab is reserved for milestone 2."
+      "description": "The kind of forge the URL is on: github, forgejo, gitea; detected when absent. gitlab is reserved for milestone 2."
     },
     "slug": {
       "description": "The slug its variables are named by; derived from the host when absent.",

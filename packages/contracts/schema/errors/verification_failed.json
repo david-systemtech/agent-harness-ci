@@ -22,7 +22,7 @@
           "type": "integer",
           "minimum": -9007199254740991,
           "maximum": 9007199254740991,
-          "description": "The HTTP status the forge's identity endpoint answered."
+          "description": "The HTTP status the forge answered."
         }
       },
       "required": [
@@ -36,5 +36,5 @@
     "message",
     "data"
   ],
-  "description": "The forge refused the credential, or its identity endpoint answered no user: nothing was stored. data names the origin and the HTTP status."
+  "description": "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list; linking a pull request, no pull request): an add or update stored nothing, a link linked nothing. data names the origin and the HTTP status."
 }

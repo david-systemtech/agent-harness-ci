@@ -204,6 +204,27 @@ const eventPayloads: Record<string, Fixtures> = {
   "session.pull-request-unlinked": { valid: [{ url: pullRequest.url }], invalid: [{}, { url: "pulls/167" }] },
   "session.pull-request-synced": { valid: [mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { ...pullRequest, mergedAt: "never" }] },
   "session.workspace-status-changed": { valid: [{ status: "missing" }, { status: "present" }], invalid: [{}, { status: "gone" }] },
+  "session.repository-identified": {
+    valid: [
+      { repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", reason: "resolved" },
+      { repositoryIdentity: "https://github.com/david/agent-harness", reason: "alias" },
+    ],
+    invalid: [
+      {},
+      { repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" },
+      { repositoryIdentity: null, reason: "resolved" },
+      { repositoryIdentity: "https://git.systemtech.dev/agent-harness", reason: "resolved" },
+      { repositoryIdentity: "https://github.com/david/agent-harness", reason: "moved" },
+    ],
+  },
+  "session.workspace-set": {
+    valid: [
+      { workspace, repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" },
+      { workspace: worktree, repositoryIdentity: null },
+      { workspace: scratch, repositoryIdentity: null },
+    ],
+    invalid: [{}, { workspace }, { workspace: { kind: "scratch" }, repositoryIdentity: null }, { workspace, repositoryIdentity: "" }],
+  },
   "group.created": {
     valid: [{ name: "Brandsolidate", orderKey: null }, { name: "Cool-Jams", orderKey: "m" }],
     invalid: [{ name: "Brandsolidate" }, { name: "", orderKey: null }],
@@ -255,7 +276,16 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   },
   "sessions/workspace-request.json": { valid: workspaceRequests, invalid: invalidWorkspaceRequests },
   "sessions/workspace-status.json": { valid: ["missing", "present"], invalid: ["gone", ""] },
+  "sessions/repository-identified-reason.json": { valid: ["resolved", "alias"], invalid: ["moved", ""] },
   "sessions/workspace-problem.json": { valid: ["does_not_exist", "not_a_directory", "not_readable", "reserved"], invalid: ["missing", ""] },
+  "sessions/absolute-path.json": {
+    valid: ["/", "/work/agent-harness", "C:\\Users\\david", "D:/code", "\\\\nas\\share"],
+    invalid: ["", "work/agent-harness", "~", "~/code", "./a", "C:", 7],
+  },
+  "sessions/requested-directory.json": {
+    valid: ["/work/agent-harness", "~", "~/code", "~\\code", "C:\\Users\\david", "\\\\nas\\share"],
+    invalid: ["", "work/agent-harness", "~david/code", "./a", "..", 7],
+  },
   "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
   "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
@@ -327,6 +357,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         ...invalidWorkspaceRequests.map((request) => ({ commandId, id: sessionId, workspace: request })),
         { commandId, id: sessionId, workspace, mode: "dontAsk" },
       ],
+    },
+    result: summaryResult,
+  },
+  "sessions.setWorkspace": {
+    params: {
+      valid: workspaceRequests.map((request) => ({ ...target, workspace: request })),
+      invalid: [target, { commandId, workspace }, { ...target, sessionId: "s-1", workspace }, ...invalidWorkspaceRequests.map((request) => ({ ...target, workspace: request }))],
     },
     result: summaryResult,
   },

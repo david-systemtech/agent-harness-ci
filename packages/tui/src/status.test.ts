@@ -83,6 +83,31 @@ describe("status line one", () => {
     expect(one).not.toContain("5hr");
   });
 
+  it("shows the clamp of a session's mode above this connection's ceiling after its badge (#402)", async () => {
+    const { app } = await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", mode: "bypassPermissions" }], hello: { ceiling: "auto" } })]);
+    await app.waitFor("⏸ auto (clamped from bypassPermissions)");
+    expect(statusLines(app)[0]).toContain("· ⏸ auto (clamped from bypassPermissions) ·");
+  });
+
+  it("shows the level another client set on the session once its stream says it, unmarked (#402)", async () => {
+    const { app, env } = await opened();
+    await app.waitFor("◐ workspace (default)");
+    env.emit(SESSION, "session.containment.set", { containment: { requested: "workspace-no-network", effective: "workspace-no-network", clamped: false } });
+    await app.waitFor("● no network");
+    expect(statusLines(app)[0]).not.toContain("(default)");
+  });
+
+  it("shows a containment default another client changed at once, on the settings.changed notice, never waiting on the request cache's five minutes (#391)", async () => {
+    const { app, env } = await opened([desk({ sessions: [{ title: "Receipts" }] })]);
+    await app.waitFor("◐ workspace (default)");
+    const asked = env.requests("permissions.settings.get").length;
+    // Another client sets it: the environment says so on its own stream, and the line reads it again.
+    env.setSettings({ "permissions.containment.default": "off" });
+    await app.waitFor("○ off (default)");
+    expect(env.requests("permissions.settings.get").length).toBe(asked + 1);
+    expect(statusLines(app)[0]).not.toContain("workspace");
+  });
+
   it("says no session is open, beside the environment's badge, until one is", async () => {
     const app = await renderApp({ script: { environments: [desk()] } });
     apps.push(app);

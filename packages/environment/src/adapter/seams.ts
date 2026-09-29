@@ -2,10 +2,14 @@ import {
   presetPermissionSettings,
   type AutoDecider,
   type ContainmentLevel,
+  type InstructionChannel,
+  type InstructionLayer,
+  type InstructionManifest,
   type JsonObject,
   type Mode,
   type ModeAvailability,
   type PromptKind,
+  type RunActorKind,
   type Workspace,
 } from "@agent-harness/contracts";
 import { UNPROBED_REPORT } from "../permissions/containment.js";
@@ -18,7 +22,7 @@ import type { ToolDecider } from "@agent-harness/contracts";
  * contract", the paragraph on what the host supplies): the tool-server
  * factory, the instruction composer, the broker's automatic answers and the
  * policy resolver. Each has a preset that keeps a run going without its
- * workstream.
+ * workstream (the composer's is `instructions/composer.ts`).
  */
 
 /**
@@ -52,39 +56,90 @@ export type ToolServerFactory = (scope: ToolServerScope) => readonly ToolServer[
 
 export const noToolServers: ToolServerFactory = () => [];
 
-/** What instructions are composed for: one run of one session. */
+/**
+ * A repository's trust key (skills spec, "The trust gate"): the session's
+ * repository identity, else its repository's main checkout path, else its
+ * workspace path; a scratch workspace has none.
+ */
+export interface TrustKey {
+  readonly kind: "identity" | "checkout" | "directory";
+  readonly value: string;
+}
+
+/** Whether a repository is trusted on this environment: undecided until the trust gate records a decision. */
+export type TrustDecision = "trusted" | "declined" | "undecided";
+
+/** A run's trust as its instructions are composed under it: the key, null for a scratch workspace, and the decision. */
+export interface RunTrust {
+  readonly key: TrustKey | null;
+  readonly decision: TrustDecision;
+}
+
+/**
+ * The trust a run is composed under until the trust gate (#500) records
+ * decisions and reads a directory's main checkout: the key from what the
+ * session records (its repository identity, else a worktree's main
+ * checkout, else the workspace path; none for a scratch workspace), and no
+ * decision.
+ */
+export const undecidedTrust = (workspace: Workspace, repositoryIdentity: string | null): RunTrust => ({
+  key:
+    workspace.kind === "scratch"
+      ? null
+      : repositoryIdentity !== null
+        ? { kind: "identity", value: repositoryIdentity }
+        : workspace.kind === "worktree"
+          ? { kind: "checkout", value: workspace.repository }
+          : { kind: "directory", value: workspace.path },
+  decision: "undecided",
+});
+
+/**
+ * What a run's standing instructions are composed for (skills spec, "The
+ * seam grows"): its session (null for a preview of a session not yet
+ * made), account and workspace, its trust key and decision, who started it,
+ * the bot it is for, the always-on names it asks for beside its account's,
+ * and the instruction channel of its account's adapter.
+ */
 export interface InstructionScope {
-  readonly sessionId: string;
+  readonly sessionId: string | null;
   readonly accountId: string;
   readonly workspace: Workspace;
+  readonly trust: RunTrust;
+  /** Who started the run: a client, a routine, a bot or the completions surface. */
+  readonly origin: RunActorKind;
+  /** The bot the run is for: null in milestone 1, the Bot object being milestone 2's (#92). */
+  readonly bot: null;
+  /** The run's extra always-on names, after its account's: empty until the always-on layer is built (#507). */
+  readonly alwaysOn: readonly string[];
+  readonly channel: InstructionChannel;
+}
+
+/** One part of a composed text: its layer, what it is (an id and its version), its title, and its text. */
+export interface InstructionPart {
+  readonly layer: InstructionLayer;
+  readonly id: string;
+  readonly version: string | null;
+  readonly title: string;
+  readonly text: string;
+}
+
+/** A composition: the text a run is handed, its parts in the order the text holds them, and its manifest. */
+export interface ComposedInstructions {
+  readonly text: string;
+  readonly parts: readonly InstructionPart[];
+  readonly manifest: InstructionManifest;
 }
 
 /**
  * Composes the instruction text every run is handed, once, on the
- * environment, whatever started the run (ADR 0009, ADR 0011). In phase A
- * only two layers exist: a session's own instructions and the orientation
- * block; the user, team-bank and project layers, a bot's persona and
- * always-on skills are #89's.
+ * environment, whatever started the run (ADR 0009, ADR 0011): the layers
+ * in their fixed order, from state alone and never a clock, so unchanged
+ * state gives the same text byte for byte. It answers asynchronously, and a
+ * run's launch awaits it before its adapter's `createRun`. The environment's
+ * is `instructions/composer.ts`.
  */
-export type InstructionComposer = (scope: InstructionScope) => string;
-
-export interface InstructionLayers {
-  /** A session's own standing instructions; preset: none, until a session carries them. */
-  readonly sessionInstructions?: (sessionId: string) => string | null;
-  /** The orientation block rendered from live state (ADR 0011); preset: the placeholder, empty until #91 renders it. */
-  readonly orientationBlock?: (scope: InstructionScope) => string;
-}
-
-/** The orientation block's placeholder: nothing, so no run is handed text that says nothing (#91 renders it). */
-export const orientationPlaceholder = (): string => "";
-
-/** The phase-A composer: the orientation block, then the session's own instructions, each left out when empty. */
-export const composeInstructions =
-  (layers: InstructionLayers = {}): InstructionComposer =>
-  (scope) =>
-    [(layers.orientationBlock ?? orientationPlaceholder)(scope), layers.sessionInstructions?.(scope.sessionId) ?? null]
-      .filter((part): part is string => part !== null && part.trim() !== "")
-      .join("\n\n");
+export type InstructionComposer = (scope: InstructionScope) => Promise<ComposedInstructions>;
 
 /** A prompt as the broker's automatic rules read it: its kind, and the run's attendance and mode when it asked. */
 export interface AutoAnswerRequest {

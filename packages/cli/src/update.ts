@@ -21,6 +21,7 @@ import {
 import { defaultDataDirectory } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
 import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./local-session.js";
+import { SNAPSHOT_VERBS, UPDATE_SNAPSHOT_USAGE } from "./update-snapshot.js";
 
 /**
  * The `update` verbs that reach the environment on this machine
@@ -37,7 +38,9 @@ import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./lo
  * `update status --host-updater`, its poll, and `update begin`, the start of
  * the ready update whose image it pulled. Each exchanges the
  * bootstrap grant for a local client session and revokes it after
- * (`local-session.ts`), as `pair` does.
+ * (`local-session.ts`), as `pair` does. The updater's `update snapshot`,
+ * `update restore` and `update discard` reach no environment
+ * (`update-snapshot.ts`, #349).
  */
 
 export const UPDATE_USAGE = [
@@ -46,6 +49,7 @@ export const UPDATE_USAGE = [
   `${PRODUCT_NAME} update settings [--auto-update <on|off>] [--channel <stable|beta>] [--pinned-version <version|none>] [--idle-window-minutes <n>] [--deferral-cap-hours <n>] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update credential --stdin [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update begin --update-id <id> [--data-dir <path>] [--port <n>]`,
+  ...UPDATE_SNAPSHOT_USAGE,
 ] as const;
 
 export interface UpdateContext {
@@ -310,7 +314,7 @@ const begin = async (args: readonly string[], context: UpdateContext): Promise<n
 };
 
 /** The `update` verbs by name. */
-const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings, credential, begin };
+const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings, credential, begin, ...SNAPSHOT_VERBS };
 
 /**
  * `update`: runs the verb `args` name. Exits 0 once done, 1 with a plain
@@ -320,7 +324,7 @@ const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateCo
 export const update = async (args: readonly string[], context: UpdateContext): Promise<number> => {
   const [verb, ...rest] = args;
   const run = verb === undefined || !Object.hasOwn(VERBS, verb) ? undefined : VERBS[verb];
-  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply, settings, credential or begin." : `Unknown update verb ${verb}.`);
+  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply, settings, credential, begin, snapshot, restore or discard." : `Unknown update verb ${verb}.`);
   try {
     return await run(rest, context);
   } catch (error) {

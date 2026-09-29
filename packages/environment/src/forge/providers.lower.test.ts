@@ -277,6 +277,54 @@ describe("repositories", () => {
   });
 });
 
+describe("organisations", () => {
+  it("come on GitHub from the memberships endpoint, active ones only, since its organisation list answers a fine-grained token with none", async () => {
+    const forge = await fakeForge();
+    forge.organisations("github_pat_fine-for-tests", ["systemtech", "acme"]);
+    const memberships = [
+      { state: "active", role: "admin", organization: { login: "systemtech", id: 7 } },
+      { state: "pending", role: "member", organization: { login: "invited", id: 8 } },
+      { state: "active", role: "member", organization: { login: "acme", id: 9 } },
+    ];
+    forge.answer("github_pat_fine-for-tests", "GET /api/v3/user/memberships/orgs", { status: 200, body: memberships });
+
+    expect(await providerOf(forge, "github").organisations(forge.origin, "github_pat_fine-for-tests", 100)).toEqual({ outcome: "done", status: 200, value: ["systemtech", "acme"] });
+    expect(forge.requests).toEqual([{ method: "GET", path: "/api/v3/user/memberships/orgs", query: "state=active&per_page=100", scheme: "Bearer" }]);
+  });
+
+  it.each(["forgejo", "gitea"] as const)("come on %s from the user's own organisation list, by name, page by page", async (kind) => {
+    const forge = await fakeForge();
+    const page = (names: readonly string[], next: string | null) => ({
+      status: 200,
+      body: names.map((name, index) => ({ id: index + 1, name, username: name, full_name: `${name} team` })),
+      ...(next !== null && { headers: { link: `<${forge.origin}${next}>; rel="next"` } }),
+    });
+    forge.answer("token-for-tests", "GET /api/v1/user/orgs?limit=50", page(["systemtech"], "/api/v1/user/orgs?limit=50&page=2"));
+    forge.answer("token-for-tests", "GET /api/v1/user/orgs?limit=50&page=2", page(["acme"], null));
+
+    expect(await providerOf(forge, kind).organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "done", status: 200, value: ["systemtech", "acme"] });
+    expect(forge.requests.map((request) => [request.path, request.query, request.scheme])).toEqual([
+      ["/api/v1/user/orgs", "limit=50", "token"],
+      ["/api/v1/user/orgs", "limit=50&page=2", "token"],
+    ]);
+  });
+
+  it("answer a refusal as failed with its status, a list holding no organisation as failed too, and a forge that cannot answer now as unreachable", async () => {
+    const forge = await fakeForge();
+    forge.answer("token-for-tests", "GET /api/v1/user/orgs", { status: 403, body: { message: "token does not have at least one of required scope(s): [read:organization]" } });
+    forge.answer("odd-token-for-tests", "GET /api/v1/user/orgs", { status: 200, body: [{ id: 1 }] });
+    forge.answer("token-for-tests", "GET /api/v3/user/memberships/orgs", { status: 502 });
+
+    expect(await providerOf(forge, "forgejo").organisations(forge.origin, "token-for-tests", 100)).toEqual({
+      outcome: "failed",
+      status: 403,
+      message: `The forge at ${forge.origin} answered HTTP 403 and no list of organisations.`,
+    });
+    expect(await providerOf(forge, "forgejo").organisations(forge.origin, "odd-token-for-tests", 100)).toMatchObject({ outcome: "failed", status: 200 });
+    expect(await providerOf(forge, "github").organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "unreachable", message: `The forge at ${forge.origin} answered HTTP 502.` });
+  });
+});
+
 describe("issues", () => {
   it("create an issue with its title and body, and read one back, on both APIs", async () => {
     for (const { kind, api, scheme } of [

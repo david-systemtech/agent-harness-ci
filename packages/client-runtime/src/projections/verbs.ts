@@ -190,3 +190,32 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
   };
   return { queue, verbs, withdrawTarget: newest?.messageId ?? null };
 };
+
+/** Why a rewind is not had as a stop and a rewind while messages are queued: the stop leaves them for the next run, and the rewind would be refused over them. */
+const QUEUED_FIRST = "Messages are queued behind the live run: withdraw them first.";
+/** Why a rewind is not had as a stop and a rewind while the run is only starting: there is no run id to interrupt yet. */
+const STARTING = "A run is starting on this session: once it is running, a rewind offers to stop it.";
+
+/**
+ * A rewind now, as `commands.rewind`'s stop-first form would have it (#390):
+ * `stops` names the live run it would interrupt before rewinding, when the
+ * rewind is refused only because that run is live (`run_active`) and nothing
+ * is queued behind it; else null. `rewind` is the rewind verb as a renderer
+ * draws it: the session's, except while a run is live and cannot be stopped
+ * for it, when it says why (messages queued: withdraw them first; the run
+ * only starting, with no id to interrupt). Both renderers offer "stop and
+ * rewind" from this one answer.
+ */
+export interface StopFirstOffer {
+  readonly stops: string | null;
+  readonly rewind: VerbAvailability;
+}
+
+/** The stop-first rewind's offer on a session, from its verbs, its queue and the live run's id (`liveRunIdOf`; undefined while a run is only starting). */
+export const stopFirstOffer = (runs: { readonly verbs: SessionVerbs; readonly queue: readonly QueuedMessage[] }, liveRunId: string | undefined): StopFirstOffer => {
+  const { rewind } = runs.verbs;
+  if (rewind.status === "present" || rewind.reason !== "run_active") return { stops: null, rewind };
+  if (runs.queue.length > 0) return { stops: null, rewind: absent("queued_messages", QUEUED_FIRST) };
+  if (liveRunId === undefined) return { stops: null, rewind: absent("run_active", STARTING) };
+  return { stops: liveRunId, rewind };
+};

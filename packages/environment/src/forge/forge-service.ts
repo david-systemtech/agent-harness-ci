@@ -5,6 +5,7 @@ import {
   GITHUB_ORIGIN,
   deriveForgeSlug,
   forgeGitUsername,
+  forgeTokenPages,
   invalidParams,
   normaliseRemote,
   type ErrorOf,
@@ -21,12 +22,13 @@ import {
   type ForgeProblem,
   type ForgeTokenInformation,
   type GhProbe,
+  type KeyManagerReferenceHolder,
   type MethodName,
   type ParamsOf,
   type ResultOf,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
-import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
+import { noKeyManagerConnections, type KeyManagerRegistry, type ReferenceRefusal } from "../key-managers/registry.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { Address } from "../serve/http.js";
@@ -43,6 +45,8 @@ import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./h
 import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
+import { detectForge, type Detection } from "./detection.js";
+import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -94,6 +98,12 @@ import { createForgeOperations, type ForgeOperations } from "./operations.js";
  * - **Operations** (#316): repositories, issues, pull requests, releases
  *   and a file on a branch (`operations.ts`), each reading the credential
  *   for itself, and each write teaching its capability.
+ * - **Detection** (#313): which forge a URL is on, asked with no credential
+ *   (`detection.ts`), with the token pages its kind offers; an add without
+ *   a kind detects it before the credential goes anywhere. The owners a
+ *   forge account may create a repository under are read live, never kept.
+ * - **A session's pull requests** (#317): linked, found at a run's end and
+ *   kept current through the operations (`pull-request-links.ts`).
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -119,7 +129,7 @@ export interface ForgeServiceOptions {
   readonly callTimeoutMs?: number;
   /** The environment's own `gh`: the one the Managed tools registry's row found (#373). */
   readonly gh: ManagedGh;
-  /** The key-manager registry's resolve seam, which #91 fills; preset: no key-manager connection, so every reference is unavailable. */
+  /** The key-manager registry's resolve seam, the environment's over its connections (#370); preset: no key-manager connection, so every reference is unavailable. */
   readonly keyManagers?: KeyManagerRegistry;
   /** A client session's label, which a token its client's `gh` handed over records beside its id. */
   readonly clientSessionLabel: (clientSessionId: string) => string | undefined;
@@ -186,14 +196,19 @@ export interface CredentialProbe {
 export type ForgeCredential =
   /** The token, and the release that ends its registration for scrubbing: call it when the operation ends. */
   | { readonly outcome: "resolved"; readonly token: string; readonly release: ScrubRelease }
-  /** No token: `needs-credential` for a copy awaiting one, `credential-unavailable` for `gh`, a key manager or the vault giving none. */
-  | { readonly outcome: "unavailable"; readonly problem: ForgeProblem };
+  /**
+   * No token: `needs-credential` for a copy awaiting one, `credential-unavailable` for `gh`, a key manager or the vault
+   * giving none; a key-manager reference's with the refusal its resolve answered, which an add or update answers.
+   */
+  | { readonly outcome: "unavailable"; readonly problem: ForgeProblem; readonly refusal?: ReferenceRefusal };
 
 export interface ForgeService extends ForgeOperations {
   /** Registers every stored token the vault holds with its forms, and deletes the forge entries no forge account holds; startup runs it once, before the wire opens. */
   start(): Promise<void>;
   /** The forge accounts, in the order they were added. */
   list(): ForgeAccountRecord[];
+  /** The forge accounts whose credential is a reference through the key-manager connection `connectionId`, which hold back its removal (#370). */
+  referenceHolders(connectionId: string): KeyManagerReferenceHolder[];
   /**
    * Reads the forge account's credential for one operation, `purpose` in a
    * few words: every harness operation on a forge reads it again, and calls
@@ -237,6 +252,22 @@ export interface ForgeService extends ForgeOperations {
   gitRejected(forgeAccountId: string, origin: ForgeOrigin): void;
   /** The origins a harness operation was refused on that count now, for the Forges step's coverage check: recorded within seven days, and covered by no forge account since. */
   missingOrigins(): MissingOrigin[];
+  /**
+   * Which forge a URL in any form is on (`forge.detect`): its origin, kind
+   * and version, and the token pages with what to grant. `kind_unsupported`
+   * for GitLab, `not_a_forge`, `unreachable`, and `invalid_params` for a URL
+   * that is no remote.
+   */
+  detect(url: string): Promise<ResultOf<"forge.detect">>;
+  /**
+   * The owners the forge account may create a repository under
+   * (`forge.orgs.list`), read from the forge now: `not_found` for one the
+   * environment does not hold, `credential_unavailable`,
+   * `verification_failed` for a refusal, `unreachable`.
+   */
+  owners(forgeAccountId: string): Promise<ResultOf<"forge.orgs.list">>;
+  /** A session's pull requests (#317): linked, found at a run's end, and kept current. */
+  readonly links: PullRequestLinks;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -341,7 +372,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       }
       case "reference": {
         const answer = await keyManagers.resolve({ reference: credential.reference, owner: `forge:${id}`, purpose });
-        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message) };
+        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message), refusal: answer.code };
         const own = register(id, answer.value, target.kind, target.login);
         return {
           outcome: "resolved",
@@ -380,6 +411,15 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     readCredential: readHeld,
     verifier,
     originMissing: (origin, operation) => missing.record(origin, operation),
+  });
+
+  const links = createPullRequestLinks({
+    log,
+    clock,
+    reader,
+    accounts: () => listForgeAccounts(reader),
+    pullRequests: operations.pullRequests,
+    repositories: operations.repositories,
   });
 
   /** Holds a stored token's registration again with its forms for the forge account as it is now: a changed login names another Basic-auth form. */
@@ -489,8 +529,9 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const verificationFailed = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "refused" }>) =>
     ({ code: "verification_failed", message: `${answer.message} Nothing was stored.`, data: { origin, status: answer.status } }) as const;
 
-  const sourceUnavailable = (connectionId: string, problem: ForgeProblem) =>
-    ({ code: "credential_source_unavailable", message: `${problem.message} Nothing was changed.`, data: { connectionId } }) as const;
+  /** An add's or update's refusal of a reference that did not resolve: the refusal its resolve answered. */
+  const referenceRefused = (connectionId: string, refusal: ReferenceRefusal, problem: ForgeProblem) =>
+    ({ code: refusal, message: `${problem.message} Nothing was changed.`, data: { connectionId } }) as const;
 
   /** A command's rejection, answered as the handler it prepares. */
   const rejecting =
@@ -530,7 +571,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   /** A credential given to an add or update, heard from the forge before the transaction; `Code` is the refusals the caller adds. */
   type Checked<Code extends string> =
-    | { readonly rejected: CommandRejection<Code | "verification_failed" | "alias_identity_mismatch" | "credential_source_unavailable"> }
+    | { readonly rejected: CommandRejection<Code | "verification_failed" | "alias_identity_mismatch" | ReferenceRefusal> }
     | Accepted;
 
   interface Accepted {
@@ -567,7 +608,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
    * answered as, written to the vault; `gh` and a reference are read for
    * this one operation and asked about, their tokens let go again at once;
    * none asks nothing. A refusal stores nothing; a reference that cannot be
-   * read is `credential_source_unavailable`; a `gh` that gives no token, or a
+   * read is refused as its resolve answered (`credential_source_unavailable`,
+   * `reference_not_found`, `reference_denied`); a `gh` that gives no token, or a
    * forge that does not answer, leaves a problem.
    */
   const check = async <Code extends string>({ target, given, context, formed, purpose, refuse, aliases }: CheckRequest<Code>): Promise<Checked<Code>> => {
@@ -594,7 +636,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     const source: ForgeCredentialSource = given.kind === "gh" ? { kind: "gh", login: given.login } : { kind: "reference", reference: given.reference };
     const read = await readCredential({ ...target, credential: source }, purpose);
     if (read.outcome === "unavailable") {
-      if (source.kind === "reference") return { rejected: sourceUnavailable(source.reference.connectionId, read.problem) };
+      if (source.kind === "reference") return { rejected: referenceRefused(source.reference.connectionId, read.refusal ?? "credential_source_unavailable", read.problem) };
       return { source, identity: null, problem: read.problem, held: null, aliases: unverified };
     }
     try {
@@ -628,17 +670,23 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     throw new ContractError(invalidParams([{ code: "custom", path: ["credential"], message }], message));
   };
 
+  /** The forge a URL in any form names, and the repository path it names there, if any; `invalid_params` for a URL that is no remote. */
+  const remoteOf = (url: string) => {
+    const remote = normaliseRemote(url);
+    if (remote === null) {
+      const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
+      throw new ContractError(invalidParams([{ code: "custom", path: ["url"], message }], message));
+    }
+    return remote;
+  };
+
   /**
    * The forge a URL in any form names, and the repository path it names
    * there, if any; its kind as given, or GitHub for github.com, which alone
    * is known by its name. `invalid_params` otherwise.
    */
   const forgeOf = (url: string, given: ForgeKind | undefined) => {
-    const remote = normaliseRemote(url);
-    if (remote === null) {
-      const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
-      throw new ContractError(invalidParams([{ code: "custom", path: ["url"], message }], message));
-    }
+    const remote = remoteOf(url);
     const kind = given ?? (remote.origin === GITHUB_ORIGIN ? "github" : undefined);
     if (kind === undefined) {
       const message = "Name the forge's kind (github, forgejo or gitea): only github.com is known by its name.";
@@ -647,16 +695,36 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return { origin: remote.origin, kind, path: remote.path };
   };
 
+  /** Why detection found no forge a forge account is added for at `origin`: GitLab's, none, or none that answered. */
+  const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) => {
+    switch (found.outcome) {
+      case "unsupported":
+        return { code: "kind_unsupported", message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`, data: { origin, kind: found.kind } } as const;
+      case "not-a-forge":
+        return {
+          code: "not_a_forge",
+          message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
+          data: { origin },
+        } as const;
+      case "unreachable":
+        return { code: "unreachable", message: found.message, data: { origin } } as const;
+    }
+  };
+
   const add: ForgeAdd = {
     async prepare(params, context) {
       const forgeAccountId = params.forgeAccountId.toLowerCase();
       const given = params.credential;
       const formed = given.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
-      const { origin, kind } = forgeOf(params.url, params.kind);
-      refuseGhOffGitHub(given, kind);
+      const { origin } = remoteOf(params.url);
       const aliases = aliasOrigins(params.aliases, origin) ?? [];
       const doomed = addRefusal(forgeAccountId, [origin, ...aliases], params.slug);
       if (doomed !== null) return rejecting<"forge.accounts.add">(doomed);
+      // A kind not given is detected before the credential goes anywhere, so a token is never sent to an address of an unknown kind.
+      const found: Detection = params.kind === undefined ? await detectForge(origin, providerOptions) : { outcome: "detected", kind: params.kind, version: null };
+      if (found.outcome !== "detected") return rejecting<"forge.accounts.add">(undetected(origin, found));
+      const { kind } = found;
+      refuseGhOffGitHub(given, kind);
 
       const checked = await check<never>({ target: { id: forgeAccountId, origin, kind, login: null }, given, context, formed, purpose: "add", refuse: () => null, aliases });
       if (checked.rejected !== undefined) return rejecting<"forge.accounts.add">(checked.rejected);
@@ -799,6 +867,13 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
     list: listSeen,
 
+    referenceHolders(connectionId) {
+      const id = connectionId.toLowerCase();
+      return listForgeAccounts(reader)
+        .filter((account) => account.credential.kind === "reference" && account.credential.reference.connectionId.toLowerCase() === id)
+        .map((account) => ({ kind: "forge-account", id: account.id, name: account.origin }));
+    },
+
     async resolveCredential(forgeAccountId, purpose) {
       const account = liveForgeAccount(reader, forgeAccountId.toLowerCase());
       if (account === null) return null;
@@ -818,6 +893,32 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         return { origin, identity: found.identity, capabilities: found.capabilities, tokenInformation: found.tokenInformation, problem: found.problem };
       } finally {
         release();
+      }
+    },
+
+    async detect(url) {
+      const { origin } = remoteOf(url);
+      const found = await detectForge(origin, providerOptions);
+      if (found.outcome !== "detected") throw new ContractError(undetected(origin, found));
+      return { origin, kind: found.kind, version: found.version, tokenPages: forgeTokenPages(found.kind, origin) };
+    },
+
+    async owners(forgeAccountId) {
+      const id = forgeAccountId.toLowerCase();
+      const account = liveForgeAccount(reader, id);
+      if (account === null) throw new ContractError(notFound(id));
+      const { origin } = account;
+      const answer = await operations.repositories.owners({ origin, purpose: "list the owners a repository may be created under" });
+      switch (answer.outcome) {
+        case "done":
+          return { owners: answer.value };
+        case "failed":
+          throw new ContractError({ code: "verification_failed", message: answer.message, data: { origin, status: answer.status } });
+        case "unreachable":
+          throw new ContractError({ code: "unreachable", message: answer.message, data: { origin } });
+        case "refused":
+          // Removed while it was asked: nothing serves its origin now.
+          throw new ContractError(answer.error.code === "forge_account_missing" ? notFound(id) : answer.error);
       }
     },
 
@@ -856,6 +957,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     },
 
     ...operations,
+
+    links,
 
     secrets,
 

@@ -33,9 +33,12 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * they change the card and About, which follow `updates.status` as the
  * request cache fetches it again on every update notice (#344). A
  * routine's client-notice delivery (ADR 0008) is owed: no event on the
- * environment's stream carries it yet (#92). A key manager's failed
+ * environment's stream carries it yet (#92). The forge's rows are
+ * `forge-notices.ts`'s (#320). A key manager's failed
  * verification (ADR 0011) is `key-manager.connection.verified` (#366), whose
- * row is the client runtime's key-manager part (#384).
+ * row is the client runtime's key-manager part (#384). `settings.changed`
+ * (#391) raises none: what changed shows where the settings are read, which
+ * the request cache fetches again on it.
  */
 
 export interface EnvironmentNoticeContext {
@@ -144,7 +147,8 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.update-started":
         case "environment.update-cancelled":
           return;
-        // The forge's rows (a failed capability, a new problem, a git rejection, a missing origin) are #320's.
+        // The forge's rows (a failed capability, a new problem, a git rejection, a missing origin) are `forge-notices.ts`'s, which
+        // reads history too (#320).
         case "forge.account.added":
         case "forge.account.updated":
         case "forge.account.primary-set":
@@ -166,6 +170,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // A probe changing managed-tool rows raises none: a newer version is a badge, and a required tool missing or below
         // its minimum is its step's health failure (ADR 0026); tools.list's cache follows it (#384).
         case "tools.updated":
+          return;
+        // Settings changed (#391): the request cache reads them again; where they show says what changed.
+        case "settings.changed":
           return;
       }
     },

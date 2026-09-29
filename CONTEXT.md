@@ -216,8 +216,12 @@ _Avoid_: wrapper, alias, the launcher entry (what the service definition runs)
 The folder in the data directory holding one folder per installed version, named by the version; a folder counts as a version only once its sentinel, written last, is in it.
 _Avoid_: install folder, releases folder, runtime
 
+**Preflight**:
+A staged version's own check of itself, which the launcher runs before it installs the version: the version loads SQLite, `node-pty` and the bundled Claude binary's `--version` within 30 seconds and prints what it is (its version, protocol, launcher protocol and database schema), or it is never installed.
+_Avoid_: smoke test, health check (ADR 0031's, of a running environment), trial (a version's first start after a switch)
+
 **Service state**:
-The launcher's file in the data directory naming the active, previous and launcher versions, the pending-update record and the watch deadline; every write is durable, and a service state the launcher cannot read or trust stops it starting anything.
+The launcher's file in the data directory naming the active, previous and launcher versions, the pending-update record, the watch deadline and the update it watches, the version staged for the next update, and a failed handover; every write is durable, and a service state the launcher cannot read or trust stops it starting anything.
 _Avoid_: service record (what `service install` wrote, for `status` and `uninstall`), launcher state
 
 **Update coordinator**:
@@ -240,8 +244,16 @@ _Avoid_: rollback log, result file, the outcome (the notice it becomes)
 A version's first start after a switch, which serves nothing until the launcher commits it: it must say it is prepared, for itself, within 120 seconds of its spawn, or it is ended and its update rolled back.
 _Avoid_: canary, probation, test start
 
+**Watch**:
+The ten minutes after a commit in which three unexpected exits of the committed version roll its update back like a failed trial, as a crash loop; at its end the database snapshots are discarded and the versions pruned to the active one, the two before it, the launcher's own and a staged one.
+_Avoid_: probation, grace period, trial (the start before the commit)
+
+**Handover**:
+The launcher's replacement by the launcher of the active version, once that version has held through its watch: at the first idle the old launcher names the new one in the launcher version file and exits for the service manager to start it; the new one confirms once its child passes the gate, and after three unconfirmed starts the launcher entry names the old one again, which records the handover failed.
+_Avoid_: self-update of the launcher, upgrade, relaunch (the exit that starts it)
+
 **Database snapshot**:
-The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial, in a folder named by that id; a rollback copies it back.
+The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial (a container's `update snapshot` takes it before the recreate), in a folder named by that id; a rollback copies it back.
 _Avoid_: backup (a copy a person keeps), checkpoint (SQLite's own)
 
 **Restore marker**:
@@ -309,7 +321,7 @@ Whether a skill can help right now on this environment: ready, setup needed (wit
 _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
 
 **Standing instructions**:
-Text appended to every run through the provider's instruction channel, composed on the run's environment from the user, team bank, project and session layers and, for a bot, its persona.
+Text appended to every run through the provider's instruction channel, composed once on the run's environment, whoever started the run, from layers in a fixed order, general to specific: the user layer (the orientation block, then owned instructions), the team bank's, the project's, the session's, a bot's persona, then always-on skills; the run's own text follows. Each composition has a manifest beside its text, which the log keeps in place of the text: per layer what it put in (ids, versions and characters), the always-on skills with their origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why.
 _Avoid_: prompt library, house rules, system prompt (the whole thing the provider builds)
 
 **Trust gate**:

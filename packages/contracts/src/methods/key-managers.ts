@@ -13,10 +13,20 @@ import {
   KeyManagerLabel,
   KeyManagerMount,
   KeyManagerPolicy,
+  KeyManagerReferenceDisplay,
   KeyManagerTokenRole,
   KeyManagerUsername,
 } from "../key-manager-connections.js";
-import { KeyManagerConnectionId, KeyManagerProvider } from "../key-managers.js";
+import {
+  CredentialSourceUnavailableError,
+  KeyManagerConnectionId,
+  KeyManagerProvider,
+  KeyManagerReference,
+  KeyManagerReferenceProblem,
+  OpenBaoReference,
+  ReferenceDeniedError,
+  ReferenceNotFoundError,
+} from "../key-managers.js";
 import { commandParams, defineMethod } from "../method.js";
 
 /**
@@ -34,6 +44,11 @@ import { commandParams, defineMethod } from "../method.js";
  * manager before their transaction, as `runs.withdraw` hears from the
  * provider. A credential is written to the vault before the transaction and
  * removed again when the command is rejected.
+ *
+ * References (#370): `keyManagers.references.check` and `.browse`, `admin`
+ * queries for the reference pickers of Forges and banks, read with the
+ * connection's login and answer whether a reference resolves, and the names
+ * under a path, never a value.
  */
 
 /** The key manager refused the credential, or it signs in as root, which the harness never holds. */
@@ -212,12 +227,22 @@ export const keyManagersConnectionsSignOut = defineMethod({
   errors: [],
 });
 
-/** Removes a connection (`key-manager.connection.removed`); its login is revoked and its credential's vault entry deleted once the removal has committed. */
+/**
+ * Removes a connection (`key-manager.connection.removed`); its login is
+ * revoked and its credential's vault entry deleted once the removal has
+ * committed. A connection a reference names (a forge account's credential)
+ * is `conflict` reason `referenced`, whose data names the connection and its
+ * holders (`KeyManagerReferenceHolder`), unless `force` is given, which
+ * removes it and leaves each reference unable to resolve.
+ */
 export const keyManagersConnectionsRemove = defineMethod({
   name: "keyManagers.connections.remove",
   scope: "admin",
   kind: "command",
-  params: commandParams({ connectionId: KeyManagerConnectionId }),
+  params: commandParams({
+    connectionId: KeyManagerConnectionId,
+    force: z.boolean().optional().meta({ description: "Remove it even when references name it, which then no longer resolve; absent or false refuses conflict reason referenced." }),
+  }),
   result: z.object({ connectionId: KeyManagerConnectionId }),
   errors: [],
 });
@@ -277,4 +302,51 @@ export const keyManagersCertificatePreview = defineMethod({
   params: z.object({ address: z.string().min(1).max(2048).meta({ description: "The key manager's https URL: only its origin is read." }) }),
   result: z.object({ certificate: KeyManagerCertificate }),
   errors: [AddressUnreachableError],
+});
+
+/**
+ * Whether a reference resolves now (key-managers spec, "References and
+ * resolution"): read as a resolve reads it, with the connection's login
+ * within ten seconds, and let go at once. Answers the reference's display
+ * form and, when it does not resolve, the refusal a resolve answers
+ * (`credential_source_unavailable`, `reference_not_found`,
+ * `reference_denied`); never the value.
+ */
+export const keyManagersReferencesCheck = defineMethod({
+  name: "keyManagers.references.check",
+  scope: "admin",
+  kind: "query",
+  params: z.object({ reference: KeyManagerReference }),
+  result: z.object({
+    display: KeyManagerReferenceDisplay,
+    problem: KeyManagerReferenceProblem.nullable().meta({ description: "Why the reference does not resolve, as a resolve refuses it; null when it resolves." }),
+  }),
+  errors: [],
+});
+
+/**
+ * The names under a path in a key manager, for a reference picker
+ * (key-managers spec, "References and resolution"), read with the
+ * connection's login within ten seconds; never a value. For OpenBao, with
+ * no mount, the KV mounts the login can see, each ending in `/`; with a
+ * mount, an OpenBao list of the path under it (the mount's top without
+ * one), a folder's name ending in `/`, whichever KV version the mount is.
+ * Refused as a resolve is: `credential_source_unavailable`,
+ * `reference_not_found` for a path with nothing under it,
+ * `reference_denied`. A connection the environment does not hold is
+ * `not_found`; a path without a mount is `invalid_params`.
+ */
+export const keyManagersReferencesBrowse = defineMethod({
+  name: "keyManagers.references.browse",
+  scope: "admin",
+  kind: "query",
+  params: z.object({
+    connectionId: KeyManagerConnectionId,
+    mount: OpenBaoReference.shape.mount.optional().meta({ description: "The KV mount to list in, as personal or secret/team; absent to list the mounts. OpenBao only." }),
+    path: OpenBaoReference.shape.path.optional().meta({ description: "The path under the mount to list, as harness; absent for the mount's top." }),
+  }),
+  result: z.object({
+    names: z.array(z.string().min(1)).meta({ description: "The names under the path, in the key manager's order: a folder's, or a mount's, ending in /. Never a value." }),
+  }),
+  errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
 });

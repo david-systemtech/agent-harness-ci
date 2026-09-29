@@ -68,6 +68,9 @@ const fresh = (version: string): ServiceState => ({
   launcherVersion: version,
   pendingUpdate: null,
   watchDeadline: null,
+  watchedUpdateId: null,
+  stagedVersion: null,
+  failedHandover: null,
 });
 
 /** systemd's answers for a unit that is active, and for one that is not. */
@@ -230,15 +233,23 @@ describe("agent-harness service install, a first install", () => {
 });
 
 describe("agent-harness service install over a service that is stopped", () => {
-  it("names the version it runs from, keeping a pending update's record for the launcher to roll back and the version before", async () => {
+  it("names the version it runs from, keeping a pending update's record for the launcher to roll back, the version before and a staged one, and ending a watch and a failed handover", async () => {
     const home = tempHome();
     const dataDir = linuxDataDir(home);
     mkdirSync(dataDir, { recursive: true });
     const pendingUpdate = { updateId: "5b1f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f", fromVersion: "0.4.0", toVersion: "0.4.1" };
-    writeServiceState(dataDir, { ...fresh("0.4.0"), previousVersion: "0.3.0", pendingUpdate, watchDeadline: "2026-09-28T12:10:00.000Z" });
+    writeServiceState(dataDir, {
+      ...fresh("0.4.0"),
+      previousVersion: "0.3.0",
+      pendingUpdate,
+      watchDeadline: "2026-09-28T12:10:00.000Z",
+      watchedUpdateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20",
+      stagedVersion: "0.4.2",
+      failedHandover: { toVersion: "0.4.0", at: "2026-09-28T11:00:00.000Z" },
+    });
     const cli = harness("linux", { home, answer: inactive });
     expect(await cli.run("service", "install")).toBe(0);
-    expect(stateOf(dataDir)).toEqual({ activeVersion: "0.5.0", previousVersion: "0.4.0", launcherVersion: "0.5.0", pendingUpdate, watchDeadline: null });
+    expect(stateOf(dataDir)).toEqual({ ...fresh("0.5.0"), previousVersion: "0.4.0", pendingUpdate, stagedVersion: "0.4.2" });
     expect(readFileSync(join(dataDir, LAUNCHER_VERSION_FILE), "utf8")).toBe("0.5.0\n");
   });
 

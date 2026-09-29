@@ -37,6 +37,7 @@ export {
   type StreamRef,
   type StreamSelector,
 } from "./event-log/event-log.js";
+export { holdDatabase, type DatabaseHold } from "./event-log/database-hold.js";
 export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session-list.js";
 export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
 export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods.js";
@@ -92,6 +93,7 @@ export {
   type ActiveRun,
   type AdapterHost,
   type AdapterHostOptions,
+  type InstructionTarget,
   type StagedAttachments,
 } from "./adapter/host.js";
 export { PROCESS_STOP_TIMEOUT_MS, STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
@@ -102,17 +104,20 @@ export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } f
 export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";
 export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.js";
 export {
-  composeInstructions,
   noAutoAnswer,
   noToolServers,
-  orientationPlaceholder,
   presetPolicy,
+  undecidedTrust,
   type AutoAnswer,
   type ClientTool,
   type AutoAnswerRequest,
+  type ComposedInstructions,
   type InstructionComposer,
-  type InstructionLayers,
+  type InstructionPart,
   type InstructionScope,
+  type RunTrust,
+  type TrustDecision,
+  type TrustKey,
   type PolicyRequest,
   type PolicySeam,
   type PromptAutoAnswer,
@@ -121,6 +126,16 @@ export {
   type ToolServerFactory,
   type ToolServerScope,
 } from "./adapter/seams.js";
+export {
+  composeInstructions,
+  instructionsDigest,
+  type InstructionLayers,
+  type LayerPart,
+  type LayerSeam,
+  type OrientationAnswer,
+  type OrientationSeam,
+} from "./instructions/composer.js";
+export { instructionMethods, type InstructionMethodsOptions } from "./instructions/methods.js";
 export { capability, requireCapability, unsupported } from "./adapter/capabilities.js";
 export {
   CLAUDE_DESCRIPTOR,
@@ -290,6 +305,8 @@ export {
   type UserCheck,
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
+export { DATABASE_SCHEMA_VERSION } from "./event-log/migrations.js";
+export { preflight, type PreflightAnswer, type PreflightCheck, type PreflightFailure, type PreflightSeams } from "./updates/preflight.js";
 export { secretShapedIn } from "./scrub/refusal.js";
 export { createScrubRegistry, REDACTED, type ScrubRegistration, type ScrubRegistry, type ScrubRelease, type ScrubStream } from "./scrub/registry.js";
 export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";

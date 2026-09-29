@@ -18,12 +18,13 @@ import type { ForgeAddRequest } from "./forge-service.js";
  * ADR 0020, ADR 0032) through the primary seam: an in-process environment
  * and a real client over a real WebSocket beside the fake forge, with a fake
  * `gh` on a PATH the test sets and a scripted key-manager registry standing
- * in for #91's. A credential read for one operation is seen through the
- * environment's in-process ForgeService, which every harness operation on a
- * forge reads it through; whether a value is held as a secret is seen in
- * what a run's provider says back. The fake `gh` is on the PATH the
- * environment's login shell answers, where the Managed tools registry finds
- * it (#373).
+ * in for the environment's (whose own reads against the fake OpenBao are
+ * `key-managers/references.test.ts`'s). A credential read for one operation
+ * is seen through the environment's in-process ForgeService, which every
+ * harness operation on a forge reads it through; whether a value is held as
+ * a secret is seen in what a run's provider says back. The fake `gh` is on
+ * the PATH the environment's login shell answers, where the Managed tools
+ * registry finds it (#373).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -351,6 +352,7 @@ describe("a key-manager reference", () => {
     expect(await t.env.forge.resolveCredential(id, "verify")).toEqual({
       outcome: "unavailable",
       problem: { kind: "credential-unavailable", since: MANUAL_CLOCK_START, message: expect.stringContaining(connectionId) },
+      refusal: "credential_source_unavailable",
     });
     expect(keyManagers.requests.map((request) => request.purpose)).toEqual(["add", "verify", "verify", "verify"]);
   });

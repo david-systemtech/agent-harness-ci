@@ -1,14 +1,14 @@
 import { constants, createWriteStream } from "node:fs";
-import { lstat, mkdir, open, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { lstat, mkdir, open, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Workspace, WorkspaceRequest } from "@agent-harness/contracts";
 import type { JsonObject } from "../event-log/event-log.js";
 import type { Refusal } from "../sessions/decider.js";
 import { hashedName, slug } from "./directory-names.js";
 import { GIT_TIMEOUT_MS, UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit, type GitAnswer } from "./git.js";
-import { isInside } from "./paths.js";
 import type { Resolution } from "./resolver.js";
+import { WORKTREE_LIST, listedWorktrees, worktreeRecorder } from "./worktree-listing.js";
 
 /**
  * The worktree maker (workspace-picker spec, "The resolver", Worktree;
@@ -97,30 +97,6 @@ const failure = (answer: GitAnswer, timeoutMs: number): Refused => {
   if (answer.missing) return gitUnavailable();
   if (answer.timedOut) return gitFailed(`git did not finish in ${timeoutMs / 1000} s.`);
   return gitFailed(gitComplaint(answer.stderr));
-};
-
-/** One worktree as `git worktree list --porcelain -z` lists it; the first is the main checkout or the bare repository. */
-interface ListedWorktree {
-  readonly path: string;
-  readonly bare: boolean;
-  /** The branch checked out, as a full ref; null when detached, or bare. */
-  readonly branch: string | null;
-}
-
-/** The worktrees in a `--porcelain -z` listing: fields ended by a NUL, each worktree's ended by an empty one. */
-const listedWorktrees = (listing: string): ListedWorktree[] => {
-  const worktrees: ListedWorktree[] = [];
-  let current: { path: string; bare: boolean; branch: string | null } | null = null;
-  for (const field of listing.split("\0")) {
-    const space = field.indexOf(" ");
-    const [key, value] = space === -1 ? [field, ""] : [field.slice(0, space), field.slice(space + 1)];
-    if (key === "worktree") {
-      current = { path: value, bare: false, branch: null };
-      worktrees.push(current);
-    } else if (current !== null && key === "bare") current.bare = true;
-    else if (current !== null && key === "branch") current.branch = value;
-  }
-  return worktrees;
 };
 
 /** Names git never checks out as a branch by name (it reads them as `@{-1}` or a commit): no existing local branch is asked for by one. */
@@ -228,16 +204,8 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
     throw failure(answer, timeoutMs);
   };
 
-  /** Where a worktree git lists lies as the environment records it, when inside its worktrees root; null for one of the user's. */
-  const recordedAt = async (listed: string): Promise<string | null> => {
-    for (const root of [options.root, await realpath(options.root).catch(() => options.root)]) {
-      if (isInside(root, listed)) return join(options.root, relative(root, listed));
-    }
-    return null;
-  };
-
   const checkedOut = async (repository: string, branch: string, listed: string): Promise<Refused> => {
-    const recorded = await recordedAt(listed);
+    const recorded = (await worktreeRecorder(options.root))(listed);
     const holder = recorded === null ? null : options.sessionAt(recorded);
     const worktree = recorded ?? listed;
     const whose = recorded === null ? "" : holder === null ? ", a worktree the harness made" : `, the workspace of the session ${holder}`;
@@ -294,7 +262,7 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
   try {
     const from = await startingDirectory(request.repository);
     if (from === null) throw refused("not_a_repository", `There is nothing at ${request.repository} on this environment.`, { path: request.repository });
-    const listing = await runGit(from, ["worktree", "list", "--porcelain", "-z"], { maxBytes: LISTING_BYTES, timeoutMs, env: UNTRANSLATED });
+    const listing = await runGit(from, WORKTREE_LIST, { maxBytes: LISTING_BYTES, timeoutMs, env: UNTRANSLATED });
     if (!listing.ok && !listing.missing && /not a git repository/i.test(listing.stderr)) {
       throw refused("not_a_repository", `${request.repository} is in no git repository.`, { path: request.repository });
     }

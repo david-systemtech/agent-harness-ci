@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "keyManagers.references.browse params",
+  "type": "object",
+  "properties": {
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "mount": {
+      "description": "The KV mount to list in, as personal or secret/team; absent to list the mounts. OpenBao only.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    },
+    "path": {
+      "description": "The path under the mount to list, as harness; absent for the mount's top.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    }
+  },
+  "required": [
+    "connectionId"
+  ]
+}

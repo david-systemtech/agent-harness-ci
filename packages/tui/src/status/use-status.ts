@@ -1,11 +1,23 @@
 import { useEffect, useMemo } from "react";
-import { formatTokens, formatUsd, type Clock, type EnvironmentView, type RunState, type Runtime, type SessionProjection } from "@agent-harness/client-runtime";
-import { lowerMode, type ContainmentLevel, type KeyActionId } from "@agent-harness/contracts";
+import {
+  clampWords,
+  elapsedClock,
+  formatTokens,
+  formatUsd,
+  gaugeOf,
+  statusOf,
+  type Clock,
+  type EnvironmentView,
+  type RunChoice,
+  type RunState,
+  type Runtime,
+  type SessionProjection,
+} from "@agent-harness/client-runtime";
+import type { ContainmentLevel, KeyActionId } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import { useFollow } from "../session/use-session.js";
-import { gaugeOf } from "../transcript/plan.js";
 import { nameOf } from "../view.js";
-import { MODE_BADGES, containmentBadge, elapsedClock, meterCells, readingsOf, spendOf, windowOut, workingWords, type Styled } from "./line.js";
+import { MODE_BADGES, containmentBadge, meterCells, readingsOf, type Styled } from "./line.js";
 import type { StatusLineOne, StatusLineTwo } from "./status-line.js";
 
 /**
@@ -17,14 +29,11 @@ import type { StatusLineOne, StatusLineTwo } from "./status-line.js";
  * (`permissions.settings.get`, `accounts.handoff.recommend`), each followed
  * while the line shows it. What this terminal chose for the session's next
  * runs (a model and effort from `/model`, a containment level it set) is
- * handed in.
+ * handed in. What the line says is the client runtime's rule (`statusOf`,
+ * which the desktop window's status line says too; #402).
  */
 
-/** The model and effort this terminal sends with the session's next `runs.start` (`/model`). */
-export interface RunChoice {
-  readonly model: string;
-  readonly effort: string | null;
-}
+export type { RunChoice };
 
 export interface StatusInputs {
   readonly runtime: Runtime;
@@ -75,10 +84,22 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
   );
   useFollow(recommendation, request);
 
-  const lastRun = projection?.runs.at(-1);
-  const live = inputs.liveRunId !== undefined || inputs.runState === "starting";
-  const liveRun = inputs.liveRunId !== undefined ? projection?.runs.find((run) => run.runId === inputs.liveRunId) : undefined;
-  const elapsed = liveRun && environmentId !== undefined ? runtime.environmentNow(environmentId).getTime() - Date.parse(liveRun.startedAt) : undefined;
+  const facts =
+    opened && environmentId !== undefined && projection
+      ? statusOf({
+          projection,
+          runState: inputs.runState,
+          liveRunId: inputs.liveRunId,
+          ceiling: environment?.ceiling ?? null,
+          choice: inputs.choice,
+          forkedOnto: inputs.forkedOnto,
+          containmentSet: inputs.containment,
+          containmentDefault: permissions?.read().result?.values["permissions.containment.default"],
+          recommendation: recommendation?.read().result,
+          now: () => runtime.environmentNow(environmentId).getTime(),
+        })
+      : undefined;
+  const elapsed = facts?.elapsedMs;
   // The clock moves on a second at a time while a run is live: one frame per second, and none while nothing runs.
   const second = elapsed === undefined ? undefined : Math.floor(elapsed / 1000);
   const untilNext = elapsed === undefined ? undefined : 1000 - (((elapsed % 1000) + 1000) % 1000);
@@ -90,6 +111,7 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
   }, [clock, request, second]);
 
   const badge: Styled = environment ? { text: `${environment.icon ?? "●"} ${nameOf(environment)}`, color: environment.colour ?? "cyan" } : { text: "no environment", dim: true };
+  const live = facts?.live ?? false;
   const hints = (): string | undefined => {
     if (!inputs.composerKeys) return undefined;
     if (!opened) return `${keys("app.interruptOrQuit")} quits · ${keys("app.help")} keys · /pair · /environment · /resume · /new`;
@@ -98,50 +120,34 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
       : `${keys("composer.send")} sends · ${keys("app.pager.open")} pager · ${keys("app.help")} keys`;
   };
 
-  if (!opened || environmentId === undefined) {
+  if (!facts || environmentId === undefined) {
     return {
       one: { parts: [badge, { text: "no session open", dim: true }], readings: [] },
       two: { kind: "working", activity: undefined, details: [], hints: hints() },
     };
   }
 
-  const label = accountId === null ? undefined : (accounts?.read().value?.find((account) => account.id === accountId)?.label ?? accountId);
-  const model = inputs.choice ?? (lastRun ? { model: lastRun.model, effort: lastRun.effort } : summary?.model ? { model: summary.model, effort: null } : undefined);
-  const ceiling = environment?.ceiling ?? null;
-  // A session with no mode of its own runs in the attended default, acceptEdits, lowered to the ceiling (a lowered default is no clamp).
-  const mode = summary?.mode ?? lowerMode("acceptEdits", ceiling ?? "acceptEdits");
-  const containmentDefault = permissions?.read().result?.values["permissions.containment.default"];
-  const containment =
-    inputs.containment !== undefined ? containmentBadge(inputs.containment, false) : containmentDefault !== undefined ? containmentBadge(containmentDefault, true) : undefined;
-  const gauge = runtime.projections.usage.read().gauges;
+  const label = facts.accountId === null ? undefined : (accounts?.read().value?.find((account) => account.id === facts.accountId)?.label ?? facts.accountId);
+  const { model, mode, containment } = facts;
+  const modeBadge = MODE_BADGES[mode.mode];
   const one: StatusLineOne = {
     parts: [
       badge,
       label !== undefined ? { text: label, bold: true } : { text: "default account", dim: true },
       model ? { text: model.effort !== null ? `${model.model} ${model.effort}` : model.model } : { text: "default model", dim: true },
-      MODE_BADGES[mode],
-      ...(containment ? [containment] : []),
+      mode.clampedFrom === null ? modeBadge : { ...modeBadge, text: `${modeBadge.text} ${clampWords(mode.clampedFrom)}` },
+      ...(containment ? [containmentBadge(containment.level, containment.isDefault)] : []),
     ],
-    readings: readingsOf(gaugeOf(gauge, environmentId, accountId), meterCells(inputs.width)),
+    readings: readingsOf(gaugeOf(runtime.projections.usage.read().gauges, environmentId, facts.accountId), meterCells(inputs.width)),
   };
 
-  const recommended = recommendation?.read().result;
-  if (!live && windowOut(recommended) && recommended) {
-    return { one, two: { kind: "offer", text: `${recommended.message} · ${keys("app.handoff")} or /handoff` } };
-  }
-  const shown = liveRun ?? lastRun;
-  const spend = shown ? spendOf(shown.usage) : undefined;
+  if (facts.offer !== undefined) return { one, two: { kind: "offer", text: `${facts.offer} · ${keys("app.handoff")} or /handoff` } };
   const details = [
     ...(elapsed !== undefined ? [elapsedClock(elapsed)] : []),
-    ...(spend ? [`${formatTokens(spend.tokens)} tok`, ...(spend.costUsd !== null ? [formatUsd(spend.costUsd)] : [])] : []),
+    ...(facts.spend ? [`${formatTokens(facts.spend.tokens)} tok`, ...(facts.spend.costUsd !== null ? [formatUsd(facts.spend.costUsd)] : [])] : []),
   ];
-  const activity: Styled =
-    inputs.runState === "parked"
-      ? { text: "waiting for you", color: "yellow" }
-      : inputs.runState === "starting"
-        ? { text: "starting…" }
-        : live
-          ? { text: workingWords(projection, inputs.liveRunId) }
-          : { text: "idle", dim: true };
-  return { one, two: { kind: "working", activity, details, hints: hints() } };
+  const { activity } = facts;
+  const styled: Styled =
+    activity.kind === "waiting" ? { text: activity.words, color: "yellow" } : activity.kind === "idle" ? { text: activity.words, dim: true } : { text: activity.words };
+  return { one, two: { kind: "working", activity: styled, details, hints: hints() } };
 };

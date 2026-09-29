@@ -1,8 +1,19 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, DISCOVERY_PATH, type LauncherQuery, type LauncherReply } from "@agent-harness/contracts";
-import { HARNESS_VERSION, NO_LAUNCHER, createRunRegistry, systemClock, type ContainmentProbe } from "@agent-harness/environment";
+import {
+  BOOTSTRAP_GRANT_FILE,
+  BootstrapGrant,
+  DISCOVERY_PATH,
+  PAIR_PATH,
+  PROTOCOL_VERSION,
+  formatPairingCode,
+  parsePairingLink,
+  type LauncherQuery,
+  type LauncherReply,
+} from "@agent-harness/contracts";
+import { HARNESS_VERSION, NO_LAUNCHER, createRunRegistry, systemClock, type ContainerDetector, type ContainmentProbe } from "@agent-harness/environment";
+import { renderUnicodeCompact } from "uqr";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
 
@@ -31,8 +42,8 @@ const NO_BUBBLEWRAP: ContainmentProbe = {
   container: { declared: false, detected: false },
 };
 
-/** The CLI in-process, as an ordinary user with no launcher, stopped when the test says. */
-const harness = () => {
+/** The CLI in-process, as an ordinary user under a scripted launcher, outside any container unless `containerDetector` says otherwise, stopped when the test says. */
+const harness = (containerDetector: ContainerDetector = { inContainer: () => false }) => {
   let out = "";
   let err = "";
   let stop!: () => void;
@@ -56,6 +67,7 @@ const harness = () => {
       runs,
       interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
       probeContainment: async () => NO_BUBBLEWRAP,
+      containerDetector,
     },
   };
   return { context, stop, prepared, close, ask, runs, out: () => out, err: () => err };
@@ -167,5 +179,31 @@ describe("agent-harness serve", () => {
 
     first.stop();
     expect(await running).toBe(0);
+  });
+
+  it("in a declared container no client has paired with, prints pair's link, QR and code after the discovery address, for its log (#349)", async () => {
+    const cli = harness({ inContainer: () => true, declared: () => true });
+    const dataDir = join(tempDir(), "data");
+    const exit = runCli(["serve", "--data-dir", dataDir, "--port", "0"], cli.context);
+    await vi.waitFor(() => expect(cli.out()).toMatch(/Code: .+\n[^]*\n$/), SERVE_WAIT);
+
+    const [address = "", intro, ...pairing] = cli.out().split("\n");
+    expect(address).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\.well-known\//);
+    expect(intro).toBe(`No client has paired with this environment yet. Pair one with this code, or run agent-harness pair --data-dir ${dataDir} in the container for a new one.`);
+    const printed = pairing.join("\n");
+    const link = /http:\/\/\S+\/pair#\S+/.exec(printed)?.[0] ?? "";
+    const code = parsePairingLink(link)?.code ?? "";
+    expect(printed).toContain(renderUnicodeCompact(link, { border: 2 }));
+    expect(printed).toContain(`Code: ${formatPairingCode(code)}`);
+    const exchanged = await fetch(`${new URL(address).origin}${PAIR_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, kind: "web", label: "phone", protocolVersion: PROTOCOL_VERSION }),
+    });
+    expect(exchanged.status).toBe(200);
+
+    cli.stop();
+    expect(await exit).toBe(0);
+    expect(cli.err()).toBe("");
   });
 });

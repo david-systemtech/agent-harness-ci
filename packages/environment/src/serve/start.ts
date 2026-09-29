@@ -27,6 +27,7 @@ import {
   type EnvironmentReadiness,
   type EnvironmentStatus,
   type HealthDocument,
+  type MintedPairing,
   type Mode,
   type ReleaseSource,
   type RunOrigin,
@@ -43,12 +44,13 @@ import {
 } from "../auth/client-sessions.js";
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
-import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { formatActor, openEventLog, type EventLog, type Projector, type Tx } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
@@ -95,12 +97,14 @@ import { createForgeService, type ForgeService } from "../forge/forge-service.js
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
+import { verifiedOrigins } from "../forge/git-helper.js";
 import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
+import { createKeyManagerReferences } from "../key-managers/references.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
@@ -113,12 +117,18 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { createAutoMemory } from "../workspace/auto-memory.js";
+import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
+import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
+import { createIdentityPasses } from "../workspace/identity-passes.js";
+import { setWorkspaceMethods } from "../workspace/set-workspace.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
-import { setupMethods, type SetupSteps } from "../setup/methods.js";
+import { setupMethods } from "../setup/methods.js";
+import { createSetupService, type SetupSteps } from "../setup/service.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
@@ -297,6 +307,7 @@ export interface EnvironmentOptions {
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
+    /** Composes each run's standing instructions; preset: the composer with no layer filled (`instructions/composer.ts`). */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
@@ -325,9 +336,10 @@ export interface EnvironmentOptions {
    * the workspace roots later workstreams declare beside the data
    * directory's scratch and worktrees, which are exempt from the denylist's
    * data-directory preset as they are; the home `~` stands for; whether a
-   * directory can be read; how long git gets. Each has a preset.
+   * directory can be read; how long git gets; and how the availability
+   * watcher looks at a workspace (#328). Each has a preset.
    */
-  readonly workspaces?: WorkspaceSettings;
+  readonly workspaces?: WorkspaceSettings & AvailabilitySettings;
   /**
    * The command line that runs the `agent-harness` binary before its verb
    * (#314): git names it, with `git-credential <slug>`, as its credential
@@ -345,18 +357,21 @@ export interface EnvironmentOptions {
    * shell's PATH, which the forge's `gh` and the sign-in director's managed
    * tool are found on too; how it asks which system package owns a tool;
    * the environment its commands, and `gh`'s, start from. Preset: the
-   * user's login shell (the machine and user Path on Windows), `dpkg -S` then `rpm -qf`
-   * on Linux, this process's environment; tests put fake tools on a PATH of
-   * their own and script the package owner.
+   * user's login shell (the machine and user Path on Windows), `dpkg -S`
+   * then `rpm -qf` on Linux, this process's environment; tests put fake
+   * tools on a PATH of their own and script the package owner.
    */
   readonly managedTools?: {
     readonly readPath?: () => Promise<string>;
     readonly packageOwner?: PackageOwnerLookup;
     readonly hostEnv?: HostEnvironment;
   };
-  /** The key-manager registry's resolve seam, which #91 fills (#312). Preset: no key-manager connection; tests script one. */
+  /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
-  /** How long one verification of a key-manager connection, or one certificate preview, may take (#366). Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds. */
+  /**
+   * How long one verification of a key-manager connection, one certificate preview (#366), or one reference's read or a
+   * path's list (#370) may take. Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds.
+   */
   readonly keyManagerTimeoutMs?: number;
   /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
@@ -475,6 +490,36 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /** The workspaces' in-process seams (#329). */
+  readonly workspaces: {
+    /** For a repository identity, the directory a session on it works from here, else scratch: what a routine's move (#92) and hand-off re-resolve through. */
+    readonly checkoutIndex: CheckoutIndex;
+    /** Settles once this start's resolved identity pass, run once the wire is open, has run: what a test waits on before reading what it left. */
+    readonly identityPass: Promise<void>;
+    /** Settles once this start's availability pass (#328), run once the wire is open, has looked at every session's workspace. */
+    readonly availabilityPass: Promise<void>;
+    /**
+     * Marks a session missing in the open transaction `tx`, right after the
+     * `session.created` that recorded it with a directory that is gone: the
+     * Carry over import's entry (#88; ADR 0021), as `system:workspaces`.
+     */
+    markMissing(tx: Tx, sessionId: string): void;
+  };
+  /**
+   * The key-manager registry's resolve (#370): how the harness's services
+   * read a reference for one operation, in process, with the connection's
+   * login, the value registered for scrubbing until its release. The forge
+   * reads through it; banks, routine endpoints and the skills check will.
+   */
+  readonly keyManagers: KeyManagerRegistry;
+  /**
+   * The pairing this start minted because the environment is a declared
+   * container that no client has paired with yet (ADR 0025; #349): such a
+   * container pairs from its own log, so `serve` prints it there, as `pair`
+   * prints one. Minted with `pair`'s preset scopes and ceiling, at every
+   * start until a code is first exchanged; undefined for any other start.
+   */
+  readonly startPairing: MintedPairing | undefined;
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -609,8 +654,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The forge accounts' store (#310) starts in this step too, after the client sessions whose labels a token handed over
   // from a client's gh records (#312): each stored token is registered with its Basic-auth form, and the vault entries of
   // forge accounts that are gone are deleted, before anything can read them. So do the key-manager connections (#365): each
-  // credential the vault holds is registered, and the entries of connections that are gone deleted.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, managedTools } = await step("identity", async () => {
+  // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
+  // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
+  // connection's removal. The Managed tools registry (#373) is made here too, before the forge, whose gh reads its row.
+  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, managedTools } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -644,6 +691,24 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...options.managedTools,
     });
     closers.push(() => tools.close());
+    const connections = createKeyManagerConnections({
+      log,
+      clock,
+      environmentId: loaded.id,
+      vault,
+      scrub,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+      // Asked only by a removal, once the wire is open and the forge made below.
+      referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+    });
+    closers.push(() => connections.close());
+    await connections.start();
+    const keyManagerReferences = createKeyManagerReferences({
+      connections,
+      scrub,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+    });
+    const registry: KeyManagerRegistry = options.keyManagers ?? keyManagerReferences;
     const forgeService: ForgeService = createForgeService({
       log,
       clock,
@@ -655,26 +720,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
       knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
       gh: managedGh({ row: () => tools.row("gh"), ...(options.managedTools?.hostEnv !== undefined && { hostEnv: options.managedTools.hostEnv }) }),
-      ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+      keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
       // Where the credential helper asks: the loopback listener, bound after this step.
       address: () => address,
     });
     closers.push(() => forgeService.close());
     await forgeService.start();
-    capabilities.push("forge");
-    const connections = createKeyManagerConnections({
-      log,
-      clock,
-      environmentId: loaded.id,
-      vault,
-      scrub,
-      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
-    });
-    closers.push(() => connections.close());
-    await connections.start();
-    capabilities.push("keyManagers");
-    capabilities.push("managedTools");
+    capabilities.push("forge", "keyManagers", "managedTools");
     return {
       record: loaded,
       clientSessions: loadedClientSessions,
@@ -682,6 +735,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accessLog: access,
       forge: forgeService,
       keyManagerConnections: connections,
+      keyManagers: registry,
+      references: keyManagerReferences,
       managedTools: tools,
     };
   });
@@ -698,6 +753,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
+
+  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
+  // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
+  const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
+  const autoMemory = createAutoMemory(autoMemoryRoot);
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -731,7 +791,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
-    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY), sessionStore: providerStore })];
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot, sessionStore: providerStore })];
     // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
     let probed: ContainmentReport;
     try {
@@ -870,8 +930,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(startPromptNotices({ log, stream: environmentStream }));
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
+  // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
+  // looks and what the terminal, file and diff methods find; its passes start once the wire is open.
+  const availability = createAvailabilityWatcher({
+    log,
+    clock,
+    ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
+    ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
+  });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, scrub, ...options.terminals });
+  const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
@@ -949,10 +1017,37 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
+  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  const workspaceResolver = options.workspaceResolver ?? environmentResolver;
+  // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
+  // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
+  const setup = createSetupService({
+    log,
+    clock,
+    presets: settingsPresets(),
+    stream: environmentStream,
+    steps: options.setupSteps ?? {
+      steps: STEP_REGISTRY,
+      stateChecks: environmentStateChecks({
+        log,
+        containment,
+        isRoot,
+        dataDir,
+        releaseChannel: () => channelChecks.releaseChannelHolds(),
+        updates: () => updates.machineHolds(channelChecks.status().newest),
+        hostUpdater: () => hostUpdater.holds(),
+        forge,
+        clock,
+      }),
+    },
+  });
+  capabilities.push("setup");
   const table = createMethodTable({
     ...lifecycle.handlers,
-    "environment.subscribe": () => lifecycle.source,
+    // The snapshot, sent when replay from the cursor is out of bounds: the status now, and every step's cached result (#569).
+    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), setup: setup.cached() }) }),
     // The rebuild joins the command's transaction, so it and the receipt commit together.
     "environment.rebuildProjections": () => ({
       aggregate: environmentStream,
@@ -969,6 +1064,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
+    // A missing session given another workspace (#328), from a request the create's resolver serves.
+    ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
     // Fork, rewind and the subagent transcript (#137), beside the session commands.
     ...forkRewindMethods({
@@ -979,33 +1076,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
-    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
     ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
-    // Set up's health checks (ADR 0031; #141): each registered step's, on this environment.
-    ...setupMethods({
-      log,
-      clock,
-      presets: settingsPresets(),
-      steps: options.setupSteps ?? {
-        steps: STEP_REGISTRY,
-        stateChecks: environmentStateChecks({
-          log,
-          containment,
-          isRoot,
-          dataDir,
-          releaseChannel: () => channelChecks.releaseChannelHolds(),
-          updates: () => updates.machineHolds(channelChecks.status().newest),
-          hostUpdater: () => hostUpdater.holds(),
-        }),
-      },
-    }),
+    ...setupMethods(setup),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...instructionMethods({ host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
+    ...keyManagerMethods(keyManagerConnections, references, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools),
     // The routine store's commands and list (#521), on each routine's own stream.
     ...routineMethods({
@@ -1018,10 +1099,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
-    ...workspaceMethods({ log }),
+    // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
+    ...workspaceMethods({
+      log,
+      availability,
+      directoryRules: environmentResolver,
+      worktreesRoot: roots.worktrees,
+      ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+    }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,
+      dataDir,
       environmentId: record.id,
       harnessVersion,
       launcher,
@@ -1152,10 +1241,34 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
+  // for `serve` to print there. A failed mint costs only the print; `pair` in the container mints one all the same.
+  let startPairing: MintedPairing | undefined;
+  if (detector.declared?.() === true && !pairings.everExchanged()) {
+    try {
+      startPairing = accessLog.atomically((tx) => pairings.create(tx, {}, SYSTEM.owner));
+    } catch (error) {
+      console.error("Minting the pairing a declared container prints at its start failed; run pair in the container for one:", error);
+    }
+  }
+  // The identity passes (#329): sessions with no identity resolved again, past the gate, four git processes at a time; and
+  // every identity on a verified alias's host moved to its canonical host, from here on, as a forge account is added or verified.
+  const identityPasses = createIdentityPasses({
+    log,
+    forgeAccounts,
+    autoMemory,
+    ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+  }).start();
+  closers.push(() => identityPasses.stop());
+  // The availability watcher's pass (#328): every session's workspace looked at now, past the gate, then hourly.
+  const availabilityPasses = availability.start();
+  closers.push(() => availabilityPasses.stop());
   // The managed tools' probe (#373): now, past the gate; again on a client's refresh, at most every fifteen minutes.
   managedTools.start();
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
+  closers.push(forge.links.start());
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
   // verifications (#366), on the clock, and every fifteen minutes.
   keyManagerConnections.startSigningInAndVerifying();
@@ -1229,6 +1342,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log,
     forge,
     keyManagerConnections,
+    keyManagers,
+    startPairing,
+    workspaces: {
+      checkoutIndex: createCheckoutIndex(log),
+      identityPass: identityPasses.resolved,
+      availabilityPass: availabilityPasses.pass,
+      markMissing: (tx, sessionId) => availability.markMissing(tx, sessionId.toLowerCase()),
+    },
     close,
   };
 };

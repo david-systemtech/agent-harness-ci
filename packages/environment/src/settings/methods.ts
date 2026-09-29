@@ -1,7 +1,8 @@
-import { SETTINGS_KEYS, SETTINGS_STREAM_KIND, type SettingsKey, type SettingsPatch, type SettingsValues } from "@agent-harness/contracts";
-import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import { SETTINGS_KEYS, type SettingsKey, type SettingsPatch, type SettingsValues } from "@agent-harness/contracts";
+import type { EventLog } from "../event-log/event-log.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { recordSettingsChange, settingsStream } from "./changes.js";
 import { readSettings } from "./settings-store.js";
 
 /**
@@ -9,10 +10,11 @@ import { readSettings } from "./settings-store.js";
  * settings methods (session-state spec, "Commands"), over the contracts'
  * key table: the wire has checked every value against its key's schema
  * before a handler runs. An update records the keys whose value it changes
- * as one `settings.updated` on the environment's settings stream, in the
- * command's transaction with its receipt; one that changes nothing appends
- * nothing. What a change sets off (the auto-settle sweep) runs from the
- * command's commit hook, so it has run before the command is answered.
+ * as one `settings.updated` on the environment's settings stream, with the
+ * notice `settings.changed` beside it (`changes.ts`), in the command's
+ * transaction with its receipt; one that changes nothing appends nothing.
+ * What a change sets off (the auto-settle sweep) runs from the command's
+ * commit hook, so it has run before the command is answered.
  */
 
 export interface SettingsMethodsOptions {
@@ -40,7 +42,7 @@ const same = (a: unknown, b: unknown): boolean => {
 
 export const settingsMethods = (options: SettingsMethodsOptions): MethodHandlers => {
   const { log } = options;
-  const stream: StreamRef = { kind: SETTINGS_STREAM_KIND, id: options.environmentId };
+  const stream = settingsStream(options.environmentId);
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -60,7 +62,8 @@ export const settingsMethods = (options: SettingsMethodsOptions): MethodHandlers
       if (keys.length === 0) return { aggregate: stream, result };
       const { onChange } = options;
       if (onChange !== undefined) context.tx.afterCommit(() => onChange(keys));
-      return { aggregate: stream, result, events: [{ type: "settings.updated", payload: { values: changed } }] };
+      recordSettingsChange(log, options.environmentId, changed, context);
+      return { aggregate: stream, result };
     },
   };
 };

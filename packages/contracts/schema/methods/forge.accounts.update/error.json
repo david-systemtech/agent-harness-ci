@@ -257,7 +257,7 @@
               "type": "integer",
               "minimum": -9007199254740991,
               "maximum": 9007199254740991,
-              "description": "The HTTP status the forge's identity endpoint answered."
+              "description": "The HTTP status the forge answered."
             }
           },
           "required": [
@@ -271,7 +271,7 @@
         "message",
         "data"
       ],
-      "description": "The forge refused the credential, or its identity endpoint answered no user: nothing was stored. data names the origin and the HTTP status."
+      "description": "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list; linking a pull request, no pull request): an add or update stored nothing, a link linked nothing. data names the origin and the HTTP status."
     },
     {
       "type": "object",
@@ -465,7 +465,71 @@
         "message",
         "data"
       ],
-      "description": "The credential's key-manager reference could not be read: no key-manager connection holds it, the connection is not signed in, or it answered no value. Nothing was changed; the message says which, and data names the connection."
+      "description": "The key-manager reference could not be read: no key-manager connection on this environment holds it, the connection is not signed in, or the key manager could not be asked now. Nothing was changed; the message says which, and data names the connection."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "reference_not_found"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "The key-manager connection the reference names."
+            }
+          },
+          "required": [
+            "connectionId"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The key manager holds nothing at the reference's locator: no secret at its path, or no key by its name in the secret. Nothing was changed; data names the connection."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "reference_denied"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "connectionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "The key-manager connection the reference names."
+            }
+          },
+          "required": [
+            "connectionId"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The key manager refused the connection's login the read. OpenBao refuses a path the login may not read, a path that is not there and a mount that is not there alike, so the message says to check the mount first, then the path and the login's policies. Nothing was changed; data names the connection."
     }
   ]
 }

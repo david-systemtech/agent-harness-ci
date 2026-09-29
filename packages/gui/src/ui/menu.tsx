@@ -2,7 +2,7 @@ import * as RadixMenu from "@radix-ui/react-dropdown-menu";
 import type { ComponentProps } from "react";
 import { MENU_ITEM, OVERLAY, classes } from "./classes.js";
 
-/** A menu opened from a button: `Menu` holds a `MenuTrigger` and a `MenuContent` of `MenuItem`s. */
+/** A menu opened from a button: `Menu` holds a `MenuTrigger` and a `MenuContent` of `MenuItem`s, grouped under a `MenuLabel` where they need one. */
 export const Menu = RadixMenu.Root;
 export const MenuTrigger = RadixMenu.Trigger;
 
@@ -16,4 +16,9 @@ export const MenuItem = ({ className, ...props }: ComponentProps<typeof RadixMen
 
 export const MenuSeparator = ({ className, ...props }: ComponentProps<typeof RadixMenu.Separator>) => (
   <RadixMenu.Separator className={classes("my-1 h-px bg-line", className)} {...props} />
+);
+
+/** A heading over the items after it, which the highlight passes over. */
+export const MenuLabel = ({ className, ...props }: ComponentProps<typeof RadixMenu.Label>) => (
+  <RadixMenu.Label className={classes("px-2 pt-2 pb-1 text-xs font-medium text-ink-muted", className)} {...props} />
 );

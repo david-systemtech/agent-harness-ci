@@ -8,7 +8,7 @@ export { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 export { Dialog, DialogClose, DialogContent, DialogTrigger, type DialogContentProps } from "./dialog.js";
 export { Fold, type FoldProps } from "./fold.js";
 export { Input } from "./input.js";
-export { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./menu.js";
+export { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "./menu.js";
 export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./popover.js";
 export { Switch } from "./switch.js";
 export { Toast, Toasts, type ToastProps } from "./toast.js";
