@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock, type ManualClock } from "../../test/clock.js";
 import { UNREACHABLE_OPENBAO, startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
-import { rejection, saidBack } from "../../test/forge.js";
+import { rejection, saidBack, saidBackOnceHeld } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import {
   OTHER_SECRET_ID,
@@ -578,7 +578,7 @@ describe("keyManagers.connections.signIn", () => {
       ],
     ]);
     await vi.waitFor(() => expect(bao.live(firstLogin)).toBe(false));
-    await vi.waitFor(async () => expect(await saidBack(t, [SECRET_ID, OTHER_SECRET_ID])).toEqual([SECRET_ID, REDACTED]));
+    expect(await saidBackOnceHeld(t, [SECRET_ID, OTHER_SECRET_ID], [SECRET_ID, REDACTED])).toEqual([SECRET_ID, REDACTED]);
 
     await t.close();
     const again = await start({ dataDir });
@@ -683,7 +683,7 @@ describe("keyManagers.connections.signOut", () => {
     expect(out.result?.connection).toEqual({ ...connection, status, tokenInformation: null, injects: false });
     expect((await keyManagerEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["key-manager.connection.signed-out", { connectionId: connection.id, status }]]);
     await vi.waitFor(() => expect(bao.live(login)).toBe(false));
-    await vi.waitFor(async () => expect(await saidBack(t, [SECRET_ID, login])).toEqual([SECRET_ID, login]));
+    expect(await saidBackOnceHeld(t, [SECRET_ID, login], [SECRET_ID, login])).toEqual([SECRET_ID, login]);
     expect((await signOut(client, connection.id)).receipt).toMatchObject({ status: "accepted", changed: false });
 
     await t.close();
@@ -715,7 +715,7 @@ describe("keyManagers.connections.signOut", () => {
 
     await signOut(client, connection.id);
 
-    await vi.waitFor(async () => expect(await saidBack(t, [PERSON_TOKEN])).toEqual([PERSON_TOKEN]));
+    expect(await saidBackOnceHeld(t, [PERSON_TOKEN], [PERSON_TOKEN])).toEqual([PERSON_TOKEN]);
     expect(bao.live(PERSON_TOKEN)).toBe(true);
     expect(bao.requests.map((request) => request.path)).not.toContain("auth/token/revoke-self");
   });
@@ -734,7 +734,7 @@ describe("keyManagers.connections.remove", () => {
     expect(await list(client)).toEqual([]);
     expect((await keyManagerEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["key-manager.connection.removed", { connectionId: connection.id }]]);
     await vi.waitFor(() => expect(bao.live(login)).toBe(false));
-    await vi.waitFor(async () => expect(await saidBack(t, [SECRET_ID])).toEqual([SECRET_ID]));
+    expect(await saidBackOnceHeld(t, [SECRET_ID], [SECRET_ID])).toEqual([SECRET_ID]);
     expect(rejection((await remove(client, connection.id)).receipt)).toMatchObject({ reason: "not_found", data: { kind: "key_manager_connection", connectionId: connection.id } });
 
     await t.close();

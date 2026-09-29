@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
-import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted, saidBack, update, verify } from "../../test/forge.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted, saidBack, saidBackOnceHeld, update, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
@@ -172,7 +172,8 @@ describe("what a verification finds", () => {
 
     expect(renamed).toMatchObject({ identity: { login: "david-renamed", userId: "42" }, problem: null, statusSince: MANUAL_CLOCK_START });
     expect((await forgeEvents(client, from)).map((event) => event.payload["identity"])).toEqual([{ login: "david-renamed", userId: "42" }]);
-    await vi.waitFor(async () => expect(await saidBack(t, [basicAuth("david-renamed", TOKEN)])).toEqual(["[redacted]"]));
+    // The new form is registered once the token is read from the vault again, after the verification has answered.
+    expect(await saidBackOnceHeld(t, [basicAuth("david-renamed", TOKEN)], ["[redacted]"])).toEqual(["[redacted]"]);
   });
 
   it("takes another user id as identity-changed, keeping the identity and injecting nothing until the credential is replaced", async () => {
