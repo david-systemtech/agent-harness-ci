@@ -43,6 +43,11 @@ export interface RenderOptions {
   readonly shell?: FakeShell;
   /** What the window's presentation holds before it first opens, as a launch before this one left it. */
   readonly presentation?: Partial<PresentationValues>;
+  /**
+   * The window's first launch: its first-launch mark unset, so Set up takes the whole window once the home environment
+   * is ready. Preset false: a window launched before, whose Set up was finished or closed, as most tests want it.
+   */
+  readonly firstLaunch?: boolean;
   /** The protocol version this client speaks: preset this build's, so a test can be the newer side of a mismatch. */
   readonly protocolVersion?: number;
 }
@@ -149,9 +154,10 @@ export const renderApp = async (script: Script, options: RenderOptions = {}): Pr
   shell.answer("http", world.fetch);
   shell.answer("localGrant.read", async () => world.grant?.read());
   const documents = inMemoryDocuments();
-  if (options.presentation) {
+  const presentation: Partial<PresentationValues> = { ...(options.firstLaunch !== true && { firstLaunchDone: true }), ...options.presentation };
+  if (Object.keys(presentation).length > 0) {
     const left = await openPresentation(documents);
-    for (const [key, value] of Object.entries(options.presentation) as [PresentationKey, never][]) left.set(key, value);
+    for (const [key, value] of Object.entries(presentation) as [PresentationKey, never][]) left.set(key, value);
     await left.close();
   }
   return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion }, paired);

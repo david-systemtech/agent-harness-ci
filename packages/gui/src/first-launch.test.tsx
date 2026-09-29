@@ -27,11 +27,14 @@ const STARTING_POLL_MS = 2000;
 const serviceCalls = (app: RenderedApp) => app.shell.calls.filter(([member]) => member.startsWith("service.")).map(([member]) => member);
 
 describe("first launch", () => {
-  it("installs and starts this machine's environment through the shell, and follows it from service down through starting to ready", async () => {
+  it("installs and starts this machine's environment through the shell, follows it from service down through starting to ready, then opens Set up as the whole window", async () => {
     const shell = fakeShell();
     let started!: () => void;
     shell.answer("service.start", () => new Promise<void>((resolve) => (started = resolve)));
-    const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, { shell });
+    const app = await renderApp(
+      { environments: [{ name: "desk", reach: "local", discovery: "nothing", setup: { permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", actions: ["restore"] } } }] },
+      { shell, firstLaunch: true },
+    );
 
     expect(await within(pane()).findByText("Starting the environment on this machine…")).toBeDefined();
     expect(serviceCalls(app)).toEqual(["service.start"]);
@@ -44,8 +47,22 @@ describe("first launch", () => {
 
     app.environment("desk").discovery("ready");
     act(() => app.clock.advance(STARTING_POLL_MS));
-    expect(await within(pane()).findByText("No session is open. Choose one from the sidebar.")).toBeDefined();
-    expect(within(screen.getByRole("navigation", { name: "Sessions" })).getByRole("heading", { name: "desk" })).toBeDefined();
+
+    // Ready, with the first-launch mark unset: Set up takes the whole window, the steps on a rail with their dots, the
+    // first step's card beside it, and the environment it checks with a picker.
+    const setup = await screen.findByRole("region", { name: "Set up" });
+    expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
+    expect(screen.queryByRole("main")).toBeNull();
+    const steps = within(setup).getByRole("navigation", { name: "Set up steps" });
+    expect(
+      within(steps)
+        .getAllByRole("button")
+        .map((step) => step.textContent),
+    ).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions", "Appearance"]);
+    expect(await within(steps).findByRole("img", { name: "Permissions: needs attention" })).toBeDefined();
+    expect(within(steps).getByRole("img", { name: "Account: done" })).toBeDefined();
+    expect(within(setup).getByRole("region", { name: "Account" })).toBeDefined();
+    expect(within(within(setup).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("desk");
     expect(serviceCalls(app)).toEqual(["service.start"]);
   });
 
