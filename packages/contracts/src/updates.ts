@@ -84,8 +84,12 @@ export const UpdatePendingPayload = z
       description: "When an update first became pending: kept when a newer release replaces the target, and across restarts, so frequent releases never reset the cap's clock.",
     }),
     deferUntil: Timestamp.meta({ description: "since plus the deferral cap: past it, busy work no longer holds the update." }),
+    // Optional: only a container's update has an image, and an event appended before #348 carries none.
+    image: ReleaseImage.optional().meta({
+      description: "Managed outside, the target's image from its release manifest, which the host-side updater pulls and checks; absent for a native environment's update.",
+    }),
   })
-  .meta({ description: "An update is pending: its id, the version it goes to, where it comes from, since when, and when the deferral cap forces it." });
+  .meta({ description: "An update is pending: its id, the version it goes to, where it comes from, since when, when the deferral cap forces it, and, managed outside, its image." });
 export type UpdatePendingPayload = z.infer<typeof UpdatePendingPayload>;
 
 /** `environment.update-started`: in the tick that read the activity, a pending update began its drain. */
@@ -118,7 +122,7 @@ export const UpdateFailedPayload = z
     toVersion: RecordedVersion.meta({ description: "The version the update went to, which failed." }),
     stage: UpdateFailureStage,
     reason: z.string().min(1).meta({
-      description: "A short code naming the failure: the launcher's refusal of the switch, the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left.",
+      description: "A short code naming the failure: the launcher's refusal of the switch, no-stop when a container's stop never came after its drain (#348), the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left.",
     }),
     rolledBack: z.boolean().meta({ description: "Whether the database snapshot was restored: true after a trial or a crash loop, false after a refused switch, which changed nothing." }),
   })
@@ -355,7 +359,9 @@ export type UpdateWhen = z.infer<typeof UpdateWhen>;
  * release's manifest is missing or not its schema (#346), this platform's
  * artefact did not download or does not match the manifest (#347), the
  * launcher refused to install the version (`data.launcherReason` says why),
- * or no launcher runs the environment to switch it (#343).
+ * or no launcher runs the environment to switch it (#343); and, refusing
+ * the host-side updater's `updates.begin` (#348), the environment's updates
+ * are not managed outside it, or the update named is not the ready one.
  */
 export const UPDATE_CONFLICT_REASONS = [
   "pinned",
@@ -369,10 +375,12 @@ export const UPDATE_CONFLICT_REASONS = [
   "artefact",
   "install",
   "no_launcher",
+  "not_outside",
+  "not_ready",
 ] as const;
 export const UpdateConflictReason = z.enum(UPDATE_CONFLICT_REASONS).meta({
   description:
-    "Why an update or a pin was refused in conflict: pinned (another version is pinned), current (that version runs already, or nothing newer is published), schema (its database schema is below the database's), launcher (it needs a newer launcher than the running one), in_progress (an update is staging, draining or switching), no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed: ask again), manifest (the release's manifest is missing or not its schema), artefact (this platform's artefact did not download, does not match its size and SHA-256 in the manifest, or does not unpack), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes).",
+    "Why an update or a pin was refused in conflict: pinned (another version is pinned), current (that version runs already, or nothing newer is published), schema (its database schema is below the database's), launcher (it needs a newer launcher than the running one), in_progress (an update is staging, draining or switching), no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed: ask again), manifest (the release's manifest is missing or not its schema), artefact (this platform's artefact did not download, does not match its size and SHA-256 in the manifest, or does not unpack), install (the launcher refused to install the version: data.launcherReason says why), no_launcher (no launcher runs the environment to switch its version: a foreground serve; or, in a container, an artefact asked for, where the host-side updater takes updates by version), not_outside (updates.begin under a launcher or outside a container, whose updates no host-side updater carries out) or not_ready (updates.begin naming an update that is not the ready one: none is pending, another is, or it still waits for idle, the cap or a request).",
 });
 export type UpdateConflictReason = z.infer<typeof UpdateConflictReason>;
 

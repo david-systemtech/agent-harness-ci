@@ -82,6 +82,7 @@ import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { RELEASE_SOURCE, channelSettingsOf, createReleaseChannel, type ChannelSettings } from "../updates/channel.js";
 import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
+import { createHostUpdaterPolls } from "../updates/host-updater.js";
 import { updateMethods } from "../updates/methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
@@ -498,9 +499,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const now = () => clock.now();
   const scrub = options.scrub ?? createScrubRegistry();
   const launcher = options.launcher ?? processLauncherChannel();
-  // Under a launcher the environment can update itself to a client's version (ADR 0007); under a foreground `serve` it
-  // cannot, and `updates.status` says why. Managed outside, the flag waits for the host-side updater's poll (#348).
-  const capabilities: CapabilityFlags = launcher.present() ? ["self-update"] : [];
+  // The flags found as the environment starts (forge, containment); `self-update` is read as each document is sent, below.
+  const capabilities: CapabilityFlags = [];
   // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
   let authPolicy: AuthPolicy = "local-only";
   // The name the Host check admits: set only once the tailnet address is bound.
@@ -766,6 +766,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => usagePool.close());
 
+  const detector = options.containerDetector ?? processContainerDetector();
+  // A container with no launcher: a host-side updater manages its updates, and it never updates itself (ADR 0007).
+  const updatesManagedOutside = detector.inContainer() && !launcher.present();
+  // Managed outside, the host-side updater's polls, the last kept in the data directory (#348).
+  const hostUpdater = createHostUpdaterPolls({ clock, dataDir, managedOutside: updatesManagedOutside });
+  // Under a launcher the environment can update itself to a client's version (ADR 0007); managed outside, while the
+  // host-side updater polled in the last fifteen minutes (#348); under a foreground `serve` it cannot, and
+  // `updates.status` says why. Read as discovery answers and as each hello is sent.
+  const flags = (): CapabilityFlags => (launcher.present() || hostUpdater.selfUpdate() ? ["self-update", ...capabilities] : [...capabilities]);
+
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
@@ -774,7 +784,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentName: record.name,
       harnessVersion,
       protocolVersion: PROTOCOL_VERSION,
-      capabilities,
+      capabilities: flags(),
       authPolicy,
       readiness,
     };
@@ -789,9 +799,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
-  const detector = options.containerDetector ?? processContainerDetector();
-  // A container with no launcher: a host-side updater manages its updates, and it never updates itself (ADR 0007).
-  const updatesManagedOutside = detector.inContainer() && !launcher.present();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
@@ -819,13 +826,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         console.error("Stopping the idle provider processes for the drain failed; the drain goes on:", error);
       }
     },
-    // An update's drain that waited its runs out ends with bye: updating to every client and the launcher's switch (#343);
-    // one the environment's close cut short closes as any drain does.
+    // An update's drain that waited its runs out ends with bye: updating to every client and the launcher's switch (#343),
+    // or, managed outside, at the host-side updater's stop (#348); one the environment's close cut short closes as any
+    // drain does.
     close: async (ended) => {
       try {
         if (ended.trigger === "update" && ended.endedBy !== "closed") {
-          await wire.close({ reason: "updating", message: "The environment is updating to a new version and will be back shortly." });
-          await updates.switchOver();
+          await updates.afterDrain(() => wire.close({ reason: "updating", message: "The environment is updating to a new version and will be back shortly." }));
         }
       } finally {
         await close();
@@ -853,6 +860,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environmentName: record.name,
     harnessVersion,
     launcher,
+    managedOutside: updatesManagedOutside,
     runs: host.runs,
     host,
     activity: () => lifecycle.status().activity,
@@ -919,6 +927,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         dataDir,
         releaseChannel: () => channelChecks.releaseChannelHolds(),
         updates: () => updates.machineHolds(channelChecks.status().newest),
+        hostUpdater: () => hostUpdater.holds(),
       }),
     }),
     ...processMethods({ log, host }),
@@ -935,6 +944,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       harnessVersion,
       launcher,
       managedOutside: updatesManagedOutside,
+      hostUpdater,
       coordinator: updates,
       releaseSource,
       channel: releaseChannel,
@@ -982,7 +992,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
     environment: record,
-    capabilities,
+    capabilities: flags,
     clientSessions: socketSessions(clientSessions, accessLog.atomically),
     methods: table,
     clock,
@@ -1104,7 +1114,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     authPolicy,
     readiness: () => readiness,
     status: () => lifecycle.status(),
-    drain: (trigger) => lifecycle.drain(trigger).outcome,
+    drain: (trigger) => {
+      // A signal is also the host-side updater's `docker compose stop`, which ends an update's drain managed outside (#348).
+      if (trigger === "signal") updates.stopRequested();
+      return lifecycle.drain(trigger).outcome;
+    },
     drained: lifecycle.drained,
     methods: table,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
