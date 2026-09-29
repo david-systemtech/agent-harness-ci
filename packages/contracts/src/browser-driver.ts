@@ -94,9 +94,11 @@ export const pageKeyOf = (runEnvironmentId: string, sessionId: string): PageKey 
 
 /** The longest address a verb takes: the denylist's matcher reads this much of one. */
 const MAX_ADDRESS = 8_192;
-/** The longest selector, ref, typed text or expression a verb takes. */
+/** The longest CSS selector, and the longest text a wait waits for. */
 const MAX_SELECTOR = 4_096;
+/** The longest ref. */
 const MAX_REF = 128;
+/** The longest text `type` types, and the longest expression `evaluate` runs. */
 const MAX_TEXT = 65_536;
 
 const Address = z.string().min(1).max(MAX_ADDRESS).meta({ description: "An address to open: an http or https URL, or a bare host with an optional port and path." });
