@@ -263,9 +263,5 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   };
 };
 
-/** An https address nothing listens on: a fake OpenBao's, closed. */
-export const unreachableOpenBao = async (): Promise<string> => {
-  const bao = await startFakeOpenBao();
-  await bao.close();
-  return bao.address;
-};
+/** An https address nothing listens on: loopback's port 1, which no test binds, so no listener can take it meanwhile. */
+export const UNREACHABLE_OPENBAO = "https://127.0.0.1:1";

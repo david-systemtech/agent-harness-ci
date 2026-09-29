@@ -147,7 +147,7 @@
           },
           "injects": {
             "type": "boolean",
-            "description": "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in."
+            "description": "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it."
           },
           "status": {
             "type": "object",

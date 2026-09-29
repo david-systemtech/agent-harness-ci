@@ -115,7 +115,8 @@ const signedIn = (db: ProjectionDb, payload: KeyManagerConnectionSignedInPayload
 
 const signedOut = (db: ProjectionDb, payload: KeyManagerConnectionSignedOutPayload): void => {
   moveStatus(db, payload.connectionId, payload.status);
-  db.run("UPDATE key_manager_connections SET token_information = NULL, can_mint = NULL, credential = NULL WHERE id = ?", payload.connectionId);
+  // Signed out, it no longer injects: the next of its provider signed in does.
+  db.run("UPDATE key_manager_connections SET token_information = NULL, can_mint = NULL, credential = NULL, injects = 0 WHERE id = ?", payload.connectionId);
 };
 
 const updated = (db: ProjectionDb, payload: KeyManagerConnectionUpdatedPayload): void => {

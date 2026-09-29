@@ -6,7 +6,7 @@ import { DISCOVERY_PATH, DiscoveryDocument, type KeyManagerConnectionRecord, typ
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock, type ManualClock } from "../../test/clock.js";
-import { startFakeOpenBao, testCertificates, unreachableOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
+import { UNREACHABLE_OPENBAO, startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { rejection, saidBack } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import {
@@ -228,7 +228,7 @@ describe("keyManagers.connections.add", () => {
   it("keeps a connection whose OpenBao cannot be reached or is sealed, with that status and its credential, which a restart signs in from", async () => {
     const dataDir = dataDirectory();
     const { t, bao, client } = await withOpenBao({ dataDir });
-    const nowhere = await unreachableOpenBao();
+    const nowhere = UNREACHABLE_OPENBAO;
     const sealedBao = await fakeOpenBao(t.clock);
     sealedBao.approle(ROLE_ID, OTHER_SECRET_ID, { policies: ["default"] });
     sealedBao.seal();
@@ -595,7 +595,7 @@ describe("keyManagers.connections.update", () => {
     const [firstLogin = ""] = bao.minted;
     const moved = await fakeOpenBao(t.clock);
     moved.approle(ROLE_ID, SECRET_ID, { policies: ["default"] });
-    const nowhere = await unreachableOpenBao();
+    const nowhere = UNREACHABLE_OPENBAO;
     const from = t.env.log.head();
 
     const renamed = await update(client, { connectionId: connection.id, label: "Work", tokenRole: "agent-runs" });
@@ -652,7 +652,7 @@ describe("keyManagers.connections.signOut", () => {
     const out = await signOut(client, connection.id);
 
     const status = { kind: "awaiting-sign-in", since: "2026-09-24T00:01:00.000Z", message: "Signed out: sign in again in Set up, Key manager." };
-    expect(out.result?.connection).toEqual({ ...connection, status, tokenInformation: null });
+    expect(out.result?.connection).toEqual({ ...connection, status, tokenInformation: null, injects: false });
     expect((await keyManagerEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["key-manager.connection.signed-out", { connectionId: connection.id, status }]]);
     await vi.waitFor(() => expect(bao.live(login)).toBe(false));
     await vi.waitFor(async () => expect(await saidBack(t, [SECRET_ID, login])).toEqual([SECRET_ID, login]));
@@ -661,9 +661,23 @@ describe("keyManagers.connections.signOut", () => {
     await t.close();
     const asked = bao.requests.length;
     const again = await start({ dataDir });
-    expect(await list(await again.client())).toEqual([{ ...connection, status, tokenInformation: null }]);
+    expect(await list(await again.client())).toEqual([{ ...connection, status, tokenInformation: null, injects: false }]);
     expect(await saidBack(again, [SECRET_ID])).toEqual([SECRET_ID]);
     expect(bao.requests).toHaveLength(asked);
+  });
+
+  it("stops the connection injecting, so the next of its provider signed in injects in its place", async () => {
+    const { t, bao, client } = await withOpenBao();
+    const other = await fakeOpenBao(t.clock);
+    other.approle(ROLE_ID, SECRET_ID, { policies: ["default"] });
+    const first = await added(client, { address: bao.address, ca: bao.ca, credential: approle() });
+    const second = await added(client, { address: other.address, ca: other.ca, method: "approle" });
+    expect([first.injects, second.injects]).toEqual([true, false]);
+
+    expect((await signOut(client, first.id)).result?.connection.injects).toBe(false);
+    expect((await signIn(client, { connectionId: second.id, credential: approle() })).result?.connection).toMatchObject({ injects: true, status: { kind: "signed-in" } });
+    // Signed in again, the first serves references only.
+    expect((await signIn(client, { connectionId: first.id, credential: approle() })).result?.connection.injects).toBe(false);
   });
 
   it("lets a token a person gave go without revoking it", async () => {

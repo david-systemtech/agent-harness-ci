@@ -60,8 +60,9 @@ import type { ConnectionProvider, ProviderFailure, SignInTarget } from "./provid
  *   has committed; a start deletes every key-manager entry no connection
  *   holds, whatever an interrupted deletion left.
  * - **One connection per provider and address**, and the first of a
- *   provider signed in injects (`injects`); the ticks are preset to every
- *   policy of the login at its first sign-in.
+ *   provider signed in while none injects does (`injects`), until it is
+ *   signed out or removed; the ticks are preset to every policy of the
+ *   login at its first sign-in.
  */
 
 /** The environment's own sign-ins' actor. */

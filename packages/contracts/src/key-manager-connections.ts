@@ -228,7 +228,7 @@ export const KeyManagerConnectionRecord = z
       description: "The policies runs receive, ticked from the login's: preset to every one at the first sign-in; null until then, unless a copy carried them.",
     }),
     basePath: KeyManagerBasePath.nullable().meta({ description: "Where Move keeps the harness's secrets; null until one is set." }),
-    injects: z.boolean().meta({ description: "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in." }),
+    injects: z.boolean().meta({ description: "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it." }),
     status: KeyManagerStatus,
     tokenInformation: KeyManagerTokenInformation.nullable().meta({ description: "What the login's lookup said of its token; null while it is not signed in." }),
     canMint: z.boolean().nullable().meta({ description: "Whether the login can mint run tokens; null until a verification has read its capabilities." }),
@@ -291,7 +291,7 @@ export type KeyManagerConnectionSignedInPayload = z.infer<typeof KeyManagerConne
 
 export const KeyManagerConnectionSignedOutPayload = z
   .object({ ...connectionPart, status: KeyManagerStatus.meta({ description: "Awaiting sign-in, from now." }) })
-  .meta({ description: "key-manager.connection.signed-out: the login was let go and the credential deleted; the connection awaits a sign-in." });
+  .meta({ description: "key-manager.connection.signed-out: the login was let go and the credential deleted; the connection awaits a sign-in, and no longer injects." });
 export type KeyManagerConnectionSignedOutPayload = z.infer<typeof KeyManagerConnectionSignedOutPayload>;
 
 export const KeyManagerConnectionUpdatedPayload = z

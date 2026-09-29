@@ -2907,7 +2907,7 @@
             "connectionId",
             "status"
           ],
-          "description": "key-manager.connection.signed-out: the login was let go and the credential deleted; the connection awaits a sign-in."
+          "description": "key-manager.connection.signed-out: the login was let go and the credential deleted; the connection awaits a sign-in, and no longer injects."
         }
       },
       "required": [
