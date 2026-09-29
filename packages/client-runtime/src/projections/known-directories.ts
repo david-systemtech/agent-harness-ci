@@ -51,7 +51,7 @@ const byRecency = <T>(time: (item: T) => string, tie: (item: T) => string) => (a
   Date.parse(time(b)) - Date.parse(time(a)) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0);
 
 /** Every directory the sessions use, most recent first, ties in code-unit order of the path. */
-export const directoriesUsed = (sessions: Iterable<SessionSummary>): KnownDirectory[] => {
+const directoriesUsed = (sessions: Iterable<SessionSummary>): KnownDirectory[] => {
   const known = new Map<string, { directory: KnownDirectory; marked: boolean }>();
   // The most recent session first: the first to name a directory gives its identity and last use, the first whose workspace
   // it is its mark.
@@ -75,7 +75,7 @@ const stillHidden = (directory: KnownDirectory, hiddenAt: string | undefined): b
   hiddenAt !== undefined && Date.parse(directory.lastUsedAt) <= Date.parse(hiddenAt);
 
 /** The environment's known directories: those used, less those hidden on this client and not used since, at most the limit. */
-export const knownDirectories = (sessions: Iterable<SessionSummary>, hidden: Readonly<Record<string, string>>): readonly KnownDirectory[] =>
+const knownDirectories = (sessions: Iterable<SessionSummary>, hidden: Readonly<Record<string, string>>): readonly KnownDirectory[] =>
   directoriesUsed(sessions)
     .filter((directory) => !stillHidden(directory, hidden[directory.path]))
     .slice(0, KNOWN_DIRECTORY_LIMIT);
