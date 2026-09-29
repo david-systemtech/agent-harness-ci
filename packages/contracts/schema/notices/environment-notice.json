@@ -4257,13 +4257,18 @@
               "type": "string",
               "enum": [
                 "account",
+                "carry-over",
                 "your-machines",
                 "forges",
+                "key-manager",
+                "memory-bank",
+                "skills",
+                "instructions",
                 "browser",
                 "permissions",
                 "appearance"
               ],
-              "description": "A step with an entry in the step registry: account, your-machines, forges, browser, permissions, appearance."
+              "description": "The step checked: any step of the milestone-1 order, so a client reads a result of a step a newer environment registers and its own build does not."
             },
             "state": {
               "type": "string",

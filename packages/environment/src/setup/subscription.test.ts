@@ -1,4 +1,4 @@
-import { DISCOVERY_PATH, DiscoveryDocument, EnvironmentNotice, registry, type EventFrame, type Frame, type ResultOf, type StepResult } from "@agent-harness/contracts";
+import { DISCOVERY_PATH, DiscoveryDocument, EnvironmentNotice, registry, type EventFrame, type Frame, type RegisteredStepId, type ResultOf, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
 import { useCleanups } from "../../test/cleanups.js";
@@ -62,7 +62,7 @@ const scriptedRegistry = () => {
 };
 
 /** The one result `setup.check` answers for `step`. */
-const check = async (client: WireClient, step: StepResult["step"]): Promise<StepResult> => {
+const check = async (client: WireClient, step: RegisteredStepId): Promise<StepResult> => {
   const { results } = await client.request("setup.check", { step });
   expect(results.map((result) => result.step)).toEqual([step]);
   return results[0] as StepResult;

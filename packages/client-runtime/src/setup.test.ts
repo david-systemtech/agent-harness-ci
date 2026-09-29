@@ -1,4 +1,4 @@
-import type { EnvironmentStatus, StepResult } from "@agent-harness/contracts";
+import { STEP_ORDER, type EnvironmentStatus, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { after } from "../test/environments.js";
 import { noticeEvent } from "../test/events.js";
@@ -142,14 +142,24 @@ describe("the environment stream's results", () => {
     ]);
   });
 
-  it("leave out a snapshot's result for a step this build does not register, reading the rest", async () => {
+  it("read a newer environment's results of steps this build does not register, from the snapshot and the notices, and leave out one this build cannot read (#672)", async () => {
     const { runtime, platform, env, environment, adding } = await paired();
-    const newer = { ...doneResult("account"), step: "memory-bank", reason: "Every bank is reachable." };
-    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), newer] });
+    // Memory bank and Skills have no entry in this build's registry; a step past the milestone-1 order is no step it knows.
+    const bank = doneResult("memory-bank", { reason: "Every bank is reachable." });
+    const later = { ...doneResult("account"), step: "housekeeping", reason: "Nothing to sweep." };
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), bank, later] });
     environment.synchronized(3);
     await adding;
     await flush();
-    expect(rows(runtime, env).filter((row) => row.registered)).toEqual([{ id: "account", registered: true, result: { state: "done", reason: "account holds.", stale: false } }]);
+    expect(rows(runtime, env).filter((row) => row.registered)).toEqual([
+      { id: "account", registered: true, result: { state: "done", reason: "account holds.", stale: false } },
+      { id: "memory-bank", registered: true, result: { state: "done", reason: "Every bank is reachable.", stale: false } },
+    ]);
+
+    environment.event(noticeEvent(4, env, "setup.result-changed", attentionResult("skills", "skills.pulled", ["pull-now"], { checkedAt: after(4_000) })));
+    await flush();
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ state: "needs-attention", actions: ["pull-now"], stale: false });
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 3, done: 2, needsAttention: 1, skipped: 0, attention: ["skills"] });
     expect(platform.reported).toEqual([]);
   });
 
@@ -234,6 +244,41 @@ describe("this client's own check", () => {
     expect(await checking).toMatchObject({ ok: true });
     expect(pending(runtime, env)).toEqual([]);
     expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", checkedAt: after(1), stale: false });
+  });
+
+  it("applies a newer environment's answer whole, its results of steps this build does not register beside the rest, each aged against the preset cadence (#672)", async () => {
+    const { runtime, wire, clock, env } = await withResults();
+    const checks = heldChecks(wire);
+    const all = runtime.setup.check(env);
+    await flush();
+    // An environment that registers every step of the order, the ones this build's registry lacks included.
+    const keyManager = attentionResult("key-manager", "key-manager.reachable", ["check-again"], { checkedAt: after(1) });
+    checks.answer(STEP_ORDER.map((step) => (step === "key-manager" ? keyManager : doneResult(step, { checkedAt: after(1) }))));
+    expect(await all).toMatchObject({ ok: true });
+    const view = runtime.projections.setup(env).read();
+    expect(view.steps.map((step) => [step.id, step.registered, step.result?.state])).toEqual([
+      ["account", true, "done"],
+      ["carry-over", true, "done"],
+      ["your-machines", true, "done"],
+      ["forges", true, "done"],
+      ["key-manager", true, "needs-attention"],
+      ["memory-bank", true, "done"],
+      ["skills", true, "done"],
+      ["instructions", true, "done"],
+      ["browser", true, "done"],
+      ["permissions", true, "done"],
+      ["appearance", true, "done"],
+    ]);
+    expect(resultOf(runtime, env, "key-manager")).toMatchObject({ ...keyManager, stale: false, olderThanCadence: false });
+    expect(view.counts).toEqual({ registered: 11, done: 10, needsAttention: 1, skipped: 0, attention: ["key-manager"] });
+
+    // No cadence of this build's own for it: it ages against the hour a step has unless it gives another.
+    clock.advance(60 * 60_000);
+    await flush();
+    expect(resultOf(runtime, env, "key-manager")).toMatchObject({ olderThanCadence: false });
+    clock.advance(2);
+    await flush();
+    expect(resultOf(runtime, env, "key-manager")).toMatchObject({ olderThanCadence: true });
   });
 
   it("stops reading pending at the request's failure, keeping the result held", async () => {
