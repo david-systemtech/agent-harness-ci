@@ -37,9 +37,9 @@ export const ShapeRuleId = z.enum(SHAPE_RULE_IDS).meta({
 });
 export type ShapeRuleId = z.infer<typeof ShapeRuleId>;
 
-/** One shape rule. */
-export interface ShapeRule {
-  readonly id: ShapeRuleId;
+/** One shape rule: the scrub registry's, named by a `ShapeRuleId`, or another table's, named by its own ids. */
+export interface ShapeRule<Id extends string = ShapeRuleId> {
+  readonly id: Id;
   /** What it finds, as a sentence names it: `a GitHub token`. */
   readonly label: string;
   /** The prefixes it is anchored on: each hit begins with one, or, for a rule hiding the value after a name, with the name. Compared ignoring case where the pattern does. */
@@ -144,34 +144,44 @@ export const SHAPE_RULES: readonly ShapeRule[] = [
 ];
 
 /** One place a shape rule hit: the rule, and the span of the text it hides, `[start, end)`. */
-export interface ShapeRuleHit {
-  readonly rule: ShapeRuleId;
+export interface ShapeRuleHit<Id extends string = ShapeRuleId> {
+  readonly rule: Id;
   readonly start: number;
   readonly end: number;
 }
 
-/** Each rule as it is applied: the boundary before its prefix, every match, and where the `secret` group sits. */
-const APPLIED = SHAPE_RULES.map((rule) => ({
-  id: rule.id,
-  expression: new RegExp(`(?<![A-Za-z0-9])(?:${rule.pattern.source})`, `dg${rule.pattern.flags}`),
-}));
+/**
+ * What finds every hit of a table of shape rules in a text, each rule
+ * applied as the scrub registry's are: the boundary before its prefix, every
+ * match, and only its `secret` group where it has one. Another table (the
+ * browser's redaction, which reads these rules and adds what they lack) is
+ * applied by the same rule, so a prefix means the same wherever it is read.
+ * Hits come by where they start, rules in the table's order at one place.
+ */
+export const shapeRuleFinder = <Id extends string>(rules: readonly ShapeRule<Id>[]): ((text: string) => ShapeRuleHit<Id>[]) => {
+  const applied = rules.map((rule, order) => ({
+    id: rule.id,
+    order,
+    expression: new RegExp(`(?<![A-Za-z0-9])(?:${rule.pattern.source})`, `dg${rule.pattern.flags}`),
+  }));
+  return (text) => {
+    const hits: (ShapeRuleHit<Id> & { readonly order: number })[] = [];
+    for (const { id, order, expression } of applied) {
+      for (const match of text.matchAll(expression)) {
+        const [start, end] = match.indices?.groups?.["secret"] ?? [match.index, match.index + match[0].length];
+        if (end > start) hits.push({ rule: id, start, end, order });
+      }
+    }
+    return hits.sort((a, b) => a.start - b.start || a.order - b.order).map(({ rule, start, end }) => ({ rule, start, end }));
+  };
+};
 
 /**
  * Every shape-rule hit in `text`, by where it starts, rules in their order
  * at one place. Hits of two rules may cover the same text (a GitHub token
  * assigned inline hits both): what is hidden is every hit's span.
  */
-export const shapeRuleHits = (text: string): ShapeRuleHit[] => {
-  const hits: ShapeRuleHit[] = [];
-  for (const { id, expression } of APPLIED) {
-    for (const match of text.matchAll(expression)) {
-      const [start, end] = match.indices?.groups?.["secret"] ?? [match.index, match.index + match[0].length];
-      if (end > start) hits.push({ rule: id, start, end });
-    }
-  }
-  const order = (rule: ShapeRuleId): number => SHAPE_RULE_IDS.indexOf(rule);
-  return hits.sort((a, b) => a.start - b.start || order(a.rule) - order(b.rule));
-};
+export const shapeRuleHits: (text: string) => ShapeRuleHit[] = shapeRuleFinder(SHAPE_RULES);
 
 /** The rule a value the environment holds as a secret, registered with the scrub registry, is named by. */
 export const REGISTERED_VALUE_RULE = "registered-value";
