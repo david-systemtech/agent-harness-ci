@@ -3,13 +3,11 @@ import {
   BYPASS_ACKNOWLEDGED_KEY,
   BYPASS_SENTENCE,
   ContractError,
-  MODES,
   PERMISSION_SETTINGS_KEYS,
   SETTINGS_STREAM_KIND,
   invalidParams,
   type ContainmentReport,
   type Mode,
-  type ModeAvailability,
   type PermissionSettingsKey,
   type PermissionSettingsValues,
   type ResultOf,
@@ -31,7 +29,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { presetContainmentDefault, unenforceable } from "./containment.js";
 import { readPermissionSettings, readSessionContainment, readStoredContainmentDefault } from "./permissions-store.js";
 import { denylistCounts, readDenylist } from "./denylist-store.js";
-import { clampMode, noModeAvailable } from "./resolver.js";
+import { EVERY_MODE, clampMode, noModeAvailable } from "./resolver.js";
 
 /**
  * The permissions methods of #129 and #133 (permissions spec, "Methods on
@@ -75,11 +73,8 @@ export const readPermissionsReport = (reader: Reader, containment: ContainmentRe
 
 type PermissionMethodName = "permissions.mode.set" | "permissions.containment.set" | "permissions.settings.get" | "permissions.settings.set";
 
-/** Every mode, available: what a session with no account on this environment is clamped against, its ceiling alone. */
-const EVERY_MODE: readonly ModeAvailability[] = MODES.map((mode) => ({ mode, available: true, reason: null }));
-
 /** A client session's ceiling as it is now, else the one its socket authenticated with. */
-const currentCeiling = (ceilingOf: PermissionMethodsOptions["ceilingOf"], clientSession: VerifiedClientSession): Mode =>
+export const currentCeiling = (ceilingOf: PermissionMethodsOptions["ceilingOf"], clientSession: VerifiedClientSession): Mode =>
   ceilingOf(clientSession.id) ?? clientSession.ceiling;
 
 /**

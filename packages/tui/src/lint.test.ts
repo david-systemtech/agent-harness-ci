@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
+import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
 
 // ADR 0003's lint on the terminal UI: no client store, preference or storage key named after session
 // organisation state, so the state directory can hold no pins, groups, archive or drafts. The repository's
@@ -21,7 +22,7 @@ describe("the terminal UI under the repository's lint", () => {
     const problems = results.flatMap((r) => r.messages.map((m) => `${r.filePath}:${m.line} ${m.ruleId}: ${m.message}`));
     expect(problems).toEqual([]);
     expect(results.length).toBeGreaterThan(15);
-  });
+  }, WHOLE_PACKAGE_LINT_MS);
 
   it("fires on a store named after session state in a component", async () => {
     expect(await ruleIds("packages/tui/src/screens/rail.tsx", "export const pinnedSessions = createStore([]);\n")).toContain(RULE);

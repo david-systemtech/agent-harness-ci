@@ -94,6 +94,26 @@ describe("an in-process tool server as Claude's in-process MCP server", () => {
     await client.close();
   });
 
+  it("answers images after the text as MCP image content, in order, leaving an empty text out (#540)", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff]);
+    let text = "Two views of the page.";
+    const { server } = serverWith(false, async () => ({ text, isError: false, images: [{ mediaType: "image/png", data: png }, { mediaType: "image/jpeg", data: jpeg }] }));
+    const { client } = await connected(server);
+    const both = await client.callTool({ name: "get_weather", arguments: { city: "Manila" } });
+    expect(both.content).toEqual([
+      { type: "text", text: "Two views of the page." },
+      { type: "image", data: "iVBORw==", mimeType: "image/png" },
+      { type: "image", data: "/9j/", mimeType: "image/jpeg" },
+    ]);
+    text = "";
+    expect((await client.callTool({ name: "get_weather", arguments: { city: "Manila" } })).content).toEqual([
+      { type: "image", data: "iVBORw==", mimeType: "image/png" },
+      { type: "image", data: "/9j/", mimeType: "image/jpeg" },
+    ]);
+    await client.close();
+  });
+
   it("names the rule that allows a server's every tool by the server alone", () => {
     expect(serverRule("client")).toBe("mcp__client");
   });

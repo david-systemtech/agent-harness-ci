@@ -60,13 +60,20 @@ export const FORBIDDEN_WORDS = [
   "draft",
 ] as const;
 
-/** The presentation module's keys. Client-local presentation, never organisation state (glossary: Pane). */
+/**
+ * The presentation keys: client-local presentation, never organisation state
+ * (glossary: Pane). Each is a key of a renderer's presentation module, save
+ * `hiddenDirectories`, the client runtime's preference beside
+ * `environments.lastUsed` (workspace-picker spec), which both renderers' pickers read.
+ */
 export const PRESENTATION_KEYS: readonly string[] = [
   "collapsedHeadings",
+  "hiddenDirectories",
   "paneLayout",
   "readingWidth",
   "reasoningShown",
   "runLocalEnvironment",
+  "sideColumns",
   "sidebarWidth",
   "streamingFade",
   "textSize",
@@ -78,7 +85,7 @@ export const ALLOWLISTED_MODULES: readonly RegExp[] = [
   /\/packages\/client-runtime\/src\/outbox(\.tsx?$|\/)/,
 ];
 
-/** A renderer's presentation module; the client runtime holds no presentation (glossary: Pane). */
+/** A renderer's presentation module. The client runtime has none: its one presentation key, `hiddenDirectories`, is a preference naming no forbidden word. */
 export const PRESENTATION_MODULE = /\/packages\/(?!client-runtime\/)[^/]+\/src\/presentation\.tsx?$/;
 
 const STORE_SUFFIX = /(store|atom|slice)$/i;

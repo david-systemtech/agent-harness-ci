@@ -44,6 +44,7 @@ import { create, workspace } from "../../test/sessions.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 import { isInProcess, type AdapterEvent, type HostToolResult } from "../adapter/contract.js";
 import { EXPIRED_RESULT } from "./passthrough.js";
+import { composeInstructions } from "../instructions/composer.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 
 /**
@@ -58,6 +59,9 @@ import type { EventEnvelope } from "../event-log/event-log.js";
 const { onCleanup, tempDir } = useCleanups();
 
 const PROGRAM_SCOPES: readonly Scope[] = ["read", "sessions:write", "runs:drive"];
+
+/** A composer whose every run is handed `COMPOSED`, as its orientation block. */
+const composed = composeInstructions({ orientation: () => ({ text: "COMPOSED", unreadRegistries: [] }) });
 
 const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({ ...options, adapter: "descriptor" in adapter ? adapter : fakeAdapter(adapter) });
@@ -880,7 +884,7 @@ describe("session continuity", () => {
   });
 
   it("carries a completions run's own instructions to the run started from its queue", async () => {
-    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: () => "COMPOSED" } });
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: composed } });
     const { token } = await program(t);
     const held = gate();
     t.adapter.nextScripts.push(heldScript(held.opened));
@@ -933,7 +937,7 @@ describe("session continuity", () => {
   });
 
   it("carries a completions run's own instructions to the run a read-now starts from the queue, with a run live or not, and follows the queued turn into it", async () => {
-    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: () => "COMPOSED" } });
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: composed } });
     const { token } = await program(t);
     const client = await t.client();
     // A run is live: the read-now interrupts it, and the run of the queue reads the queued turn.
@@ -1273,7 +1277,7 @@ describe("the mode, the ceiling and attendance", () => {
 
 describe("the request's instructions, parameters and fields", () => {
   it("appends systemPrompt and the system and developer messages after the composed instructions, and reports alwaysOnSkills ignored", async () => {
-    const t = await start({}, { adapterSeams: { instructions: () => "COMPOSED" } });
+    const t = await start({}, { adapterSeams: { instructions: composed } });
     const { token } = await program(t);
     const reading = await stream(t, token, {
       model: "claude-max/opus",

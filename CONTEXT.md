@@ -309,7 +309,7 @@ Whether a skill can help right now on this environment: ready, setup needed (wit
 _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
 
 **Standing instructions**:
-Text appended to every run through the provider's instruction channel, composed on the run's environment from the user, team bank, project and session layers and, for a bot, its persona.
+Text appended to every run through the provider's instruction channel, composed once on the run's environment, whoever started the run, from layers in a fixed order, general to specific: the user layer (the orientation block, then owned instructions), the team bank's, the project's, the session's, a bot's persona, then always-on skills; the run's own text follows. Each composition has a manifest beside its text, which the log keeps in place of the text: per layer what it put in (ids, versions and characters), the always-on skills with their origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why.
 _Avoid_: prompt library, house rules, system prompt (the whole thing the provider builds)
 
 **Trust gate**:

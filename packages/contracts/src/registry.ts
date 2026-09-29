@@ -84,7 +84,18 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
-import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate, forgeAccountsVerify, forgeGhProbe } from "./methods/forge.js";
+import { instructionsPreview } from "./methods/instructions.js";
+import {
+  forgeAccountsAdd,
+  forgeAccountsList,
+  forgeAccountsRemove,
+  forgeAccountsSetPrimary,
+  forgeAccountsUpdate,
+  forgeAccountsVerify,
+  forgeDetect,
+  forgeGhProbe,
+  forgeOrgsList,
+} from "./methods/forge.js";
 import {
   keyManagersCertificatePreview,
   keyManagersConnectionsAdd,
@@ -206,6 +217,7 @@ export const methods = [
   accountsHandoffRecommend,
   modelsList,
   commandsList,
+  instructionsPreview,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,
@@ -213,6 +225,8 @@ export const methods = [
   forgeAccountsSetPrimary,
   forgeAccountsVerify,
   forgeGhProbe,
+  forgeDetect,
+  forgeOrgsList,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,
@@ -290,13 +304,7 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
 export const OWED_HANDLERS = {
   // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
   "updates.desktop.stage": "#354",
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it.
-  "routines.list": "#521",
-  "routines.create": "#521",
-  "routines.update": "#521",
-  "routines.enable": "#521",
-  "routines.disable": "#521",
-  "routines.delete": "#521",
+  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and commands.
   "routines.history": "#523",
   "routines.runNow": "#523",
   "routines.testPreCheck": "#526",

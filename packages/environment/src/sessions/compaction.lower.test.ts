@@ -1,4 +1,4 @@
-import { TRANSCRIPT_EVENT_TYPES, type TranscriptEventType } from "@agent-harness/contracts";
+import { INSTRUCTION_SESSION_EVENT_TYPES, TRANSCRIPT_EVENT_TYPES, type TranscriptEventType } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../test/clock.js";
 import { openEventLog, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
@@ -66,7 +66,7 @@ const task = (status: "running" | "completed") => ({
   error: null,
 });
 
-/** A whole run as the host and the adapter leave it: every transcript type, a queued message the provider gave back, and its end. */
+/** A whole run as the host and the adapter leave it: every transcript type, its composed instructions, a queued message the provider gave back, and its end. */
 const wholeRun = (runId: string, [prompt, queued]: readonly [string, string]): EventInput[] => [
   transcript("run.started", {
     runId,
@@ -83,6 +83,14 @@ const wholeRun = (runId: string, [prompt, queued]: readonly [string, string]): E
     forkedFrom: null,
   }),
   transcript("message.sent", { runId, messageId: prompt, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" }),
+  {
+    type: "run.instructions.composed",
+    payload: INSTRUCTION_SESSION_EVENT_TYPES["run.instructions.composed"].payload.parse({
+      runId,
+      manifest: { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [], leftOut: [] },
+      digest: "e".repeat(64),
+    }) as Record<string, unknown>,
+  },
   transcript("session.provider-linked", { runId, providerSessionId: `provider-${runId}` }),
   transcript("assistant.delta", { runId, itemId: `${runId}-thinking`, fragments: [{ kind: "thinking", text: "Look" }] }),
   transcript("assistant.thinking", { runId, itemId: `${runId}-thinking`, text: "Look at the receipts", aborted: false }),
@@ -111,6 +119,7 @@ const REMOVED = new Set([
   "command.ran",
   "usage.reported",
   "plan.limit",
+  "run.instructions.composed",
 ]);
 
 /** A session created, tagged, run once through every transcript type, then archived, all now. */

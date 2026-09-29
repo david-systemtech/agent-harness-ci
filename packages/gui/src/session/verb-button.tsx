@@ -1,5 +1,5 @@
-import type { VerbAvailability } from "@agent-harness/client-runtime";
 import type { ReactNode } from "react";
+import type { Offer } from "../keys/key-dispatch.js";
 import { Button, Tooltip } from "../ui/index.js";
 
 export interface VerbButtonProps {
@@ -7,8 +7,8 @@ export interface VerbButtonProps {
   readonly children: ReactNode;
   /** What it does, in its tooltip. */
   readonly does: string;
-  /** Whether the verb can be used now, as the runtime says (`projections.runs.session`'s verbs). */
-  readonly availability: VerbAvailability;
+  /** Whether the verb can be used now, as the runtime says (`projections.runs.session`'s verbs, or a capability's answer). */
+  readonly availability: Offer;
   /** Runs the verb; asked while it is absent too, to say why it is not done. */
   readonly run: () => void;
 }

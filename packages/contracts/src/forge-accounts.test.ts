@@ -10,8 +10,12 @@ import {
   GH_MINIMUM_VERSION,
   UNKNOWN_FORGE_CAPABILITIES,
   ForgeCapabilities,
+  ForgeUnreachableError,
+  KindUnsupportedError,
+  NotAForgeError,
   eventTypeEntry,
   forgeCopyCredential,
+  forgeTokenPages,
   methods,
   registry,
 } from "./index.js";
@@ -31,7 +35,7 @@ const reference = { kind: "reference", reference: { provider: "openbao", connect
 const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SYSTEM-SERVER" };
 
 describe("the forge account methods", () => {
-  it("have one scope each: the list and the gh probe at read, add, update, remove and setPrimary as admin commands, verify an admin query", () => {
+  it("have one scope each: the list, the gh probe and the owners at read, add, update, remove and setPrimary as admin commands, verify and detect admin queries", () => {
     const owned = methods.filter((m) => m.name.startsWith("forge."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "forge.accounts.list": ["query", "read"],
@@ -41,7 +45,36 @@ describe("the forge account methods", () => {
       "forge.accounts.setPrimary": ["command", "admin"],
       "forge.accounts.verify": ["query", "admin"],
       "forge.gh.probe": ["query", "read"],
+      // The environment calls an address the caller chose.
+      "forge.detect": ["query", "admin"],
+      "forge.orgs.list": ["query", "read"],
     });
+  });
+
+  it("detect takes a URL in any form and answers the origin, the kind, the version and the token pages, never GitLab's reserved kind", () => {
+    const detect = registry["forge.detect"];
+    expect(detect.params.safeParse({ url: "git@git.systemtech.dev:david/agent-harness.git" }).success).toBe(true);
+    expect(detect.params.safeParse({ url: "" }).success).toBe(false);
+    expect(detect.params.safeParse({}).success).toBe(false);
+    const detected = { origin: "https://git.systemtech.dev:5526", kind: "forgejo", version: "16.0.3+gitea-1.22.0", tokenPages: forgeTokenPages("forgejo", "https://git.systemtech.dev:5526") };
+    expect(detect.result.safeParse(detected).success).toBe(true);
+    expect(detect.result.safeParse({ ...detected, version: null }).success).toBe(true);
+    expect(detect.result.safeParse({ ...detected, kind: "gitlab" }).success).toBe(false);
+    expect(detect.result.safeParse({ ...detected, tokenPages: [] }).success).toBe(false);
+    expect(detect.result.safeParse({ ...detected, origin: "https://git.systemtech.dev:5526/" }).success).toBe(false);
+  });
+
+  it("orgs.list takes a forge account and answers its owners, each a user or an organisation by login", () => {
+    const orgs = registry["forge.orgs.list"];
+    expect(orgs.params.safeParse({ forgeAccountId }).success).toBe(true);
+    expect(orgs.params.safeParse({}).success).toBe(false);
+    const owners = [
+      { login: "david", kind: "user" },
+      { login: "systemtech", kind: "organisation" },
+    ];
+    expect(orgs.result.safeParse({ owners }).success).toBe(true);
+    expect(orgs.result.safeParse({ owners: [{ login: "", kind: "user" }] }).success).toBe(false);
+    expect(orgs.result.safeParse({ owners: [{ login: "systemtech", kind: "organization" }] }).success).toBe(false);
   });
 
   it("verify takes one forge account or none, for every one, and answers the records", () => {
@@ -95,10 +128,22 @@ describe("the forge account methods", () => {
     expect(add.safeParse({ ...base, credential: { kind: "gh", login: "--hostname" } }).success).toBe(false);
   });
 
-  it("errors with verification_failed, alias_identity_mismatch and credential_source_unavailable on add and update, identity_mismatch on update alone", () => {
-    const own = (name: "forge.accounts.add" | "forge.accounts.update") => registry[name].errors.map((member) => member.shape.code.value);
-    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable"]);
+  it("errors with verification_failed, alias_identity_mismatch and credential_source_unavailable on add and update, identity_mismatch on update alone, and detection's three on add and detect", () => {
+    const own = (name: "forge.accounts.add" | "forge.accounts.update" | "forge.detect" | "forge.orgs.list") => registry[name].errors.map((member) => member.shape.code.value);
+    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable", "kind_unsupported", "not_a_forge", "unreachable"]);
     expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable"]);
+    expect(own("forge.detect")).toEqual(["kind_unsupported", "not_a_forge", "unreachable"]);
+    expect(own("forge.orgs.list")).toEqual(["credential_unavailable", "verification_failed", "unreachable"]);
+  });
+
+  it("name the forge in detection's errors: GitLab by its reserved kind, an address that is no forge and one that does not answer by origin", () => {
+    const origin = "https://gitlab.com";
+    expect(KindUnsupportedError.safeParse({ code: "kind_unsupported", message: "m", data: { origin, kind: "gitlab" } }).success).toBe(true);
+    expect(KindUnsupportedError.safeParse({ code: "kind_unsupported", message: "m", data: { origin, kind: "bitbucket" } }).success).toBe(false);
+    expect(NotAForgeError.safeParse({ code: "not_a_forge", message: "m", data: { origin: "https://example.com" } }).success).toBe(true);
+    expect(NotAForgeError.safeParse({ code: "not_a_forge", message: "m", data: { origin: "example.com" } }).success).toBe(false);
+    expect(ForgeUnreachableError.safeParse({ code: "unreachable", message: "m", data: { origin } }).success).toBe(true);
+    expect(ForgeUnreachableError.safeParse({ code: "unreachable", message: "m", data: {} }).success).toBe(false);
   });
 
   it("probe gh against the minimum 2.40, the first whose gh auth token takes a user", () => {

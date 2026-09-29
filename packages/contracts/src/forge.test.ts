@@ -4,8 +4,10 @@ import {
   ForgeKind,
   ForgeOrigin,
   ForgeSlug,
+  ForgeTokenPage,
   deriveForgeSlug,
   forgeApiBase,
+  forgeTokenPages,
   forgeGitUsername,
   forgeVariableNames,
   forgeOriginHost,
@@ -342,5 +344,47 @@ describe("the pull-request URL parser", () => {
 
   it.each(table)("reads %s", (_, kind, url, expected) => {
     expect(parsePullRequestUrl(kind, url)).toEqual(expected);
+  });
+});
+
+describe("the token pages", () => {
+  const fineGrained = {
+    kind: "fine-grained",
+    prefilled: true,
+    repositoryAccess: "all",
+    permissions: [
+      { name: "Contents", access: "write" },
+      { name: "Issues", access: "write" },
+      { name: "Pull requests", access: "write" },
+      { name: "Administration", access: "write" },
+    ],
+  };
+  const classic = { kind: "classic", prefilled: true, scopes: ["repo", "read:org"] };
+
+  it("offer github.com's fine-grained token first, its page prefilled with the four permissions at write and no expiry, then a classic one with repo and read:org", () => {
+    const pages = forgeTokenPages("github", "https://github.com");
+    expect(pages).toEqual([
+      {
+        ...fineGrained,
+        url: "https://github.com/settings/personal-access-tokens/new?name=agent-harness&expires_in=none&contents=write&issues=write&pull_requests=write&administration=write",
+      },
+      { ...classic, url: "https://github.com/settings/tokens/new?description=agent-harness&scopes=repo%2Cread%3Aorg" },
+    ]);
+    for (const page of pages) expect(ForgeTokenPage.parse(page)).toEqual(page);
+  });
+
+  it("offer an Enterprise origin's classic token first, since only github.com prefills a fine-grained one, whose page follows with nothing ticked", () => {
+    expect(forgeTokenPages("github", "https://ghe.example.com:8443")).toEqual([
+      { ...classic, url: "https://ghe.example.com:8443/settings/tokens/new?description=agent-harness&scopes=repo%2Cread%3Aorg" },
+      { ...fineGrained, prefilled: false, url: "https://ghe.example.com:8443/settings/personal-access-tokens/new" },
+    ]);
+  });
+
+  it.each(["forgejo", "gitea"] as const)("offer %s's applications page, which prefills nothing, naming read:user, write:repository, write:issue and write:organization", (kind) => {
+    const pages = forgeTokenPages(kind, "http://100.101.102.103:3000");
+    expect(pages).toEqual([
+      { kind: "access-token", prefilled: false, url: "http://100.101.102.103:3000/user/settings/applications", scopes: ["read:user", "write:repository", "write:issue", "write:organization"] },
+    ]);
+    for (const page of pages) expect(ForgeTokenPage.parse(page)).toEqual(page);
   });
 });

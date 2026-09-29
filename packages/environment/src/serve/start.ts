@@ -48,6 +48,7 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
@@ -100,6 +101,8 @@ import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
+import { routineMethods } from "../routines/methods.js";
+import { routinesProjector } from "../routines/routine-store.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -202,6 +205,8 @@ export interface EnvironmentOptions {
   readonly name?: string;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
+  /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
+  readonly timeZone?: string;
   /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
   readonly interfaces?: InterfaceDetector;
   /** The tailnet setting: bind the Tailscale address. Preset: on when an address is found. The settings store (#117) will hold it. */
@@ -282,6 +287,7 @@ export interface EnvironmentOptions {
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
+    /** Composes each run's standing instructions; preset: the composer with no layer filled (`instructions/composer.ts`). */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
@@ -555,6 +561,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       keyManagerConnectionsProjector,
+      routinesProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -951,8 +958,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...instructionMethods({ host }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
+    // The routine store's commands and list (#521), on each routine's own stream.
+    ...routineMethods({
+      log,
+      clock: now,
+      environmentId: record.id,
+      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      accounts,
+      ceilingOf: (id) => clientSessions.ceiling(id),
+    }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
