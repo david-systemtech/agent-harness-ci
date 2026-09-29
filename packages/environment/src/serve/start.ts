@@ -1004,7 +1004,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
-  // looks and what the terminal, file and diff methods find; its passes start once the wire is open.
+  // and terminals.open's looks and what the file and diff methods find; its passes start once the wire is open.
   const availability = createAvailabilityWatcher({
     log,
     clock,

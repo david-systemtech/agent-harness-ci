@@ -32,9 +32,12 @@ const terminalTarget = { id: TerminalId };
  * command's receipt in the last 30 days) is `conflict`, reason `exists`; a
  * session already holding 16 terminals, running or exited, is `conflict`,
  * reason `too_many_terminals`; a workspace
- * directory that is gone is `conflict`, reason `workspace_missing`; an
- * environment that cannot start a pseudo-terminal is `conflict`, reason
- * `pty_unavailable`.
+ * directory that is gone, or does not answer the environment's look in
+ * time (a network mount whose server is gone), is `conflict`, reason
+ * `workspace_missing`; an environment that cannot start a pseudo-terminal is
+ * `conflict`, reason `pty_unavailable`. The terminal's other commands and
+ * its subscription, sent while the open is still looking at the workspace,
+ * are decided after it.
  */
 export const terminalsOpen = defineMethod({
   name: "terminals.open",
