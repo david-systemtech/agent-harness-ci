@@ -7,9 +7,10 @@ import { REGISTERED_STEP_IDS } from "./steps.js";
  * being checked through `setup.check`, it gives a state, one line naming
  * what failed, the named actions a client offers beside it, and when it
  * ran; a check that timed out or could not check carries the step's last
- * good result beneath it (#308). The `setup` subscription that carries every
- * step's latest result, and the result cache, are the Set up
- * specification's (#88).
+ * good result beneath it (#308). The environment keeps each step's latest
+ * result in its result cache, which `environment.subscribe`'s snapshot
+ * carries as `setup` and each change of which is the notice
+ * `setup.result-changed`: ADR 0031's `setup` subscription (#569).
  */
 
 /**

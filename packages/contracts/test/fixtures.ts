@@ -19,7 +19,7 @@ import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
-import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
+import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
@@ -392,8 +392,13 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.subscribe": {
     params: { valid: [{ afterSequence: 0 }, { afterSequence: 1200 }], invalid: [{}, { afterSequence: -1 }] },
     result: {
-      valid: validStatuses.map((status) => ({ status })),
-      invalid: [{}, ...invalidStatuses.map((status) => ({ status }))],
+      valid: [...validStatuses.map((status) => ({ status })), { status: validStatuses[0], setup: [] }, { status: validStatuses[0], setup: [forgeRejected] }],
+      invalid: [
+        {},
+        ...invalidStatuses.map((status) => ({ status })),
+        { status: validStatuses[0], setup: [{ ...forgeRejected, state: "pending" }] },
+        { status: validStatuses[0], setup: forgeRejected },
+      ],
     },
   },
   "environment.drain": {
@@ -729,8 +734,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "prompt.resolved",
       "usage.updated",
       "settings.changed",
+      "setup.result-changed",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -764,6 +770,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
+      { type: "setup.result-changed", payload: forgeRejected },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -786,6 +793,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "usage.updated", payload: { accountId: "claude-max" } },
       { type: "settings.changed", payload: { keys: [] } },
       { type: "settings.changed", payload: { values: { "appearance.theme": null } } },
+      { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
+      { type: "setup.result-changed", payload: { step: "forges" } },
       validEnvelope,
     ],
   },

@@ -13,8 +13,8 @@ runs it there. Never run Electron on the shared agent box.
 First launch installing the service and the keychain (#395) have their
 section below, which needs a packaged desktop carrying the server artefact:
 a run from a checkout carries none. The desktop build (#423) adds its own
-sections here: notifications and their activation, the browser dock, the
-preview scheme, and restart to update (#355).
+sections here: notifications and their activation, the browser dock, and
+restart to update (#355). The preview scheme has its section below (#410).
 
 ## Before the first run
 
@@ -52,8 +52,8 @@ preload exposes, and a member named bare is on it: `setBadge(3)` is
 3. **The sandbox.** `typeof require`, `typeof process` and `typeof module` are
    `"undefined"`. `Object.keys(desktopShell)` lists exactly `window`,
    `dialogs`, `clipboard`, `openExternal`, `system`, `http`, `network`,
-   `deepLinks`, `secrets`, `localGrant` and `service`; nothing named
-   `ipcRenderer` is reachable.
+   `deepLinks`, `secrets`, `localGrant`, `service` and `preview`; nothing
+   named `ipcRenderer` is reachable.
 4. **The content policy.** `eval("1")` throws a content-policy error;
    `document.head.append(Object.assign(document.createElement("script"), { textContent: "window.ran = 1" }))`
    leaves `window.ran` undefined; `fetch("https://example.org")` fails.
@@ -112,6 +112,34 @@ machine's, or one paired) and a session open in the pane:
    window, open the same session and press Mod+J: the same shell is drawn
    again from its scrollback. Close the pane with the strip's ×, then press
    Mod+J: a new shell opens, the closed one gone.
+
+## The preview scheme (#410)
+
+On every platform, with the window connected to an environment and a
+session open in the pane whose workspace you can write to:
+
+1. **A page, framed.** Ask the session to write `preview-check.html` holding
+   `<h1>Checklist</h1><script>document.body.append(" ran")</script>` and
+   `<img src="https://example.org/x.png">`. Open Side panes, Documents: the
+   page is listed with its size. Press Preview: the Preview pane frames it
+   on white, reading "Checklist ran" (its script ran), with no picture. The
+   console shows the picture refused by the preview's policy, and no error
+   from the app's own policy.
+2. **Sandboxed, without same-origin.** Have the page run
+   `try { parent.document.title } catch (e) { document.body.append(" " + e.name) }`
+   and `document.body.append(" " + origin)`: it reads `SecurityError` and
+   `null`, and `typeof desktopShell` inside the frame is `"undefined"`. A
+   `fetch("https://example.org")` or a `new WebSocket("ws://127.0.0.1:1")`
+   from it fails, and `window.open("https://example.org")` opens nothing,
+   in the window or the OS's browser.
+3. **A snapshot.** Have the session change the heading. The Preview still
+   shows "Checklist" until Preview is pressed again, which reads it again.
+   In the console of the window's own page, `await fetch(<the frame's src>)`
+   fails (no fetch on the scheme), and a made-up
+   `agent-harness-preview://00/` in a new frame answers nothing.
+4. **An SVG and markdown.** An SVG the session writes is framed as a
+   picture; a markdown file is drawn in the pane in the window's theme, not
+   framed.
 
 ## macOS
 

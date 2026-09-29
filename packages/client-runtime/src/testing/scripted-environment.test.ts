@@ -62,6 +62,29 @@ describe("the scripted environment in a DOM", () => {
     expect(list.groups).toMatchObject([{ name: "Brandsolidate", groups: [{ groupId: GROUP_ID }] }]);
   });
 
+  it("writes and edits a file in a run as Claude's Write and Edit do, which projections.documents lists and files.read answers", async () => {
+    const { world, runtime, until } = await launch({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Site" }] }] });
+    const desk = world.environment("desk");
+    const sessionId = desk.sessionId();
+    const documents = runtime.projections.documents(desk.environmentId, sessionId);
+    onTestFinished(documents.subscribe(() => undefined));
+    await until(() => runtime.projections.session(desk.environmentId, sessionId).read().freshness === "live", "following the session live");
+
+    const { runId } = desk.startRun(sessionId, "Make a page");
+    const written = desk.writeFile(sessionId, runId, "site/index.html", "<h1>Receipts</h1>");
+    const edited = desk.editFile(sessionId, runId, "site/index.html", "Receipts", "Totals");
+    await until(() => documents.read()[0]?.revisions === 2, "listing the page");
+    expect(documents.read()).toMatchObject([{ path: "site/index.html", kind: "page", first: { toolCallId: written }, last: { toolCallId: edited }, size: 17 }]);
+    expect(desk.events(sessionId).find((event) => event.type === "tool.started")?.payload).toMatchObject({
+      name: "Write",
+      input: { file_path: "/home/seth/code/site/index.html", content: "<h1>Receipts</h1>" },
+    });
+
+    const read = await runtime.requests.call(desk.environmentId, "files.read", { sessionId, path: "site/index.html" });
+    expect(read).toMatchObject({ ok: true, result: { text: "<h1>Totals</h1>", size: 15 } });
+    expect(await runtime.requests.call(desk.environmentId, "files.list", { sessionId })).toMatchObject({ ok: true, result: { files: ["site/index.html"] } });
+  });
+
   it("streams a run with a tool call into the session's transcript", async () => {
     const { world, runtime, until } = await launch({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Fix the rail" }] }] });
     const desk = world.environment("desk");

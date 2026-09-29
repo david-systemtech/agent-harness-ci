@@ -33,6 +33,7 @@ export const ANSWERED = [
   "service.install",
   "service.start",
   "service.status",
+  "preview.grant",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 

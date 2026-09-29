@@ -3,6 +3,7 @@ import { SlashCommands } from "../composer/slash-commands.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
+import { PaneDocumentsProvider } from "../session/pane-documents.js";
 import { PaneLine } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
@@ -45,7 +46,9 @@ const NoSessionOpen = () => {
  * card, the composer and the status line under it, with the dialogs its
  * pickers open (the sign-in card, the hand-off picker); and beside it the session's side column ("The
  * seven panes and the grid"), whose refusals are said on the pane's line and
- * whose panes the pane's slash commands open. Another session opened in the
+ * whose panes the pane's slash commands open. It holds what its documents
+ * are asked (the Preview's document, the call the transcript shows), which
+ * the transcript and the column both ask. Another session opened in the
  * pane brings its own column.
  */
 export const SessionPaneRegion = () => {
@@ -58,20 +61,22 @@ export const SessionPaneRegion = () => {
       ) : (
         <div className="flex min-h-0 flex-1">
           <PaneLine key={`${session.environmentId} ${session.sessionId}`}>
-            <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
-              <SlashCommands>
-                <PaneDialogs environmentId={session.environmentId} sessionId={session.sessionId}>
-                  <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
-                    <QueueStrip />
-                    <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
-                    <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
-                    <StatusLine environmentId={session.environmentId} sessionId={session.sessionId} />
-                  </section>
-                  <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
-                </PaneDialogs>
-              </SlashCommands>
-            </SessionQueueProvider>
+            <PaneDocumentsProvider session={session}>
+              <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
+                <SlashCommands>
+                  <PaneDialogs environmentId={session.environmentId} sessionId={session.sessionId}>
+                    <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
+                      <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
+                      <QueueStrip />
+                      <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
+                      <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+                      <StatusLine environmentId={session.environmentId} sessionId={session.sessionId} />
+                    </section>
+                    <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
+                  </PaneDialogs>
+                </SlashCommands>
+              </SessionQueueProvider>
+            </PaneDocumentsProvider>
           </PaneLine>
         </div>
       )}
