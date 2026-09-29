@@ -1,5 +1,4 @@
 import {
-  adapterOf,
   attachmentRefusal,
   interruptRun,
   isLive,
@@ -8,11 +7,11 @@ import {
   replaceMention,
   sendMessage,
   type CapabilityAnswer,
-  type SessionProjection,
 } from "@agent-harness/client-runtime";
-import type { AdapterCapabilities } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { KeyContext, useKeyAction } from "../keys/key-dispatch.js";
+import { usePaneLine } from "../session/pane-line.js";
+import { useProvider } from "../session/provider.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AttachmentChips, useAttachments } from "./attachments.js";
@@ -54,7 +53,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const provider = useProvider(environmentId, projection);
-  const [line, say] = useState<string | undefined>(undefined);
+  const [line, say] = usePaneLine();
   const box = useBox();
   useSessionDraft(environmentId, sessionId, projection, box);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
@@ -187,14 +186,6 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       </div>
     </KeyContext>
   );
-};
-
-/** The session's provider, once `providers.list` has answered: the environment's only one, else its account's. */
-const useProvider = (environmentId: string, projection: SessionProjection): AdapterCapabilities | undefined => {
-  const runtime = useRuntime();
-  const providers = useObservable(useMemo(() => runtime.requests.cached(environmentId, "providers.list", {}), [runtime, environmentId]));
-  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
-  return adapterOf(projection.summary?.accountId ?? null, accounts.value, providers.result?.providers ?? null) ?? undefined;
 };
 
 interface ComposerKeysProps {
