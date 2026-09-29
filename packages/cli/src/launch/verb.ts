@@ -9,7 +9,9 @@ export const LAUNCH_USAGE = "launch --data-dir <path> [--port <n>] [--name <name
 /**
  * `launch`: runs the launcher on the data directory until the service manager
  * stops it (SIGTERM, or SIGINT in the foreground), then drains its child and
- * exits 0. The service's definition runs it, and it prints the service log's
+ * exits 0, or until it hands over to a newer launcher, when it exits with the
+ * relaunch code for the service manager to start the launcher entry again
+ * (`RELAUNCH_EXIT_CODE`). The service's definition runs it, and it prints the service log's
  * lines on its standard output, which the definition sends to the service
  * log. It needs the data directory named: its default is the environment
  * package's to say, and the launcher loads nothing of that package. `--port`
@@ -33,6 +35,5 @@ export const launch = async (args: readonly string[], context: ProcessContext): 
   }
   const launcher = startLauncher({ dataDir, port, name, log: (line) => context.stdout(`${line}\n`) });
   void context.stopRequested().then(() => launcher.stop());
-  await launcher.stopped;
-  return 0;
+  return await launcher.stopped;
 };

@@ -221,7 +221,7 @@ A staged version's own check of itself, which the launcher runs before it instal
 _Avoid_: smoke test, health check (ADR 0031's, of a running environment), trial (a version's first start after a switch)
 
 **Service state**:
-The launcher's file in the data directory naming the active, previous and launcher versions, the pending-update record and the watch deadline; every write is durable, and a service state the launcher cannot read or trust stops it starting anything.
+The launcher's file in the data directory naming the active, previous and launcher versions, the pending-update record, the watch deadline and the update it watches, the version staged for the next update, and a failed handover; every write is durable, and a service state the launcher cannot read or trust stops it starting anything.
 _Avoid_: service record (what `service install` wrote, for `status` and `uninstall`), launcher state
 
 **Update coordinator**:
@@ -244,8 +244,16 @@ _Avoid_: rollback log, result file, the outcome (the notice it becomes)
 A version's first start after a switch, which serves nothing until the launcher commits it: it must say it is prepared, for itself, within 120 seconds of its spawn, or it is ended and its update rolled back.
 _Avoid_: canary, probation, test start
 
+**Watch**:
+The ten minutes after a commit in which three unexpected exits of the committed version roll its update back like a failed trial, as a crash loop; at its end the database snapshots are discarded and the versions pruned to the active one, the two before it, the launcher's own and a staged one.
+_Avoid_: probation, grace period, trial (the start before the commit)
+
+**Handover**:
+The launcher's replacement by the launcher of the active version, once that version has held through its watch: at the first idle the old launcher names the new one in the launcher version file and exits for the service manager to start it; the new one confirms once its child passes the gate, and after three unconfirmed starts the launcher entry names the old one again, which records the handover failed.
+_Avoid_: self-update of the launcher, upgrade, relaunch (the exit that starts it)
+
 **Database snapshot**:
-The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial, in a folder named by that id; a rollback copies it back.
+The copy of the database's main, WAL and shm files the launcher takes once per update id, after the old version has exited and before the trial (a container's `update snapshot` takes it before the recreate), in a folder named by that id; a rollback copies it back.
 _Avoid_: backup (a copy a person keeps), checkpoint (SQLite's own)
 
 **Restore marker**:

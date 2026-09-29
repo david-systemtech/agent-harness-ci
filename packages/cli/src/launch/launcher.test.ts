@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, DISCOVERY_PATH } from "@agent-harness/contracts";
@@ -24,7 +24,7 @@ import {
   type ScriptedStart,
   type VersionLayout,
 } from "../../test/launcher-fixtures.js";
-import { LAUNCHER_VERSION, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
+import { RELAUNCH_EXIT_CODE, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
 import { hasSnapshot, RESTORE_MARKER_FILE, snapshotDirectory, takeSnapshot } from "./snapshot.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
 import { completeVersions } from "./versions.js";
@@ -60,7 +60,16 @@ const state = (activeVersion: string): ServiceState => ({
   launcherVersion: activeVersion,
   pendingUpdate: null,
   watchDeadline: null,
+  watchedUpdateId: null,
+  stagedVersion: null,
+  failedHandover: null,
 });
+
+/** The service state in `dataDir` now. */
+const stateIn = (dataDir: string): ServiceState | undefined => {
+  const read = readServiceState(dataDir);
+  return "state" in read ? read.state : undefined;
+};
 
 interface Running {
   readonly dataDir: string;
@@ -78,9 +87,11 @@ interface Running {
 /**
  * A launcher on `dataDir` (preset: a fresh one with 0.5.0 installed and
  * active), logging to memory, on a fake timer, finding `freeBytes` free on
- * the disk (preset: a terabyte).
+ * the disk (preset: a terabyte). It is the launcher of `version`, preset the
+ * version the service state names the launcher's, as the launcher entry
+ * starts it.
  */
-const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number } = {}): Running => {
+const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number; version?: string } = {}): Running => {
   const dataDir = options.dataDir ?? dataDirectory();
   if (options.dataDir === undefined) {
     installVersion(dataDir, "0.5.0");
@@ -88,7 +99,15 @@ const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir
   }
   const timer = fakeTimer();
   const lines: string[] = [];
-  const launcher = startLauncher({ dataDir, port: options.port, log: (line) => lines.push(line), timer, freeBytes: options.freeBytes ?? (() => 2 ** 40) });
+  const version = options.version ?? stateIn(dataDir)?.launcherVersion;
+  const launcher = startLauncher({
+    dataDir,
+    port: options.port,
+    log: (line) => lines.push(line),
+    timer,
+    freeBytes: options.freeBytes ?? (() => 2 ** 40),
+    ...(version === undefined ? {} : { version }),
+  });
   cleanups.push(async () => {
     await launcher.stop();
     // A child still there after the test (one it never let go) is ended, so no process outlives the file.
@@ -149,7 +168,8 @@ describe.runIf(posix)("the launcher", () => {
       type: "versions",
       id: 1,
       installed: ["0.4.2", "0.5.0"],
-      launcherVersion: LAUNCHER_VERSION,
+      // Its own version: the version it runs from, as the launcher entry starts it.
+      launcherVersion: "0.5.0",
       launcherProtocol: LAUNCHER_PROTOCOL,
     });
   });
@@ -425,12 +445,6 @@ const beforeAnUpdate = (starts: readonly ChildStart[]): string => {
   return dataDir;
 };
 
-/** The service state in `dataDir` now. */
-const stateIn = (dataDir: string): ServiceState | undefined => {
-  const read = readServiceState(dataDir);
-  return "state" in read ? read.state : undefined;
-};
-
 /** What a child heard, by the type of each message. */
 const heardBy = (running: Running, start: number): string[] =>
   running
@@ -543,6 +557,9 @@ describe.runIf(posix)("the launcher switching versions for an update", () => {
       launcherVersion: "0.4.0",
       pendingUpdate: null,
       watchDeadline: "2026-09-28T12:10:00.000Z",
+      watchedUpdateId: updateId,
+      stagedVersion: null,
+      failedHandover: null,
     });
     await until("the commit is logged", () => running.log().length >= 7);
     expect(running.log()).toEqual([
@@ -554,8 +571,8 @@ describe.runIf(posix)("the launcher switching versions for an update", () => {
       `launcher: spawned 0.5.0 as pid ${trial?.pid}, the trial of update ${updateId}`,
       `launcher: 0.5.0 committed: update ${updateId} from 0.4.0, watched until 2026-09-28T12:10:00.000Z`,
     ]);
-    // The trial's deadline went with its commit.
-    expect(running.timer.pending()).toEqual([]);
+    // The trial's deadline went with its commit, and the watch's end waits.
+    expect(running.timer.pending()).toEqual([10 * 60_000]);
     expect(heardBy(running, 1)).toContain("committed");
   });
 });
@@ -754,6 +771,385 @@ describe.runIf(posix)("a launcher started in the middle of an update", () => {
     expect(old).toMatchObject({ version: "0.4.0" });
     expect(databaseFilesIn(dataDir)).toEqual(before);
     expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "trial", reason: "interrupted" });
+  });
+});
+
+/** Waits until the launcher is waiting `ms` to restart the child, and runs that wait: the watch's end, asked for first, keeps waiting. */
+const restartAfter = async (running: Running, ms: number) => {
+  await until(`a restart in ${ms} ms is scheduled`, () => running.timer.pending().includes(ms));
+  running.timer.run(ms);
+};
+
+/** The files in `dir` other than the database's and the launcher's own bookkeeping, with their contents. */
+const environmentFiles = (dir: string): Record<string, string> =>
+  Object.fromEntries(
+    treeOf(dir)
+      .filter((path) => !/^(environment\.db|service-state\.json|update-outcome\.json|child-report\.jsonl|snapshots|versions)/.test(path))
+      .filter((path) => statSync(join(dir, path)).isFile())
+      .map((path) => [path, readFileSync(join(dir, path), "utf8")]),
+  );
+
+describe.runIf(posix)("the launcher watching a committed update", () => {
+  it("restores the snapshot and restarts the version the update went from after three unexpected exits within ten minutes of the commit, with stage crash-loop in the outcome record", async () => {
+    const dataDir = beforeAnUpdate([switching(), { behaviour: "crash-after-commit", writes: ["written by the target"] }, "crash", "crash-after-commit"]);
+    const before = databaseFilesIn(dataDir);
+    const running = launch({ dataDir });
+    await running.events("committed", 2);
+    expect(running.timer.pending()).toContain(10 * 60_000);
+    await restartAfter(running, 5_000);
+    await restartAfter(running, 10_000);
+
+    const [, , , , old] = await running.events("started", 5);
+    expect(old).toMatchObject({ version: "0.4.0", dataFiles: expect.arrayContaining(["update-outcome.json"]) });
+    expect(old?.["dataFiles"]).not.toContain(RESTORE_MARKER_FILE);
+    expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "crash-loop", reason: "exit" });
+    expect(databaseFilesIn(dataDir)).toEqual(before);
+    // The commit swapped the active and previous versions; the rollback swaps them back, and the watch is over.
+    expect(stateIn(dataDir)).toEqual({ ...state("0.4.0"), previousVersion: "0.5.0" });
+    expect(running.log().join("\n")).toContain(
+      [
+        "launcher: 0.5.0 exited with code 3",
+        `launcher: 0.5.0 exited 3 times within 10 minutes of its commit, so update ${updateId} is rolled back to 0.4.0`,
+        `launcher: restored the snapshot of update ${updateId}`,
+        `launcher: spawned 0.4.0 as pid ${old?.pid}`,
+      ].join("\n"),
+    );
+    await running.events("committed", 4);
+    expect(readDatabase(dataDir)).toEqual(["before the update"]);
+    // The watch went with the rollback.
+    expect(running.timer.pending()).toEqual([]);
+  });
+
+  it("restores nothing after two unexpected exits within the watch, and restarts the child as it always does", async () => {
+    const dataDir = beforeAnUpdate([switching(), { behaviour: "crash-after-commit", writes: ["written by the target"] }, "crash"]);
+    const running = launch({ dataDir });
+    await running.events("committed", 2);
+    await restartAfter(running, 5_000);
+    await restartAfter(running, 10_000);
+    const [, , , fourth] = await running.events("started", 4);
+    expect(fourth).toMatchObject({ version: "0.5.0" });
+    await running.events("committed", 3);
+    expect(stateIn(dataDir)).toMatchObject({ activeVersion: "0.5.0", watchedUpdateId: updateId });
+    expect(existsSync(join(dataDir, "update-outcome.json"))).toBe(false);
+    expect(readDatabase(dataDir)).toEqual(["before the update", "written by the target"]);
+  });
+
+  it("restores nothing after three unexpected exits once the watch is over, and restarts the child as it always does", async () => {
+    // Busy when asked idle?, so the launcher does not hand over to 0.5.0's.
+    const dataDir = beforeAnUpdate([switching(), { writes: ["written by the target"], busyFor: 99 }, "crash", "crash"]);
+    const running = launch({ dataDir });
+    const [, committed] = await running.events("committed", 2);
+    running.timer.run(10 * 60_000);
+    expect(stateIn(dataDir)).toMatchObject({ activeVersion: "0.5.0", watchDeadline: null, watchedUpdateId: null });
+    expect(running.log()).toContain(`launcher: the watch of update ${updateId} is over: 0.5.0 held for 10 minutes`);
+    process.kill(committed?.pid ?? 0, "SIGKILL");
+    await restartAfter(running, 5_000);
+    await restartAfter(running, 10_000);
+    await restartAfter(running, 20_000);
+    const [, , , , fifth] = await running.events("started", 5);
+    expect(fifth).toMatchObject({ version: "0.5.0" });
+    await running.events("committed", 3);
+    expect(existsSync(join(dataDir, "update-outcome.json"))).toBe(false);
+    expect(readDatabase(dataDir)).toEqual(["before the update", "written by the target"]);
+  });
+
+  it("touches no file but the database's three when it rolls back, keeping everything else written since the commit", async () => {
+    const dataDir = beforeAnUpdate([switching(), "serve", "crash", "crash"]);
+    // Files outside SQLite, before the update and since the commit: a workspace, the attachment stage, an account directory, the vault.
+    mkdirSync(join(dataDir, "workspaces", "notes"), { recursive: true });
+    writeFileSync(join(dataDir, "workspaces", "notes", "before.md"), "written before the update");
+    const running = launch({ dataDir });
+    const [, committed] = await running.events("committed", 2);
+    const sinceTheCommit: [path: string, text: string][] = [
+      ["workspaces/notes/after.md", "since the commit"],
+      ["attachments/stage/a.bin", "staged"],
+      ["accounts/claude/settings.json", "{}"],
+      ["vault.json", "{}"],
+    ];
+    for (const [path, text] of sinceTheCommit) {
+      mkdirSync(join(dataDir, path, ".."), { recursive: true });
+      writeFileSync(join(dataDir, path), text);
+    }
+    writeDatabase(dataDir, ["written since the commit"], "open");
+    const others = environmentFiles(dataDir);
+    process.kill(committed?.pid ?? 0, "SIGKILL");
+    await restartAfter(running, 5_000);
+    await restartAfter(running, 10_000);
+    await running.events("started", 5);
+    expect(environmentFiles(dataDir)).toEqual(others);
+    expect(readDatabase(dataDir)).toEqual(["before the update"]);
+  });
+
+  /** 0.5.0 active after update 0.4.0 to 0.5.0, committed with its watch ending at `watchDeadline`, the snapshot taken before it, and the database written since. */
+  const committedAndWatched = (watchDeadline: string, starts: readonly ChildStart[] = []): string => {
+    const dataDir = beforeAnUpdate(starts);
+    takeSnapshot(dataDir, updateId);
+    writeServiceState(dataDir, { ...state("0.5.0"), previousVersion: "0.4.0", launcherVersion: "0.4.0", watchDeadline, watchedUpdateId: updateId });
+    writeDatabase(dataDir, ["written since the commit"], "open");
+    return dataDir;
+  };
+
+  it("keeps watching until the deadline in the state when it starts during a watch, and rolls back a crash loop then", async () => {
+    // The fake clock starts at 12:00, three minutes after this commit.
+    const dataDir = committedAndWatched("2026-09-28T12:07:00.000Z", ["crash", "crash", "crash"]);
+    const running = launch({ dataDir });
+    await restartAfter(running, 5_000);
+    expect(running.timer.pending()).toContain(7 * 60_000);
+    await restartAfter(running, 10_000);
+    const [, , , old] = await running.events("started", 4);
+    expect(old).toMatchObject({ version: "0.4.0" });
+    expect(outcomeIn(dataDir)).toEqual({ ...update, stage: "crash-loop", reason: "exit" });
+    expect(stateIn(dataDir)).toEqual({ ...state("0.4.0"), previousVersion: "0.5.0" });
+    expect(readDatabase(dataDir)).toEqual(["before the update"]);
+  });
+
+  it("ends a watch whose deadline passed while it was stopped as soon as it starts", async () => {
+    const dataDir = committedAndWatched("2026-09-28T11:55:00.000Z");
+    const running = launch({ dataDir });
+    expect(running.log()[0]).toBe(`launcher: the watch of update ${updateId} is over: 0.5.0 held for 10 minutes`);
+    expect(stateIn(dataDir)).toMatchObject({ activeVersion: "0.5.0", watchDeadline: null, watchedUpdateId: null });
+    await running.events("committed");
+  });
+
+  it("finishes a crash-loop restore it was killed in before it starts any child, making the version the update went from active again", async () => {
+    const dataDir = committedAndWatched("2026-09-28T12:07:00.000Z");
+    const record = { ...update, stage: "crash-loop", reason: "exit" };
+    writeFileSync(join(dataDir, RESTORE_MARKER_FILE), JSON.stringify(record));
+    const running = launch({ dataDir });
+    const [first] = await running.events("started");
+    expect(first).toMatchObject({ version: "0.4.0" });
+    expect(running.log()[0]).toBe(`launcher: finished the restore of update ${updateId}, which was cut short`);
+    expect(outcomeIn(dataDir)).toEqual(record);
+    expect(stateIn(dataDir)).toEqual({ ...state("0.4.0"), previousVersion: "0.5.0" });
+    expect(readDatabase(dataDir)).toEqual(["before the update"]);
+    expect(running.timer.pending()).toEqual([]);
+  });
+});
+
+/** Another update's id: one rolled back before, whose snapshot was kept (#443). */
+const rolledBackId = "0c6f8e2a-94b1-4d37-a5e2-6b8c0d1f2a3e";
+
+describe.runIf(posix)("the launcher at the end of a watch", () => {
+  /**
+   * A data directory updating 0.4.0 to 0.5.0 with versions 0.1.0 to 0.7.0
+   * installed besides and a rolled-back update's snapshot kept, whose target,
+   * once committed, asks `install?` for 0.6.0 as the environment stages its
+   * next update, and answers `idle?` busy.
+   */
+  const withManyVersions = (): string => {
+    const dataDir = beforeAnUpdate([]);
+    for (const version of ["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.7.0"]) installVersion(dataDir, version);
+    // A folder an install cut short left: no version.
+    layOutVersion(join(dataDir, "versions", "0.0.9"), "0.0.9");
+    const staged = stageVersion(dataDir, "0.6.0");
+    // Busy whenever asked, so the launcher, whose own version is not the active one, does not hand over.
+    scriptChild(dataDir, [{ ...(switching() as ScriptedStart), busyFor: 99 }, { install: { version: "0.6.0", staged }, busyFor: 99 }]);
+    takeSnapshot(dataDir, rolledBackId);
+    mkdirSync(join(dataDir, "snapshots", `${rolledBackId}.staging`));
+    return dataDir;
+  };
+
+  it("discards the snapshots and prunes the versions to the active one, the two before it, the launcher's own and the one staged, and nothing before", async () => {
+    const dataDir = withManyVersions();
+    const running = launch({ dataDir, version: "0.2.0" });
+    await running.events("install-answered");
+    // Nothing is pruned during the watch.
+    expect(treeOf(join(dataDir, "snapshots"))).toEqual([rolledBackId, `${rolledBackId}.staging`, `${rolledBackId}/environment.db`, updateId, `${updateId}/environment.db`].sort());
+    expect(completeVersions(dataDir)).toEqual(["0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0", "0.7.0"]);
+
+    running.timer.run(10 * 60_000);
+
+    expect(completeVersions(dataDir)).toEqual(["0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
+    expect(readdirSync(join(dataDir, "versions")).sort()).toEqual(["0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
+    expect(readdirSync(join(dataDir, "snapshots"))).toEqual([]);
+    expect(stateIn(dataDir)).toMatchObject({ activeVersion: "0.5.0", watchDeadline: null, watchedUpdateId: null, stagedVersion: "0.6.0" });
+    const over = running.log().indexOf(`launcher: the watch of update ${updateId} is over: 0.5.0 held for 10 minutes`);
+    expect(running.log().slice(over, over + 4)).toEqual([
+      `launcher: the watch of update ${updateId} is over: 0.5.0 held for 10 minutes`,
+      `launcher: discarded the snapshot of update ${rolledBackId}`,
+      `launcher: discarded the snapshot of update ${updateId}`,
+      "launcher: pruned 0.0.9, 0.1.0, 0.3.0 and 0.7.0, keeping 0.2.0, 0.3.1, 0.4.0, 0.5.0 and 0.6.0",
+    ]);
+  });
+
+  // Root removes whatever a mode says, so only an ordinary user can meet a folder it cannot remove.
+  it.runIf(!runningAsRoot)("passes over a version it cannot remove, saying so, and clears the rest away", async () => {
+    const dataDir = withManyVersions();
+    const locked = join(dataDir, "versions", "0.1.0", "packages");
+    chmodSync(locked, 0o555);
+    cleanups.push(() => chmodSync(locked, 0o755));
+    const running = launch({ dataDir, version: "0.2.0" });
+    await running.events("install-answered");
+    running.timer.run(10 * 60_000);
+    expect(readdirSync(join(dataDir, "versions")).sort()).toEqual(["0.1.0", "0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
+    // Its sentinel went first, so what is left of it is no version.
+    expect(completeVersions(dataDir)).toEqual(["0.2.0", "0.3.1", "0.4.0", "0.5.0", "0.6.0"]);
+    expect(readdirSync(join(dataDir, "snapshots"))).toEqual([]);
+    expect(running.log()).toContainEqual(expect.stringMatching(/^launcher: 0\.1\.0 could not be removed, so it waits for the next watch's end: .*EACCES/));
+    expect(running.log()).toContain("launcher: pruned 0.0.9, 0.3.0 and 0.7.0, keeping 0.2.0, 0.3.1, 0.4.0, 0.5.0 and 0.6.0");
+  });
+
+  it("prunes nothing and keeps the snapshots when the watch ends while an update is pending", async () => {
+    const dataDir = beforeAnUpdate([switching(), { switchTo: { updateId: rolledBackId, version: "0.7.0", lingers: true } }]);
+    for (const version of ["0.1.0", "0.2.0", "0.3.0", "0.7.0"]) installVersion(dataDir, version);
+    const running = launch({ dataDir });
+    await running.events("switching", 2);
+    running.timer.run(10 * 60_000);
+    expect(completeVersions(dataDir)).toEqual(["0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.7.0"]);
+    expect(readdirSync(join(dataDir, "snapshots"))).toEqual([updateId]);
+    expect(stateIn(dataDir)).toMatchObject({ pendingUpdate: { updateId: rolledBackId, fromVersion: "0.5.0", toVersion: "0.7.0" }, watchDeadline: null, watchedUpdateId: null });
+    expect(running.log()).toContain(`launcher: the watch of update ${updateId} is over while update ${rolledBackId} is pending, so nothing is pruned`);
+  });
+});
+
+/** The launcher's handover files in `dataDir`: the launcher version file, the handover record and the launcher entry's start counter, each as its text or null when absent. */
+const handoverFiles = (dataDir: string): Record<string, string | null> =>
+  Object.fromEntries(
+    ["launcher-version", "launcher-handover", "launcher-handover-starts"].map((name) => [
+      name,
+      existsSync(join(dataDir, name)) ? readFileSync(join(dataDir, name), "utf8") : null,
+    ]),
+  );
+
+/** What the children heard of `type`, in order. */
+const heardOf = (running: Running, type: string): ChildEvent[] =>
+  running.report().filter((line) => line.event === "heard" && (line["message"] as { type?: string } | undefined)?.type === type);
+
+describe.runIf(posix)("the launcher handing over to a newer launcher", () => {
+  it("asks idle? every ten minutes once the watch is over, when the active version is not its own, and at the first idle writes the handover and exits with the relaunch code", async () => {
+    const dataDir = beforeAnUpdate([switching(), { busyFor: 2 }]);
+    writeFileSync(join(dataDir, "launcher-version"), "0.4.0\n");
+    const running = launch({ dataDir });
+    let exitCode: number | undefined;
+    void running.launcher.stopped.then((code) => (exitCode = code));
+    await running.events("committed", 2);
+    // Nothing is asked during the watch.
+    expect(heardOf(running, "idle?")).toEqual([]);
+
+    running.timer.run(10 * 60_000);
+    await until("the first idle? is answered", () => running.log().some((line) => line.includes("busy")));
+    expect(heardOf(running, "idle?")).toHaveLength(1);
+    expect(running.timer.pending()).toEqual([10 * 60_000]);
+    running.timer.run(10 * 60_000);
+    await until("the second idle? is answered", () => running.log().filter((line) => line.includes("busy")).length === 2);
+    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": "0.4.0\n", "launcher-handover": null, "launcher-handover-starts": null });
+    running.timer.run(10 * 60_000);
+
+    const code = await running.launcher.stopped;
+    expect(code).toBe(RELAUNCH_EXIT_CODE);
+    expect(exitCode).toBe(RELAUNCH_EXIT_CODE);
+    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": "0.5.0\n", "launcher-handover": "0.4.0\n0.5.0\n", "launcher-handover-starts": null });
+    expect((await running.events("drained"))[0]).toMatchObject({ version: "0.5.0", trigger: "launcher" });
+    await until("the child's exit is logged", () => running.log().at(-1) === "launcher: 0.5.0 exited with code 0");
+    expect(running.log().slice(running.log().indexOf(`launcher: the watch of update ${updateId} is over: 0.5.0 held for 10 minutes`))).toEqual([
+      `launcher: the watch of update ${updateId} is over: 0.5.0 held for 10 minutes`,
+      `launcher: discarded the snapshot of update ${updateId}`,
+      "launcher: 0.5.0 carries another launcher than this one's 0.4.0, so it is asked idle? every 10 minutes to hand over to it",
+      "launcher: 0.5.0 is busy (run-running), so the handover waits",
+      "launcher: 0.5.0 is busy (run-running), so the handover waits",
+      `launcher: handing over to the launcher of 0.5.0: ${join(dataDir, "launcher-version")} names it, and this launcher exits with code ${RELAUNCH_EXIT_CODE} once 0.5.0 has drained, for the service manager to start it`,
+      "launcher: stopping: draining 0.5.0",
+      "launcher: 0.5.0 exited with code 0",
+    ]);
+    expect(running.timer.pending()).toEqual([]);
+    // It pruned before it handed over, keeping its own version for the launcher entry to fall back to.
+    expect(completeVersions(dataDir)).toEqual(["0.4.0", "0.5.0"]);
+  });
+
+  /**
+   * 0.5.0 active and its launcher handed over to by 0.4.0's, which the
+   * launcher version file names: the handover record, and the launcher
+   * entry's start counter at `starts`.
+   */
+  const handedOver = (starts: readonly ChildStart[] = [], pointer = "0.5.0"): string => {
+    const dataDir = dataDirectory();
+    installVersion(dataDir, "0.4.0");
+    installVersion(dataDir, "0.5.0");
+    writeServiceState(dataDir, { ...state("0.5.0"), previousVersion: "0.4.0", launcherVersion: "0.4.0" });
+    writeFileSync(join(dataDir, "launcher-version"), `${pointer}\n`);
+    writeFileSync(join(dataDir, "launcher-handover"), "0.4.0\n0.5.0\n");
+    writeFileSync(join(dataDir, "launcher-handover-starts"), "2\n");
+    scriptChild(dataDir, starts);
+    return dataDir;
+  };
+
+  it("confirms the handover once its child passes the gate, as the launcher handed over to: the record and the start counter go, and the state names it the launcher", async () => {
+    const dataDir = handedOver();
+    writeServiceState(dataDir, { ...state("0.5.0"), previousVersion: "0.4.0", launcherVersion: "0.4.0", failedHandover: { toVersion: "0.4.9", at: "2026-09-27T09:30:00.000Z" } });
+    const running = launch({ dataDir, version: "0.5.0" });
+    await until("the handover is confirmed", () => running.log().some((line) => line.includes("confirmed")));
+    expect(running.log()).toContain("launcher: confirmed the handover from the launcher of 0.4.0: 0.5.0 passed the gate under this one");
+    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": "0.5.0\n", "launcher-handover": null, "launcher-handover-starts": null });
+    expect(stateIn(dataDir)).toEqual({ ...state("0.5.0"), previousVersion: "0.4.0" });
+    // The launcher it replaced is not asked for: it is its own.
+    expect(running.timer.pending()).toEqual([]);
+  });
+
+  const unconfirmed: [what: string, starts: ChildStart[], act: (running: Running) => Promise<void>, why: string][] = [
+    ["exits before it passes the gate", ["crash"], async () => undefined, "0.5.0 exited with code 1 before it passed the gate"],
+    [
+      "says nothing within 120 seconds of its spawn",
+      ["silent"],
+      async (running) => {
+        await running.events("started");
+        expect(running.timer.pending()).toEqual([120_000]);
+        running.timer.run(120_000);
+      },
+      "0.5.0 did not say prepared within 120 s of its spawn",
+    ],
+  ];
+
+  for (const [what, starts, act, why] of unconfirmed) {
+    it(`exits 1, restarting nothing, when its child ${what} as the launcher handed over to, so the launcher entry counts the start`, async () => {
+      const dataDir = handedOver(starts);
+      const running = launch({ dataDir, version: "0.5.0" });
+      await act(running);
+      expect(await running.launcher.stopped).toBe(1);
+      expect(running.log()).toContain(`launcher: the handover from the launcher of 0.4.0 is not confirmed: ${why}, so this launcher exits with code 1 for the launcher entry to count the start`);
+      expect(running.report().filter((line) => line.event === "started")).toHaveLength(1);
+      expect(handoverFiles(dataDir)).toEqual({ "launcher-version": "0.5.0\n", "launcher-handover": "0.4.0\n0.5.0\n", "launcher-handover-starts": "2\n" });
+      expect(stateIn(dataDir)?.launcherVersion).toBe("0.4.0");
+      expect(running.timer.pending()).toEqual([]);
+    });
+  }
+
+  it("exits 1 when it starts nothing as the launcher handed over to", async () => {
+    const dataDir = handedOver();
+    writeFileSync(join(dataDir, SERVICE_STATE_FILE), "{ not json");
+    const running = launch({ dataDir, version: "0.5.0" });
+    expect(await running.launcher.stopped).toBe(1);
+    expect(running.log()[0]).toMatch(/^launcher: starts nothing: the service state at .* is not valid: it is not JSON$/);
+    expect(running.log()[1]).toBe(
+      "launcher: the handover from the launcher of 0.4.0 is not confirmed: this launcher starts nothing, so this launcher exits with code 1 for the launcher entry to count the start",
+    );
+  });
+
+  it("records that the handover failed when the launcher entry starts it again after the one it handed over to went unconfirmed, and never hands over to that version again", async () => {
+    const dataDir = handedOver([], "0.4.0");
+    writeFileSync(join(dataDir, "launcher-handover-starts"), "3\n");
+    const running = launch({ dataDir, version: "0.4.0" });
+    await running.events("committed");
+    expect(stateIn(dataDir)).toEqual({
+      ...state("0.5.0"),
+      previousVersion: "0.4.0",
+      launcherVersion: "0.4.0",
+      failedHandover: { toVersion: "0.5.0", at: "2026-09-28T12:00:00.000Z" },
+    });
+    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": "0.4.0\n", "launcher-handover": null, "launcher-handover-starts": null });
+    expect(running.log()[0]).toBe(
+      "launcher: the handover to the launcher of 0.5.0 failed: it was not confirmed, and the launcher entry started this launcher again, which runs on",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(heardOf(running, "idle?")).toEqual([]);
+    expect(running.timer.pending()).toEqual([]);
+  });
+
+  it("asks nothing when the active version is its own", async () => {
+    const running = launch();
+    await running.events("committed");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(running.timer.pending()).toEqual([]);
+    expect(heardOf(running, "idle?")).toEqual([]);
   });
 });
 
@@ -971,6 +1367,23 @@ describe.runIf(posix && !runningAsRoot)("the launcher over the real serve", () =
       `launcher: ${HARNESS_VERSION} exited with code 0`,
     ]);
     await expect(fetch(discovery)).rejects.toThrow();
+  });
+
+  // Waits on the stop itself, however long serve takes to start through tsx (the real preflight's budget, #634).
+  it("hands over to the launcher of a real serve that answers idle?, draining it before it exits with the relaunch code", { timeout: REAL_PREFLIGHT_MS }, async () => {
+    const dataDir = dataDirectory();
+    installVersion(dataDir, HARNESS_VERSION, new URL("../main.ts", import.meta.url).pathname);
+    writeServiceState(dataDir, state(HARNESS_VERSION));
+    const running = launch({ dataDir, port: 0, version: "0.4.0" });
+    // Serve answers queries only once its wire is open, a moment after its commit, so the ask at the commit may go unheard: each second the test runs the next ask, which the launcher makes every ten minutes.
+    const nextAsk = setInterval(() => {
+      if (running.timer.pending().includes(10 * 60_000)) running.timer.run(10 * 60_000);
+    }, 1_000);
+    cleanups.push(() => clearInterval(nextAsk));
+    expect(await running.launcher.stopped).toBe(RELAUNCH_EXIT_CODE);
+    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": `${HARNESS_VERSION}\n`, "launcher-handover": `0.4.0\n${HARNESS_VERSION}\n`, "launcher-handover-starts": null });
+    await until("serve's exit is logged", () => running.log().at(-1) === `launcher: ${HARNESS_VERSION} exited with code 0`);
+    expect(running.log()).toContain(`launcher: stopping: draining ${HARNESS_VERSION}`);
   });
 
   it("commits a trial of the real serve, which passes its gate on the database the switch snapshotted", async () => {
