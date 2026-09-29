@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InjectionAnswer",
+  "type": "string",
+  "enum": [
+    "allow",
+    "deny"
+  ],
+  "description": "Whether runs receive credentials (the forge variables and credential helper, and the key managers' block): allow or deny."
+}

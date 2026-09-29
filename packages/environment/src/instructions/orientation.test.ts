@@ -9,7 +9,9 @@ import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, workspace } from "../../test/sessions.js";
+import { updateSettings } from "../../test/shelf.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import { presetInjection } from "../adapter/process-environment.js";
 import type { InstructionScope } from "../adapter/seams.js";
 import type { OrientationSection } from "./orientation.js";
 
@@ -368,9 +370,40 @@ describe("the environment section", () => {
 });
 
 describe("the instruction scope", () => {
-  it("carries the run's injection answer with the level that decided it, asked once and the answer its process environment is built under", async () => {
+  /** A section that states the run's injection answer and the level that decided it, as a key managers' section would. */
+  const injectionSection = (scopes: InstructionScope[] = []): OrientationSection => ({
+    name: "key-managers",
+    title: "Key managers",
+    render: (scope) => {
+      scopes.push(scope);
+      const { answer, level } = scope.injection;
+      return [`This run's injection answer is ${answer}, decided by ${level.kind === "environment" ? "the environment" : `${level.kind} ${level.id}`}.`];
+    },
+  });
+
+  it("carries the run's injection answer with the level that decided it, and its process environment is built under that answer", async () => {
     const forge = await fakeForge();
-    let answer: "allow" | "deny" = "deny";
+    const t = await start({ forgeFetch: forge.fetch, harnessCommand: HELPER, orientationSections: [injectionSection()] });
+    const client = await t.client();
+    const session = await create(client);
+
+    expect((await updateSettings(client, { "credentials.injection": "deny" })).receipt).toMatchObject({ status: "accepted" });
+    const denied = await runTo(t, client, session.id);
+    expect((await updateSettings(client, { "credentials.injectionByAccount": { "claude-max": "allow" } })).receipt).toMatchObject({ status: "accepted" });
+    const allowed = await runTo(t, client, session.id, "Allowed now");
+    const fresh = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+
+    expect(denied).toContain("This run's injection answer is deny, decided by the environment.");
+    expect(allowed).toContain("This run's injection answer is allow, decided by account claude-max.");
+    expect(fresh.text).toContain("This run's injection answer is allow, decided by account claude-max.");
+    // Each process was built under its run's answer, and a different answer is a fresh process.
+    const processes = t.adapter.processesOf(session.id);
+    expect(processes.map((process) => (JSON.parse(process.key) as { injection: string }).injection)).toEqual(["deny", "allow"]);
+    expect(processes.map((process) => process.instructions)).toEqual([denied, allowed]);
+  });
+
+  it("asks the injection answer once per run, as it launches, for its text and its process alike; a new session's preview asks for a run in no session yet", async () => {
+    const forge = await fakeForge();
     const asked: (string | null)[] = [];
     const scopes: InstructionScope[] = [];
     const t = await start({
@@ -379,41 +412,19 @@ describe("the instruction scope", () => {
       adapterSeams: {
         injection: (scope) => {
           asked.push(scope.sessionId);
-          return answer;
+          return presetInjection(scope);
         },
       },
-      orientationSections: [
-        {
-          name: "key-managers",
-          title: "Key managers",
-          render: (scope) => {
-            scopes.push(scope);
-            return [`This run's injection answer is ${scope.injection.answer}, decided at the ${scope.injection.level.kind}'s level.`];
-          },
-        },
-      ],
+      orientationSections: [injectionSection(scopes)],
     });
     const client = await t.client();
     const session = await create(client);
 
-    const denied = await runTo(t, client, session.id);
-    answer = "allow";
-    const allowed = await runTo(t, client, session.id, "Allowed now");
-    const fresh = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+    await runTo(t, client, session.id);
+    await runTo(t, client, session.id, "Once more");
+    await client.request("instructions.preview", { accountId: "claude-max", workspace });
 
-    expect(denied).toContain("This run's injection answer is deny, decided at the environment's level.");
-    expect(allowed).toContain("This run's injection answer is allow, decided at the environment's level.");
-    expect(fresh.text).toContain("This run's injection answer is allow, decided at the environment's level.");
-    // One answer per run, asked as it launched; a new session's preview asks for a run in no session yet.
     expect(asked).toEqual([session.id, session.id, null]);
-    expect(scopes.map((scope) => scope.injection)).toEqual([
-      { answer: "deny", level: { kind: "environment" } },
-      { answer: "allow", level: { kind: "environment" } },
-      { answer: "allow", level: { kind: "environment" } },
-    ]);
-    // Each process was built under its run's answer: a denied one is supplied nothing.
-    const processes = t.adapter.processesOf(session.id);
-    expect(processes.map((process) => (JSON.parse(process.key) as { injection: string }).injection)).toEqual(["deny", "allow"]);
-    expect(processes.map((process) => process.instructions)).toEqual([denied, allowed]);
+    expect(scopes.map((scope) => scope.injection)).toEqual(Array.from({ length: 3 }, () => ({ answer: "allow", level: { kind: "environment" } })));
   });
 });

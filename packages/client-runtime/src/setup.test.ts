@@ -275,8 +275,8 @@ describe("this client's own check", () => {
     const all = runtime.setup.check(env);
     await flush();
     // An environment that registers every step of the order, the ones this build's registry lacks included.
-    const keyManager = attentionResult("key-manager", "key-manager.reachable", ["check-again"], { checkedAt: after(1) });
-    checks.answer(STEP_ORDER.map((step) => (step === "key-manager" ? keyManager : doneResult(step, { checkedAt: after(1) }))));
+    const memoryBank = attentionResult("memory-bank", "memory-bank.reachable", ["check-again"], { checkedAt: after(1) });
+    checks.answer(STEP_ORDER.map((step) => (step === "memory-bank" ? memoryBank : doneResult(step, { checkedAt: after(1) }))));
     expect(await all).toMatchObject({ ok: true });
     const view = runtime.projections.setup(env).read();
     expect(view.steps.map((step) => [step.id, step.registered, step.result?.state])).toEqual([
@@ -284,24 +284,24 @@ describe("this client's own check", () => {
       ["carry-over", true, "done"],
       ["your-machines", true, "done"],
       ["forges", true, "done"],
-      ["key-manager", true, "needs-attention"],
-      ["memory-bank", true, "done"],
+      ["key-manager", true, "done"],
+      ["memory-bank", true, "needs-attention"],
       ["skills", true, "done"],
       ["instructions", true, "done"],
       ["browser", true, "done"],
       ["permissions", true, "done"],
       ["appearance", true, "done"],
     ]);
-    expect(resultOf(runtime, env, "key-manager")).toMatchObject({ ...keyManager, stale: false, olderThanCadence: false });
-    expect(view.counts).toEqual({ registered: 11, done: 10, needsAttention: 1, skipped: 0, attention: ["key-manager"] });
+    expect(resultOf(runtime, env, "memory-bank")).toMatchObject({ ...memoryBank, stale: false, olderThanCadence: false });
+    expect(view.counts).toEqual({ registered: 11, done: 10, needsAttention: 1, skipped: 0, attention: ["memory-bank"] });
 
     // No cadence of this build's own for it: it ages against the hour a step has unless it gives another.
     clock.advance(60 * 60_000);
     await flush();
-    expect(resultOf(runtime, env, "key-manager")).toMatchObject({ olderThanCadence: false });
+    expect(resultOf(runtime, env, "memory-bank")).toMatchObject({ olderThanCadence: false });
     clock.advance(2);
     await flush();
-    expect(resultOf(runtime, env, "key-manager")).toMatchObject({ olderThanCadence: true });
+    expect(resultOf(runtime, env, "memory-bank")).toMatchObject({ olderThanCadence: true });
   });
 
   it("applies a newer environment's answer whole, leaving out only what its vocabulary has and this build's lacks: a verb, a kind of item, a later milestone's step (#693)", async () => {

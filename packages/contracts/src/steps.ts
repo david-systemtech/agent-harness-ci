@@ -211,8 +211,9 @@ export const anyValidValue =
  * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
  * rules and settings") and the transcript compaction window beside them
  * (#123), which sit on `environments.service`; Forges, whose forge
- * accounts go through the forge account commands (#319); Browser, for the
- * browser keys (#541); Permissions
+ * accounts go through the forge account commands (#319); Key manager, for
+ * the injection setting (#367), whose connections go through the
+ * key-manager commands; Browser, for the browser keys (#541); Permissions
  * (#129's keys, #141's entry); and Appearance, for the theme (ADR 0023,
  * #391), whose contrast it checks. The other steps arrive as their features are built,
  * each with its budget class, cadence, triggers and skip check as the Set
@@ -346,6 +347,42 @@ export const STEP_REGISTRY = [
       reason: "The orientation block reports each forge account's status (ADR 0012), so the step is checked as often as a forge account is verified.",
     },
     triggers: ["forge.account.*"],
+  },
+  {
+    // The Key manager step (key-managers spec, "The Key manager step"; ADR 0028, ADR 0034; #367), fifth, before Memory
+    // bank, at home on the Access band's Key managers pane (ADR 0027). It writes the injection setting's two keys, which
+    // settings.update writes and which pass on any valid value, as a preference's do, and its connections and the Move of
+    // stored tokens through the key-manager commands. It links the Forges and Memory bank steps, and About, whose Managed
+    // tools hold each key manager's CLI (ADR 0026). Skippable: with no connection it answers skipped, never forced (ADR
+    // 0028). Its checks await a verification of every connection (a network call), every fifteen minutes; each
+    // key-manager.* event and tools.updated re-run it. Its other state checks are #383's.
+    id: "key-manager",
+    home: "access.key-managers",
+    writes: ["credentials.injection", "credentials.injectionByAccount"],
+    writesState: [
+      { method: "keyManagers.connections.add", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.signIn", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.update", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.setPolicies", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.setBasePath", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.signOut", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.remove", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.move", parts: ["storedTokens"] },
+    ],
+    checks: [
+      { key: "credentials.injection", check: anyValidValue("credentials.injection") },
+      { key: "credentials.injectionByAccount", check: anyValidValue("credentials.injectionByAccount") },
+    ],
+    stateChecks: [{ id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] }],
+    links: [{ step: "forges" }, { step: "memory-bank" }, { row: "about.about" }],
+    skippable: true,
+    skip: "key-manager.present",
+    budget: "network",
+    cadence: {
+      minutes: 15,
+      reason: "The orientation block reports each key-manager connection's status (ADR 0011, ADR 0028), so the step is checked as often as a connection is verified.",
+    },
+    triggers: ["key-manager.*", "tools.updated"],
   },
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's

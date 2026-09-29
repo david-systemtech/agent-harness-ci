@@ -30,6 +30,7 @@ const holding: StateCheckers = {
   "forges.gh": () => true,
   "forges.expiry": () => true,
   "forges.coverage": () => true,
+  "key-manager.present": () => true,
   "permissions.containment": () => true,
   "permissions.denylist": () => true,
   "permissions.not-root": () => true,

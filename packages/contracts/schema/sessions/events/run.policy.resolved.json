@@ -175,6 +175,29 @@
     "unattendedDefaultApplied": {
       "type": "boolean",
       "description": "Whether the run named no mode and was unattended, so it got permissions.unattended.mode."
+    },
+    "injection": {
+      "description": "The run's own credential injection, a routine's or bot's allow or deny, which outranks its account's entry and the environment's value; absent when it has none, and those settings decide.",
+      "type": "object",
+      "properties": {
+        "answer": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "Whether runs receive credentials (the forge variables and credential helper, and the key managers' block): allow or deny."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The id of the routine (or bot, as the policy's actorKind says) whose own injection it is."
+        }
+      },
+      "required": [
+        "answer",
+        "id"
+      ]
     }
   },
   "required": [

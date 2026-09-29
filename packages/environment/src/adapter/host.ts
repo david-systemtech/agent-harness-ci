@@ -95,7 +95,7 @@ import type {
 import { composeInstructions, instructionsDigest } from "../instructions/composer.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import { createProcessEnvironments, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
+import { createProcessEnvironments, runOverrideOf, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
@@ -1406,8 +1406,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** A run as its process environment and its injection answer are asked for: its session, its account and who started it. */
-  const holderOf = (plan: PlannedRun): ProcessEnvironmentScope => ({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+  /** A run as its process environment and its injection answer are asked for: its session, its account, who started it, and a routine's own injection as its override (#367). */
+  const holderOf = (plan: PlannedRun): ProcessEnvironmentScope => ({
+    sessionId: plan.sessionId,
+    accountId: plan.account.id,
+    origin: plan.actor.kind,
+    override: runOverrideOf(plan.actor),
+  });
 
   /**
    * A run's process environment (#307), built as every run's is when its
@@ -2015,7 +2020,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
       }
       // As a run a client starts would be composed: with no extra always-on names.
-      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client" });
+      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", override: null });
       return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment), injection }));
     },
     continueSession(sessionId) {

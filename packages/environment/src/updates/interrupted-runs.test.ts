@@ -23,6 +23,7 @@ import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import type { ActorRunRequest } from "../serve/start.js";
+import { presetInjection, type RunInjectionOverride } from "../adapter/process-environment.js";
 
 /**
  * The runs an update cut (launcher-update spec, "Interrupted runs and parked
@@ -303,6 +304,31 @@ describe("a run the update cut that its provider can resume", () => {
     await untilEnded(again, id, continuation);
     // Unattended: the provider is handed the denylist to project, as every unattended run is.
     expect(again.adapter.lastRun().input.denylist).not.toBeNull();
+  });
+
+  it("of a routine's firing with its own injection is continued under it, read back from the cut run's policy (#367)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const t = await start(dataDir, { adapter: fakeAdapter({ script: working() }) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId: cut } = t.env.startRun({
+      sessionId: id,
+      text: "Reconcile the receipts",
+      actor: { kind: "routine", name: "nightly-receipts", ceiling: "bypassPermissions", clientSessionId: null },
+      actorId: "routine-nightly",
+      injection: "deny",
+    });
+    await untilWorking(t, id);
+    await update(t, client);
+
+    const asked: (RunInjectionOverride | null)[] = [];
+    const again = await start(dataDir, { clock: t.clock, harnessVersion: TARGET, adapterSeams: { injection: (scope) => (asked.push(scope.override), presetInjection(scope)) } });
+
+    const continuation = continuationOf(again, id);
+    expect(policyOf(again, id, cut)?.injection).toEqual({ answer: "deny", id: "routine-nightly" });
+    expect(policyOf(again, id, continuation)?.injection).toEqual({ answer: "deny", id: "routine-nightly" });
+    await untilEnded(again, id, continuation);
+    expect(asked).toEqual([{ answer: "deny", level: { kind: "routine", id: "routine-nightly" } }]);
   });
 });
 

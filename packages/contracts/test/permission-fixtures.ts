@@ -189,8 +189,23 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...containment, effective: null }, { requested: null, effective: "off" }, { ...containment, mechanism: "docker" }],
   },
   "permissions/run-policy.json": {
-    valid: [policy, unattendedPolicy],
-    invalid: [{ ...policy, attended: "yes" }, { ...policy, mode: "plan" }, { ...unattendedPolicy, actorName: "" }, { ...policy, actorName: undefined }],
+    valid: [policy, unattendedPolicy, { ...unattendedPolicy, injection: { answer: "deny", id: "routine-nightly" } }],
+    invalid: [
+      { ...policy, attended: "yes" },
+      { ...policy, mode: "plan" },
+      { ...unattendedPolicy, actorName: "" },
+      { ...policy, actorName: undefined },
+      { ...unattendedPolicy, injection: { answer: "inherit", id: "routine-nightly" } },
+      { ...unattendedPolicy, injection: { answer: "deny", id: "" } },
+      { ...unattendedPolicy, injection: "deny" },
+    ],
+  },
+  "key-managers/run-injection.json": {
+    valid: [
+      { answer: "allow", id: "routine-nightly" },
+      { answer: "deny", id: "0f8fad5b-d9cb-469f-a165-70867728950e" },
+    ],
+    invalid: [{ answer: "inherit", id: "routine-nightly" }, { answer: "deny" }, { id: "routine-nightly" }, { answer: "deny", id: "" }, "deny"],
   },
   "permissions/tool-decider.json": {
     valid: ["person", "mode", "rule", "classifier", "denylist", "containment", "ttl", "unattended", "bypass", "provider"],

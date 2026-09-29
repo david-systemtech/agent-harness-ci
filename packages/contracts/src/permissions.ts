@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RunId } from "./adapter.js";
+import { RunInjection } from "./credential-settings.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { Sequence, Timestamp } from "./primitives.js";
@@ -186,8 +187,12 @@ export const RunPolicy = z
     mode: ModeResolution,
     containment: ContainmentResolution,
     unattendedDefaultApplied: z.boolean().meta({ description: "Whether the run named no mode and was unattended, so it got permissions.unattended.mode." }),
+    injection: RunInjection.optional().meta({
+      description:
+        "The run's own credential injection, a routine's or bot's allow or deny, which outranks its account's entry and the environment's value; absent when it has none, and those settings decide.",
+    }),
   })
-  .meta({ description: "A run's resolved policy: who started it, whether attended, its mode and containment, and whether the unattended default applied." });
+  .meta({ description: "A run's resolved policy: who started it, whether attended, its mode and containment, whether the unattended default applied, and its own credential injection if any." });
 export type RunPolicy = z.infer<typeof RunPolicy>;
 
 export const RunPolicyResolvedPayload = z

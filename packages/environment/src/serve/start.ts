@@ -30,6 +30,7 @@ import {
   type MintedPairing,
   type Mode,
   type ReleaseSource,
+  type RoutineInjection,
   type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
@@ -108,6 +109,7 @@ import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
+import { settingsInjection } from "../key-managers/injection-setting.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
 import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
@@ -440,16 +442,26 @@ type ActorOfRun<K extends RunActor["kind"]> = Extract<RunActor, { readonly kind:
  * A run an actor that is no client session starts: the session, who (a
  * routine or a bot by its id, which the log names it by, since its name can
  * change; the completions surface), the message it starts with, and a mode
- * of its own if it names one.
+ * of its own if it names one. A routine's or a bot's may carry its own
+ * credential injection (#367), which #92's firing passes as the routine
+ * saved it: `allow` or `deny` outranks its account's entry and the
+ * environment's value, and `inherit`, or none, leaves the answer to them. A
+ * completions request cannot ask for one.
  */
 export type ActorRunRequest = {
   readonly sessionId: string;
   readonly text: string;
   readonly mode?: Mode;
 } & (
-  | { readonly actor: ActorOfRun<"routine" | "bot">; readonly actorId: string }
-  | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined }
+  | { readonly actor: Omit<ActorOfRun<"routine" | "bot">, "injection">; readonly actorId: string; readonly injection?: RoutineInjection }
+  | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined; readonly injection?: undefined }
 );
+
+/** Who runs `request`: its actor, a routine's or a bot's with its own injection when it names `allow` or `deny` (#367). */
+const actorOfRequest = (request: ActorRunRequest): RunActor => {
+  if (request.actorId === undefined || request.injection === undefined || request.injection === "inherit") return request.actor;
+  return { ...request.actor, injection: { answer: request.injection, id: request.actorId } };
+};
 
 /** Where a run an actor starts comes from, and who the log says started it: a bot's runs are its routines' (ADR 0008). */
 const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; readonly actor: string } => {
@@ -875,8 +887,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   for (const section of options.orientationSections ?? []) orientation.register(section);
   const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
-  // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper.
-  const processEnvironments = createProcessEnvironments(injection);
+  // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
+  // holder gets them is the injection setting's answer, read as each holder is built (#367).
+  const processEnvironments = createProcessEnvironments(injection ?? settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })));
   if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
@@ -1054,7 +1067,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...options.terminals,
     processEnvironment: (sessionId) => {
       const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
-      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client" });
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client", override: null });
     },
   });
   closers.push(() => terminalService.close());
@@ -1157,6 +1170,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       updates: () => updates.machineHolds(channelChecks.status().newest),
       hostUpdater: () => hostUpdater.holds(),
       forge,
+      keyManagerConnections,
       clock,
       look: () => look.read(),
     }),
@@ -1471,7 +1485,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     startRun(request) {
       const { origin, actor } = startedBy(request);
       const started = log.atomically((tx) =>
-        startRunIn(log, host, tx, { actor }, { sessionId: request.sessionId, actor: request.actor, origin, text: request.text, mode: request.mode }),
+        startRunIn(log, host, tx, { actor }, { sessionId: request.sessionId, actor: actorOfRequest(request), origin, text: request.text, mode: request.mode }),
       );
       if (started.rejected !== undefined) throw new ContractError(started.rejected);
       return { runId: started.runId, messageId: started.messageId };
