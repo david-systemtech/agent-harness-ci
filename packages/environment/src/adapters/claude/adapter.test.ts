@@ -659,6 +659,125 @@ describe("the tool gate's PreToolUse hook (#140)", () => {
   });
 });
 
+describe("an in-process tool's declared access and its images (#540)", () => {
+  /** A red pixel's bytes, as a tool's screenshot would carry them (not a real image: the adapter passes bytes on unread). */
+  const SHOT = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+
+  /** A browser-shaped server built afresh, as the factory builds one per run: open declares browse, read declares fetch, close declares nothing. */
+  const browserServer = (calls: string[] = []): InProcessToolServer => ({
+    name: "browser",
+    external: false,
+    tools: [
+      {
+        name: "browser_open",
+        description: "Opens a page.",
+        inputSchema: { type: "object", properties: { address: { type: "string" } } },
+        access: (input) => ({ kind: "browse", urls: typeof input["address"] === "string" ? [input["address"]] : [] }),
+        call: async (input) => {
+          calls.push(`open ${String(input["address"])}`);
+          return { text: "Opened.", isError: false };
+        },
+      },
+      {
+        name: "web_read",
+        description: "Reads a page without a browser.",
+        inputSchema: { type: "object", properties: { url: { type: "string" } } },
+        access: (input) => ({ kind: "fetch", urls: typeof input["url"] === "string" ? [input["url"]] : [] }),
+        call: async () => ({ text: "Read.", isError: false }),
+      },
+      { name: "browser_close", description: "Lets the page go.", inputSchema: { type: "object", properties: {} }, call: async () => ({ text: "Closed.", isError: false }) },
+      {
+        name: "browser_screenshot",
+        description: "A screenshot.",
+        inputSchema: { type: "object", properties: {} },
+        call: async () => ({ text: "The page at https://example.com/.", isError: false, images: [{ mediaType: "image/jpeg", data: SHOT }] }),
+      },
+    ],
+  });
+
+  const opened = async (context: Context, overrides: Partial<RunInput> = {}) => {
+    const adapter = adapterWith();
+    const input = runInput({ toolServers: [browserServer()], ...overrides });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    return { adapter, input, run, query };
+  };
+
+  it("hands the gate what the tool declares from the hook, naming the address in the summary, and other for a tool that declares nothing", async () => {
+    const { context, checked } = gatedWith(() => ({ decision: "allow" }));
+    const { query } = await opened(context);
+    expect(await query.preToolUse("mcp__browser__browser_open", { address: "https://www.paypal.com/" }, { toolUseID: "toolu_open" })).toEqual({});
+    expect(await query.preToolUse("mcp__browser__web_read", { url: "http://169.254.169.254/latest" }, { toolUseID: "toolu_read" })).toEqual({});
+    expect(await query.preToolUse("mcp__browser__browser_close", { address: "https://www.paypal.com/" }, { toolUseID: "toolu_close" })).toEqual({});
+    expect(checked.map(({ call }) => call)).toEqual([
+      {
+        toolCallId: "toolu_open",
+        tool: "mcp__browser__browser_open",
+        summary: "mcp__browser__browser_open https://www.paypal.com/",
+        access: { kind: "browse", urls: ["https://www.paypal.com/"] },
+        input: { address: "https://www.paypal.com/" },
+      },
+      {
+        toolCallId: "toolu_read",
+        tool: "mcp__browser__web_read",
+        summary: "mcp__browser__web_read http://169.254.169.254/latest",
+        access: { kind: "fetch", urls: ["http://169.254.169.254/latest"] },
+        input: { url: "http://169.254.169.254/latest" },
+      },
+      {
+        toolCallId: "toolu_close",
+        tool: "mcp__browser__browser_close",
+        summary: "mcp__browser__browser_close",
+        access: { kind: "other" },
+        input: { address: "https://www.paypal.com/" },
+      },
+    ]);
+  });
+
+  it("hands the gate the declared access from canUseTool too, for a call the hook never saw, and the gate's denial is the provider's", async () => {
+    const { context, checked } = gatedWith((call) => (call.access.kind === "fetch" ? { decision: "deny", message: "Denied by containment: no network." } : { decision: "allow" }));
+    const { query } = await opened(context);
+    expect(await query.canUseTool("mcp__browser__web_read", { url: "https://example.com/" }, { toolUseID: "toolu_unhooked" })).toMatchObject({
+      behavior: "deny",
+      message: "Denied by containment: no network.",
+    });
+    expect(checked.map(({ call }) => [call.toolCallId, call.access])).toEqual([["toolu_unhooked", { kind: "fetch", urls: ["https://example.com/"] }]]);
+  });
+
+  it("keeps a session's process for a run whose tools are built afresh with the same declarations, and reads its calls as declared", async () => {
+    const adapter = adapterWith();
+    const { context, checked } = gatedWith(() => ({ decision: "allow" }));
+    const input = runInput({ toolServers: [browserServer()] });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const next = adapter.createRun(runInput({ toolServers: [browserServer()], target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    const prompts = await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [prompts[1]?.uuid as string]));
+    await flush();
+    await query.preToolUse("mcp__browser__browser_open", { address: "https://example.com/" }, { toolUseID: "toolu_next" });
+    expect(checked.map(({ call }) => call.access)).toEqual([{ kind: "browse", urls: ["https://example.com/"] }]);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(next);
+  });
+
+  it("answers an image result as image content after the text, which the CLI receives beside it, and a text-only result as text alone", async () => {
+    const { query } = await opened(contextWith());
+    const shot = await query.callTool("browser", "browser_screenshot", {}, "toolu_shot");
+    expect(shot.content).toEqual([
+      { type: "text", text: "The page at https://example.com/." },
+      { type: "image", data: Buffer.from(SHOT).toString("base64"), mimeType: "image/jpeg" },
+    ]);
+    expect(shot.isError).toBeUndefined();
+    expect((await query.callTool("browser", "browser_open", { address: "https://example.com/" })).content).toEqual([{ type: "text", text: "Opened." }]);
+  });
+});
+
 describe("the sandbox's ask for a host (SandboxNetworkAccess)", () => {
   const workspace: RunInput["containment"] = {
     level: "workspace",
