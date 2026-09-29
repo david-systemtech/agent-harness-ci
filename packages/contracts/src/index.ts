@@ -65,7 +65,18 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
-export { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, MAX_FORGE_ALIASES, VerificationFailedError } from "./methods/forge.js";
+export {
+  AliasIdentityMismatchError,
+  CredentialSourceUnavailableError,
+  ForgeAccountMissingError,
+  ForgeOwner,
+  ForgeUnreachableError,
+  IdentityMismatchError,
+  KindUnsupportedError,
+  MAX_FORGE_ALIASES,
+  NotAForgeError,
+  VerificationFailedError,
+} from "./methods/forge.js";
 export {
   AddressUnreachableError,
   CertificateRejectedError,

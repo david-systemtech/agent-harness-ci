@@ -398,6 +398,8 @@ describe("the method registry", () => {
       | "forge.accounts.setPrimary"
       | "forge.accounts.verify"
       | "forge.gh.probe"
+      | "forge.detect"
+      | "forge.orgs.list"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"
