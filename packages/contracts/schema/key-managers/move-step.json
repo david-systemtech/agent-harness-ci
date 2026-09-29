@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerMoveStep",
+  "type": "string",
+  "enum": [
+    "read",
+    "write",
+    "read-back",
+    "swap"
+  ],
+  "description": "The step a Move failed at: read (the stored value), write (it to the target), read-back (the value at the target, compared) or swap (the item to the reference, through its owner's command)."
+}

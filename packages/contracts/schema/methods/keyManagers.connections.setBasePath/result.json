@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "keyManagers.connections.setBasePath result",
+  "type": "object",
+  "properties": {
+    "connection": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "openbao",
+            "doppler",
+            "onepassword",
+            "bitwarden"
+          ],
+          "description": "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager)."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[^\\p{Cc}]+$",
+          "description": "A key-manager connection's label, which people know it by: 1 to 100 characters on one line."
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+          "description": "A key manager's address: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://bao.example.com:8200); no userinfo, path or trailing slash."
+        },
+        "ca": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 65536,
+              "pattern": "-----BEGIN CERTIFICATE-----",
+              "description": "The CA certificate a connection pins, as PEM (one or more certificates, up to 65536 characters): every request to the key manager verifies its certificate against it, and trusts nothing else."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The CA the connection pins, as PEM; null for none, when the system's trusted CAs verify it. OpenBao only."
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "approle",
+                "userpass",
+                "token"
+              ],
+              "description": "How a connection to OpenBao or Vault signs in: approle (a role id and a secret id), userpass (a username and a password) or token (a token, looked up)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How it signs in; null for a provider other than OpenBao."
+        },
+        "mount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+              "description": "Where the auth method is mounted, as approle or agents/approle: no slash at either end. A token login's is token, where OpenBao keeps its token store."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where its auth method is mounted; null for a provider other than OpenBao."
+        },
+        "username": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^/\\p{Cc}]+$",
+              "description": "The username a userpass login signs in as: no slash, on one line."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The username of a userpass login; null for any other."
+        },
+        "tokenRole": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^/\\p{Cc}]+$",
+              "description": "The token role run tokens are created against: no slash, on one line."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The token role run tokens are created against; null for none."
+        },
+        "policies": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                    "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+                  },
+                  "writes": {
+                    "type": "string",
+                    "enum": [
+                      "yes",
+                      "no",
+                      "possibly"
+                    ],
+                    "description": "Whether a login's policy can write: yes (its text grants create, update, patch or delete on a path outside auth/, sys/, cubbyhole/ and identity/), no (it grants none there) or possibly (its text could not be read with the login)."
+                  }
+                },
+                "required": [
+                  "name",
+                  "writes"
+                ],
+                "description": "One of the login's policies, as its lookup names it (never root), and whether it can write, read from its text where the login may."
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The login's policies from its lookup, each flagged when it can write, as the last verification read them; null until one has."
+        },
+        "ticks": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The policies runs receive, ticked from the login's: preset to every one at the first sign-in; null until then, unless a copy carried them."
+        },
+        "basePath": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+              "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where Move keeps the harness's secrets; null until one is set."
+        },
+        "suggestedBasePath": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+              "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification. Null once a base path is set, and while the provider suggests none."
+        },
+        "injects": {
+          "type": "boolean",
+          "description": "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it."
+        },
+        "status": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "awaiting-sign-in",
+                "signing-in",
+                "signed-in",
+                "credential-rejected",
+                "expired",
+                "unreachable",
+                "sealed",
+                "certificate-rejected"
+              ],
+              "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's)."
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "Since when the connection has stood so: a login that finds what it had keeps the time."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\n]*$",
+              "description": "One line for people: where it stands and what to do."
+            }
+          },
+          "required": [
+            "kind",
+            "since",
+            "message"
+          ],
+          "description": "Where a key-manager connection stands, since when, and one line saying what to do."
+        },
+        "tokenInformation": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "displayName": {
+                  "type": "string",
+                  "description": "The token's display name, as the key manager answers it (approle, userpass-david)."
+                },
+                "policies": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                    "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+                  },
+                  "description": "The policies the login's token holds, as its lookup answers them."
+                },
+                "ttlSeconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "The token's time to live when it was looked up, in seconds; 0 for a token that does not expire."
+                },
+                "renewable": {
+                  "type": "boolean",
+                  "description": "Whether the token can be renewed."
+                },
+                "expiresAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "An instant as an ISO 8601 UTC timestamp."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the token expires; null for one that does not."
+                }
+              },
+              "required": [
+                "displayName",
+                "policies",
+                "ttlSeconds",
+                "renewable",
+                "expiresAt"
+              ],
+              "description": "What the login's lookup said of its token: display name, policies, time to live, whether it renews, and its expiry. Never the token or its id."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the login's lookup said of its token; null while it is not signed in."
+        },
+        "canMint": {
+          "description": "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "verifiedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the connection was last verified, whatever that found; null until it has been. It moves with every verification, where the status's since-time moves only when the status changes."
+        },
+        "copiedFrom": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "environmentId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+                },
+                "environmentName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The source environment's name when the copy was made."
+                }
+              },
+              "required": [
+                "environmentId",
+                "environmentName"
+              ],
+              "description": "The environment a key-manager connection was copied from, without its credential."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The environment it was copied from; null for one added here."
+        },
+        "importedFrom": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^\\p{Cc}]+$",
+              "description": "The id the state import's source gave the connection it imported; a later import naming it again answers the connection it made."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id the state import's source gave it; null for one not imported."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the connection was added."
+        }
+      },
+      "required": [
+        "id",
+        "provider",
+        "label",
+        "address",
+        "ca",
+        "method",
+        "mount",
+        "username",
+        "tokenRole",
+        "policies",
+        "ticks",
+        "basePath",
+        "suggestedBasePath",
+        "injects",
+        "status",
+        "tokenInformation",
+        "canMint",
+        "verifiedAt",
+        "copiedFrom",
+        "importedFrom",
+        "createdAt"
+      ],
+      "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set) and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
+    }
+  },
+  "required": [
+    "connection"
+  ]
+}

@@ -117,6 +117,7 @@ describe("keyManagers.connections.add", () => {
       policies: null,
       ticks: ["default", "agent-read"],
       basePath: null,
+      suggestedBasePath: null,
       injects: true,
       status: { kind: "signed-in", since: MANUAL_CLOCK_START, message: "Signed in to OpenBao as approle." },
       tokenInformation: { displayName: "approle", policies: ["default", "agent-read"], ttlSeconds: 3600, renewable: true, expiresAt: IN_AN_HOUR },

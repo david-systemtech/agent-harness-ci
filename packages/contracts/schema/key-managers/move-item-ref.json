@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerMoveItemRef",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "forge-account"
+      ],
+      "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$",
+      "description": "The item's id with its owner: a forge account's id."
+    }
+  },
+  "required": [
+    "kind",
+    "id"
+  ],
+  "description": "An item Move takes, by its kind and its owner's id for it."
+}

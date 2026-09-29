@@ -389,7 +389,7 @@ describe("environment.rebuildProjections", () => {
     // A rebuild appends no event: its receipt is accepted and unchanged, in the transaction of the rebuild.
     expect(await client.request("environment.rebuildProjections", { commandId: randomUUID() })).toEqual({
       receipt: { status: "accepted", sequence: t.env.log.head(), changed: false },
-      result: { projectors: ["session-list", "runs", "settings", "permissions", "accounts", "forge-accounts", "key-manager-connections", "routines", "probe-counts"], sequence: t.env.log.head() },
+      result: { projectors: ["session-list", "runs", "settings", "permissions", "accounts", "forge-accounts", "key-manager-connections", "key-manager-moves", "routines", "probe-counts"], sequence: t.env.log.head() },
     });
     expect(applied).toEqual(probeSequences);
     expect(await snapshot()).toEqual(before);

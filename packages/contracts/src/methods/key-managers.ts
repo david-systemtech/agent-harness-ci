@@ -27,6 +27,7 @@ import {
   ReferenceDeniedError,
   ReferenceNotFoundError,
 } from "../key-managers.js";
+import { KeyManagerMoveItem, KeyManagerMoveItemRef, KeyManagerMoveItemResult } from "../key-manager-moves.js";
 import { commandParams, defineMethod } from "../method.js";
 
 /**
@@ -49,6 +50,11 @@ import { commandParams, defineMethod } from "../method.js";
  * queries for the reference pickers of Forges and banks, read with the
  * connection's login and answer whether a reference resolves, and the names
  * under a path, never a value.
+ *
+ * Move (#371): `keyManagers.connections.setBasePath`, an `admin` command;
+ * `keyManagers.move.list`, a `read` query; and `keyManagers.move`, a
+ * prepared `admin` command that hears from the key manager and each item's
+ * owner before its transaction. A stored value is never answered.
  */
 
 /** The key manager refused the credential, or it signs in as root, which the harness never holds. */
@@ -349,4 +355,73 @@ export const keyManagersReferencesBrowse = defineMethod({
     names: z.array(z.string().min(1)).meta({ description: "The names under the path, in the key manager's order: a folder's, or a mount's, ending in /. Never a value." }),
   }),
   errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
+});
+
+/**
+ * Sets where Move keeps the harness's secrets on a connection
+ * (`key-manager.connection.base-path-set`; ADR 0028): each item's target
+ * sits one level below it (`<base>/forge-<slug>`). For OpenBao or Vault the
+ * base is a KV mount and exactly one project segment (`personal/harness`),
+ * so an entry sits two levels under its mount; a deeper or shallower one is
+ * `invalid_params`. The base path it holds already changes nothing.
+ */
+export const keyManagersConnectionsSetBasePath = defineMethod({
+  name: "keyManagers.connections.setBasePath",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    connectionId: KeyManagerConnectionId,
+    basePath: KeyManagerBasePath,
+  }),
+  result: connectionResult,
+  errors: [],
+});
+
+/**
+ * Every item holding a stored value (key-managers spec, "Move stored
+ * tokens"): each forge account with a pasted token, what people know it by,
+ * and its target on each connection a Move can write to that has a base
+ * path. Never a value.
+ */
+export const keyManagersMoveList = defineMethod({
+  name: "keyManagers.move.list",
+  scope: "read",
+  kind: "query",
+  params: z.object({}),
+  result: z.object({ items: z.array(KeyManagerMoveItem).meta({ description: "The items holding a stored value, each source's in its order." }) }),
+  errors: [],
+});
+
+/**
+ * Moves stored values into a key manager (key-managers spec, "Move stored
+ * tokens"; ADR 0028): the items named, or all, one at a time, and one Move
+ * at a time on the environment. For each it reads the stored value,
+ * registered with the scrub registry while it is moved; writes it to its
+ * target under the connection's base path, with `note`, `service` and
+ * `added` beside it on OpenBao, refusing a different value there with
+ * `conflict` reason `target_exists` unless `overwrite` is given; reads it
+ * back and compares in constant time; swaps the item to the reference
+ * through its owner's own command (`forge.accounts.update`); deletes the
+ * stored value; and appends `key-manager.moved`. An item that fails is
+ * answered with the step and why, the stored value left in place, as is a
+ * copy written before a failed read-back or swap; a delete that fails is
+ * tried again at the next start. A connection the environment does not hold
+ * is `not_found`; one without a base path is `invalid_params`; one not
+ * signed in is `credential_source_unavailable`; a provider a Move cannot
+ * write to yet is `provider_unavailable`. Never a value, in the answer, an
+ * event or a receipt.
+ */
+export const keyManagersMove = defineMethod({
+  name: "keyManagers.move",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    connectionId: KeyManagerConnectionId,
+    items: z
+      .union([z.literal("all"), z.array(KeyManagerMoveItemRef).min(1).max(256)])
+      .meta({ description: "The items to move, or all: every item holding a stored value when the Move begins." }),
+    overwrite: z.boolean().optional().meta({ description: "Replace a different value already at a target; absent or false refuses it conflict reason target_exists." }),
+  }),
+  result: z.object({ items: z.array(KeyManagerMoveItemResult).meta({ description: "Each item's outcome, in the order they were moved." }) }),
+  errors: [CredentialSourceUnavailableError, ProviderUnavailableError],
 });

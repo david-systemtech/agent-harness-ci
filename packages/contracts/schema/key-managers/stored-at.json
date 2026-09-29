@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerStoredAt",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 512,
+  "pattern": "^[^\\p{Cc}]+$",
+  "description": "Where an owning service keeps a stored value, never the value: a forge account's vault entry (forge:<forge account id>:<entry id>)."
+}
