@@ -55,10 +55,15 @@ import { sameValue } from "./same-value.js";
  * one. When OpenBao closed it meanwhile (a restart, its idle timeout) and
  * the call is reset before any answer, that says nothing of OpenBao: the
  * call is made once more on a new connection, whose handshake verifies the
- * certificate OpenBao presents now (#681).
+ * certificate OpenBao presents now (#681), under the same signal.
  */
 
-/** How long one call may take (ADR 0031's budget), past which OpenBao counts as unreachable. */
+/**
+ * How long an attempt at a call may go without an answer (Node's socket
+ * timeout, each attempt's own), past which OpenBao counts as unreachable.
+ * ADR 0031's budget for a whole verification, read, list or write is the
+ * caller's signal, which a retried call carries too.
+ */
 const OPENBAO_CALL_TIMEOUT_MS = 10_000;
 
 /** The most of an answer read: OpenBao's are small. */
