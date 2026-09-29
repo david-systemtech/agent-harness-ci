@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  LAUNCHER_PROTOCOL,
+  PRODUCT_NAME,
   RELEASE_MANIFEST_FILE,
   normaliseRemote,
   ReleaseManifest,
@@ -12,15 +14,17 @@ import {
   type ReleaseAsset,
   type ReleaseChannel,
   type ReleaseSource,
+  type UpdateBlockedReason,
   type UpdateCheckFailure,
   type UpdatePassOverReason,
   type UpdatePassedOver,
+  type UpdateSettingsValues,
   type UpdateTarget,
 } from "@agent-harness/contracts";
 import type { ForgeService } from "../forge/forge-service.js";
 import { servingAccount } from "../forge/git-helper.js";
 import type { ForgeAnswer } from "../forge/operations.js";
-import type { ForgeRelease } from "../forge/providers.js";
+import type { ForgeRelease, ForgeReleaseAsset } from "../forge/providers.js";
 
 /**
  * Reading the release channel (launcher-update spec, "The release",
@@ -41,9 +45,22 @@ import type { ForgeRelease } from "../forge/providers.js";
  *   Its manifest is read and checked against its schema; a release whose
  *   database schema is below the database's, or that has no artefact for
  *   this platform, is passed over, and nothing of it is downloaded.
+ * - **A failed version** (its trial or its watch failed, #344) is never
+ *   the target, as the channel's newest or as the pin: the target is none
+ *   until a release newer than it is published, which is taken as any
+ *   channel's newest is; Update now may retry the failed one.
+ * - **What is staged** (#347): the target, when the running launcher hosts
+ *   the launcher protocol its manifest names; else the stepping stone, the
+ *   newest release on the way (newer than what runs, on the channel, not
+ *   failed) that the launcher hosts, whose handover brings the launcher the
+ *   next check goes onward with. With none, and no handover due from the
+ *   running version's own launcher, the target is blocked (`launcher`) until
+ *   `service install` from its release installs its launcher.
  * - **A pin** is checked the same way before it is set: refused when the
  *   release or this platform's artefact is missing, by the schema rule, or
- *   when the release cannot be read.
+ *   when the release cannot be read. **A requested version** (`updates.apply`
+ *   by version, #347) is read the same way, and refused too when the running
+ *   launcher cannot host it.
  */
 
 /** The release source this build reads: the project's Forgejo (ADR 0007); a move to GitHub changes it in one release. */
@@ -68,31 +85,80 @@ export interface ChannelSettings {
   readonly pinnedVersion: string | null;
 }
 
-/** Why the channel could not be read, for `updates.status` and a refused pin. */
+/** The settings a reading follows, of the update settings `values`. */
+export const channelSettingsOf = (values: Pick<UpdateSettingsValues, "updates.autoUpdate" | "updates.channel" | "updates.pinnedVersion">): ChannelSettings => ({
+  autoUpdate: values["updates.autoUpdate"],
+  channel: values["updates.channel"],
+  pinnedVersion: values["updates.pinnedVersion"],
+});
+
+/** What the channel is read with beside the settings: the running launcher's protocol, and the versions whose update failed. */
+export interface ChannelContext {
+  /** The launcher protocol the launcher running the environment speaks; null with no launcher, when no release is refused for it. */
+  readonly launcherProtocol: number | null;
+  /** The versions whose trial or watch failed (#344): never the target. */
+  readonly failedVersions: readonly string[];
+}
+
+/** Why the channel could not be read, or a release's artefact downloaded, for `updates.status` and a refused pin or update. */
 export interface ChannelFailure {
   readonly outcome: "failed";
-  readonly reason: Extract<UpdateCheckFailure, "no_release_access" | "unreachable" | "manifest">;
+  readonly reason: Extract<UpdateCheckFailure, "no_release_access" | "unreachable" | "manifest" | "artefact">;
   readonly message: string;
 }
 
-/** What a check found: the channel's newest, the target, and a release that would be the target and is not. */
+/** A release that can be staged: its version, this platform's artefact as the forge lists it and as its manifest does, and the launcher protocol it needs. */
+export interface StageableRelease {
+  readonly version: string;
+  /** The artefact's record on the forge: what is downloaded. */
+  readonly asset: ForgeReleaseAsset;
+  /** The artefact as the manifest lists it: what the download is checked against. */
+  readonly artefact: ReleaseAsset;
+  /** The launcher protocol the release's environment needs. */
+  readonly launcherProtocol: number;
+}
+
+/** Why a target cannot be reached by itself: its reason, the target, and what unblocks it, for people. */
+export interface ChannelBlock {
+  readonly reason: UpdateBlockedReason;
+  readonly toVersion: string;
+  readonly message: string;
+}
+
+/** What a check found: the channel's newest, the target, a release that would be the target and is not, what to stage now, and a block. */
 export interface ChannelReading {
   readonly outcome: "read";
   readonly newest: string | null;
   readonly target: UpdateTarget | null;
   readonly passedOver: UpdatePassedOver | null;
+  /** The release to stage for the target: the target itself, or the stepping stone on the way to it; null for none. */
+  readonly stage: StageableRelease | null;
+  /** The target needs a newer launcher than runs, and no release the launcher hosts leads there; null otherwise. */
+  readonly blocked: ChannelBlock | null;
 }
 
-/** Why a pin is refused, as `updates.settings.set` answers it. */
-export type PinRefusal =
+/** Why a release is refused to a pin or an update, as `updates.settings.set` and `updates.apply` answer it. */
+export type ReleaseRefusal =
   | { readonly code: "not_found"; readonly message: string; readonly data: Record<string, never> }
-  | { readonly code: "conflict"; readonly message: string; readonly data: { readonly reason: ChannelFailure["reason"] | "schema" } };
+  | { readonly code: "conflict"; readonly message: string; readonly data: { readonly reason: ChannelFailure["reason"] | "schema" | "launcher" | "current" } };
 
 export interface ReleaseChannelReader {
-  /** Reads the channel as `settings` follow it: its newest and the target. */
-  read(settings: ChannelSettings): Promise<ChannelReading | ChannelFailure>;
+  /** Reads the channel as `settings` follow it: its newest, the target and what to stage for it. */
+  read(settings: ChannelSettings, context: ChannelContext): Promise<ChannelReading | ChannelFailure>;
   /** Why `version` cannot be pinned, or null when it can. */
-  pinRefusal(version: string): Promise<PinRefusal | null>;
+  pinRefusal(version: string): Promise<ReleaseRefusal | null>;
+  /**
+   * The release `updates.apply` asks for by `version`, or with none the
+   * newest on `channel` (current when nothing newer is published), ready to
+   * stage under a launcher speaking `launcherProtocol`; or why it cannot be.
+   */
+  requested(version: string | undefined, channel: ReleaseChannel, launcherProtocol: number): Promise<StageableRelease | ReleaseRefusal>;
+  /**
+   * Downloads `release`'s artefact into the file `destination` and checks
+   * its size and SHA-256 against the manifest: null once it matches, else
+   * why not. What it wrote stays for the caller to remove.
+   */
+  download(release: StageableRelease, destination: string): Promise<ChannelFailure | null>;
 }
 
 export interface ReleaseChannelOptions {
@@ -105,6 +171,8 @@ export interface ReleaseChannelOptions {
   readonly platform?: string;
   /** The database's schema version, the last migration applied: a release below it is never a target. */
   readonly databaseSchemaVersion: () => number;
+  /** The launcher protocol the running version's own launcher speaks, which a handover to it brings; preset `LAUNCHER_PROTOCOL`, this build's. */
+  readonly ownLauncherProtocol?: number;
 }
 
 /** A release as the channel reads it: the version its tag names, and the forge's record. */
@@ -113,8 +181,11 @@ interface Versioned {
   readonly release: ForgeRelease;
 }
 
-/** What a release that would be the target came to: the target, passed over with why, or a failure to read it. */
-type Examined = { readonly outcome: "target" } | { readonly outcome: "passed-over"; readonly reason: UpdatePassOverReason; readonly message: string } | ChannelFailure;
+/** What a release that would be the target came to: the target, ready to stage, passed over with why, or a failure to read it. */
+type Examined =
+  | { readonly outcome: "target"; readonly release: StageableRelease }
+  | { readonly outcome: "passed-over"; readonly reason: UpdatePassOverReason; readonly message: string }
+  | ChannelFailure;
 
 const failed = (reason: ChannelFailure["reason"], message: string): ChannelFailure => ({ outcome: "failed", reason, message });
 
@@ -133,9 +204,21 @@ const failureOf = (answer: Exclude<ForgeAnswer<unknown>, { readonly outcome: "do
   }
 };
 
+/** Why the artefact did not download: the release access refused (the token, or a sign-in proxy in front of the forge, #476), else the artefact itself. */
+const downloadFailureOf = (version: string, answer: Exclude<ForgeAnswer<unknown>, { readonly outcome: "done" }>): ChannelFailure => {
+  const access = answer.outcome === "refused" || (answer.outcome === "failed" && (answer.status === 401 || answer.status === 403));
+  const why = answer.outcome === "refused" ? answer.error.message : answer.message;
+  return failed(access ? "no_release_access" : "artefact", `The artefact of ${version} did not download: ${why}`);
+};
+
+/** What unblocks a target that needs a newer launcher, for people. */
+const launcherMessage = (version: string, needs: number, speaks: number): string =>
+  `${version} needs launcher protocol ${needs}, and the launcher running this environment speaks ${speaks}: run \`${PRODUCT_NAME} service install\` from the ${version} release to install its launcher.`;
+
 export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseChannelReader => {
   const { forge, source, harnessVersion } = options;
   const platform = options.platform ?? RUNNING_PLATFORM;
+  const ownLauncherProtocol = options.ownLauncherProtocol ?? LAUNCHER_PROTOCOL;
   const where = { origin: source.origin, kind: source.kind, repository: source.repository, purpose: PURPOSE };
 
   /**
@@ -186,15 +269,22 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     }
   };
 
-  /** This platform's artefact of the release, as its manifest lists it and the release publishes it; null for none. */
-  const artefactOf = (manifest: ReleaseManifest, release: ForgeRelease): ReleaseAsset | null =>
-    manifest.assets.find((asset) => asset.kind === "environment" && asset.platform === platform && release.assets.some((published) => published.name === asset.name)) ?? null;
+  /** This platform's artefact of the release, as its manifest lists it and as the release publishes it; null for none. */
+  const artefactOf = (manifest: ReleaseManifest, release: ForgeRelease): Pick<StageableRelease, "artefact" | "asset"> | null => {
+    for (const artefact of manifest.assets) {
+      if (artefact.kind !== "environment" || artefact.platform !== platform) continue;
+      const asset = release.assets.find((published) => published.name === artefact.name);
+      if (asset !== undefined) return { artefact, asset };
+    }
+    return null;
+  };
 
   /** Whether `version`'s release may be the target: its manifest read, this platform's artefact in it, its schema not below the database's. */
   const examine = async ({ version, release }: Versioned): Promise<Examined> => {
     const manifest = await manifestOf(version, release);
     if ("outcome" in manifest) return manifest;
-    if (artefactOf(manifest, release) === null) return { outcome: "passed-over", reason: "artefact", message: `The release ${version} has no artefact for ${platform}.` };
+    const artefact = artefactOf(manifest, release);
+    if (artefact === null) return { outcome: "passed-over", reason: "artefact", message: `The release ${version} has no artefact for ${platform}.` };
     const database = options.databaseSchemaVersion();
     if (manifest.databaseSchemaVersion < database) {
       return {
@@ -203,10 +293,10 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
         message: `The release ${version}'s database schema, ${manifest.databaseSchemaVersion}, is below this database's, ${database}: it cannot open the database.`,
       };
     }
-    return { outcome: "target" };
+    return { outcome: "target", release: { version, ...artefact, launcherProtocol: manifest.launcherProtocol } };
   };
 
-  /** The pinned `version`'s release: among those listed, else read by its tag; null when there is none that is not a draft. */
+  /** The pinned or requested `version`'s release: among those listed, else read by its tag; null when there is none that is not a draft. */
   const pinnedRelease = async (version: string, listed: readonly Versioned[]): Promise<Versioned | null | ChannelFailure> => {
     const found = listed.find((candidate) => candidate.version === version);
     if (found !== undefined) return found;
@@ -219,8 +309,8 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
 
   const missing = (version: string) => ({ outcome: "passed-over", reason: "missing", message: `No release ${version} is published, or it is a draft.` }) as const;
 
-  /** What the pinned `version` comes to, read after the list. */
-  const examinePin = async (version: string, listed: readonly Versioned[]): Promise<Examined> => {
+  /** What the pinned or requested `version` comes to, read after the list. */
+  const examineVersion = async (version: string, listed: readonly Versioned[]): Promise<Examined> => {
     const release = await pinnedRelease(version, listed);
     if (release === null) return missing(version);
     if ("outcome" in release) return release;
@@ -230,34 +320,83 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
   // A running version that is no release version (a development build's) runs no release, and none is newer than it.
   const runsRelease = ReleaseVersion.safeParse(harnessVersion).success;
   const runsOn = (version: string): boolean => runsRelease && compareReleaseVersions(version, harnessVersion) === 0;
+  const newerThanRunning = (version: string): boolean => runsRelease && compareReleaseVersions(version, harnessVersion) > 0;
+
+  /** The newest release `channel` follows: `stable` the newest without a prerelease part, `beta` the newest of all. */
+  const newestOn = (listed: readonly Versioned[], channel: ReleaseChannel): Versioned | null =>
+    (channel === "stable" ? listed.find((candidate) => !isPrerelease(candidate.version)) : listed[0]) ?? null;
+
+  /**
+   * The stepping stone to `target`: the newest release below it and newer
+   * than what runs, on `channel` and not failed, that a launcher speaking
+   * `launcherProtocol` hosts; null for none. A release passed over, or whose
+   * manifest is not one, is no stepping stone; a forge that cannot be read
+   * fails the check.
+   */
+  const steppingStone = async (
+    listed: readonly Versioned[],
+    target: string,
+    { channel, failed, launcherProtocol }: { readonly channel: ReleaseChannel; readonly failed: ReadonlySet<string>; readonly launcherProtocol: number },
+  ): Promise<StageableRelease | null | ChannelFailure> => {
+    for (const candidate of listed) {
+      if (!newerThanRunning(candidate.version)) break;
+      if (compareReleaseVersions(candidate.version, target) >= 0 || failed.has(candidate.version)) continue;
+      if (channel === "stable" && isPrerelease(candidate.version)) continue;
+      const examined = await examine(candidate);
+      if (examined.outcome === "failed" && examined.reason !== "manifest") return examined;
+      if (examined.outcome === "target" && examined.release.launcherProtocol <= launcherProtocol) return examined.release;
+    }
+    return null;
+  };
 
   return {
-    async read(settings) {
+    async read(settings, context) {
       const listed = await list();
       if ("outcome" in listed) return listed;
-      const newest = (settings.channel === "stable" ? listed.find((candidate) => !isPrerelease(candidate.version)) : listed[0]) ?? null;
-      const reading = (target: UpdateTarget | null, passedOver: UpdatePassedOver | null): ChannelReading => ({ outcome: "read", newest: newest?.version ?? null, target, passedOver });
+      const newest = newestOn(listed, settings.channel);
+      const reading = (found: Partial<Pick<ChannelReading, "target" | "passedOver" | "stage" | "blocked">> = {}): ChannelReading => ({
+        outcome: "read",
+        newest: newest?.version ?? null,
+        target: null,
+        passedOver: null,
+        stage: null,
+        blocked: null,
+        ...found,
+      });
+      const failed = new Set(context.failedVersions);
 
-      // What would be the target: the pin, unless it runs; else, with auto-update effective, the channel's newest when newer.
+      // What would be the target: the pin, unless it runs or failed; else, with auto-update effective, the channel's newest when newer and not failed.
       const { pinnedVersion } = settings;
       const choice =
         pinnedVersion !== null
-          ? runsOn(pinnedVersion)
+          ? runsOn(pinnedVersion) || failed.has(pinnedVersion)
             ? null
-            : { target: { version: pinnedVersion, source: "pin" } as const, examine: () => examinePin(pinnedVersion, listed) }
-          : settings.autoUpdate && newest !== null && runsRelease && compareReleaseVersions(newest.version, harnessVersion) > 0
+            : { target: { version: pinnedVersion, source: "pin" } as const, examine: () => examineVersion(pinnedVersion, listed) }
+          : settings.autoUpdate && newest !== null && newerThanRunning(newest.version) && !failed.has(newest.version)
             ? { target: { version: newest.version, source: "channel" } as const, examine: () => examine(newest) }
             : null;
-      if (choice === null) return reading(null, null);
+      if (choice === null) return reading();
       const examined = await choice.examine();
       if (examined.outcome === "failed") return examined;
-      if (examined.outcome === "passed-over") return reading(null, { ...choice.target, reason: examined.reason, message: examined.message });
-      return reading(choice.target, null);
+      const { target } = choice;
+      if (examined.outcome === "passed-over") return reading({ passedOver: { ...target, reason: examined.reason, message: examined.message } });
+
+      // Staged itself when the running launcher hosts it, or no launcher runs (which stages nothing); else through its stepping stone.
+      const { launcherProtocol } = context;
+      const { release } = examined;
+      if (launcherProtocol === null || release.launcherProtocol <= launcherProtocol) return reading({ target, stage: release });
+      const stone = await steppingStone(listed, target.version, { channel: settings.channel, failed, launcherProtocol });
+      if (stone !== null && "outcome" in stone) return stone;
+      if (stone !== null) return reading({ target, stage: stone });
+      // The running version's own launcher speaks a newer protocol: its handover is due, and the check after it goes onward.
+      if (ownLauncherProtocol > launcherProtocol) return reading({ target });
+      const message = launcherMessage(target.version, release.launcherProtocol, launcherProtocol);
+      return reading({ target, blocked: { reason: "launcher", toVersion: target.version, message } });
     },
 
     async pinRefusal(version) {
       const listed = await list();
-      const examined = "outcome" in listed ? listed : await examinePin(version, listed);
+      const examined = "outcome" in listed ? listed : await examineVersion(version, listed);
       switch (examined.outcome) {
         case "target":
           return null;
@@ -268,6 +407,39 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
             ? { code: "conflict", message: `${version} cannot be pinned: ${examined.message}`, data: { reason: "schema" } }
             : { code: "not_found", message: `${version} cannot be pinned: ${examined.message}`, data: {} };
       }
+    },
+
+    async requested(asked, channel, launcherProtocol) {
+      const listed = await list();
+      if ("outcome" in listed) return { code: "conflict", message: listed.message, data: { reason: listed.reason } };
+      if (asked !== undefined && runsOn(asked)) return { code: "conflict", message: `This environment runs ${asked} already.`, data: { reason: "current" } };
+      const version = asked ?? newestOn(listed, channel)?.version;
+      if (version === undefined || (asked === undefined && !newerThanRunning(version))) {
+        return { code: "conflict", message: `This environment runs ${harnessVersion}, and nothing newer is published on the ${channel} channel.`, data: { reason: "current" } };
+      }
+      const examined = await examineVersion(version, listed);
+      switch (examined.outcome) {
+        case "failed":
+          return { code: "conflict", message: `The release ${version} cannot be read: ${examined.message}`, data: { reason: examined.reason } };
+        case "passed-over":
+          return examined.reason === "schema"
+            ? { code: "conflict", message: `Cannot update to ${version}: ${examined.message}`, data: { reason: "schema" } }
+            : { code: "not_found", message: `Cannot update to ${version}: ${examined.message}`, data: {} };
+        case "target": {
+          const needs = examined.release.launcherProtocol;
+          if (needs <= launcherProtocol) return examined.release;
+          return { code: "conflict", message: `Cannot update to ${version}: ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
+        }
+      }
+    },
+
+    async download(release, destination) {
+      const answer = await forge.releases.download({ ...where, asset: release.asset, destination });
+      if (answer.outcome !== "done") return downloadFailureOf(release.version, answer);
+      const { name, size, sha256 } = release.artefact;
+      if (answer.value.size !== size) return failed("artefact", `The artefact ${name} of ${release.version} is ${answer.value.size} bytes, and its manifest lists ${size}.`);
+      if (answer.value.sha256 !== sha256) return failed("artefact", `The artefact ${name} of ${release.version} does not match the SHA-256 its manifest lists.`);
+      return null;
     },
   };
 };

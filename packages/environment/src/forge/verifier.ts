@@ -89,7 +89,7 @@ export interface Verifier {
   used(forgeAccountId: string, capability: ForgeCapabilityName, at: string): void;
   /** One verification of a token no forge account holds, within the budget, recording nothing: what it makes of nothing known. */
   probe(request: ProbeRequest): Promise<Reconciled>;
-  /** Stops the schedule; a verification still running records nothing. */
+  /** Stops the schedule; a verification still running, one queued behind it and a rate limit heard after record nothing and read nothing, as the event log closes after. */
   close(): void;
 }
 
@@ -178,6 +178,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
 
   /** Holds the forge account's scheduled verifications until `until`, as the forge asked of `account`'s credential; a credential replaced since draws none. */
   const pause = (account: ForgeAccountRecord, until: Date): void => {
+    // Nothing is scheduled once closed, and the event log may be closed too.
+    if (closed) return;
     const current = liveForgeAccount(reader, account.id);
     if (current === null || credentialOf(current) !== credentialOf(account)) return;
     pausedUntil.set(account.id, Math.max(pausedUntil.get(account.id) ?? 0, until.getTime()));
@@ -185,12 +187,14 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
 
   /** What the forge answers of the forge account's credential now. */
   const ask = async (account: ForgeAccountRecord, signal: AbortSignal): Promise<Found> => {
+    // Read before the credential, whose read may outlast the environment's close, and the event log's with it.
+    const repository = knownRepository(account);
     const credential = await options.readCredential(account, "verify");
     if (credential.outcome === "unavailable") return credential;
     try {
       return await verifyCredential(
         options.provider(account.kind),
-        { origin: account.origin, token: credential.token, expected: account.identity, repository: knownRepository(account), aliases: account.aliases.map((alias) => alias.origin) },
+        { origin: account.origin, token: credential.token, expected: account.identity, repository, aliases: account.aliases.map((alias) => alias.origin) },
         { signal, onPause: (until) => pause(account, until) },
       );
     } finally {
@@ -236,8 +240,10 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     // This verification is the one that was due: the schedule starts again from its end.
     timers.get(forgeAccountId)?.cancel();
     timers.delete(forgeAccountId);
+    // Queued behind a verification that outlasted the close: the event log may be closed too.
+    if (closed) return;
     const account = liveForgeAccount(reader, forgeAccountId);
-    if (account === null || !verifiable(account) || closed) return;
+    if (account === null || !verifiable(account)) return;
     const found = await withinBudget(account.origin, (signal) => ask(account, signal));
     if (closed) return;
     record(forgeAccountId, credentialOf(account), found);
@@ -270,6 +276,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       .catch((error: unknown) => console.error(`Verifying the forge account ${account.slug} failed:`, error))
       .finally(() => {
         if (runs.get(forgeAccountId)?.done === done) runs.delete(forgeAccountId);
+        // Closed, the event log may be too: nothing is read, and nothing is scheduled.
+        if (closed) return;
         const after = liveForgeAccount(reader, forgeAccountId);
         if (after !== null && verifiable(after)) arm(forgeAccountId, VERIFY_INTERVAL_MS);
       });

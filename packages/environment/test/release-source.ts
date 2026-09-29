@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, RELEASE_MANIFEST_FILE, type ReleaseManifest, type ReleaseSource } from "@agent-harness/contracts";
 import { MIGRATIONS } from "../src/event-log/migrations.js";
 import { RUNNING_PLATFORM } from "../src/updates/channel.js";
@@ -10,7 +10,8 @@ import type { WireClient } from "./wire-client.js";
  * The fake release source (launcher-update spec, "Testing Decisions"; #346):
  * the fake forge answering the Gitea API's release list, releases by tag and
  * the web route an asset downloads from, as a Forgejo release source does,
- * with a manifest and assets per release. It answers the test's token, as
+ * with a manifest and assets per release, and this platform's artefact's
+ * bytes where a release is given them (#347). It answers the test's token, as
  * the forge account for its origin holds it; any other token is refused
  * 401, as the fake forge refuses one it does not know.
  */
@@ -34,6 +35,13 @@ export interface FakeRelease {
    * it is, or null for a release that publishes none.
    */
   readonly manifest?: Partial<ReleaseManifest> | string | null;
+  /**
+   * The bytes of this platform's artefact, which the release then serves
+   * for download and its manifest lists with their size and SHA-256 (unless
+   * `manifest` names the assets itself). Without them the artefact is listed
+   * and not served.
+   */
+  readonly artefact?: Uint8Array;
 }
 
 export interface FakeReleaseSource {
@@ -50,15 +58,25 @@ export interface FakeReleaseSource {
   grantAccess(client: WireClient): Promise<void>;
 }
 
-/** A whole manifest of `version`: this platform's artefact and a script, the database's schema. */
-export const manifestOf = (version: string, fields: Partial<ReleaseManifest> = {}): ReleaseManifest => ({
+/** The SHA-256 of `bytes`, as a manifest lists an asset's. */
+export const sha256Of = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+
+/** A whole manifest of `version`: this platform's artefact (of `artefact`'s size and SHA-256, when given) and a script, the database's schema. */
+export const manifestOf = (version: string, fields: Partial<ReleaseManifest> = {}, artefact?: Uint8Array): ReleaseManifest => ({
   version,
   protocolVersion: PROTOCOL_VERSION,
   launcherProtocol: LAUNCHER_PROTOCOL,
   databaseSchemaVersion: DATABASE_SCHEMA_VERSION,
   bundledClaudeCodeVersion: "2.1.0-test",
   assets: [
-    { name: ARTEFACT, kind: "environment", platform: RUNNING_PLATFORM, format: "tar.gz", size: 12, sha256: "a".repeat(64) },
+    {
+      name: ARTEFACT,
+      kind: "environment",
+      platform: RUNNING_PLATFORM,
+      format: "tar.gz",
+      size: artefact?.byteLength ?? 12,
+      sha256: artefact === undefined ? "a".repeat(64) : sha256Of(artefact),
+    },
     { name: "install.sh", kind: "install-script", platform: null, format: null, size: 3, sha256: "b".repeat(64) },
   ],
   image: { reference: `git.example.com/david/agent-harness:${version}`, digest: `sha256:${"0".repeat(64)}` },
@@ -84,13 +102,14 @@ export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
       for (const release of releases) {
         const id = published.length + 1;
         const tag = release.tag ?? `v${release.version}`;
-        const manifest = release.manifest === undefined ? manifestOf(release.version) : release.manifest === null ? null : typeof release.manifest === "string" ? release.manifest : manifestOf(release.version, release.manifest);
+        const manifest =
+          release.manifest === null ? null : typeof release.manifest === "string" ? release.manifest : manifestOf(release.version, release.manifest, release.artefact);
         const text = manifest === null ? null : typeof manifest === "string" ? manifest : JSON.stringify(manifest);
         const names = [...(text === null ? [] : [RELEASE_MANIFEST_FILE]), ...(manifest === null || typeof manifest === "string" ? [ARTEFACT] : manifest.assets.map((asset) => asset.name))];
         const assets = names.map((name, index) => ({
           id: id * 100 + index,
           name,
-          size: name === RELEASE_MANIFEST_FILE && text !== null ? Buffer.byteLength(text) : 12,
+          size: name === RELEASE_MANIFEST_FILE && text !== null ? Buffer.byteLength(text) : name === ARTEFACT && release.artefact !== undefined ? release.artefact.byteLength : 12,
           uuid: randomUUID(),
           browser_download_url: `${forge.origin}${DOWNLOAD}/${encodeURIComponent(tag)}/${name}`,
         }));
@@ -106,6 +125,7 @@ export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
         published.push({ id, body });
         forge.answer(caller, `GET ${API}/tags/${encodeURIComponent(tag)}`, { status: 200, body });
         if (text !== null) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${RELEASE_MANIFEST_FILE}`, { status: 200, raw: text });
+        if (release.artefact !== undefined) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${ARTEFACT}`, { status: 200, raw: release.artefact });
       }
     },
     absent(version) {

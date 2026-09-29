@@ -26,8 +26,9 @@ import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./lo
  * (launcher-update spec, "Settings, methods, notices and flags": CLI verbs):
  * `update status`, the `updates.status` document as text or JSON;
  * `update apply`, an update asked for through `updates.apply` (#343: a
- * version and the path of its artefact on this machine, or the update that
- * waits, when idle or at once with `--now`); `update settings`, the five
+ * version and the path of its artefact on this machine; #347: a version
+ * alone, which the environment downloads from its release; or the update
+ * that waits, when idle or at once with `--now`); `update settings`, the five
  * update settings written from flags through `updates.settings.set`; and
  * `update credential --stdin`, the release token given to the environment
  * as the forge account for its release origin (#346). Each exchanges the
@@ -135,7 +136,7 @@ const pendingLine = (pending: PendingUpdate): string => {
     case "staging":
       return `${pending.toVersion} (${pending.source}), staging`;
     case "blocked":
-      return `${pending.toVersion}, blocked (${pending.reason})`;
+      return `${pending.toVersion}, blocked (${pending.reason}): ${pending.message}`;
     case "waiting": {
       const on = pending.waitsOn === null ? "" : `; busy: ${pending.waitsOn.reason}${pending.waitsOn.until === null ? "" : ` until ${pending.waitsOn.until}`}`;
       return `${pending.toVersion} (${pending.source}), waiting since ${pending.since}, forced at ${pending.deferUntil}${on}`;
@@ -196,10 +197,12 @@ const settings = async (args: readonly string[], context: UpdateContext): Promis
 };
 
 /**
- * `update apply`: asks for the update to `--version` from the artefact at
- * `--path`, a path of this machine read from the working directory, or for
- * the update that waits when neither is given; when the environment is
- * idle, or at once with `--now`. Says which update it took, and when it goes.
+ * `update apply`: asks for the update to `--version`, from the artefact at
+ * `--path` (a path of this machine read from the working directory) or else
+ * downloaded from its release (#347), or for the update that waits (else the
+ * pin or the channel's newest) when neither is given; when the environment
+ * is idle, or at once with `--now`. Says which update it took, and when it
+ * goes.
  */
 const apply = async (args: readonly string[], context: UpdateContext): Promise<number> => {
   const values = parseOptions(args, { ...TARGET_OPTIONS, version: { type: "string" }, path: { type: "string" }, now: { type: "boolean" } });

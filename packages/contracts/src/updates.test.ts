@@ -106,7 +106,7 @@ describe("the update status document", () => {
     expect(UpdatesStatus.safeParse({ ...status, releaseSource: { origin: "https://github.com", kind: "gitlab", repository: "owner/name" } }).success).toBe(false);
   });
 
-  it("carries the pending update with its state: current, staging, waiting on what, ready when managed outside, draining, switching, or blocked with the reason", () => {
+  it("carries the pending update with its state: current, staging, waiting on what, ready when managed outside, draining, switching, or blocked with the reason and what unblocks it", () => {
     expect(UPDATE_STATES).toEqual(["current", "staging", "waiting", "ready", "draining", "switching", "blocked"]);
     expect(PendingUpdate.options.map((option) => option.shape.state.value)).toEqual([...UPDATE_STATES]);
     expect(UPDATE_BLOCKED_REASONS).toEqual(["launcher"]);
@@ -119,7 +119,7 @@ describe("the update status document", () => {
       { state: "ready", ...pending, image },
       { state: "draining", ...pending, cause: "cap" },
       { state: "switching", ...pending, cause: "idle" },
-      { state: "blocked", reason: "launcher", toVersion: "0.9.0" },
+      { state: "blocked", reason: "launcher", toVersion: "0.9.0", message: "Run service install from the 0.9.0 release." },
     ];
     for (const state of states) expect(UpdatesStatus.parse({ ...status, pending: state }).pending, state.state).toEqual(state);
     const refused = [
@@ -127,8 +127,9 @@ describe("the update status document", () => {
       { state: "waiting", ...pending },
       { state: "waiting", ...pending, waitsOn: { reason: "lunch", until: null } },
       { state: "draining", ...pending },
-      { state: "blocked", reason: "disk", toVersion: "0.9.0" },
-      { state: "blocked", toVersion: "0.9.0" },
+      { state: "blocked", reason: "disk", toVersion: "0.9.0", message: "Why." },
+      { state: "blocked", toVersion: "0.9.0", message: "Why." },
+      { state: "blocked", reason: "launcher", toVersion: "0.9.0" },
       { state: "ready", ...pending, image: { reference: image.reference } },
     ];
     for (const state of refused) expect(UpdatesStatus.safeParse({ ...status, pending: state }).success, JSON.stringify(state)).toBe(false);
@@ -171,8 +172,8 @@ describe("the updates methods' params and answers", () => {
     expect(result.safeParse({ updateId: "u-1", toVersion: "0.5.0" }).success).toBe(false);
   });
 
-  it("refuse an update or a pin in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, a forge not answering, a manifest not its schema, refused by the launcher's install, or with no launcher to switch", () => {
-    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "install", "no_launcher"]);
+  it("refuse an update or a pin in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, a forge not answering, a manifest not its schema, an artefact that did not download or match, refused by the launcher's install, or with no launcher to switch", () => {
+    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "artefact", "install", "no_launcher"]);
   });
 
   it("cancel with a commandId alone, answered with the withdrawn update", () => {
