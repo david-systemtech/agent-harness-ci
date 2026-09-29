@@ -112,6 +112,8 @@ import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
+import { skillsMethods } from "../skills/methods.js";
+import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods, type SetupSteps } from "../setup/methods.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
@@ -129,6 +131,7 @@ import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
 import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
+import { createTrash } from "./trash.js";
 import { fileVault, holdVault, VAULT_FILE, type Vault } from "./vault.js";
 
 /** The harness version the environment reports: its own package's, read from `src/` and `dist/` alike. */
@@ -538,7 +541,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }
   };
 
-  await step("data-directory", () => prepareDataDirectory(dataDir));
+  // The data directory, and the own skills directory in it (#494), made before anything reads them.
+  const ownSkillsPath = await step("data-directory", () => {
+    prepareDataDirectory(dataDir);
+    return prepareOwnDirectory(dataDir);
+  });
 
   const log: EventLog = await step("database", () => {
     const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
@@ -895,6 +902,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
+  // The data directory's trash (#494): what is removed of what a person wrote, kept thirty days.
+  const trash = createTrash({ dataDir, clock });
+  // The own skills directory (#494): read at each run's start and on skills.get, never watched.
+  const ownSkills = createOwnDirectory({ log, environmentId: record.id, path: ownSkillsPath, trash });
+  closers.push(() => ownSkills.close());
+  closers.push(ownSkills.readAtRunStart());
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
   const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
   const table = createMethodTable({
@@ -956,6 +969,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
+    // The skill set (#494): skills.get, and the own directory's create and remove.
+    ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,
@@ -1087,6 +1102,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createTtlSweeper({ log, host, clock }).start());
   // Transcript compaction (#123): a pass now, before the wire opens, then once a day.
   closers.push(createCompactionSweep({ log, clock }).start());
+  // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
+  closers.push(trash.start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
