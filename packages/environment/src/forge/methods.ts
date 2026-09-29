@@ -25,4 +25,6 @@ export const forgeMethods = (forge: ForgeService): MethodHandlers => ({
   "forge.detect": (params) => forge.detect(params.url),
   "forge.orgs.list": (params) => forge.owners(params.forgeAccountId),
   "forge.pullRequests.link": forge.links.link,
+  "forge.pullRequests.unlink": forge.links.unlink,
+  "forge.pullRequests.refresh": async (params) => ({ pullRequests: await forge.links.refresh(params.sessionId) }),
 });

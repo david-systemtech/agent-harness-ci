@@ -5,7 +5,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added, rejection } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create } from "../../test/sessions.js";
+import { create, listStream, patchOf } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -158,3 +158,64 @@ describe("forge.pullRequests.link", () => {
     expect(forge.requests.length).toBe(asked);
   });
 });
+
+describe("forge.pullRequests.unlink", () => {
+  it("unlinks the linked pull request any page of its URL names, as the client session, and changes nothing for one not linked", async () => {
+    const { forge, client } = await withAccount();
+    forge.pullRequest(TOKEN, "david/bank", 3);
+    forge.pullRequest(TOKEN, "david/bank", 4);
+    const { id } = await create(client);
+    const [third, fourth] = [`${forge.origin}/david/bank/pulls/3`, `${forge.origin}/david/bank/pulls/4`];
+    await link(client, id, third);
+    await link(client, id, fourth);
+    const from = (await pullRequestEvents(client, id)).at(-1)?.sequence ?? 0;
+
+    const answer = await unlink(client, id, `${forge.origin}/David/Bank/pulls/3/files`);
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect(answer.result?.summary.pullRequests).toEqual([pull(fourth)]);
+    const none = await unlink(client, id, `${forge.origin}/david/bank/pulls/5`);
+    expect(none.receipt).toMatchObject({ status: "accepted", changed: false });
+    expect(none.result?.summary.pullRequests).toEqual([pull(fourth)]);
+
+    const events = await pullRequestEvents(client, id, from);
+    expect(events.map((event) => [event.type, event.payload, event.actor])).toEqual([
+      ["session.pull-request-unlinked", { url: third }, { kind: "client_session", id: client.hello.clientSessionId }],
+    ]);
+  });
+
+  it("refuses a session that is not on the environment not_found", async () => {
+    const { forge, client } = await withAccount();
+    const answer = await unlink(client, randomUUID(), `${forge.origin}/david/bank/pulls/3`);
+    expect(rejection(answer.receipt)).toMatchObject({ reason: "not_found", data: { kind: "session" } });
+  });
+});
+
+describe("the summary's pullRequests", () => {
+  it("follows a link, a sync and an unlink over sessions.subscribe, each patch naming the list as it is", async () => {
+    const { t, forge, client } = await withAccount();
+    forge.pullRequest(TOKEN, "david/bank", 3);
+    const { id } = await create(client);
+    const url = `${forge.origin}/david/bank/pulls/3`;
+    const list = await listStream(client, t.env.log.head());
+
+    await link(client, id, url);
+    const linked = await list.next();
+    expect([linked.type, patchOf(linked)]).toEqual(["session.pull-request-linked", { op: "set", sessionId: id, fields: { pullRequests: [pull(url)] } }]);
+
+    forge.pullRequest(TOKEN, "david/bank", 3, { state: "merged" });
+    expect(await client.request("forge.pullRequests.refresh", { sessionId: id })).toEqual({
+      pullRequests: [pull(url, "merged", { mergedAt: "2026-09-24T00:00:30.000Z", closedAt: "2026-09-24T00:00:30.000Z" })],
+    });
+    const synced = await list.next();
+    expect([synced.type, synced.actor, patchOf(synced)]).toEqual([
+      "session.pull-request-synced",
+      { kind: "system", id: "forge" },
+      { op: "set", sessionId: id, fields: { pullRequests: [pull(url, "merged", { mergedAt: "2026-09-24T00:00:30.000Z", closedAt: "2026-09-24T00:00:30.000Z" })] } },
+    ]);
+
+    await unlink(client, id, url);
+    const unlinked = await list.next();
+    expect([unlinked.type, patchOf(unlinked)]).toEqual(["session.pull-request-unlinked", { op: "set", sessionId: id, fields: { pullRequests: [] } }]);
+  });
+});
+

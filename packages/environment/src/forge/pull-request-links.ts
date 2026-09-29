@@ -1,4 +1,5 @@
 import {
+  ContractError,
   GITHUB_ORIGIN,
   normaliseRemote,
   parsePullRequestUrl,
@@ -12,7 +13,7 @@ import {
 } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
-import type { CommandRejection, PreparedCommand } from "../serve/methods.js";
+import type { CommandRejection, MethodHandler, PreparedCommand } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
 import { readSummary } from "../sessions/session-reads.js";
 import type { Reader } from "../sessions/session-tables.js";
@@ -20,6 +21,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { servingAccount } from "./git-helper.js";
 import type { ForgeAnswer, ForgeOperations } from "./operations.js";
 import type { ForgePullRequest } from "./providers.js";
+import { FORGE_ACTOR } from "./verifier.js";
 
 /**
  * A session's pull requests (forge spec, "Pull-request links and status";
@@ -34,6 +36,16 @@ import type { ForgePullRequest } from "./providers.js";
  *   a pull request by its web URL on the origin it is read from (the forge
  *   account's canonical origin), its owner and repository as the forge
  *   spells them, whatever page or alias the URL named.
+ * - **Linked and unlinked by a person**, as the client session: a link
+ *   reads the pull request first, in its prepare; an unlink takes the one
+ *   the URL names from the session.
+ * - **Kept current** as `system:forge`: a read appends
+ *   `session.pull-request-synced` only when the state, merged-at or
+ *   closed-at changed; a read that fails keeps what the session holds, and
+ *   a 404 (or an anonymous read's refusal, behind which a private
+ *   repository hides) stops the reads of that pull request until it is
+ *   linked again or refreshed. When each was last read, and which are
+ *   stopped, is kept in memory: a start reads each again.
  */
 
 /** A pull request a URL names, and where it is read. */
@@ -61,6 +73,10 @@ export interface PullRequestLinksOptions {
 export interface PullRequestLinks {
   /** `forge.pullRequests.link`: reads the pull request, then links it as the client session. */
   readonly link: PreparedCommand<"forge.pullRequests.link">;
+  /** `forge.pullRequests.unlink`: unlinks the pull request the URL names, as the client session. */
+  readonly unlink: MethodHandler<"forge.pullRequests.unlink">;
+  /** `forge.pullRequests.refresh`: reads every pull request of the session that has not merged, a stopped one too, and answers them after; `not_found` for a session not here. */
+  refresh(sessionId: string): Promise<PullRequest[]>;
 }
 
 type LinkRefusal = CommandRejection<ErrorOf<"forge.pullRequests.link">["code"]>;
@@ -69,7 +85,14 @@ type LinkRefusal = CommandRejection<ErrorOf<"forge.pullRequests.link">["code"]>;
 const ANONYMOUS_KINDS: readonly Exclude<ForgeKind, "gitlab">[] = ["github", "forgejo"];
 
 export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRequestLinks => {
-  const { log, reader } = options;
+  const { log, clock, reader } = options;
+
+  /** When each pull request was last read, by `readingOf`. */
+  const lastRead = new Map<string, number>();
+  /** The pull requests whose reads a 404 stopped, by `readingOf`. */
+  const stopped = new Set<string>();
+  /** A session's pull request, as the reads are kept in memory: the session and the URL the session holds it by. */
+  const readingOf = (sessionId: string, url: string): string => `${sessionId}\n${url}`;
 
   /** Where the pull request `url` names is read; null for a URL no provider reads as one. */
   const locate = (url: string): Located | null => {
@@ -162,9 +185,14 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
         const current = readSummary(reader, params.sessionId);
         if (current === null) return { aggregate: stream, rejected: sessionNotFound(params.sessionId) };
         const held = heldIn(current.pullRequests, pullRequest.url);
-        // One linked already keeps the URL it was linked by; as the forge answers it now, there is nothing to link.
-        if (held !== undefined && same(held, pullRequest)) return { aggregate: stream, result: { summary: current } };
+        // One linked already keeps the URL it was linked by. Just read, it is read again on its cadence from now, a stopped one too.
         const payload: PullRequest = { ...pullRequest, url: held?.url ?? pullRequest.url };
+        command.tx.afterCommit(() => {
+          stopped.delete(readingOf(params.sessionId, payload.url));
+          lastRead.set(readingOf(params.sessionId, payload.url), clock.now().getTime());
+        });
+        // As the forge answers it now, there is nothing to link.
+        if (held !== undefined && same(held, pullRequest)) return { aggregate: stream, result: { summary: current } };
         log.append(stream, [{ type: "session.pull-request-linked", payload: { ...payload } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
         const summary = readSummary(reader, params.sessionId);
         if (summary === null) throw new Error(`The session ${params.sessionId} is not in the list after a pull request was linked to it.`);
@@ -173,5 +201,58 @@ export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRe
     },
   };
 
-  return { link };
+  /**
+   * Appends what a read found of the session's pull request `url`, as
+   * `system:forge`, when its state, merged-at or closed-at changed: nothing
+   * for a session gone, or a pull request it no longer holds.
+   */
+  const synced = (sessionId: string, url: string, found: PullRequest): void => {
+    log.atomically((tx) => {
+      const held = readSummary(reader, sessionId)?.pullRequests.find((pullRequest) => pullRequest.url === url);
+      if (held === undefined || same(held, found)) return;
+      log.append(sessionStream(sessionId), [{ type: "session.pull-request-synced", payload: { ...found, url } }], { tx, actor: FORGE_ACTOR });
+    });
+  };
+
+  /** Reads the session's pull request `url` now and appends what changed; a 404, or an anonymous read's refusal, stops its reads. */
+  const sync = async (sessionId: string, url: string): Promise<void> => {
+    const reading = readingOf(sessionId, url);
+    const located = locate(url);
+    if (located === null) return void stopped.add(reading);
+    const answer = await read(located, "keep a session's pull request current");
+    lastRead.set(reading, clock.now().getTime());
+    if (answer.outcome === "done") return synced(sessionId, url, kept(located, answer.value));
+    if ((answer.outcome === "failed" && answer.status === 404) || (answer.outcome === "refused" && answer.error.code === "forge_account_missing")) stopped.add(reading);
+  };
+
+  /** Forgets what the reads kept of a pull request a person unlinked. */
+  const forget = (sessionId: string, url: string): void => {
+    lastRead.delete(readingOf(sessionId, url));
+    stopped.delete(readingOf(sessionId, url));
+  };
+
+  const unlink: PullRequestLinks["unlink"] = (params, command) => {
+    const stream = sessionStream(params.sessionId);
+    const current = readSummary(reader, params.sessionId);
+    if (current === null) return { aggregate: stream, rejected: sessionNotFound(params.sessionId) };
+    const held = heldIn(current.pullRequests, params.url);
+    if (held === undefined) return { aggregate: stream, result: { summary: current } };
+    log.append(stream, [{ type: "session.pull-request-unlinked", payload: { url: held.url } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+    command.tx.afterCommit(() => forget(params.sessionId, held.url));
+    const summary = readSummary(reader, params.sessionId);
+    if (summary === null) throw new Error(`The session ${params.sessionId} is not in the list after a pull request was unlinked from it.`);
+    return { aggregate: stream, result: { summary } };
+  };
+
+  const refresh: PullRequestLinks["refresh"] = async (sessionId) => {
+    const summary = readSummary(reader, sessionId);
+    if (summary === null) throw new ContractError(sessionNotFound(sessionId));
+    const unmerged = summary.pullRequests.filter((pullRequest) => pullRequest.state !== "merged");
+    // Asked now, a pull request whose reads were stopped is read too, and goes on being read once it answers.
+    for (const { url } of unmerged) stopped.delete(readingOf(sessionId, url));
+    await Promise.all(unmerged.map(({ url }) => sync(sessionId, url)));
+    return readSummary(reader, sessionId)?.pullRequests ?? [];
+  };
+
+  return { link, unlink, refresh };
 };
