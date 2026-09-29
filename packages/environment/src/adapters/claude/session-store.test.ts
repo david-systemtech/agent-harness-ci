@@ -196,7 +196,7 @@ describe("the auto-memory key (#329)", () => {
   /** The auto-memory directory the run made `made`-th by the fake SDK was handed. */
   const memoryOf = async (made: number): Promise<string> => ((await fake.made(made)).options.settings as { autoMemoryDirectory: string }).autoMemoryDirectory;
 
-  it("is the identity, else the repository's main checkout, so a remote-less repository's checkout, subdirectories and worktrees share one, else one for every scratch workspace", async () => {
+  it("is the identity, else the repository's main checkout, so a remote-less repository's checkout, subdirectories and worktrees share one, else the one all scratch workspaces share", async () => {
     const adapter = adapterWith({ autoMemoryRoot: "/data/auto-memory" });
     const checkout = join(tempDir("agent-harness-remoteless-"), "Remoteless Repo");
     mkdirSync(join(checkout, "packages", "app"), { recursive: true });
@@ -226,6 +226,48 @@ describe("the auto-memory key (#329)", () => {
     expect(rest.slice(0, 3)).toEqual([main, main, main]);
     expect(directories[4]).toMatch(/^\/data\/auto-memory\/https-github-com-david-repo-[0-9a-f]{12}$/);
     expect(directories.slice(5)).toEqual(["/data/auto-memory/scratch", "/data/auto-memory/scratch"]);
+    for (const id of sessions) await adapter.stopProcess(id);
+  });
+
+  it("keys a repository whose git directory lies elsewhere, and a submodule, by that git directory, as git names its main worktree, so its checkout and worktrees share one", async () => {
+    const adapter = adapterWith({ autoMemoryRoot: "/data/auto-memory" });
+    const root = tempDir("agent-harness-separate-");
+    const checkout = join(root, "checkout");
+    const gitDirectory = join(root, "git-directory");
+    git(root, "init", "-q", `--separate-git-dir=${gitDirectory}`, checkout);
+    git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+    const linked = join(root, "linked");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", linked);
+    // What git lists as the main worktree, which the environment records as a worktree's repository.
+    const main = git(linked, "worktree", "list", "--porcelain").split("\n")[0]?.replace(/^worktree /, "") as string;
+    // A submodule, whose git directory lies in its superproject's, and a worktree of it.
+    const library = join(root, "library");
+    git(root, "init", "-q", library);
+    git(library, "commit", "-q", "--allow-empty", "-m", "first");
+    const superproject = join(root, "superproject");
+    git(root, "init", "-q", superproject);
+    git(superproject, "commit", "-q", "--allow-empty", "-m", "first");
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "add", "-q", library, "vendor/library");
+    const submodule = join(superproject, "vendor", "library");
+    const submoduleLinked = join(root, "submodule-linked");
+    git(submodule, "worktree", "add", "-q", "-b", "feature", submoduleLinked);
+    const workspaces: RunInput["workspace"][] = [
+      { kind: "directory", path: checkout },
+      { kind: "directory", path: linked },
+      { kind: "worktree", path: "/data/worktrees/git-directory-0a1b2c3d4e5f/feature-2", repository: main, branch: "feature-2" },
+      { kind: "directory", path: submodule },
+      { kind: "directory", path: submoduleLinked },
+      { kind: "directory", path: superproject },
+    ];
+    const sessions = workspaces.map(() => randomUUID());
+    for (const [index, workspace] of workspaces.entries()) adapter.createRun(runInput({ sessionId: sessions[index] as string, workspace, repositoryIdentity: null }), context());
+    const directories = await Promise.all(workspaces.map((_, index) => memoryOf(index + 1)));
+
+    expect(directories[0]).toMatch(/^\/data\/auto-memory\/[a-z0-9-]*git-directory-[0-9a-f]{12}$/);
+    expect(directories.slice(1, 3)).toEqual([directories[0], directories[0]]);
+    expect(directories[3]).toMatch(/^\/data\/auto-memory\/[a-z0-9-]*modules-vendor-library-[0-9a-f]{12}$/);
+    expect(directories[4]).toBe(directories[3]);
+    expect(new Set(directories).size).toBe(3);
     for (const id of sessions) await adapter.stopProcess(id);
   });
 });

@@ -34,13 +34,15 @@ const DOT_GIT = ".git";
 
 /**
  * The main checkout of the repository whose `.git` lies in `directory`, or
- * undefined when none does. A `.git` directory is a checkout's own. A `.git`
- * file names the git directory elsewhere (`gitdir:`): a linked worktree's,
- * under the common git directory its `commondir` names, whose checkout is
- * the directory holding that `.git` (or, for a bare repository, the common
- * git directory itself); a submodule's or a separated git directory's,
- * which has no `commondir` and is the checkout here. One that cannot be read
- * is taken as the checkout here too.
+ * undefined when none does, as git names a repository's main worktree. A
+ * `.git` directory is a checkout's own. A `.git` file names the git
+ * directory elsewhere (`gitdir:`), whose common git directory is the one its
+ * `commondir` names (a linked worktree's), else itself (a submodule's, or
+ * one separated with `--separate-git-dir`): a common directory named `.git`
+ * lies in the main checkout; any other (a bare repository, a submodule's
+ * under its superproject's, a separated one) stands for it, as `git
+ * worktree list` gives it, so a checkout and its worktrees share it. A
+ * `.git` file that cannot be read is taken as the checkout here.
  */
 const checkoutAt = (directory: string): string | undefined => {
   const dotGit = join(directory, DOT_GIT);
@@ -57,12 +59,22 @@ const checkoutAt = (directory: string): string | undefined => {
     const named = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
     if (named === undefined) return directory;
     const gitDir = isAbsolute(named) ? named : resolve(directory, named);
-    const common = readFileSync(join(gitDir, "commondir"), "utf8").trim();
-    const commonDir = isAbsolute(common) ? common : resolve(gitDir, common);
-    return basename(commonDir) === DOT_GIT ? dirname(commonDir) : commonDir;
+    const common = commonDirectory(gitDir);
+    return basename(common) === DOT_GIT ? dirname(common) : common;
   } catch {
     return directory;
   }
+};
+
+/** The common git directory of the git directory `gitDir`: the one its `commondir` names, else itself. */
+const commonDirectory = (gitDir: string): string => {
+  let named: string;
+  try {
+    named = readFileSync(join(gitDir, "commondir"), "utf8").trim();
+  } catch {
+    return gitDir;
+  }
+  return isAbsolute(named) ? named : resolve(gitDir, named);
 };
 
 /**
