@@ -218,6 +218,11 @@ describe("the method registry", () => {
       "forge.accounts.update",
       "forge.accounts.remove",
       "forge.accounts.setPrimary",
+      "keyManagers.connections.add",
+      "keyManagers.connections.signIn",
+      "keyManagers.connections.update",
+      "keyManagers.connections.signOut",
+      "keyManagers.connections.remove",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -382,6 +387,12 @@ describe("the method registry", () => {
       | "forge.accounts.setPrimary"
       | "forge.accounts.verify"
       | "forge.gh.probe"
+      | "keyManagers.list"
+      | "keyManagers.connections.add"
+      | "keyManagers.connections.signIn"
+      | "keyManagers.connections.update"
+      | "keyManagers.connections.signOut"
+      | "keyManagers.connections.remove"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

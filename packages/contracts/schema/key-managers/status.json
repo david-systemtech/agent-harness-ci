@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerStatus",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "awaiting-sign-in",
+        "signing-in",
+        "signed-in",
+        "credential-rejected",
+        "expired",
+        "unreachable",
+        "sealed",
+        "certificate-rejected"
+      ],
+      "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's)."
+    },
+    "since": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "Since when the connection has stood so: a login that finds what it had keeps the time."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\n]*$",
+      "description": "One line for people: where it stands and what to do."
+    }
+  },
+  "required": [
+    "kind",
+    "since",
+    "message"
+  ],
+  "description": "Where a key-manager connection stands, since when, and one line saying what to do."
+}

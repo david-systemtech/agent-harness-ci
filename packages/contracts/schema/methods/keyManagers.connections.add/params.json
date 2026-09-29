@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "keyManagers.connections.add params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "openbao",
+        "doppler",
+        "onepassword",
+        "bitwarden"
+      ],
+      "description": "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager)."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\p{Cc}]+$",
+      "description": "A key-manager connection's label, which people know it by: 1 to 100 characters on one line."
+    },
+    "address": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "description": "The key manager's URL: only its origin is kept."
+    },
+    "ca": {
+      "description": "The CA to pin, as PEM, which a person accepted; absent for none. OpenBao only.",
+      "type": "string",
+      "maxLength": 65536,
+      "pattern": "-----BEGIN CERTIFICATE-----"
+    },
+    "method": {
+      "description": "How it signs in; preset: the credential's method. OpenBao only, and required there without a credential.",
+      "type": "string",
+      "enum": [
+        "approle",
+        "userpass",
+        "token"
+      ]
+    },
+    "mount": {
+      "description": "Where the method is mounted; preset: the method's name. OpenBao only.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    },
+    "username": {
+      "description": "The username of a userpass login, which it requires.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+$"
+    },
+    "tokenRole": {
+      "description": "The token role run tokens are created against. OpenBao only.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+$"
+    },
+    "ticks": {
+      "description": "The policies runs receive, as a copy carries them; preset: every policy of the login, at the first sign-in.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+        "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+      }
+    },
+    "basePath": {
+      "description": "Where Move keeps the harness's secrets, as a copy carries it.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    },
+    "copiedFrom": {
+      "description": "The environment a copy was made from; absent for a connection added here.",
+      "type": "object",
+      "properties": {
+        "environmentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+        },
+        "environmentName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The source environment's name when the copy was made."
+        }
+      },
+      "required": [
+        "environmentId",
+        "environmentName"
+      ]
+    },
+    "importedFrom": {
+      "description": "The id the state import's source gave the connection; absent for one not imported.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$"
+    },
+    "credential": {
+      "description": "The credential, sent once; absent for a copy or an import, which waits for a sign-in.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "approle"
+            },
+            "roleId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The AppRole's role id."
+            },
+            "secretId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The AppRole's secret id."
+            }
+          },
+          "required": [
+            "method",
+            "roleId",
+            "secretId"
+          ],
+          "description": "An AppRole's role id and secret id."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "userpass"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[^\\p{Cc}]+$",
+              "description": "The userpass password: printable, on one line."
+            }
+          },
+          "required": [
+            "method",
+            "password"
+          ],
+          "description": "A userpass password; the username is the connection's."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "const": "token"
+            },
+            "token": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The token."
+            }
+          },
+          "required": [
+            "method",
+            "token"
+          ],
+          "description": "A token, looked up to sign in."
+        }
+      ]
+    }
+  },
+  "required": [
+    "commandId",
+    "connectionId",
+    "provider",
+    "label",
+    "address"
+  ]
+}

@@ -153,6 +153,13 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "forge.account.removed":
         case "forge.origin-missing":
           return;
+        // A key-manager connection's status rows (ADR 0011: a failed verification raises a notice) arrive with its verification (#366).
+        case "key-manager.connection.added":
+        case "key-manager.connection.signed-in":
+        case "key-manager.connection.signed-out":
+        case "key-manager.connection.updated":
+        case "key-manager.connection.removed":
+          return;
       }
     },
     settled(environmentId, sessionId, promptId) {

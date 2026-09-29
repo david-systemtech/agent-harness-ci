@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerMount",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 256,
+  "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+  "description": "Where the auth method is mounted, as approle or agents/approle: no slash at either end. A token login's is token, where OpenBao keeps its token store."
+}
