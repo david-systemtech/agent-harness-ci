@@ -1369,11 +1369,17 @@ describe.runIf(posix && !runningAsRoot)("the launcher over the real serve", () =
     await expect(fetch(discovery)).rejects.toThrow();
   });
 
-  it("hands over to the launcher of a real serve that answers idle?, draining it before it exits with the relaunch code", async () => {
+  // Waits on the stop itself, however long serve takes to start through tsx (the real preflight's budget, #634).
+  it("hands over to the launcher of a real serve that answers idle?, draining it before it exits with the relaunch code", { timeout: REAL_PREFLIGHT_MS }, async () => {
     const dataDir = dataDirectory();
     installVersion(dataDir, HARNESS_VERSION, new URL("../main.ts", import.meta.url).pathname);
     writeServiceState(dataDir, state(HARNESS_VERSION));
     const running = launch({ dataDir, port: 0, version: "0.4.0" });
+    // Serve answers queries only once its wire is open, a moment after its commit, so the ask at the commit may go unheard: each second the test runs the next ask, which the launcher makes every ten minutes.
+    const nextAsk = setInterval(() => {
+      if (running.timer.pending().includes(10 * 60_000)) running.timer.run(10 * 60_000);
+    }, 1_000);
+    cleanups.push(() => clearInterval(nextAsk));
     expect(await running.launcher.stopped).toBe(RELAUNCH_EXIT_CODE);
     expect(handoverFiles(dataDir)).toEqual({ "launcher-version": `${HARNESS_VERSION}\n`, "launcher-handover": `0.4.0\n${HARNESS_VERSION}\n`, "launcher-handover-starts": null });
     await until("serve's exit is logged", () => running.log().at(-1) === `launcher: ${HARNESS_VERSION} exited with code 0`);
