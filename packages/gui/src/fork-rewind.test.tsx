@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { STOP_WAIT_MS } from "@agent-harness/client-runtime";
+import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -57,7 +58,7 @@ const message = (transcript: HTMLElement, text: string) => within(transcript).ge
 /** The actions under the user message holding `text`, revealed by the pointer resting on it. */
 const actionsOn = async (app: RenderedApp, transcript: HTMLElement, text: string) => {
   await app.user.hover(message(transcript, text));
-  return within(transcript).getByRole("toolbar", { name: `Fork or rewind: ${text}` });
+  return within(transcript).getByRole("group", { name: `Fork or rewind: ${text}` });
 };
 
 /** The requests sent for `method`, their params alone. */
@@ -109,17 +110,17 @@ describe("the actions under a user message", () => {
     const actions = await actionsOn(app, transcript, "Add the tests");
     expect(within(actions).getAllByRole("button").map((button) => button.textContent)).toEqual(["Fork", "Fork onto another account", "Rewind"]);
     // Only the message under the pointer shows its actions.
-    expect(within(transcript).getAllByRole("toolbar")).toHaveLength(1);
+    expect(within(transcript).getAllByRole("group", { name: /^Fork or rewind: / })).toHaveLength(1);
 
     await app.user.unhover(message(transcript, "Add the tests"));
-    await waitFor(() => expect(within(transcript).queryByRole("toolbar")).toBeNull());
+    await waitFor(() => expect(within(transcript).queryByRole("group", { name: /^Fork or rewind: / })).toBeNull());
   });
 
   it("are revealed by the focus too, so the keyboard reaches them", async () => {
     const { app, env, transcript, session } = await opened();
     await converse(env, session, transcript, "Fix the receipts");
     act(() => message(transcript, "Fix the receipts").focus());
-    expect(within(transcript).getByRole("toolbar", { name: "Fork or rewind: Fix the receipts" })).toBeTruthy();
+    expect(within(transcript).getByRole("group", { name: "Fork or rewind: Fix the receipts" })).toBeTruthy();
     await app.user.tab();
     expect(document.activeElement?.textContent).toBe("Fork");
   });
@@ -212,7 +213,7 @@ describe("Rewind", () => {
     expect(within(cut).getByText("Reply to Write the docs.")).toBeTruthy();
     expect(within(cut).getAllByRole("article", { name: "Your message" }).map((article) => article.textContent)).toEqual(["Add the tests", "Write the docs"]);
     await app.user.hover(message(cut, "Write the docs"));
-    expect(within(cut).queryByRole("toolbar")).toBeNull();
+    expect(within(cut).queryByRole("group", { name: /^Fork or rewind: / })).toBeNull();
     expect(message(cut, "Write the docs").tabIndex).toBe(-1);
 
     await app.user.click(fold(transcript, "Rewound: Add the tests · 2 prompts cut"));
@@ -310,6 +311,21 @@ describe("Stop and rewind here", () => {
     env.endRun(session, runId, { reason: "interrupted" });
     await within(transcript).findByText(/^Interrupted/);
     expect(sent(env, "sessions.rewind")).toEqual([]);
+  });
+
+  it("is not offered while the run is only starting, with no run to stop yet: Rewind is dim, saying so", async () => {
+    const { app, env, transcript, session } = await opened();
+    await converse(env, session, transcript, "Fix the receipts", "Add the tests");
+    env.wire.answer("runs.start", () => new Promise<FakeAnswer>(() => undefined));
+    await write(app, "Write the docs{Enter}");
+    await waitFor(() => expect(env.requests("runs.start")).toHaveLength(1));
+    const rewind = within(await actionsOn(app, transcript, "Add the tests")).getByRole("button", { name: "Rewind" });
+    await waitFor(() => expect(dim(rewind)).toBe(true));
+    expect(await tooltipOf(rewind)).toContain("A run is starting on this session: once it is running, a rewind offers to stop it.");
+    await app.user.click(rewind);
+    await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe("Not rewound: A run is starting on this session: once it is running, a rewind offers to stop it."));
+    expect(env.requests("runs.interrupt")).toEqual([]);
+    expect(env.requests("sessions.rewind")).toEqual([]);
   });
 
   it("is not offered while messages are queued: Rewind stays dim, saying to withdraw them first, and a press sends nothing", async () => {

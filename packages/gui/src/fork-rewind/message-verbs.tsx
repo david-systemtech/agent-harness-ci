@@ -35,7 +35,7 @@ export const MessageVerbs = ({ entry, children }: { readonly entry: UserMessageE
   return (
     <div className="flex flex-col items-end gap-0.5" onPointerEnter={() => setPointer(true)} onPointerLeave={() => setPointer(false)} onFocus={() => setFocused(true)} onBlur={left}>
       {children}
-      <div role="toolbar" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
+      <div role="group" aria-label={`Fork or rewind: ${messageWords(entry.text)}`} className="flex gap-1" style={{ visibility: shown ? "visible" : "hidden" }}>
         <VerbButton does={FORK_DOES} availability={forkRewind.fork} run={() => forkRewind.forkAt(anchor)}>
           Fork
         </VerbButton>

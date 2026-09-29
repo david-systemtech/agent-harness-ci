@@ -47,10 +47,11 @@ const NoSessionOpen = () => {
  * card, the composer and the status line under it, with the dialogs its
  * pickers open (the sign-in card, the hand-off picker), and its fork and
  * rewind for what offers them: the actions under each message, the rewound
- * fold and the rewound strip over the composer (#403); and beside it the session's side column ("The
- * seven panes and the grid"), whose refusals are said on the pane's line and
- * whose panes the pane's slash commands open. Another session opened in the
- * pane brings its own column, and its own line, or the line handed to it.
+ * fold and the rewound strip over the composer (#403); and beside it the
+ * session's side column ("The seven panes and the grid"), whose refusals are
+ * said on the pane's line and whose panes the pane's slash commands open.
+ * Another session opened in the pane brings its own column, and its own
+ * line, or the line handed to it as it opened.
  */
 export const SessionPaneRegion = () => {
   const [layout] = usePresentation("paneLayout");
@@ -59,30 +60,30 @@ export const SessionPaneRegion = () => {
     <PaneLines>
       <main className="flex h-full min-w-0 flex-col bg-abyss">
         {session === null ? (
-        <NoSessionOpen />
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <PaneLine key={`${session.environmentId} ${session.sessionId}`} environmentId={session.environmentId} sessionId={session.sessionId}>
-            <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
-              <SlashCommands>
-                <PaneDialogs environmentId={session.environmentId} sessionId={session.sessionId}>
-                  <SessionForkRewindProvider environmentId={session.environmentId} sessionId={session.sessionId}>
-                    <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
-                      <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
-                      <QueueStrip />
-                      <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
-                      <RewoundStrip />
-                      <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
-                      <StatusLine environmentId={session.environmentId} sessionId={session.sessionId} />
-                    </section>
-                    <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
-                  </SessionForkRewindProvider>
-                </PaneDialogs>
-              </SlashCommands>
-            </SessionQueueProvider>
-          </PaneLine>
-        </div>
-      )}
+          <NoSessionOpen />
+        ) : (
+          <div className="flex min-h-0 flex-1">
+            <PaneLine key={`${session.environmentId} ${session.sessionId}`} environmentId={session.environmentId} sessionId={session.sessionId}>
+              <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
+                <SlashCommands>
+                  <PaneDialogs environmentId={session.environmentId} sessionId={session.sessionId}>
+                    <SessionForkRewindProvider environmentId={session.environmentId} sessionId={session.sessionId}>
+                      <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
+                        <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
+                        <QueueStrip />
+                        <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
+                        <RewoundStrip />
+                        <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+                        <StatusLine environmentId={session.environmentId} sessionId={session.sessionId} />
+                      </section>
+                      <SideColumnView environmentId={session.environmentId} sessionId={session.sessionId} />
+                    </SessionForkRewindProvider>
+                  </PaneDialogs>
+                </SlashCommands>
+              </SessionQueueProvider>
+            </PaneLine>
+          </div>
+        )}
       </main>
     </PaneLines>
   );
