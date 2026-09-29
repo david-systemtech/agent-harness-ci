@@ -72,6 +72,8 @@ describe("an address's class", () => {
     ["[::ffff:169.254.169.254]", "metadata"],
     ["http://[::ffff:a9fe:a9fe]/", "metadata"],
     ["[0:0:0:0:0:ffff:a9fe:a9fe]", "metadata"],
+    ["fd00:0ec2:0:0:0:0:0:0254", "metadata"],
+    ["http://[FD00:EC2:0::254]/latest/", "metadata"],
     ["https://metadata.google.internal./computeMetadata/v1/", "metadata"],
     ["2130706433", "loopback"],
     ["0x7f.1", "loopback"],
@@ -146,7 +148,7 @@ describe("an address's standing under a page policy", () => {
   });
 
   it("stands a cloud metadata address and a public site as ordinary, with the everywhere switches deciding deep reads and evaluate", () => {
-    for (const address of ["http://169.254.169.254/", "https://example.com/", "https://www.example.com/", "https://api.myapp.test.example.com/"]) {
+    for (const address of ["http://169.254.169.254/", "http://[fd00:0ec2:0:0::0254]/", "https://example.com/", "https://www.example.com/", "https://api.myapp.test.example.com/"]) {
       expect(standingOf(address, policy()), address).toEqual({ kind: "ordinary", deepRead: false, evaluate: false, spendsAllowance: false });
     }
     expect(standingOf("https://example.com/", policy({ deepReadEverywhere: true }))).toEqual({ kind: "ordinary", deepRead: true, evaluate: false, spendsAllowance: false });

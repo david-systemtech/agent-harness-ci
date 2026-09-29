@@ -38,11 +38,11 @@ export const BRIDGE_PROTOCOL_VERSION = 2;
  * extension it ships, which Reload loads.
  *
  * The rule is about versions; serving one takes its messages' shapes, and
- * this package holds version 2's alone. Version 1 was the ported
- * extension's, whose socket carries another extension's Origin, which the
- * listener refuses before any message, so version 2 is the first this
- * harness serves. The environment that raises the version keeps version 2's
- * schemas beside its own, to serve the one before.
+ * this package holds version 2's alone. No extension with this harness's
+ * fixed id speaks version 1 (a socket with any other Origin is refused before
+ * its first message), so version 2 is the first this harness serves. The
+ * environment that raises the version keeps version 2's schemas beside its
+ * own, to serve the one before.
  */
 export const serveBridgeVersion = (theirs: number, ours: number = BRIDGE_PROTOCOL_VERSION): true | string =>
   theirs === ours || theirs === ours - 1
