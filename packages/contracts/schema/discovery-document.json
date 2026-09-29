@@ -14,7 +14,7 @@
       "minLength": 1
     },
     "environmentIcon": {
-      "description": "The environment's icon; absent from an environment that predates it.",
+      "description": "The environment's icon; absent from an environment that predates it. A client reads a name it does not know as none.",
       "type": "string",
       "enum": [
         "laptop",
@@ -30,7 +30,7 @@
       ]
     },
     "environmentColour": {
-      "description": "The environment's colour; absent from an environment that predates it.",
+      "description": "The environment's colour; absent from an environment that predates it. A client reads a name it does not know as none.",
       "type": "string",
       "enum": [
         "red",

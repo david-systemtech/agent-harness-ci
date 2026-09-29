@@ -287,8 +287,6 @@ export const malformedFrames: Record<FrameType, readonly string[]> = {
     json({ ...validFrames.hello[0], scopes: [] }),
     json({ ...validFrames.hello[0], capabilities: "terminal" }),
     json({ ...validFrames.hello[0], serverTime: "yesterday" }),
-    json({ ...validFrames.hello[0], environmentIcon: "phone" }),
-    json({ ...validFrames.hello[0], environmentColour: "#008080" }),
   ],
   request: [
     json({ type: "request", method: "environment.status", params: {} }),
@@ -720,8 +718,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
     ],
     invalid: [
       without(validDiscovery, "environmentId"),
-      { ...validDiscovery, environmentIcon: "phone" },
-      { ...validDiscovery, environmentColour: "#ffbf00" },
       { ...validDiscovery, environmentId: "not-a-uuid" },
       { ...validDiscovery, readiness: "idle" },
       { ...validDiscovery, authPolicy: "unsafe-no-auth" },

@@ -62,6 +62,18 @@ describe("the connection descriptor's name, icon and colour", () => {
     expect(shown(runtime)).toEqual({ name: "old", icon: null, colour: null });
   });
 
+  it("connect to a newer environment whose icon or colour this build does not know, reading them as none", async () => {
+    const s = runtimeOn({ name: "MNL" });
+    s.wire.discovery({ environmentIcon: "phone", environmentColour: "magenta" } as never);
+    await s.runtime.start();
+    const adding = s.runtime.connections.add({ link: s.wire.link });
+    await s.wire.server.accept({ environmentIcon: "phone", environmentColour: "magenta" } as never);
+    (await subscription(s.wire, "sessions.subscribe")).synchronized(0);
+    await adding;
+    expect(s.runtime.connections.list.read()[0]?.phase).toBe("ready");
+    expect(shown(s.runtime)).toEqual({ name: "MNL", icon: null, colour: null });
+  });
+
   it("take what hello says over the discovery read before it", async () => {
     const s = runtimeOn({ name: "MNL", icon: "server", colour: "teal" });
     await s.runtime.start();

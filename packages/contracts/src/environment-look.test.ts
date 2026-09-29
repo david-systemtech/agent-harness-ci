@@ -9,6 +9,7 @@ import {
   EnvironmentName,
   EnvironmentNotice,
   HelloFrame,
+  decodeFrame,
   normaliseEnvironmentName,
   registry,
 } from "./index.js";
@@ -92,11 +93,20 @@ describe("an environment's look", () => {
     const withLook = { ...validDiscovery, environmentIcon: "nas", environmentColour: "amber" };
     expect(DiscoveryDocument.parse(withLook)).toEqual(withLook);
     expect(DiscoveryDocument.parse(validDiscovery)).toEqual(validDiscovery);
-    expect(DiscoveryDocument.safeParse({ ...validDiscovery, environmentColour: "#ffbf00" }).success).toBe(false);
 
     const hello = validFrames.hello[0] as Record<string, unknown>;
     expect(HelloFrame.parse({ ...hello, environmentIcon: "laptop", environmentColour: "pink" })).toMatchObject({ environmentIcon: "laptop", environmentColour: "pink" });
     expect(HelloFrame.parse(hello)).not.toHaveProperty("environmentIcon");
-    expect(HelloFrame.safeParse({ ...hello, environmentIcon: "phone" }).success).toBe(false);
+  });
+
+  it("reads an icon or colour this build does not know (a newer environment's) as none in discovery and hello, and the rest of either still reads", () => {
+    const discovered = DiscoveryDocument.parse({ ...validDiscovery, environmentIcon: "phone", environmentColour: "#ffbf00" });
+    expect(discovered).toMatchObject({ environmentId: validDiscovery.environmentId, environmentName: validDiscovery.environmentName });
+    expect([discovered.environmentIcon, discovered.environmentColour]).toEqual([undefined, undefined]);
+    const hello = HelloFrame.parse({ ...(validFrames.hello[0] as Record<string, unknown>), environmentIcon: "phone", environmentColour: "magenta" });
+    expect([hello.environmentName, hello.environmentIcon, hello.environmentColour]).toEqual(["SYSTEM-SERVER", undefined, undefined]);
+    expect(decodeFrame(JSON.stringify({ ...(validFrames.hello[0] as Record<string, unknown>), environmentIcon: "phone" }))).toMatchObject({ type: "hello", environmentName: "SYSTEM-SERVER" });
+    // The environment's own writes stay held to the sets: the commands' params and the notices refuse either.
+    expect(registry["environment.setIcon"].params.safeParse({ commandId: "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f", icon: "phone" }).success).toBe(false);
   });
 });

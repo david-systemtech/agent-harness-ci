@@ -56,11 +56,20 @@ export const HEALTH_PATH = "/health";
 /**
  * An environment's icon and colour where discovery and `hello` carry them
  * beside its name (#323): optional, so a client reads an environment from
- * before them, and they came with no protocol bump.
+ * before them, and they came with no protocol bump. A name the reader does
+ * not know (a newer environment's icon or colour) reads as none, as the
+ * environment stream's snapshot reads it: these are a client's first reads
+ * of the environment, and a badge it cannot draw must not keep it from
+ * connecting. The export publishes the sets, which is what an environment
+ * sends.
  */
 export const environmentLookFields = {
-  environmentIcon: EnvironmentIcon.optional().meta({ description: "The environment's icon; absent from an environment that predates it." }),
-  environmentColour: EnvironmentColour.optional().meta({ description: "The environment's colour; absent from an environment that predates it." }),
+  environmentIcon: EnvironmentIcon.optional()
+    .catch(undefined)
+    .meta({ description: "The environment's icon; absent from an environment that predates it. A client reads a name it does not know as none." }),
+  environmentColour: EnvironmentColour.optional()
+    .catch(undefined)
+    .meta({ description: "The environment's colour; absent from an environment that predates it. A client reads a name it does not know as none." }),
 };
 
 /**
