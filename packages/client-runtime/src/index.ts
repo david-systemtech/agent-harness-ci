@@ -78,6 +78,7 @@ export {
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
 export type { EnvironmentView } from "./projections/environments.js";
+export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
   COMMAND_EXPIRY_MS,
   type AcceptedReceipt,
@@ -135,9 +136,11 @@ export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type Cli
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
+  ByRepositoryHeading,
   HeadingMember,
   ListFreshness,
   MergedGroupHeading,
+  NoRepositoryHeading,
   RepositoryHeading,
   SessionListView,
   SessionRow,

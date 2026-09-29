@@ -511,6 +511,7 @@ describe("a parked process", () => {
       "run.policy.resolved",
       "message.sent",
       "session.title-generated",
+      "run.instructions.composed",
       "assistant.text",
       "prompt.opened",
       "run.ended",

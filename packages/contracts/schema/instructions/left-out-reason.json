@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionLeftOutReason",
+  "type": "string",
+  "enum": [
+    "channel-none"
+  ],
+  "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text)."
+}
