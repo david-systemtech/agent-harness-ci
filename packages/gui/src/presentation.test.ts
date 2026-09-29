@@ -82,6 +82,32 @@ describe("the presentation", () => {
     expect((await openPresentation(odd)).values.read().runLocalEnvironment).toBe(true);
   });
 
+  it("holds each session's side column, read back without the panes this build cannot show", async () => {
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read().sideColumns).toEqual({});
+    first.set("sideColumns", { "env-1 session-1": { open: ["files", "tasks"], shown: "tasks", hidden: true } });
+    await first.close();
+    expect((await openPresentation(documents)).values.read().sideColumns).toEqual({ "env-1 session-1": { open: ["files", "tasks"], shown: "tasks", hidden: true } });
+
+    const newer = inMemoryDocuments();
+    await newer.set("presentation", {
+      format: 1,
+      sideColumns: {
+        "env-1 session-1": { open: ["hologram", "diff", "diff"], shown: "hologram", hidden: false },
+        "env-1 session-2": { open: ["hologram"], shown: "hologram", hidden: false },
+        "env-1 session-3": "files",
+      },
+    });
+    expect((await openPresentation(newer)).values.read().sideColumns).toEqual({ "env-1 session-1": { open: ["diff"], shown: "diff", hidden: false } });
+
+    const reported: unknown[] = [];
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, sideColumns: ["files"] });
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read().sideColumns).toEqual({});
+    expect(String(reported[0])).toContain("sideColumns");
+  });
+
   it("holds only keys on the organisation-state lint's presentation list", () => {
     for (const key of Object.keys(PRESENTATION_DEFAULTS)) expect(PRESENTATION_KEYS).toContain(key);
   });
