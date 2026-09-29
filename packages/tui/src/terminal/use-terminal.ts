@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { Runtime, TerminalHandle, TerminalOutput, TerminalStatus } from "@agent-harness/client-runtime";
+import { closeTerminal as closeById, nextWrite, reusableTerminal, shownEnv, type Runtime, type TerminalHandle, type TerminalOutput, type TerminalStatus } from "@agent-harness/client-runtime";
 import { ONE_OFF_LINE } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import type { Span } from "../transcript/lines.js";
 import { forwarded, pasted } from "./keys.js";
-import { closeTerminal as closeById, shownEnv } from "./one-off.js";
 import { createScreen, type Screen } from "./screen.js";
 
 /**
@@ -26,9 +25,9 @@ import { createScreen, type Screen } from "./screen.js";
  *   stopped.
  * - **`!`** (`run`) opens a terminal of its own for the command, shown in
  *   the pane as the shell is; the command rides the terminal's variables
- *   (`one-off.ts`). When it exits its terminal is closed and the pane keeps
- *   what it showed, marked with how it ended, until a key in the pane, or
- *   another pane, takes it away. A `!` command the pane goes from runs on
+ *   (the client runtime's `runOneOff`). When it exits its terminal is
+ *   closed and the pane keeps what it showed, marked with how it ended,
+ *   until a key in the pane, or another pane, takes it away. A `!` command the pane goes from runs on
  *   unseen, its terminal closed with a line when it exits.
  * - **Sizes**: the pane's size is sent when it changes and when the
  *   terminal is found at another; one that could not be sent (the
@@ -115,11 +114,6 @@ export interface PaneHost {
   readonly nameOf: (environmentId: string) => string;
 }
 
-/** The most `terminals.write` carries in one command, in UTF-16 code units. */
-const WRITE_CAP = 1024 * 1024;
-
-const isHighSurrogate = (unit: number) => unit >= 0xd800 && unit <= 0xdbff;
-
 interface Live {
   readonly target: Opened;
   terminalId: string | null;
@@ -202,9 +196,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
   const pump = (entry: Live) => {
     const { runtime, newCommandId, say, nameOf } = hostRef.current;
     if (entry.sending || entry.closed || entry.terminalId === null || entry.outgoing.length === 0) return;
-    // A character of two code units is never split between writes: each half would reach the shell as U+FFFD.
-    const high = entry.outgoing.length > WRITE_CAP && isHighSurrogate(entry.outgoing.charCodeAt(WRITE_CAP - 1));
-    const data = entry.outgoing.slice(0, high ? WRITE_CAP - 1 : WRITE_CAP);
+    const data = nextWrite(entry.outgoing);
     entry.outgoing = entry.outgoing.slice(data.length);
     entry.sending = true;
     void runtime.requests.call(entry.target.environmentId, "terminals.write", { commandId: newCommandId(), id: entry.terminalId, data }).then((answer) => {
@@ -373,7 +365,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       if (entry.closed) return;
       if (!listed.ok) return failed(entry, listed.error.message);
       // The newest the session has that still runs and is not a one-off's: the one a person was using.
-      const running = listed.result.terminals.filter((t) => t.exitCode === null && !oneOffs.current.has(t.id.toLowerCase())).at(-1);
+      const running = reusableTerminal(listed.result.terminals, oneOffs.current);
       if (running) return attach(entry, running.id, { cols: running.cols, rows: running.rows });
       const id = newTerminalId();
       const asked = entry.size;

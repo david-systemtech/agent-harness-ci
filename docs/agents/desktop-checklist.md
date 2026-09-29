@@ -93,6 +93,26 @@ preload exposes, and a member named bare is on it: `setBadge(3)` is
     or `win32`), architecture, hostname and login name.
 14. **Closing.** Closing the window quits the app.
 
+## The terminal pane under the content policy (#409, #486)
+
+On every platform, with the window connected to an environment (this
+machine's, or one paired) and a session open in the pane:
+
+1. **It draws in the theme.** Press Mod+J (⌘J on macOS, Ctrl+J elsewhere):
+   the side column shows the Terminal pane with a shell prompt, its ground
+   the side column's and its text the theme's ink, each row one cell high in
+   the system's monospace font, the cursor drawn. `ls --color=always /` (or
+   `ls -G /` on macOS) shows coloured names; typing reaches the shell and
+   `exit` says how the terminal ended, with New terminal.
+2. **No inline stylesheet.** In the console, `document.querySelectorAll("style").length`
+   is `0` and `document.adoptedStyleSheets.length` is at least `3` (xterm.js's
+   scroll bar, colours and cell sizes). The console shows no content-policy
+   error, before or after the pane opened, nor after the window was resized.
+3. **It runs on.** Press Mod+J again: the column hides. Quit and start the
+   window, open the same session and press Mod+J: the same shell is drawn
+   again from its scrollback. Close the pane with the strip's ×, then press
+   Mod+J: a new shell opens, the closed one gone.
+
 ## macOS
 
 1. **Deep links.** In the console, `desktopShell.deepLinks.onOpen(console.log)`.

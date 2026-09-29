@@ -200,6 +200,7 @@ export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
 export { matchCommands } from "./composer/commands.js";
+export { shellLine } from "./composer/shell-line.js";
 export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
 export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";
 export {
@@ -221,5 +222,20 @@ export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.j
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
+export {
+  ONE_OFF_MAX_LINES,
+  ONE_OFF_TIMEOUT_MS,
+  clipOutput,
+  closeTerminal,
+  oneOffMessage,
+  reusableTerminal,
+  runOneOff,
+  shownEnv,
+  type OneOffDeps,
+  type OneOffResult,
+  type OneOffTarget,
+} from "./terminals/one-off.js";
+export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, type Xterm } from "./terminals/text-screen.js";
+export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
