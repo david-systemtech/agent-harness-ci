@@ -78,6 +78,13 @@ export interface IdentityPasses {
   start(): RunningPasses;
 }
 
+/** A session as a pass reads it: its id, its workspace as the list stores it, and its identity. */
+interface SessionRead {
+  readonly id: string;
+  readonly workspace: string;
+  readonly repository_identity: string | null;
+}
+
 /** An identity's host and path; the rule gives `https://<host>/<path>` and nothing else. */
 const IDENTITY_PARTS = /^https:\/\/([^/]+)\/(.+)$/;
 
@@ -100,33 +107,33 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
   const copying = new Set<Promise<void>>();
 
   /**
-   * Appends the identity a pass found for the session, if the session is
-   * still as the pass read it: not deleted, and holding `before` in the
-   * workspace it was read in; then carries its auto memory to the new key.
-   * Settles once the copy has run; at once when nothing was appended.
+   * Appends the identity a pass found for the session `row` names, if the
+   * session is still as the pass read it: not deleted, in the same
+   * workspace, with the same identity; then carries its auto memory to the
+   * new key. Settles once the copy has run; at once when nothing was appended.
    */
-  const identify = async (sessionId: string, workspace: string, before: string | null, repositoryIdentity: string, reason: RepositoryIdentifiedReason): Promise<void> => {
+  const identify = async (row: SessionRead, repositoryIdentity: string, reason: RepositoryIdentifiedReason): Promise<void> => {
     const appended = log.atomically((tx) => {
-      const [row] = log.read<{ workspace: string; repository_identity: string | null; deleted_at: string | null }>(
+      const [now] = log.read<{ workspace: string; repository_identity: string | null; deleted_at: string | null }>(
         "SELECT workspace, repository_identity, deleted_at FROM sessions WHERE id = ?",
-        sessionId,
+        row.id,
       );
-      if (row === undefined || row.deleted_at !== null || row.workspace !== workspace || row.repository_identity !== before) return false;
-      log.append({ kind: SESSION_STREAM_KIND, id: sessionId }, [{ type: "session.repository-identified", payload: { repositoryIdentity, reason } }], {
+      if (now === undefined || now.deleted_at !== null || now.workspace !== row.workspace || now.repository_identity !== row.repository_identity) return false;
+      log.append({ kind: SESSION_STREAM_KIND, id: row.id }, [{ type: "session.repository-identified", payload: { repositoryIdentity, reason } }], {
         tx,
         actor: WORKSPACES_ACTOR,
       });
       return true;
     });
     if (!appended) return;
-    const place = JSON.parse(workspace) as Workspace;
-    await options.autoMemory.carry({ workspace: place, repositoryIdentity: before }, { workspace: place, repositoryIdentity });
+    const workspace = JSON.parse(row.workspace) as Workspace;
+    await options.autoMemory.carry({ workspace, repositoryIdentity: row.repository_identity }, { workspace, repositoryIdentity });
   };
 
   /** The resolved pass: see the module comment. */
   const resolvedPass = async (): Promise<void> => {
     const candidates = log
-      .read<{ id: string; workspace: string }>("SELECT id, workspace FROM sessions WHERE deleted_at IS NULL AND repository_identity IS NULL ORDER BY updated_at DESC, id")
+      .read<SessionRead>("SELECT id, workspace, repository_identity FROM sessions WHERE deleted_at IS NULL AND repository_identity IS NULL ORDER BY updated_at DESC, id")
       .filter((row) => RESOLVED_KINDS.has((JSON.parse(row.workspace) as Workspace).kind));
     const resolveNext = async (): Promise<void> => {
       for (let row = candidates.shift(); row !== undefined && !stopped; row = candidates.shift()) {
@@ -137,7 +144,7 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
           ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }),
         });
         if (identity === null || stopped) continue;
-        await identify(row.id, row.workspace, null, onCanonicalHost(identity, options.forgeAccounts()), "resolved");
+        await identify(row, onCanonicalHost(identity, options.forgeAccounts()), "resolved");
       }
     };
     await Promise.all(Array.from({ length: GIT_AT_ONCE }, resolveNext));
@@ -146,14 +153,14 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
   /** The alias pass: every identity put on its canonical host, as the forge accounts are now. */
   const aliasPass = (): void => {
     const forgeAccounts = options.forgeAccounts();
-    const rows = log.read<{ id: string; workspace: string; repository_identity: string }>(
+    const rows = log.read<SessionRead & { repository_identity: string }>(
       "SELECT id, workspace, repository_identity FROM sessions WHERE deleted_at IS NULL AND repository_identity IS NOT NULL ORDER BY id",
     );
     for (const row of rows) {
       const rewritten = onCanonicalHost(row.repository_identity, forgeAccounts);
       if (rewritten === row.repository_identity) continue;
       // Appended now, as the forge's event is heard; the copy runs after.
-      const identified = identify(row.id, row.workspace, row.repository_identity, rewritten, "alias").catch((error: unknown) =>
+      const identified = identify(row, rewritten, "alias").catch((error: unknown) =>
         console.error(`Moving the identity of the session ${row.id} to its forge account's canonical host failed:`, error),
       );
       copying.add(identified);

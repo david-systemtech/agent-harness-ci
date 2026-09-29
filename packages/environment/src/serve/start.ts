@@ -657,6 +657,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
 
+  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at and the identity passes carry (#329).
+  const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
+
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
 
@@ -689,7 +692,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
-    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY), sessionStore: providerStore })];
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot, sessionStore: providerStore })];
     // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
     let probed: ContainmentReport;
     try {
@@ -1106,7 +1109,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const identityPasses = createIdentityPasses({
     log,
     forgeAccounts,
-    autoMemory: createAutoMemory(join(dataDir, AUTO_MEMORY_DIRECTORY)),
+    autoMemory: createAutoMemory(autoMemoryRoot),
     ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
   }).start();
   closers.push(() => identityPasses.stop());
