@@ -11,7 +11,7 @@ import type { WireClient } from "../../test/wire-client.js";
 import { formatActor } from "../event-log/event-log.js";
 import { createSessionIn } from "../sessions/methods.js";
 import { acceptAnyRunParameters } from "../sessions/run-parameters.js";
-import { MAX_UNANSWERED, PASS_INTERVAL_MS } from "./availability.js";
+import { MAX_UNANSWERED, PASS_INTERVAL_MS, createAvailabilityWatcher } from "./availability.js";
 
 /**
  * Missing workspaces (workspace-picker spec, "Missing workspaces"; ADR 0021;
@@ -359,5 +359,18 @@ describe("the Carry over import's entry", () => {
       status: "rejected",
       error: { data: { reason: "workspace_missing", path: gone } },
     });
+  });
+});
+
+describe("a look that fails", () => {
+  it("rejects the check that asked, and nothing else: no rejection is left unhandled (#670 review)", async () => {
+    const t = await startTestEnvironment();
+    const client = await t.client();
+    const { id } = await create(client, { workspace: { kind: "directory", path: directory() } });
+    const watcher = createAvailabilityWatcher({ log: t.env.log, clock: t.clock });
+    // The log closed under it: reading the session's row throws.
+    await t.close();
+
+    await expect(watcher.check(id)).rejects.toThrow();
   });
 });

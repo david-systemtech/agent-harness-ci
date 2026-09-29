@@ -30,7 +30,12 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * it, so one dead mount holds one thread per path;
  * and while `MAX_UNANSWERED` looks are overdue, no other path is asked,
  * leaving the rest of the pool to everything else: such a look finds
- * nothing, and the mark stays as it was.
+ * nothing, and the mark stays as it was. A call that never returns (a hard
+ * mount that never comes back) holds that gate for the life of the
+ * process: until one returns, the pass and the run commands mark no other
+ * session, whose runs start or are refused on the mark as it stands, as
+ * before the watcher; the terminal, file and diff methods' own findings
+ * still mark it. The log says so once each time the gate starts holding.
  */
 
 /** How long one look at a workspace directory may take before the directory counts as not there. A chosen default (#328). */
@@ -126,6 +131,8 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
   /** Each session's latest check, which the next one for it follows. */
   const latest = new Map<string, Promise<void>>();
   let stopped = false;
+  /** Whether the last look found the gate held, so the log says so once per hold. */
+  let held = false;
 
   const sessionRow = (sessionId: string): SessionRow | undefined =>
     log.read<SessionRow>("SELECT deleted_at, workspace, workspace_missing_since FROM sessions WHERE id = ?", sessionId)[0];
@@ -173,7 +180,12 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
     if (stopped) return Promise.resolve("unknown");
     // Its call past its bound has not returned: it is not asked again, and still does not answer.
     if (calls.get(path)?.overdue === true) return Promise.resolve("missing");
-    if (!calls.has(path) && overdue() >= MAX_UNANSWERED) return Promise.resolve("unknown");
+    if (!calls.has(path) && overdue() >= MAX_UNANSWERED) {
+      if (!held) console.error(`${MAX_UNANSWERED} workspace looks have not returned; no other workspace is looked at until one does.`);
+      held = true;
+      return Promise.resolve("unknown");
+    }
+    held = false;
     const call = callFor(path);
     return new Promise<Finding>((resolve) => {
       let answered = false;
@@ -206,9 +218,11 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
   const check = (sessionId: string): Promise<void> => {
     const next = (latest.get(sessionId) ?? Promise.resolve()).then(() => lookAt(sessionId));
     latest.set(sessionId, next);
-    void next.finally(() => {
+    // The one who asked hears a failure; this bookkeeping only lets go of the check, handled either way.
+    const forget = (): void => {
       if (latest.get(sessionId) === next) latest.delete(sessionId);
-    });
+    };
+    next.then(forget, forget);
     return next;
   };
 

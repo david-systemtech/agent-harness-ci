@@ -1,12 +1,12 @@
 import type { EventLog } from "../event-log/event-log.js";
 import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
 import type { MethodHandlers } from "../serve/methods.js";
+import type { AvailabilityWatcher } from "./availability.js";
 import { browseDirectory } from "./browse.js";
 import { sessionDiff, workingTreeDiff } from "./diffs.js";
 import { listFiles, readWorkspaceFile } from "./files.js";
 import { inspectPath } from "./inspect.js";
 import { workspaceRoot } from "./paths.js";
-import type { AvailabilityWatcher } from "./availability.js";
 import type { DirectoryRules } from "./resolver.js";
 import { requireSessionWorkspace, worktreeSession } from "./session.js";
 
