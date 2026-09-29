@@ -10,7 +10,6 @@ import {
   SessionListSnapshot,
   SessionSnapshot,
   SessionSummary,
-  STEP_ORDER,
   StandingRewind,
   StepResult,
   SummaryPatch,
@@ -105,8 +104,8 @@ const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum,
 /**
  * The environment's own stream: its status as the snapshot gave it and the
  * notices since changed it, and each Set up step's latest result, from the
- * snapshot's `setup` and each `setup.result-changed` since (#570), in the
- * milestone-1 order: what `projections.setup` reads, offline too.
+ * snapshot's `setup` and each `setup.result-changed` since (#570): what
+ * `projections.setup` reads, offline too.
  */
 export interface EnvironmentData {
   readonly status: EnvironmentStatus | null;
@@ -138,11 +137,9 @@ const readResults = (value: unknown): StepResult[] => {
   });
 };
 
-/** `results` with `result` in its step's place: replacing the one it had, or added in the milestone-1 order. */
-const withResult = (results: readonly StepResult[], result: StepResult): StepResult[] => {
-  const place = (step: string) => STEP_ORDER.indexOf(step as (typeof STEP_ORDER)[number]);
-  return [...results.filter((held) => held.step !== result.step), result].sort((a, b) => place(a.step) - place(b.step));
-};
+/** `results` with `result` in place of its step's, or added when its step had none. */
+const withResult = (results: readonly StepResult[], result: StepResult): StepResult[] =>
+  results.some((held) => held.step === result.step) ? results.map((held) => (held.step === result.step ? result : held)) : [...results, result];
 
 const byId = <T extends { readonly id: string }>(items: readonly T[]): ReadonlyMap<string, T> => new Map(items.map((item) => [item.id, item]));
 
@@ -323,7 +320,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
   decode(value) {
     const stored = fieldsOf(value, "The stored environment");
     // A document from before #570 holds no results and does not read: no cache, so the stream subscribes from nothing and
-    // the environment sends every result it holds, rather than this client reading as never checked what it has checked.
+    // hears every result the environment holds, where resuming from its cursor would miss those noticed before it.
     return { status: EnvironmentStatus.nullable().parse(stored["status"]), setup: StepResult.array().parse(stored["setup"]) };
   },
 });
