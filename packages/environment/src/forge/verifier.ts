@@ -236,8 +236,10 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     // This verification is the one that was due: the schedule starts again from its end.
     timers.get(forgeAccountId)?.cancel();
     timers.delete(forgeAccountId);
+    // Queued behind a verification that outlasted the close: the event log may be closed too.
+    if (closed) return;
     const account = liveForgeAccount(reader, forgeAccountId);
-    if (account === null || !verifiable(account) || closed) return;
+    if (account === null || !verifiable(account)) return;
     const found = await withinBudget(account.origin, (signal) => ask(account, signal));
     if (closed) return;
     record(forgeAccountId, credentialOf(account), found);

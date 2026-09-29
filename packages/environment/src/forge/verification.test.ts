@@ -441,6 +441,27 @@ describe("closing the environment while a verification is in flight", () => {
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
   });
+
+  it("never starts the one waiting behind it for a credential given since, and reads nothing for it", async () => {
+    const { rejections, errors } = heard();
+    const { t, forge, client } = await withForge({ forgeTimeoutMs: BUDGET_MS });
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.user(TOKEN, DAVID, new Promise(() => undefined));
+    forge.user(OTHER_TOKEN, DAVID);
+    t.clock.advance(0);
+    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
+    // The credential given while it runs is verified once it ends.
+    await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    t.clock.advance(0);
+
+    await t.close();
+    await pastTheBudget();
+
+    expect(rejections).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+    // The add's identity call, the verification's, and the update's: none for the credential given.
+    expect(forge.requests).toHaveLength(3);
+  });
 });
 
 describe("the state import's credential probe", () => {
