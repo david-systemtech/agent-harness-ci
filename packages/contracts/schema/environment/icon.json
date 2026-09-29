@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentIcon",
+  "type": "string",
+  "enum": [
+    "laptop",
+    "desktop",
+    "server",
+    "nas",
+    "cloud",
+    "container",
+    "board",
+    "home",
+    "office",
+    "lab"
+  ],
+  "description": "An environment's icon, by name, one of the ten the enum lists (ADR 0025's fixed set): each client draws the name its own way, and the terminal UI draws none."
+}

@@ -43,6 +43,14 @@ import type { ProcessPort } from "./contract.js";
  * processes a cold start has since replaced included, for at most the stop
  * timeout on the environment's clock; then every process still stopping is
  * killed through its adapter, and closing goes on without waiting further.
+ *
+ * What a spawn of a process was supplied (its process environment, #307)
+ * is released as the pool lets the process go, whatever lets it go (a
+ * stop, whatever its reason, or an exit on its own), before its adapter is
+ * asked to stop it; and as a later spawn on the same process is supplied,
+ * since the adapter let the earlier one go for a run it could not serve (a
+ * changed key). A spawn supplied after its process was let go is released
+ * at once.
  */
 
 /** How long a stopped process stays in the list after it stopped. */
@@ -95,6 +103,13 @@ export interface ProcessPool {
   close(reason: ProcessStopReason): Promise<void>;
   /** Every process, a stopped one for ten minutes after it stopped, in the order they started. */
   list(): ProviderProcess[];
+  /**
+   * Where a spawn of the session's process, as it is now, reports the
+   * release of what it was supplied (#307): called once the pool lets that
+   * process go, or a later spawn on it reports its own; at once when it has
+   * been let go already, or the session has no process.
+   */
+  supplied(sessionId: string): (release: () => void) => void;
 }
 
 /** One process as the pool records it. */
@@ -119,9 +134,20 @@ interface ProcessEntry {
   stopped: Promise<void> | undefined;
   /** Removes it from the list ten minutes after it stopped. */
   forget: Timer | undefined;
+  /** The release of what its latest spawn was supplied, until it is let go. */
+  release: (() => void) | undefined;
 }
 
 const iso = (ms: number | null): string | null => (ms === null ? null : new Date(ms).toISOString());
+
+/** Releases what a spawn of the session's process was supplied; a failure is logged, never thrown into the pool. */
+const releaseSupplied = (sessionId: string, release: (() => void) | undefined): void => {
+  try {
+    release?.();
+  } catch (error) {
+    console.error(`Releasing what the provider process of session ${sessionId} was supplied failed:`, error);
+  }
+};
 
 export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
   const { clock } = options;
@@ -208,6 +234,9 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
     entry.parkedSince = null;
     entry.idleSince = null;
     entry.holds.clear();
+    const release = entry.release;
+    entry.release = undefined;
+    releaseSupplied(entry.sessionId, release);
   };
 
   /** The entry has stopped: it is listed for ten minutes more, unless the environment is closing. */
@@ -330,6 +359,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
         stopReason: null,
         stopped: undefined,
         forget: undefined,
+        release: undefined,
       });
     },
     answered(sessionId, runId) {
@@ -389,5 +419,15 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
       if (outcome === "timeout") killStopping();
     },
     list,
+    supplied(sessionId) {
+      const entry = runningEntry(sessionId);
+      return (release) => {
+        if (entry === undefined || entry.state === "stopping" || entry.state === "stopped") return releaseSupplied(sessionId, release);
+        // A later spawn on the same process: the adapter let the one before it go.
+        const earlier = entry.release;
+        entry.release = release;
+        releaseSupplied(sessionId, earlier);
+      };
+    },
   };
 };

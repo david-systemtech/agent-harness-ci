@@ -139,7 +139,16 @@ export interface ConnectionSeams {
    * is not. Cleared on its own when the socket goes.
    */
   setSyncing(environmentId: string, syncing: boolean): void;
+  /**
+   * The environment's name, icon or colour, as its own stream's snapshot or
+   * notices say them (#323): the descriptor takes them and is saved, and
+   * nothing is raised, since another client's rename is no news to show.
+   */
+  describe(environmentId: string, look: DescribedLook): void;
 }
+
+/** What an environment's own stream says of its look: any of its name, icon and colour. */
+export type DescribedLook = Partial<Pick<EnvironmentDescriptor, "name" | "icon" | "colour">>;
 
 /** What the cache (#127) tells the registry: read it before connections start, and whether an environment has anything cached. */
 export interface RegistryCaches {
@@ -192,9 +201,12 @@ const unknownEnvironment = (environmentId: string) => new Error(`There is no sav
 
 const notYetSeen = () => new Error("This machine's local environment has not answered yet: its address comes from its grant, and it is not an environment to use until it answers.");
 
+/** The descriptor as a discovery document has it: an environment from before icons and colours (#323) sends neither. */
 const fromDiscovery = (descriptor: EnvironmentDescriptor, document: DiscoveryDocument): EnvironmentDescriptor => ({
   ...descriptor,
   name: document.environmentName,
+  icon: document.environmentIcon ?? null,
+  colour: document.environmentColour ?? null,
   harnessVersion: document.harnessVersion,
   protocolVersion: document.protocolVersion,
   capabilities: [...document.capabilities],
@@ -571,6 +583,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         descriptor: {
           ...descriptor,
           name: hello.environmentName,
+          icon: hello.environmentIcon ?? null,
+          colour: hello.environmentColour ?? null,
           protocolVersion: hello.protocolVersion,
           capabilities: [...hello.capabilities],
           lastSeen: platform.clock.now().toISOString(),
@@ -788,6 +802,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           changed = true;
         }
         if (changed && entry && isCurrent(environmentId, entry)) publish();
+      },
+      describe(environmentId, look) {
+        const entry = entries.get(environmentId);
+        if (!entry || !isCurrent(environmentId, entry)) return;
+        const { descriptor } = entry.saved;
+        if ((Object.keys(look) as (keyof DescribedLook)[]).every((field) => look[field] === descriptor[field])) return;
+        updateSaved(environmentId, entry, { descriptor: { ...descriptor, ...look } }).catch(report);
       },
     },
 

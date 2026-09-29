@@ -1,4 +1,5 @@
 import {
+  EnvironmentLook,
   EnvironmentNotice,
   EnvironmentStatus,
   EventEnvelope,
@@ -102,16 +103,28 @@ export const undoesUnheardRewind = (snapshot: Pick<SessionSnapshotParts, "rewind
 const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum, event) => sum + utf8Length(JSON.stringify(event)), 0);
 
 /**
- * The environment's own stream: its status as the snapshot gave it and the
- * notices since changed it, and each Set up step's latest result, from the
- * snapshot's `setup` and each `setup.result-changed` since (#570): what
- * `projections.setup` reads, offline too.
+ * The environment's own stream: its status and look as the snapshot gave them
+ * and the notices since changed them, and each Set up step's latest result,
+ * from the snapshot's `setup` and each `setup.result-changed` since (#570):
+ * what `projections.setup` reads, offline too.
  */
 export interface EnvironmentData {
   readonly status: EnvironmentStatus | null;
+  /**
+   * Its name, icon and colour as far as the stream has said them (#323): all
+   * three from a snapshot of an environment that sends them, one field per
+   * notice since. The connection descriptor follows them (`streams.ts`).
+   */
+  readonly look: Partial<EnvironmentLook>;
   /** None from an environment without the `setup` flag, or before it checked anything. */
   readonly setup: readonly StepResult[];
 }
+
+/** The notices that set a field of the environment's look (#323). */
+export const ENVIRONMENT_LOOK_NOTICES: ReadonlySet<string> = new Set(["environment.renamed", "environment.icon-set", "environment.colour-set"]);
+
+/** A look as a cache document holds it: any of the three fields; a document from before #323 holds none. */
+const StoredLook = EnvironmentLook.partial();
 
 /** The fields of a stored or sent object; throws on anything else. */
 const fieldsOf = (value: unknown, what: string): Record<string, unknown> => {
@@ -122,6 +135,8 @@ const fieldsOf = (value: unknown, what: string): Record<string, unknown> => {
 const EnvironmentSnapshot = registry["environment.subscribe"].result;
 /** The snapshot but its `setup`, whose results are read one by one (`readResults`). */
 const SnapshotStatus = EnvironmentSnapshot.pick({ status: true });
+/** The snapshot's look (#323), read apart from its status, so a look this build cannot read costs the snapshot nothing else. */
+const SnapshotLook = EnvironmentSnapshot.pick({ environment: true });
 
 /**
  * The results a snapshot's `setup` carries that this build can read: one of
@@ -225,29 +240,34 @@ export const sessionKind = (): StreamKind<SessionData> => ({
 });
 
 /**
- * The environment's own stream. Its notices are read here, and name, icon
- * and colour would be too: they come from the environment, never the client
- * (ADR 0005), from `environment.status` and an environment-updated notice.
- * As built neither carries them: the notices are `environment.started`,
- * `environment.updated` (harness versions), `environment.draining`, an
- * update's pending, started, failed and cancelled (#335),
- * `account.updated` (the account store, #134), `signin.updated` and
- * `signin.executable-chosen` (the sign-in director, #135), `prompt.parked`
- * and `prompt.resolved` (the permission broker, #130), `usage.updated` (plan
- * usage, #136), `settings.changed` (#391), `setup.result-changed` (#569), and
- * the status is readiness, activity and `updatesManagedOutside`; so the name
- * comes from discovery and `hello`, and icon and colour stay null until the
- * workspace-picker workstream adds the notice this `apply` then reads.
+ * The environment's own stream. Its notices are read here, its name, icon
+ * and colour among them: they come from the environment, never the client
+ * (ADR 0005), in its snapshot and in `environment.renamed`,
+ * `environment.icon-set` and `environment.colour-set` (#323). The other
+ * notices are `environment.started`, `environment.updated` (harness
+ * versions), `environment.draining`, an update's pending, started, failed
+ * and cancelled (#335), `account.updated` (the account store, #134),
+ * `signin.updated` and `signin.executable-chosen` (the sign-in director,
+ * #135), `prompt.parked` and `prompt.resolved` (the permission broker,
+ * #130), `usage.updated` (plan usage, #136), `settings.changed` (#391),
+ * `setup.result-changed` (#569), and the forge's, the key managers' and the
+ * routines' (#519) events.
  *
  * The status follows the notices: `environment.draining` makes it draining,
  * and `environment.started` (the restart after a drain, or any start) makes
  * it ready and idle, since a process that has just started runs nothing.
- * Each `setup.result-changed` replaces its step's result (#570).
+ * The look takes each field its notice sets, whether or not a snapshot came
+ * first. Each `setup.result-changed` replaces its step's result (#570).
  */
 export const environmentKind = (): StreamKind<EnvironmentData> => ({
-  empty: () => ({ status: null, setup: [] }),
+  empty: () => ({ status: null, look: {}, setup: [] }),
   emptyIsState: true,
-  fromSnapshot: (payload) => ({ status: SnapshotStatus.parse(payload).status, setup: readResults(payload["setup"]) }),
+  fromSnapshot: (payload) => ({
+    status: SnapshotStatus.parse(payload).status,
+    // An environment from before #323 sends no look, and a look this build cannot read (a newer environment's icon) is none.
+    look: SnapshotLook.safeParse(payload).data?.environment ?? {},
+    setup: readResults(payload["setup"]),
+  }),
   apply(data, event) {
     // A notice this client does not know (a newer environment's) changes nothing it holds.
     const notice = EnvironmentNotice.safeParse(event);
@@ -255,12 +275,19 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
     // A step's result replaces the one held, whether or not a snapshot gave the status: a replay from the cursor carries no
     // snapshot, and folds every result the environment noticed (#570).
     if (notice.data.type === "setup.result-changed") return { ...data, setup: withResult(data.setup, notice.data.payload) };
-    if (data.status === null) return data;
+    const { status } = data;
     switch (notice.data.type) {
       case "environment.draining":
-        return { ...data, status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
+        return status === null ? data : { ...data, status: { ...status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
       case "environment.started":
-        return { ...data, status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
+        return status === null ? data : { ...data, status: { ...status, readiness: "ready", activity: { state: "idle" } } };
+      // The look (#323): each notice sets its one field.
+      case "environment.renamed":
+        return { ...data, look: { ...data.look, name: notice.data.payload.name } };
+      case "environment.icon-set":
+        return { ...data, look: { ...data.look, icon: notice.data.payload.icon } };
+      case "environment.colour-set":
+        return { ...data, look: { ...data.look, colour: notice.data.payload.colour } };
       // A new version, an account changed (#134), the sign-in moved (#135), or an account's plan usage (#136): the status
       // holds none of them. The request cache refreshes on all but `signin.executable-chosen` (`CACHE_REFRESH_NOTICES` and
       // `QUERY_REFRESH_NOTICES`, #142), and the notices queue says what is news.
@@ -330,8 +357,10 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
   encode: (data) => data,
   decode(value) {
     const stored = fieldsOf(value, "The stored environment");
+    // A stored document is JSON, which holds no field as undefined: what the partial schema reads is a partial look.
+    const look = StoredLook.safeParse(stored["look"]).data as Partial<EnvironmentLook> | undefined;
     // A document from before #570 holds no results and does not read: no cache, so the stream subscribes from nothing and
     // hears every result the environment holds, where resuming from its cursor would miss those noticed before it.
-    return { status: EnvironmentStatus.nullable().parse(stored["status"]), setup: StepResult.array().parse(stored["setup"]) };
+    return { status: EnvironmentStatus.nullable().parse(stored["status"]), look: look ?? {}, setup: StepResult.array().parse(stored["setup"]) };
   },
 });

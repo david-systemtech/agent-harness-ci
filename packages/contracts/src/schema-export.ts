@@ -68,6 +68,14 @@ import {
   StoredTokenProvenance,
 } from "./forge-accounts.js";
 import { EnvironmentColour } from "./environment-colours.js";
+import {
+  EnvironmentColourSetPayload,
+  EnvironmentIcon,
+  EnvironmentIconSetPayload,
+  EnvironmentLook,
+  EnvironmentName,
+  EnvironmentRenamedPayload,
+} from "./environment-look.js";
 import { Theme, ThemeName, ThemeSeed } from "./theme.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import { CredentialUnavailableError, GitCredentialAction, GitCredentialAnswer, GitCredentialError, GitCredentialRequest } from "./git-credential.js";
@@ -850,6 +858,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
   { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },
   { path: "environment-colour.json", title: "EnvironmentColour", schema: EnvironmentColour },
+  { path: "environment/icon.json", title: "EnvironmentIcon", schema: EnvironmentIcon },
+  { path: "environment/name.json", title: "EnvironmentName", schema: EnvironmentName },
+  { path: "environment/look.json", title: "EnvironmentLook", schema: EnvironmentLook },
+  { path: "environment/renamed.json", title: "EnvironmentRenamedPayload", schema: EnvironmentRenamedPayload },
+  { path: "environment/icon-set.json", title: "EnvironmentIconSetPayload", schema: EnvironmentIconSetPayload },
+  { path: "environment/colour-set.json", title: "EnvironmentColourSetPayload", schema: EnvironmentColourSetPayload },
   { path: "usage/verdict.json", title: "UsageVerdict", schema: UsageVerdict },
   { path: "usage/window.json", title: "UsageWindow", schema: UsageWindow },
   { path: "usage/account-usage.json", title: "AccountUsage", schema: AccountUsage },

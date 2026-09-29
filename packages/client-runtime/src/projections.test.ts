@@ -2,6 +2,7 @@ import { Ceiling, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
+import { presetColour } from "../../environment/src/look/look.js";
 import { grantReader, useHarness } from "../test/harness.js";
 import { LOCAL_PLACEHOLDER_ID } from "./connections/records.js";
 import { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
@@ -11,8 +12,8 @@ const harness = useHarness();
 
 describe("projections.environments", () => {
   it("lists each known environment in the saved sequence with its descriptor, scopes, ceiling and the primary mark", async () => {
-    const local = await harness.environment({ name: "desk" });
-    const paired = await harness.environment({ name: "tower" });
+    const local = await harness.environment({ name: "desk", platform: "darwin" });
+    const paired = await harness.environment({ name: "tower", platform: "linux" });
     const runtime = harness.runtime(inMemoryPlatform({ kind: "tui", grant: grantReader(local) }));
     await runtime.start();
     const seen: unknown[] = [];
@@ -25,8 +26,8 @@ describe("projections.environments", () => {
         kind: "local",
         primary: true,
         name: "desk",
-        icon: null,
-        colour: null,
+        icon: "laptop",
+        colour: presetColour(local.env.id),
         version: HARNESS_VERSION,
         flags: ["forge", "keyManagers", "managedTools", "setup"],
         scopes: [...SCOPES],
@@ -40,7 +41,7 @@ describe("projections.environments", () => {
         action: null,
         pendingCommands: 0,
       },
-      expect.objectContaining({ environmentId: paired.env.id, kind: "paired", primary: false, name: "tower", scopes: ["read"], ceiling: "plan" }),
+      expect.objectContaining({ environmentId: paired.env.id, kind: "paired", primary: false, name: "tower", icon: "server", colour: presetColour(paired.env.id), scopes: ["read"], ceiling: "plan" }),
     ]);
     expect(seen.length).toBeGreaterThan(0);
 

@@ -66,6 +66,7 @@ export {
   type ModelCatalogue,
   type ModelOption,
   type PermissionBroker,
+  type ProcessEnvironment,
   type ProcessPort,
   type PromptDecision,
   type PromptKind,
@@ -80,6 +81,7 @@ export {
   type ToolDenial,
   type RunInput,
   type RunTarget,
+  type SuppliedVariables,
   type ToolAccess,
   type ToolGate,
   type ToolServer,
@@ -98,6 +100,16 @@ export {
 } from "./adapter/host.js";
 export { PROCESS_STOP_TIMEOUT_MS, STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
 export { processMethods, type ProcessMethodsOptions } from "./adapter/processes-methods.js";
+export {
+  EMPTY_PROCESS_ENVIRONMENT,
+  createProcessEnvironments,
+  presetInjection,
+  type InjectionAnswer,
+  type InjectionSeam,
+  type ProcessEnvironmentScope,
+  type ProcessEnvironmentSupplier,
+  type ProcessEnvironments,
+} from "./adapter/process-environment.js";
 export { ATTACHMENTS_DIRECTORY, createAttachmentStage, type AttachmentStage } from "./adapter/attachment-stage.js";
 export { recoverCutRuns, recoverStagedAttachments } from "./adapter/recovery.js";
 export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } from "./runs/run-decider.js";

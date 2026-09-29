@@ -184,6 +184,43 @@ describe("terminals.open", () => {
     expect(rejections).toEqual([]);
   });
 
+  it("keeps the terminal's commands and subscription sent right after it behind it while it looks at the workspace: they find the terminal (#669)", async () => {
+    const pty = fakePty();
+    let answerLook: (there: boolean) => void = () => undefined;
+    let lookAsked: () => void = () => undefined;
+    const lookedAt = new Promise<void>((resolve) => (lookAsked = resolve));
+    const t = await start({
+      terminals: { pty },
+      workspaces: {
+        isDirectory: () => {
+          lookAsked();
+          return new Promise<boolean>((resolve) => (answerLook = resolve));
+        },
+      },
+    });
+    await t.env.workspaces.availabilityPass;
+    const client = await t.client();
+    const sessionId = await sessionIn(client, tempDir("agent-harness-terminal-"));
+    const id = randomUUID();
+
+    const opening = terminalCommand(client, "terminals.open", { id, sessionId });
+    await lookedAt;
+    const writing = terminalCommand(client, "terminals.write", { id, data: "echo one\r" });
+    const resizing = terminalCommand(client, "terminals.resize", { id, cols: 100, rows: 30 });
+    const subscribing = client.subscribe("terminals.subscribe", { id, afterSequence: 0 });
+    // Answered behind them on the socket while they wait: nothing is open yet.
+    expect((await client.request("terminals.list", { sessionId })).terminals).toEqual([]);
+    answerLook(true);
+
+    expect((await opening).receipt).toMatchObject({ status: "accepted" });
+    expect((await writing).receipt).toMatchObject({ status: "accepted" });
+    expect((await resizing).result?.terminal).toMatchObject({ id, cols: 100, rows: 30 });
+    expect(await subscribing).toMatchObject({ type: "subscribed" });
+    expect(pty.spawned).toHaveLength(1);
+    expect(pty.spawned[0]?.written).toEqual(["echo one\r"]);
+    expect((await client.request("terminals.list", { sessionId })).terminals).toMatchObject([{ id, cols: 100, rows: 30 }]);
+  });
+
   it("refuses a workspace directory that is gone conflict, reason workspace_missing", async () => {
     const { client } = await setUp();
     // The environment refuses a session in a directory that is not there, so this one goes after the session is made.

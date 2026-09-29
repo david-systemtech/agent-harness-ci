@@ -29,9 +29,11 @@ describe("the badges of the environments listed", () => {
     expect(badges.get("id-desk")?.icon).toBe("●");
   });
 
-  it("take the environment's own colour and icon when it has them", () => {
-    const badges = badgesOf([view("desk", { colour: "#ff8800", icon: "◆" })]);
-    expect(badges.get("id-desk")).toEqual({ icon: "◆", abbreviation: "DE", colour: "#ff8800" });
+  it("keep the circle and a colour by place whatever icon and colour the environment names, until the terminal UI maps them (#327)", () => {
+    const badges = badgesOf([view("desk", { colour: "amber", icon: "laptop" }), view("tower", { colour: "red", icon: "server" })]);
+    expect(badges.get("id-desk")).toEqual(badgesOf([view("desk")]).get("id-desk"));
+    expect(badges.get("id-desk")).toEqual({ icon: "●", abbreviation: "DE", colour: "cyan" });
+    expect(badges.get("id-tower")).toEqual({ icon: "●", abbreviation: "TO", colour: "magenta" });
   });
 
   it("say this machine for the placeholder", () => {

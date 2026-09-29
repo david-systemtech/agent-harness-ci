@@ -1,4 +1,4 @@
-import { ContractError, type Workspace } from "@agent-harness/contracts";
+import { ContractError, type Workspace, type WorkspaceStatus } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import { sessionNotFound } from "../sessions/decider.js";
 
@@ -8,12 +8,21 @@ import { sessionNotFound } from "../sessions/decider.js";
  * wrote. A session that is not on this environment, or is deleted, has none.
  */
 
-/** The session's workspace path; null when there is no such session, or it is deleted. */
-export const sessionWorkspace = (log: Pick<EventLog, "read">, sessionId: string): string | null => {
-  const [row] = log.read<{ deleted_at: string | null; workspace: string }>("SELECT deleted_at, workspace FROM sessions WHERE id = ?", sessionId);
+/**
+ * The session's workspace path, and its status as the availability watcher
+ * last marked it (#328); null when there is no such session, or it is deleted.
+ */
+export const sessionWorkspaceStatus = (log: Pick<EventLog, "read">, sessionId: string): { readonly path: string; readonly status: WorkspaceStatus } | null => {
+  const [row] = log.read<{ deleted_at: string | null; workspace: string; workspace_missing_since: string | null }>(
+    "SELECT deleted_at, workspace, workspace_missing_since FROM sessions WHERE id = ?",
+    sessionId,
+  );
   if (row === undefined || row.deleted_at !== null) return null;
-  return (JSON.parse(row.workspace) as Workspace).path;
+  return { path: (JSON.parse(row.workspace) as Workspace).path, status: row.workspace_missing_since === null ? "present" : "missing" };
 };
+
+/** The session's workspace path; null when there is no such session, or it is deleted. */
+export const sessionWorkspace = (log: Pick<EventLog, "read">, sessionId: string): string | null => sessionWorkspaceStatus(log, sessionId)?.path ?? null;
 
 /** The session's workspace path, or the `not_found` (kind `session`) a query answers with. */
 export const requireSessionWorkspace = (log: Pick<EventLog, "read">, sessionId: string): string => {

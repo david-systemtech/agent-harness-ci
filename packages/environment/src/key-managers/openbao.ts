@@ -50,9 +50,20 @@ import { sameValue } from "./same-value.js";
  * anchors the chain itself), and the system's trusted CAs otherwise,
  * whatever the process's environment says: TLS verification is never
  * turned off.
+ *
+ * A call goes out on a connection kept from an earlier one when there is
+ * one. When OpenBao closed it meanwhile (a restart, its idle timeout) and
+ * the call is reset before any answer, that says nothing of OpenBao: the
+ * call is made once more on a new connection, whose handshake verifies the
+ * certificate OpenBao presents now (#681), under the same signal.
  */
 
-/** How long one call may take (ADR 0031's budget), past which OpenBao counts as unreachable. */
+/**
+ * How long an attempt at a call may go without an answer (Node's socket
+ * timeout, each attempt's own), past which OpenBao counts as unreachable.
+ * ADR 0031's budget for a whole verification, read, list or write is the
+ * caller's signal, which a retried call carries too.
+ */
 const OPENBAO_CALL_TIMEOUT_MS = 10_000;
 
 /** The most of an answer read: OpenBao's are small. */
@@ -82,6 +93,9 @@ const CERTIFICATE_ERRORS = new Set([
   "HOSTNAME_MISMATCH",
   "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
+
+/** How a kept connection the other end had closed fails a call written to it: reset, or written to after its end. */
+const CLOSED_CONNECTION_ERRORS = new Set(["ECONNRESET", "EPIPE"]);
 
 /** What a call came back with: OpenBao's status and its JSON answer, or why there was none. */
 type Reply = { readonly outcome: "answered"; readonly status: number; readonly body: unknown } | LoginFailure;
@@ -134,7 +148,8 @@ interface CallOptions {
 /**
  * One call to OpenBao's API under `/v1/`: `X-Vault-Token` carries the token
  * when there is one, and a JSON body the request's fields. The certificate is
- * verified against the pinned CA, or the system's with none, always.
+ * verified against the pinned CA, or the system's with none, always. A kept
+ * connection found closed before any answer is tried once more on a new one.
  */
 const call = (target: SignInTarget, method: "GET" | "POST", path: string, options: CallOptions = {}): Promise<Reply> =>
   new Promise((resolve) => {
@@ -157,16 +172,27 @@ const call = (target: SignInTarget, method: "GET" | "POST", path: string, option
       ...(target.ca !== null && { ca: target.ca, allowPartialTrustChain: true }),
       ...(options.signal !== undefined && { signal: options.signal }),
     };
-    const answered = (response: IncomingMessage): void => {
-      readBody(response).then(
-        (text) => resolve({ outcome: "answered", status: response.statusCode ?? 0, body: parse(text) }),
-        (error: unknown) => resolve(failureOf(target, error as NodeJS.ErrnoException)),
-      );
+    /** Sends the call, on a new connection when `anew`, else on one kept from an earlier call if there is one. */
+    const send = (anew: boolean): void => {
+      let answered = false;
+      const read = (response: IncomingMessage): void => {
+        answered = true;
+        readBody(response).then(
+          (text) => resolve({ outcome: "answered", status: response.statusCode ?? 0, body: parse(text) }),
+          (error: unknown) => resolve(failureOf(target, error as NodeJS.ErrnoException)),
+        );
+      };
+      const sendOptions: RequestOptions = anew ? { ...requestOptions, agent: false } : requestOptions;
+      const sent = url.protocol === "https:" ? httpsRequest(url, sendOptions, read) : httpRequest(url, sendOptions, read);
+      sent.on("timeout", () => sent.destroy(Object.assign(new Error(`no answer within ${OPENBAO_CALL_TIMEOUT_MS / 1000} seconds`), { code: "ETIMEDOUT" })));
+      sent.on("error", (error: NodeJS.ErrnoException) => {
+        // A kept connection OpenBao had closed: the call never reached it, so it is made once more, on a new connection.
+        if (!anew && !answered && sent.reusedSocket && CLOSED_CONNECTION_ERRORS.has(error.code ?? "")) send(true);
+        else resolve(failureOf(target, error));
+      });
+      sent.end(body);
     };
-    const sent = url.protocol === "https:" ? httpsRequest(url, requestOptions, answered) : httpRequest(url, requestOptions, answered);
-    sent.on("timeout", () => sent.destroy(Object.assign(new Error(`no answer within ${OPENBAO_CALL_TIMEOUT_MS / 1000} seconds`), { code: "ETIMEDOUT" })));
-    sent.on("error", (error: NodeJS.ErrnoException) => resolve(failureOf(target, error)));
-    sent.end(body);
+    send(false);
   });
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

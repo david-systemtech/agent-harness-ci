@@ -173,6 +173,9 @@ describe("setup.result-changed", () => {
 /** The status a fresh test environment's snapshot carries. */
 const IDLE = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } as const;
 
+/** The environment's name, icon and colour the snapshot carries beside the results (#323): the look's own tests pin them. */
+const lookOf = (t: TestEnvironment) => ({ name: t.env.name, icon: expect.any(String) as unknown, colour: expect.any(String) as unknown });
+
 describe("environment.subscribe's snapshot", () => {
   it("carries every step's cached result as setup, in the registry's order, a step whose first check has not answered absent", async () => {
     const late = lateCheck();
@@ -203,7 +206,7 @@ describe("environment.subscribe's snapshot", () => {
     (await late.call(1)).answer(true);
     await t.env.setup.startPass;
     const account = { step: "account", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: MANUAL_CLOCK_START };
-    expect(await snapshot(t, client)).toEqual({ status: IDLE, setup: [account, permissions, appearance] });
+    expect(await snapshot(t, client)).toEqual({ status: IDLE, environment: lookOf(t), setup: [account, permissions, appearance] });
   });
 
   it("carries every registered step's result once the step registry's checks have run, in the milestone-1 order", async () => {
@@ -229,7 +232,7 @@ describe("environment.subscribe's snapshot", () => {
 
     const second = await start({ dataDir, setupSteps, clock: manualClock(after(2 * HOUR)) });
     const client = await second.client();
-    expect(await snapshot(second, client)).toEqual({ status: IDLE, setup: results.map((result) => ({ ...result, checkedAt: after(2 * HOUR) })) });
+    expect(await snapshot(second, client)).toEqual({ status: IDLE, environment: lookOf(second), setup: results.map((result) => ({ ...result, checkedAt: after(2 * HOUR) })) });
     // Four notices at the first start (three first results, and Account's change), none at the second.
     const subscription = await watch(client, 0);
     expect(noticed(client, subscription)).toHaveLength(4);

@@ -158,19 +158,27 @@ export const ambientConfigDirectory = (host: HostEnvironment): string => {
 
 /**
  * A Claude process's environment: the host's, with every scrubbed variable
- * removed, then `extra`, then the account's directory, as the config
- * directory and as the credential store, on top. The directory is always
- * given and always set, whoever asks otherwise. Answers a fresh object: the
- * SDK's `env` option replaces the child's environment wholesale, so nothing
- * here is merged later.
+ * removed, then what its spawn was `supplied` (the run's process
+ * environment, #307: after the scrub, so a supplied name holding `_TOKEN`
+ * reaches the process), then `extra`, the harness's own, then the account's
+ * directory, as the config directory and as the credential store, on top.
+ * The directory is always given and always set, and the stripped variables
+ * never are, whoever asks otherwise. Answers a fresh object: the SDK's `env`
+ * option replaces the child's environment wholesale, so nothing here is
+ * merged later.
  */
-export const composeRunEnvironment = (host: HostEnvironment, directory: string, extra: Readonly<Record<string, string>> = {}): Record<string, string> => {
+export const composeRunEnvironment = (
+  host: HostEnvironment,
+  directory: string,
+  extra: Readonly<Record<string, string>> = {},
+  supplied: Readonly<Record<string, string>> = {},
+): Record<string, string> => {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(host)) {
     if (value === undefined || isScrubbed(key)) continue;
     env[key] = value;
   }
-  for (const [key, value] of Object.entries(extra)) {
+  for (const [key, value] of [...Object.entries(supplied), ...Object.entries(extra)]) {
     // The stripped variables are never set, whoever asks.
     if ((CLAUDE_STRIPPED_VARIABLES as readonly string[]).includes(key)) continue;
     env[key] = value;

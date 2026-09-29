@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
 import {
@@ -62,7 +63,11 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * `createRun` for a session with none starts one, the next reuses it, and
  * `stopProcess` stops it; the records say which process each run went to.
  * A script holds the process with background work through the run
- * context's port (`backgroundTask`).
+ * context's port (`backgroundTask`). A process is spawned with its run's
+ * process environment (#307), supplied once and reported on its record
+ * (`supplied`), and a run whose key differs lets it go for a fresh one, as
+ * Claude's adapter does; a script runs a command in what its process was
+ * supplied (`runCommand`).
  *
  * Accounts (#134): the status probe answers per account directory and can
  * be changed mid-test (`setStatus`), every read is recorded
@@ -99,16 +104,26 @@ export interface ScriptControls {
   readonly signal: AbortSignal;
   /** Whether this run is a turn the fake opened on its own. */
   readonly adopted: boolean;
+  /** Settles with the variables the spawn of the run's process was supplied (#307). */
+  environment(): Promise<Readonly<Record<string, string>>>;
 }
 
 /** A run's script: the events it plays, in order, ending (or not, or throwing) as a test needs. */
 export type Script = (controls: ScriptControls) => Iterable<AdapterEvent> | AsyncIterable<AdapterEvent>;
 
-/** One provider process as the fake keeps it: its session, how many runs it served, and whether it has been stopped. */
+/**
+ * One provider process as the fake keeps it: its session, how many runs it
+ * served, whether it has been stopped, and the process environment it was
+ * spawned with (#307).
+ */
 export interface FakeProcessRecord {
   readonly sessionId: string;
   /** The runs `createRun` started on it. */
   runs: number;
+  /** The key of the process environment it was spawned with: a run with another is served by a fresh process. */
+  readonly key: string;
+  /** Settles with the variables its spawn was supplied, which its scripted commands run in (`runCommand`). */
+  readonly supplied: Promise<Readonly<Record<string, string>>>;
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -468,6 +483,44 @@ export async function* toolCall(
   };
 }
 
+/** What a scripted command answered: its exit code (null when it could not run or a signal ended it), and what it printed. */
+export interface CommandResult {
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * Runs `command` as a provider's shell tool does (#307): `tool.started` for
+ * `Bash`, the gate asked about it as a shell command, then, allowed, the
+ * command run by `/bin/sh` in the run's workspace, in the variables the
+ * spawn of the run's process was supplied over this process's PATH and
+ * `env`; then `tool.ended` with what it printed, `ok` on exit code 0, or
+ * with the gate's denial. #315's git tests run git through it.
+ */
+export async function* runCommand(
+  controls: ScriptControls,
+  command: string,
+  options: { readonly env?: Readonly<Record<string, string>> } = {},
+): AsyncGenerator<AdapterEvent, CommandResult> {
+  const toolCallId = `toolu_${randomUUID()}`;
+  const access = { kind: "shell", command } as const;
+  yield { type: "tool.started", payload: { toolCallId, name: "Bash", input: { command }, title: command, agentId: null, parentToolCallId: null } };
+  const decision = await controls.context.gate.check({ toolCallId, tool: "Bash", summary: toolCallSummary("Bash", access), access, input: { command } }, controls.signal);
+  if (decision.decision === "deny") {
+    yield { type: "tool.ended", payload: { toolCallId, status: "error", output: decision.message, durationMs: 1 } };
+    return { code: null, stdout: "", stderr: decision.message };
+  }
+  const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...options.env, ...(await controls.environment()) };
+  const result = await new Promise<CommandResult>((resolve) => {
+    execFile("/bin/sh", ["-c", command], { cwd: controls.input.workspace.path, env, signal: controls.signal }, (error, stdout, stderr) =>
+      resolve({ code: error === null ? 0 : typeof error.code === "number" ? error.code : null, stdout, stderr }),
+    );
+  });
+  yield { type: "tool.ended", payload: { toolCallId, status: result.code === 0 ? "ok" : "error", output: `${result.stdout}${result.stderr}`, durationMs: 1 } };
+  return result;
+}
+
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
 
@@ -606,13 +659,29 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     return latest === undefined || latest.stopping || latest.stopped ? undefined : latest;
   };
 
-  /** The session's process for a new run: the live one, or one started cold. */
-  const processFor = (sessionId: string): FakeProcessRecord => {
-    let process = liveProcess(sessionId);
-    if (process === undefined) {
-      process = { sessionId, runs: 0, stopping: false, stopped: false, killed: false };
-      processes.push(process);
+  /** Starts a process cold for the run: its process environment supplied once, for this spawn. */
+  const spawn = (input: RunInput): FakeProcessRecord => {
+    const supplied = input.processEnvironment.supply().then((answer) => answer.variables);
+    // A script that never asks for the variables leaves a failed supply unheard: it is not an unhandled rejection.
+    supplied.catch(() => undefined);
+    const process: FakeProcessRecord = { sessionId: input.sessionId, runs: 0, key: input.processEnvironment.key, supplied, stopping: false, stopped: false, killed: false };
+    processes.push(process);
+    return process;
+  };
+
+  /**
+   * The session's process for a new run: the live one, or one started cold.
+   * A live one spawned with another process environment is let go for a
+   * fresh one, as Claude lets its process go for a run it cannot serve.
+   */
+  const processFor = (input: RunInput): FakeProcessRecord => {
+    let process = liveProcess(input.sessionId);
+    if (process !== undefined && process.key !== input.processEnvironment.key) {
+      process.stopping = true;
+      process.stopped = true;
+      process = undefined;
     }
+    process ??= spawn(input);
     process.runs += 1;
     return process;
   };
@@ -691,6 +760,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       context: gated,
       signal: abort.signal,
       adopted,
+      environment: () => process.supplied,
       nextSent: () =>
         new Promise((resolve) => {
           const ready = untaken.shift();
@@ -815,7 +885,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     }),
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
     createRun: (input, context) => {
-      const process = processFor(input.sessionId);
+      const process = processFor(input);
       ports.set(process, context.process);
       return play(input, context, nextScripts.shift() ?? options.script ?? replyScript, false, process);
     },

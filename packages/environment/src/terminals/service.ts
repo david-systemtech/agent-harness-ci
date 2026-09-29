@@ -8,11 +8,10 @@ import {
 } from "@agent-harness/contracts";
 import { RECEIPT_RETENTION_MS, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
-import { isDirectory } from "../serve/files.js";
-import type { CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
+import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
-import { requireSessionWorkspace, sessionWorkspace } from "../workspace/session.js";
+import { requireSessionWorkspace, sessionWorkspace, sessionWorkspaceStatus } from "../workspace/session.js";
 import { PtyUnavailableError } from "./pty.js";
 import { createTerminals, type Terminals, type TerminalsOptions } from "./terminals.js";
 
@@ -24,18 +23,22 @@ import { createTerminals, type Terminals, type TerminalsOptions } from "./termin
  * transaction and acts on the terminal once the transaction has committed,
  * so nothing is typed, resized, closed or started for a command that did
  * not. None appends an event: output never enters the log, and neither does
- * anything else a terminal does, but the open tells the availability
- * watcher what it found of the session's workspace (#328), which marks the
- * session gone or back. A session's deletion closes its terminals
- * (session-state spec, "Deletion": an obligation on this workstream,
- * triggered by `session.deleted`); a restore brings none back.
+ * anything else a terminal does. The open is a prepared command: the
+ * availability watcher looks at the session's workspace first, within its
+ * bound, and marks the session gone or back (#328), so a network mount
+ * whose server is gone never stalls the environment (#669); the open then
+ * refuses a workspace marked missing. The terminal's other commands and
+ * its subscription, sent while its open looks, wait for the open. A
+ * session's deletion closes its terminals (session-state spec, "Deletion":
+ * an obligation on this workstream, triggered by `session.deleted`); a
+ * restore brings none back.
  */
 
 export interface TerminalServiceOptions extends Omit<TerminalsOptions, "clock"> {
   readonly log: EventLog;
   readonly clock: Clock;
-  /** Told what `terminals.open` found of the session's workspace, gone or there (#328). */
-  readonly availability: Pick<AvailabilityWatcher, "found">;
+  /** What looks at the session's workspace before `terminals.open` decides, and marks the session by what it found (#328, #669). */
+  readonly availability: Pick<AvailabilityWatcher, "check">;
 }
 
 export interface TerminalService {
@@ -98,72 +101,119 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     if (event.streamKind === SESSION_STREAM_KIND && event.type === "session.deleted") terminals.closeSession(event.streamId);
   });
 
-  const handlers: MethodHandlers = {
-    "terminals.open": (params, context) => {
-      const id = params.id.toLowerCase();
-      const sessionId = params.sessionId.toLowerCase();
-      const aggregate = terminalAggregate(id);
-      const cwd = sessionWorkspace(log, sessionId);
-      if (cwd === null) return { aggregate, rejected: sessionNotFound(sessionId) };
-      if (used(id)) return { aggregate, rejected: conflict("exists", `A terminal ${id} was opened on this environment already.`, { id }) };
-      if (terminals.list(sessionId).length >= MAX_TERMINALS_PER_SESSION) {
-        return {
-          aggregate,
-          rejected: conflict("too_many_terminals", `Session ${sessionId} has ${MAX_TERMINALS_PER_SESSION} terminals open; close one first.`, {
-            sessionId,
-            limit: MAX_TERMINALS_PER_SESSION,
-          }),
-        };
-      }
-      // What it found of the workspace marks the session once the command has committed, refused or not (#328).
-      const there = isDirectory(cwd);
-      afterCommit(context, () => options.availability.found(sessionId, cwd, there ? "present" : "missing"));
-      if (!there) {
-        return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is not a directory on this machine.`, { path: cwd }) };
-      }
-      try {
-        terminals.check();
-      } catch (error) {
-        if (!(error instanceof PtyUnavailableError)) throw error;
-        return { aggregate, rejected: conflict("pty_unavailable", error.message) };
-      }
-      const request = {
-        id,
-        sessionId,
-        cwd,
-        cols: params.cols ?? DEFAULT_TERMINAL_SIZE.cols,
-        rows: params.rows ?? DEFAULT_TERMINAL_SIZE.rows,
-        env: params.env ?? {},
-        openedAt: clock.now().toISOString(),
+  /**
+   * Each open still looking at its session's workspace, by terminal id: a
+   * promise that settles, either way, when the look does (#669). Dispatch
+   * decides the open in the reaction its look settling queues; a command on
+   * the terminal, or its subscription, sent meanwhile waits on this promise
+   * and is decided a reaction later still, so after the open, as it would
+   * have been had the open not waited.
+   */
+  const opening = new Map<string, Promise<void>>();
+
+  /** Holds the terminal `id`'s commands and subscription behind `look`, its open's look at the workspace, until it settles. */
+  const holdBehind = (id: string, look: Promise<unknown>): void => {
+    const settled = look.then(
+      () => undefined,
+      () => undefined,
+    );
+    opening.set(id, settled);
+    void settled.then(() => {
+      if (opening.get(id) === settled) opening.delete(id);
+    });
+  };
+
+  /** `then()`, once the open of the terminal `id` still looking at the workspace is decided; at once when none is, keeping its place on its socket. */
+  const afterOpening = <T>(id: string, then: () => T): T | Promise<T> => {
+    const looking = opening.get(id);
+    return looking === undefined ? then() : looking.then(then);
+  };
+
+  /** A command on a terminal, prepared only to wait for the terminal's open (`afterOpening`). */
+  const behindOpen = <N extends "terminals.write" | "terminals.resize" | "terminals.close">(handler: MethodHandler<N>): PreparedCommand<N> => ({
+    prepare: (params) => afterOpening(params.id.toLowerCase(), () => handler),
+  });
+
+  /**
+   * The open itself, decided once the availability watcher has looked at the
+   * session's workspace and marked it by what it found (#669): a workspace
+   * marked missing is refused.
+   */
+  const open: MethodHandler<"terminals.open"> = (params, context) => {
+    const id = params.id.toLowerCase();
+    const sessionId = params.sessionId.toLowerCase();
+    const aggregate = terminalAggregate(id);
+    const workspace = sessionWorkspaceStatus(log, sessionId);
+    if (workspace === null) return { aggregate, rejected: sessionNotFound(sessionId) };
+    if (used(id)) return { aggregate, rejected: conflict("exists", `A terminal ${id} was opened on this environment already.`, { id }) };
+    if (terminals.list(sessionId).length >= MAX_TERMINALS_PER_SESSION) {
+      return {
+        aggregate,
+        rejected: conflict("too_many_terminals", `Session ${sessionId} has ${MAX_TERMINALS_PER_SESSION} terminals open; close one first.`, {
+          sessionId,
+          limit: MAX_TERMINALS_PER_SESSION,
+        }),
       };
-      afterCommit(context, () => void terminals.open(request));
-      const terminal: TerminalInfo = { id, sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
-      return { aggregate, result: { terminal } };
+    }
+    const cwd = workspace.path;
+    if (workspace.status === "missing") {
+      return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is gone, or did not answer in time.`, { path: cwd }) };
+    }
+    try {
+      terminals.check();
+    } catch (error) {
+      if (!(error instanceof PtyUnavailableError)) throw error;
+      return { aggregate, rejected: conflict("pty_unavailable", error.message) };
+    }
+    const request = {
+      id,
+      sessionId,
+      cwd,
+      cols: params.cols ?? DEFAULT_TERMINAL_SIZE.cols,
+      rows: params.rows ?? DEFAULT_TERMINAL_SIZE.rows,
+      env: params.env ?? {},
+      openedAt: clock.now().toISOString(),
+    };
+    afterCommit(context, () => void terminals.open(request));
+    const terminal: TerminalInfo = { id, sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
+    return { aggregate, result: { terminal } };
+  };
+
+  const handlers: MethodHandlers = {
+    "terminals.open": {
+      prepare: (params) => {
+        const sessionId = params.sessionId.toLowerCase();
+        // A session not here needs no look: its refusal is answered at once, keeping the command's place on its socket.
+        if (sessionWorkspace(log, sessionId) === null) return open;
+        const looked = options.availability.check(sessionId).then(() => open);
+        holdBehind(params.id.toLowerCase(), looked);
+        return looked;
+      },
     },
 
-    "terminals.write": (params, context) => {
+    "terminals.write": behindOpen((params, context) => {
       const id = params.id.toLowerCase();
       const found = target(terminals, id);
       if ("rejected" in found) return { aggregate: terminalAggregate(id), rejected: found.rejected };
       afterCommit(context, () => terminals.write(id, params.data));
       return { aggregate: terminalAggregate(id), result: { id } };
-    },
+    }),
 
-    "terminals.resize": (params, context) => {
+    "terminals.resize": behindOpen((params, context) => {
       const id = params.id.toLowerCase();
       const found = target(terminals, id);
       if ("rejected" in found) return { aggregate: terminalAggregate(id), rejected: found.rejected };
       afterCommit(context, () => terminals.resize(id, params.cols, params.rows));
       return { aggregate: terminalAggregate(id), result: { terminal: { ...found.info, cols: params.cols, rows: params.rows } } };
-    },
+    }),
 
-    "terminals.close": (params, context) => {
+    "terminals.close": behindOpen((params, context) => {
       const id = params.id.toLowerCase();
       const found = target(terminals, id, true);
       if ("rejected" in found) return { aggregate: terminalAggregate(id), rejected: found.rejected };
       afterCommit(context, () => terminals.close(id, "closed"));
       return { aggregate: terminalAggregate(id), result: { id } };
-    },
+    }),
 
     "terminals.list": (params) => {
       const sessionId = params.sessionId.toLowerCase();
@@ -173,9 +223,11 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
 
     "terminals.subscribe": (params) => {
       const id = params.id.toLowerCase();
-      const source = terminals.source(id);
-      if (source === undefined) throw new ContractError({ code: "not_found", message: `No terminal ${id} is open on this environment.`, data: { kind: "terminal", id } });
-      return source;
+      return afterOpening(id, () => {
+        const source = terminals.source(id);
+        if (source === undefined) throw new ContractError({ code: "not_found", message: `No terminal ${id} is open on this environment.`, data: { kind: "terminal", id } });
+        return source;
+      });
     },
   };
 

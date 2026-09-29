@@ -163,7 +163,7 @@ describe("a session's provider process", () => {
     const second = await startRun(other, id, "And the tests");
     await untilEnded(t, id, second.runId);
 
-    expect(t.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 2, stopping: false, stopped: false, killed: false }]);
+    expect(t.adapter.processesOf(id)).toMatchObject([{ sessionId: id, runs: 2, stopping: false, stopped: false, killed: false }]);
     expect(t.adapter.runs.map((run) => run.process)).toEqual([t.adapter.processesOf(id)[0], t.adapter.processesOf(id)[0]]);
     expect(await processes(other)).toEqual([idleProcess(id, 0)]);
   });
@@ -218,7 +218,7 @@ describe("the idle stop", () => {
     await vi.waitFor(async () =>
       expect(await processOf(client, id)).toEqual({ ...idleProcess(id, 0), state: "stopped", stopsAt: null, stoppedAt: at(IDLE), stopReason: "idle" }),
     );
-    expect(t.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 1, stopping: true, stopped: true, killed: false }]);
+    expect(t.adapter.processesOf(id)).toMatchObject([{ sessionId: id, runs: 1, stopping: true, stopped: true, killed: false }]);
 
     // No process is pre-warmed: an hour on, the provider has started nothing new, and a stopped one is listed for ten minutes only.
     t.clock.advance(60 * MINUTE);
@@ -227,7 +227,7 @@ describe("the idle stop", () => {
 
     const cold = await startRun(client, id, "Back again");
     await untilEnded(t, id, cold.runId);
-    expect(t.adapter.processesOf(id)).toEqual([
+    expect(t.adapter.processesOf(id)).toMatchObject([
       { sessionId: id, runs: 1, stopping: true, stopped: true, killed: false },
       { sessionId: id, runs: 1, stopping: false, stopped: false, killed: false },
     ]);
@@ -749,7 +749,7 @@ describe("a drain and its close", () => {
     expect(await settled(closing)).toBe(false);
     stops.open();
     await closing;
-    expect(t.adapter.processesOf(id)).toEqual([
+    expect(t.adapter.processesOf(id)).toMatchObject([
       { sessionId: id, runs: 1, stopping: true, stopped: true, killed: false },
       { sessionId: id, runs: 1, stopping: false, stopped: true, killed: false },
     ]);
@@ -828,7 +828,7 @@ describe("the recovery sweep", () => {
     // The next run starts cold, resumes the provider's session, and reads the message the provider held first.
     const next = await startRun(later, id, "Carry on");
     await untilEnded(again, id, next.runId);
-    expect(again.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 1, stopping: false, stopped: false, killed: false }]);
+    expect(again.adapter.processesOf(id)).toMatchObject([{ sessionId: id, runs: 1, stopping: false, stopped: false, killed: false }]);
     expect(again.adapter.lastRun().input).toMatchObject({
       target: { kind: "resume", providerSessionId: "provider-1" },
       prompt: [expect.objectContaining({ messageId: queued.result?.messageId, text: "And the docs" }), expect.objectContaining({ text: "Carry on" })],
