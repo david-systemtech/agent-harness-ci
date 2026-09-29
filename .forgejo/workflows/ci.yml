@@ -55,6 +55,19 @@ jobs:
 
       # The project's own steps go here.
       - run: corepack enable && corepack prepare --activate
+      # The pnpm store survives between runs in the ci runner's cache, keyed by
+      # the lockfile, so an install links packages instead of downloading
+      # them. pnpm checks every package against the lockfile's integrity hash
+      # as it installs (verify-store-integrity is on by default), so a stale or
+      # damaged cache costs time, never a wrong package.
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
