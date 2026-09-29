@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { EventEnvelope, EventFrame, KeyManagerReference } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { DAVID, TOKEN, added as forgeAdded, list as forgeList, rejection, saidBack, verify as forgeVerify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, move, moveList, setBasePath, verify } from "../../test/key-manager-connections.js";
+import { scriptedMoveSource, storedAtOf } from "../../test/move-sources.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { VAULT_FILE, fileVault } from "../serve/vault.js";
 
@@ -21,7 +23,7 @@ import { VAULT_FILE, fileVault } from "../serve/vault.js";
  * is seen in what a run's provider says back.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -126,6 +128,9 @@ const environmentEvents = async (client: WireClient, afterSequence: number): Pro
   }
 };
 
+/** A value another hand put at a target: nothing a secret scanner takes for a real one. */
+const OTHER_VALUE = "another-value-for-tests";
+
 /** The vault entries the environment's file vault holds: what a restart would find. */
 const vaultKeys = async (t: TestEnvironment): Promise<readonly string[]> => fileVault(join(t.dataDir, VAULT_FILE)).keys();
 
@@ -200,6 +205,48 @@ describe("keyManagers.move", () => {
     expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
   });
 
+  it("refuses a different value already at the target as conflict reason target_exists, writing nothing and swapping nothing, unless overwrite is given", async () => {
+    const { bao, client, connection, account } = await withForgeAccount();
+    await setBasePath(client, connection.id, "personal/harness");
+    const reference = homeTarget(connection.id);
+    bao.secret("personal", "harness/forge-home", { token: OTHER_VALUE, note: "put here by hand" });
+
+    const refused = await move(client, { connectionId: connection.id });
+
+    expect(refused.receipt).toMatchObject({ status: "accepted", changed: false });
+    expect(refused.result?.items).toEqual([
+      {
+        item: { kind: "forge-account", id: account.id },
+        outcome: "failed",
+        step: "write",
+        written: false,
+        error: {
+          code: "conflict",
+          message: `A different value is at OpenBao at personal/harness/forge-home (key token) already: nothing was written, and the forge account ${account.origin} keeps its stored value. Move it with overwrite to replace that value.`,
+          data: { reason: "target_exists", connectionId: connection.id, reference },
+        },
+      },
+    ]);
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({ token: OTHER_VALUE, note: "put here by hand" });
+    expect(await forgeList(client)).toMatchObject([{ id: account.id, credential: { kind: "stored" } }]);
+    expect(JSON.stringify(refused)).not.toMatch(new RegExp(`${OTHER_VALUE}|${TOKEN}`));
+
+    const overwritten = await move(client, { connectionId: connection.id, overwrite: true });
+    expect(overwritten.result?.items).toMatchObject([{ outcome: "moved", reference, storedValueDeleted: true }]);
+    expect(bao.stored("personal", "harness/forge-home")).toMatchObject({ token: TOKEN, note: expect.stringContaining("forge account home") });
+    expect(await forgeList(client)).toMatchObject([{ id: account.id, credential: { kind: "reference", reference } }]);
+  });
+
+  it("takes the same value already at the target as no conflict", async () => {
+    const { bao, client, connection } = await withForgeAccount();
+    await setBasePath(client, connection.id, "personal/harness");
+    bao.secret("personal", "harness/forge-home", { token: TOKEN });
+
+    const answer = await move(client, { connectionId: connection.id });
+
+    expect(answer.result?.items).toMatchObject([{ outcome: "moved", reference: homeTarget(connection.id), storedValueDeleted: true }]);
+  });
+
   it("gives an entry on a KV version 1 mount its note, service and added fields as on version 2", async () => {
     const { client, bao, connection, forge } = await withForgeAccount();
     await setBasePath(client, connection.id, "legacy/harness");
@@ -208,5 +255,180 @@ describe("keyManagers.move", () => {
 
     expect(answer.result?.items).toMatchObject([{ outcome: "moved", reference: homeTarget(connection.id, "legacy/harness") }]);
     expect(bao.stored("legacy", "harness/forge-home")).toEqual({ token: TOKEN, note: expect.any(String), service: forge.origin.replace(/^https?:\/\//, ""), added: "2026-09-24" });
+  });
+});
+
+describe("keyManagers.move's refusals", () => {
+  it("is not_found for a connection the environment does not hold, and invalid_params for one without a base path", async () => {
+    const { client, connection } = await withOpenBao();
+    const elsewhere = randomUUID();
+    expect(rejection((await move(client, { connectionId: elsewhere })).receipt)).toMatchObject({ reason: "not_found", data: { kind: "key_manager_connection", connectionId: elsewhere } });
+    await expect(move(client, { connectionId: connection.id })).rejects.toMatchObject({ code: "invalid_params", message: expect.stringContaining("no base path") });
+  });
+
+  it("is credential_source_unavailable for a connection not signed in, and provider_unavailable for a provider a Move cannot write to yet", async () => {
+    const { client } = await withOpenBao();
+    const waiting = await added(client, { address: "https://bao.example.com:8200", method: "approle", basePath: "personal/harness" });
+    expect(rejection((await move(client, { connectionId: waiting.id })).receipt)).toMatchObject({ reason: "credential_source_unavailable", data: { connectionId: waiting.id } });
+    const doppler = await added(client, { provider: "doppler", address: "https://api.doppler.com", basePath: "harness" });
+    expect(rejection((await move(client, { connectionId: doppler.id })).receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "doppler" } });
+  });
+
+  it("answers an item that holds no stored value not_found, and moves the others", async () => {
+    const { client, connection, account } = await withForgeAccount();
+    await setBasePath(client, connection.id, "personal/harness");
+    const nothing = randomUUID();
+
+    const answer = await move(client, { connectionId: connection.id, items: [{ kind: "forge-account", id: nothing }, { kind: "forge-account", id: account.id.toUpperCase() }] });
+
+    expect(answer.result?.items).toEqual([
+      { item: { kind: "forge-account", id: nothing }, outcome: "failed", step: "read", written: false, error: { code: "not_found", message: `No forge account ${nothing} holds a stored token on this environment.`, data: { kind: "forge-account", id: nothing } } },
+      expect.objectContaining({ item: { kind: "forge-account", id: account.id }, outcome: "moved" }),
+    ]);
+  });
+
+  it("leaves a copy it cannot read back as written unswapped, saying the value at the target differs", async () => {
+    const scripted = scriptedMoveSource();
+    const { bao, client, connection } = await withOpenBao({ moveSources: [scripted.source] });
+    await setBasePath(client, connection.id, "personal/harness");
+    const id = randomUUID();
+    scripted.hold(id, TOKEN, "scripted");
+    // Another hand's value answers every read of the target, whatever is written there.
+    bao.answer("GET personal/data/harness/forge-scripted", { status: 200, body: { data: { data: { token: OTHER_VALUE } } } });
+
+    const answer = await move(client, { connectionId: connection.id, overwrite: true });
+
+    expect(answer.result?.items).toEqual([
+      {
+        item: { kind: "forge-account", id },
+        outcome: "failed",
+        step: "read-back",
+        written: true,
+        error: {
+          code: "conflict",
+          message: "OpenBao at personal/harness/forge-scripted (key token) answered another value than the one written, so the forge account was not swapped to it. The copy written to OpenBao at personal/harness/forge-scripted (key token) and the stored token of the forge account scripted scripted are both left in place.",
+          data: { reason: "read_back_differs", connectionId: connection.id, reference: { provider: "openbao", connectionId: connection.id, mount: "personal", path: "harness/forge-scripted", key: "token" } },
+        },
+      },
+    ]);
+    expect(scripted.swapped.size).toBe(0);
+    expect(JSON.stringify(answer)).not.toMatch(new RegExp(`${OTHER_VALUE}|${TOKEN}`));
+  });
+});
+
+describe("the value a Move takes", () => {
+  it("is never in an event, a receipt, a log line or an answer", async () => {
+    // Every line handed to the logger, before its scrub: a value must never reach it at all.
+    const logged = (["log", "info", "warn", "error"] as const).map((level) => vi.spyOn(console, level));
+    onCleanup(() => logged.forEach((spy) => spy.mockRestore()));
+    const { client, connection } = await withForgeAccount();
+    await setBasePath(client, connection.id, "personal/harness");
+
+    const answer = await move(client, { connectionId: connection.id });
+    const listed = await moveList(client);
+
+    expect(answer.result?.items).toMatchObject([{ outcome: "moved" }]);
+    const events = await environmentEvents(client, 0);
+    expect(events.map((event) => event.type)).toContain("key-manager.moved");
+    expect(JSON.stringify([events, answer, listed])).not.toContain(TOKEN);
+    expect(JSON.stringify(logged.map((spy) => spy.mock.calls))).not.toContain(TOKEN);
+  });
+});
+
+describe("a Move through a source whose swap or delete fails", () => {
+  /** A data directory to start an environment on and start it again. */
+  const dataDirectory = (): string => {
+    const dataDir = join(tempDir(), "data");
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    return dataDir;
+  };
+
+  it("leaves the written copy and the stored value in place when the swap fails, and says so, the owner's refusal scrubbed of the value", async () => {
+    const scripted = scriptedMoveSource();
+    const { t, bao, client, connection } = await withOpenBao({ moveSources: [scripted.source] });
+    await setBasePath(client, connection.id, "personal/harness");
+    const id = randomUUID();
+    scripted.hold(id, TOKEN, "scripted");
+    scripted.failSwap(id, { code: "verification_failed", message: `The owner refused ${TOKEN}.`, data: { status: 401 } });
+    const from = t.env.log.head();
+
+    const answer = await move(client, { connectionId: connection.id, items: [{ kind: "forge-account", id }] });
+
+    expect(answer.result?.items).toEqual([
+      {
+        item: { kind: "forge-account", id },
+        outcome: "failed",
+        step: "swap",
+        written: true,
+        error: {
+          code: "verification_failed",
+          message: "The owner refused [redacted]. The copy written to OpenBao at personal/harness/forge-scripted (key token) and the stored token of the forge account scripted scripted are both left in place.",
+          data: { status: 401 },
+        },
+      },
+    ]);
+    expect(bao.stored("personal", "harness/forge-scripted")).toMatchObject({ token: TOKEN });
+    expect(scripted.deletes).toEqual([]);
+    expect(await moveList(client)).toMatchObject([{ kind: "forge-account", id }]);
+    expect((await keyManagerEvents(client, from)).map((event) => event.type)).toEqual([]);
+  });
+
+  it("leaves the item moved when the delete fails, saying so, and the next start deletes the stored value, recording it once", async () => {
+    const dataDir = dataDirectory();
+    const scripted = scriptedMoveSource();
+    const { t, client, connection } = await withOpenBao({ dataDir, moveSources: [scripted.source] });
+    await setBasePath(client, connection.id, "personal/harness");
+    const id = randomUUID();
+    const item = { kind: "forge-account", id } as const;
+    scripted.hold(id, TOKEN, "scripted");
+    scripted.failDelete(id, true);
+    const from = t.env.log.head();
+
+    const answer = await move(client, { connectionId: connection.id });
+
+    expect(answer.result?.items).toEqual([
+      {
+        item,
+        outcome: "moved",
+        reference: { provider: "openbao", connectionId: connection.id, mount: "personal", path: "harness/forge-scripted", key: "token" },
+        storedValueDeleted: false,
+        message: "Moved to OpenBao at personal/harness/forge-scripted (key token); deleting the stored token failed, and the next start deletes it.",
+      },
+    ]);
+    const moved = await keyManagerEvents(client, from);
+    expect(moved.map((event) => [event.type, event.payload["undeleted"]])).toEqual([["key-manager.moved", storedAtOf(id)]]);
+    await t.close();
+
+    scripted.failDelete(id, false);
+    const again = await start({ dataDir, moveSources: [scripted.source] });
+    await again.env.keyManagerMoves.leftBehindDeleted;
+    expect(scripted.deletes).toEqual([
+      { id, storedAt: storedAtOf(id) },
+      { id, storedAt: storedAtOf(id) },
+    ]);
+    // The restart's own sign-in is recorded beside it.
+    const deleted = (await keyManagerEvents(await again.client(), moved.at(-1)?.sequence ?? 0)).filter((event) => event.type !== "key-manager.connection.signed-in");
+    expect(deleted.map((event) => [event.type, event.payload, event.actor])).toEqual([["key-manager.stored-value-deleted", { item, storedAt: storedAtOf(id) }, { kind: "system", id: "key-manager" }]]);
+    await again.close();
+
+    const third = await start({ dataDir, moveSources: [scripted.source] });
+    await third.env.keyManagerMoves.leftBehindDeleted;
+    expect(scripted.deletes).toHaveLength(2);
+  });
+
+  it("holds the value as a secret while it is moved, and lets it go once the item is done", async () => {
+    const scripted = scriptedMoveSource();
+    const { t, client, connection } = await withOpenBao({ moveSources: [scripted.source] });
+    await setBasePath(client, connection.id, "personal/harness");
+    const id = randomUUID();
+    scripted.hold(id, TOKEN, "scripted");
+    const seen: string[] = [];
+    scripted.whileSwapping(() => seen.push(t.scrub.scrub(TOKEN)));
+    expect(t.scrub.scrub(TOKEN)).toBe(TOKEN);
+
+    await move(client, { connectionId: connection.id });
+
+    expect(seen).toEqual(["[redacted]"]);
+    expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
   });
 });
