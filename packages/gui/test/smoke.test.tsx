@@ -45,6 +45,8 @@ const openWindow = async (t: TestEnvironment, opening?: { readonly sessionId: st
   const runtime = await pairedRuntime(t, platform);
   const presentation = await openPresentation(platform.documents, platform.reportError);
   onCleanup(() => presentation.close());
+  // A window launched before, whose Set up was closed: the first launch's would take the whole window (#413).
+  presentation.set("firstLaunchDone", true);
   const view = render(<App runtime={runtime} presentation={presentation} clock={platform.clock} version={platform.client.version} macOS={false} shell={platform.shell} />);
   onCleanup(() => view.unmount());
 

@@ -338,3 +338,21 @@ describe("health dots", () => {
     expect(within(within(settings()).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Theme" })).toBeDefined();
   });
 });
+
+describe("the header's Set up line", () => {
+  it("shows while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
+    const app = await twoEnvironments();
+    const header = screen.getByRole("banner");
+    const line = await within(header).findByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" });
+    // laptop's Appearance needs attention too, but laptop is not the home environment.
+    expect(within(header).queryByText(/laptop/)).toBeNull();
+
+    await app.user.click(line);
+    const pane = within(settings()).getByRole("region", { name: "Set up" });
+    expect(pickedIn(pane)).toBe("desk");
+    app.environment("desk").setSetup({ permissions: {} });
+    await app.user.click(within(pane).getByRole("button", { name: "Re-run" }));
+    expect(await within(pane).findByText("Every step desk checks passes.")).toBeDefined();
+    expect(within(header).queryByRole("button", { name: /^Set up on/ })).toBeNull();
+  });
+});
