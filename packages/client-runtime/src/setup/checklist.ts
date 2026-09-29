@@ -36,9 +36,14 @@ export const worstState = (states: readonly StepState[]): StepState | null =>
 export const rowHealth = (view: SetupView, row: SettingsRowId): StepState | null =>
   worstState(view.steps.flatMap((step) => ((row === FIRST_ROW || step.home === row) && step.result !== null ? [step.result.state] : [])));
 
-/** How long ago a check ran, in the coarsest unit that says it: `checked 5 min ago`, `checked 3 h ago`, `checked 2 d ago`. */
+/**
+ * How long ago a check ran, in the coarsest unit that says it: `checked 5
+ * min ago`, `checked 3 h ago`, `checked 2 d ago`; `checked just now` under a
+ * minute.
+ */
 export const checkedAgoWords = (ageMs: number): string => {
   const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 1) return "checked just now";
   if (minutes < 60) return `checked ${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
   return hours < 48 ? `checked ${hours} h ago` : `checked ${Math.floor(hours / 24)} d ago`;

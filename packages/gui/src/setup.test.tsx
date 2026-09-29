@@ -293,6 +293,22 @@ describe("a step's named actions", () => {
 });
 
 describe("a check's time", () => {
+  it("says a last good result checked under a minute ago was checked just now", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    await screen.findByText(NO_SESSION);
+    app.environment("desk").setSetup({
+      "your-machines": {
+        state: "needs-attention",
+        reason: "could not check: timed out after 10 s",
+        failing: ["your-machines.release-channel"],
+        actions: ["check-again"],
+        lastGood: { state: "done", reason: "The release channel was read.", checkedAt: new Date(app.clock.now().getTime() - 20_000).toISOString() },
+      },
+    });
+    const machines = await cardOf(app, "Your machines");
+    expect(await within(machines).findByText("Last good, checked just now: The release channel was read.")).toBeDefined();
+  });
+
   it("shows a step pending once this window's check has waited half a second, and a result older than its step's cadence with its age", async () => {
     const threeHoursBefore = new Date(Date.parse(MANUAL_CLOCK_START) - 3 * 3_600_000).toISOString();
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { account: { checkedAt: threeHoursBefore } } }] });
