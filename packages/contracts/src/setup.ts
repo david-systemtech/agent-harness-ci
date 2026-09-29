@@ -53,7 +53,8 @@ const SETUP_ACTION_MEANINGS: { readonly [Action in (typeof SETUP_ACTIONS)[number
   update: "updates the tool it targets, or this machine",
   reload: "shows how to reload the extension in the Chrome it targets",
   "set-up-this-machine": "switches the checklist to the environment it targets",
-  restore: "runs the step's restore method: the Permissions step's puts the denylist's missing presets back",
+  restore:
+    "runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update",
   move: "opens the Move card, which moves stored tokens into a key manager",
   "start-service": "starts the local environment's service when it is down",
   "import-again": "runs the step's import again, for real rather than as a dry run, after one that failed part way",

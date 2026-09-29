@@ -36,7 +36,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * environment's stream carries it yet (#92). The forge's rows are
  * `forge-notices.ts`'s (#320). A key manager's failed
  * verification (ADR 0011) is `key-manager.connection.verified` (#366), whose
- * row is the client runtime's key-manager part (#384).
+ * row is the client runtime's key-manager part (#384). `settings.changed`
+ * (#391) raises none: what changed shows where the settings are read, which
+ * the request cache fetches again on it.
  */
 
 export interface EnvironmentNoticeContext {
@@ -164,6 +166,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "key-manager.connection.policies-set":
         case "key-manager.connection.verified":
         case "key-manager.connection.removed":
+          return;
+        // Settings changed (#391): the request cache reads them again; where they show says what changed.
+        case "settings.changed":
           return;
       }
     },

@@ -306,6 +306,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   recommend(recommendation: Partial<HandoffRecommendation>): void;
   /** The settings' values the environment holds now. */
   settings(): SettingsValues;
+  /** Changes settings as another client would: the values change, and a `settings.changed` notice names the keys that did (#391). */
+  setSettings(values: Partial<SettingsValues>): void;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
   /** The terminals the environment has held, oldest first, closed ones included. */
@@ -1394,6 +1396,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...spec.containment,
   });
   const permissionValues = () => Object.fromEntries(PERMISSION_SETTINGS_KEYS.map((key) => [key, values[key]]));
+  /** Takes some settings' values as every write does: the keys whose values change, said with one `settings.changed` notice naming them (#391). */
+  const changeSettings = (patch: Partial<SettingsValues>) => {
+    const keys = (Object.keys(patch) as (keyof SettingsValues)[]).filter((key) => JSON.stringify(values[key]) !== JSON.stringify(patch[key]));
+    values = { ...values, ...patch };
+    if (keys.length > 0) notice("settings.changed", { keys });
+  };
   wire.answer("settings.get", (params) => {
     const keys = (params["keys"] as readonly (keyof SettingsValues)[] | undefined) ?? (Object.keys(values) as (keyof SettingsValues)[]);
     return { result: { values: Object.fromEntries(keys.map((key) => [key, values[key]])) } };
@@ -1401,14 +1409,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("settings.update", (params) => {
     const refused = rejection("settings.update");
     if (refused) return refused;
-    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
     const refused = rejection("updates.settings.set");
     if (refused) return refused;
-    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values: Object.fromEntries(UPDATE_SETTINGS_KEYS.map((key) => [key, values[key]])) });
   });
   // The update methods (#354), as `ScriptedUpdates` says.
@@ -1455,11 +1463,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("permissions.settings.set");
     if (refused) return refused;
     const asked = params["values"] as Partial<SettingsValues>;
+    let acknowledged: Partial<SettingsValues> = {};
     if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
       if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
-      values = { ...values, "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
+      acknowledged = { "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
     }
-    values = { ...values, ...asked };
+    changeSettings({ ...asked, ...acknowledged });
     return acceptedWith({ values: permissionValues() });
   });
 
@@ -1715,6 +1724,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     currentSignIn: () => signIn,
     recommend,
     settings: () => values,
+    setSettings: changeSettings,
     notice,
     ...prompts,
     terminals: () => [...terminals.values()],

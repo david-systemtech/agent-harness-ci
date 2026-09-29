@@ -1,10 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import {
   PROTOCOL_VERSION,
-  SETTINGS_STREAM_KIND,
   UPDATE_SETTINGS_KEYS,
   type ReleaseSource,
-  type SettingsUpdatedPayload,
   type UpdateManager,
   type UpdateSettingsKey,
   type UpdateSettingsValues,
@@ -14,6 +12,7 @@ import type { EventLog } from "../event-log/event-log.js";
 import type { LauncherChannel } from "../serve/launcher.js";
 import type { MethodHandler, MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { recordSettingsChange, settingsStream } from "../settings/changes.js";
 import { readSettings } from "../settings/settings-store.js";
 import { channelSettingsOf, type ReleaseChannelReader } from "./channel.js";
 import type { ChannelChecks } from "./checks.js";
@@ -79,7 +78,7 @@ const readUpdateSettings = (reader: Reader): UpdateSettingsValues => {
 
 export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => {
   const { launcher, log } = options;
-  const settingsStream = { kind: SETTINGS_STREAM_KIND, id: options.environmentId };
+  const aggregate = settingsStream(options.environmentId);
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   let claudeCodeVersion: Promise<string | null> | undefined;
@@ -115,24 +114,25 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
   /**
    * The wire has checked each value against its key's schema and range, and
    * refused any other key. The keys whose value changes are one
-   * `settings.updated` on the settings stream, in the command's transaction
-   * with its receipt; a command that changes nothing appends nothing. A
-   * waiting update the channel called for that the change stops calling for
-   * is withdrawn in the same transaction (#347). Once a change to a setting
-   * the target follows commits, the channel is checked again.
+   * `settings.updated` on the settings stream, with the notice
+   * `settings.changed` beside it (`settings/changes.ts`), in the command's
+   * transaction with its receipt; a command that changes nothing appends
+   * nothing. A waiting update the channel called for that the change stops
+   * calling for is withdrawn in the same transaction (#347). Once a change
+   * to a setting the target follows commits, the channel is checked again.
    */
   const setSettings: MethodHandler<"updates.settings.set"> = ({ values: asked }, context) => {
     const held = readUpdateSettings(reader);
     // A key absent from the patch keeps its held value: the wire's parse leaves no key undefined.
     const values = { ...held, ...asked } as UpdateSettingsValues;
     const keys = UPDATE_SETTINGS_KEYS.filter((key) => !isDeepStrictEqual(held[key], values[key]));
-    if (keys.length === 0) return { aggregate: settingsStream, result: { values } };
+    if (keys.length === 0) return { aggregate, result: { values } };
     if (keys.some((key) => TARGET_KEYS.has(key))) {
       options.coordinator.settingsChanging(channelSettingsOf(held), channelSettingsOf(values), context);
       context.tx.afterCommit(() => options.checks.settingsChanged());
     }
-    const updated: SettingsUpdatedPayload = { values: Object.fromEntries(keys.map((key) => [key, values[key]])) };
-    return { aggregate: settingsStream, result: { values }, events: [{ type: "settings.updated", payload: updated }] };
+    recordSettingsChange(log, options.environmentId, Object.fromEntries(keys.map((key) => [key, values[key]])), context);
+    return { aggregate, result: { values } };
   };
 
   return {
@@ -161,7 +161,7 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
         const pin = asked["updates.pinnedVersion"];
         // Answered at once when there is no new pin, so the command keeps its place among its socket's requests.
         if (typeof pin !== "string" || pin === readUpdateSettings(reader)["updates.pinnedVersion"]) return setSettings;
-        return options.channel.pinRefusal(pin).then((refused): MethodHandler<"updates.settings.set"> => (refused === null ? setSettings : () => ({ aggregate: settingsStream, rejected: refused })));
+        return options.channel.pinRefusal(pin).then((refused): MethodHandler<"updates.settings.set"> => (refused === null ? setSettings : () => ({ aggregate, rejected: refused })));
       },
     },
   };
