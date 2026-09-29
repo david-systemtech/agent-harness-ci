@@ -304,7 +304,7 @@ describe("a picker the connection cannot use", () => {
 });
 
 describe("the slash commands", () => {
-  it("open the pickers from the composer: /mode the mode picker, /handoff the hand-off picker", async () => {
+  it("open the pickers from the composer: /mode the mode picker, /handoff the hand-off picker, and /handoff naming another environment says it is milestone 2's", async () => {
     const { app } = await opened();
     const box = screen.getByRole("textbox", { name: "Message" });
     act(() => box.focus());
@@ -313,6 +313,11 @@ describe("the slash commands", () => {
     expect(await screen.findByRole("menu", { name: "Mode: ⏵⏵ accept edits" })).toBeTruthy();
     await app.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+    act(() => box.focus());
+    await app.user.keyboard("/handoff laptop{Enter}");
+    await waitFor(() => expect(paneLine()).toBe("Not handed off to laptop: hand-off between environments comes in milestone 2 (ADR 0005)."));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     act(() => box.focus());
     await app.user.keyboard("/handoff{Enter}");

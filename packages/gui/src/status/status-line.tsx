@@ -1,4 +1,5 @@
 import {
+  BETWEEN_ENVIRONMENTS,
   MODE_BADGE_WORDS,
   clampWords,
   elapsedClock,
@@ -17,6 +18,7 @@ import {
 import { EnvironmentColour } from "@agent-harness/contracts";
 import { useEffect, useMemo, useReducer } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
+import { usePaneLine } from "../session/pane-line.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { classes } from "../ui/classes.js";
 import { Button } from "../ui/index.js";
@@ -50,7 +52,7 @@ export interface StatusLineProps {
  *   while the account's window is out and no run is live, the hand-off offer
  *   in `accounts.handoff.recommend`'s words, which opens the hand-off picker.
  *   Run info (Mod+I) sits at its end. `/handoff` opens the hand-off picker
- *   whenever.
+ *   whenever; naming another environment, it says that is milestone 2's.
  */
 export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
   const runtime = useRuntime();
@@ -80,7 +82,11 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
   });
   useSecondTicks(useClock(), facts.elapsedMs);
   const openHandoff = useHandoffPicker();
-  useSlashCommand("handoff", openHandoff);
+  const [, say] = usePaneLine();
+  // `/handoff <environment>` naming another environment is milestone 2's (ADR 0005), as the terminal UI answers it.
+  useSlashCommand("handoff", (named) =>
+    named === "" || named.toLowerCase() === (environment?.name ?? "").toLowerCase() ? openHandoff() : say(`Not handed off to ${named}: ${BETWEEN_ENVIRONMENTS}.`),
+  );
 
   return (
     <section aria-label="Status line" className="flex shrink-0 flex-col gap-1 border-t border-hairline px-4 py-2 text-xs text-ink-muted">
@@ -91,7 +97,6 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
         <ModePicker
           environmentId={environmentId}
           sessionId={sessionId}
-          ceiling={ceiling}
           value={`${MODE_BADGE_WORDS[facts.mode.mode]}${facts.mode.clampedFrom !== null ? ` ${clampWords(facts.mode.clampedFrom)}` : ""}`}
         >
           <span className={facts.mode.mode === "bypassPermissions" ? "font-semibold text-signal" : "text-ink"}>{MODE_BADGE_WORDS[facts.mode.mode]}</span>

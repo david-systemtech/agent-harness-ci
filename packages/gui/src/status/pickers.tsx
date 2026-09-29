@@ -15,7 +15,7 @@ import {
   type ContainmentBadge,
   type RunChoice,
 } from "@agent-harness/client-runtime";
-import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord, type Mode } from "@agent-harness/contracts";
+import { BYPASS_SENTENCE, CONTAINMENT_LEVELS, type AccountRecord } from "@agent-harness/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
@@ -266,21 +266,20 @@ export const ModelPicker = ({ environmentId, sessionId, accountId, model }: Mode
 interface ModePickerProps {
   readonly environmentId: string;
   readonly sessionId: string;
-  readonly ceiling: Mode | null;
   /** The mode badge the status line shows, with its clamp, in words. */
   readonly value: string;
   readonly children: ReactNode;
 }
 
 /** The mode picker: the four modes, one above the connection's ceiling greyed with the ceiling named, and the clamp said once set. */
-export const ModePicker = ({ environmentId, sessionId, ceiling, value, children }: ModePickerProps) => {
+export const ModePicker = ({ environmentId, sessionId, value, children }: ModePickerProps) => {
   const runtime = useRuntime();
   const picker = useObservable(useMemo(() => runtime.projections.modes(environmentId), [runtime, environmentId]));
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const setting = useOffer(environmentId, "permissions.mode.set");
   const [, say] = usePaneLine();
   const session = projection.summary?.title ?? "this session";
-  const own = sessionModeOf(projection.summary?.mode, ceiling);
+  const own = sessionModeOf(projection.summary?.mode, picker.ceiling);
 
   const items = () =>
     picker.modes.map(({ mode, allowed }) => (
