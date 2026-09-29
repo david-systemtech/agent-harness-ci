@@ -5,6 +5,7 @@ import {
   type ContainmentReport,
   type Denylist,
   type DenylistSection,
+  type SetupTarget,
 } from "@agent-harness/contracts";
 import { parseActor } from "../event-log/event-log.js";
 import { unenforceable } from "./containment.js";
@@ -18,8 +19,14 @@ import { unenforceable } from "./containment.js";
  * (`setup/check.ts`); the Your machines step's line reads the same not-root.
  */
 
-/** A state check's answer: it holds, or the sentence saying what does not. */
-export type StateCheckAnswer = true | { readonly reason: string };
+/**
+ * A state check's answer: it holds, or the sentence saying what does not
+ * and, where its actions apply to particular items, those items, each with
+ * the action it serves (#568): the accounts Sign in again opens, the
+ * sources Pull now pulls. A target for an action the check does not offer
+ * is not carried.
+ */
+export type StateCheckAnswer = true | { readonly reason: string; readonly targets?: readonly SetupTarget[] };
 
 /**
  * What a person can do on Linux about a containment level the probe refused:
