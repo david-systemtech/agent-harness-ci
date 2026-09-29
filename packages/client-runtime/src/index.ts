@@ -101,6 +101,7 @@ export {
 export type {
   AssistantEntry,
   CommandEntry,
+  ForkedEntry,
   OpaqueEntry,
   PromptEntry,
   PromptState,
@@ -141,7 +142,19 @@ export type {
 } from "./projections/session-list.js";
 export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
-export { callsRowId, folded, lastReply, liveRun, liveTasks, rewoundRowId, transcriptRows, undoableFold, type TranscriptRow } from "./transcript/rows.js";
+export {
+  callsRowId,
+  folded,
+  forkedFrom,
+  lastReply,
+  liveRun,
+  liveTasks,
+  rewoundRowId,
+  transcriptRows,
+  undoableFold,
+  type ForkedFrom,
+  type TranscriptRow,
+} from "./transcript/rows.js";
 export {
   TOOL_CATEGORIES,
   classifyTool,

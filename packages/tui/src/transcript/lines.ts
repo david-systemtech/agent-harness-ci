@@ -11,6 +11,7 @@ import {
   turnFacts,
   undoableFold,
   type ActivityCounts,
+  type ForkedFrom,
   type ToolCallEntry,
   type ToolCategory,
   type TranscriptRow as Row,
@@ -30,7 +31,8 @@ import type { RunSummary } from "@agent-harness/contracts";
  * Collapsed (the viewport) a run's finished calls are one count, a cut
  * result shows its head and its tail, and what a rewind cut is one line;
  * unfolded (`expanded`, the pager and a row unfolded with Enter) nothing is
- * held back. A running call quiet for
+ * held back. A fork's first row names where it came from, and `o` on it
+ * opens its source (#390). A running call quiet for
  * `TOOL_QUIET_MS` turns amber and names the silence.
  */
 
@@ -112,6 +114,10 @@ export interface LineContext {
    * the key that undoes it (`row.rewindUndo`), as the map in force writes it.
    */
   readonly rewound?: { readonly sequence: number; readonly availability: VerbAvailability; readonly key: string };
+  /** What a fork's `forked` row names (`forkedFrom`, over its source's projection), as far as it is known. */
+  readonly forkedFrom?: ForkedFrom;
+  /** The key that opens what a row names (`row.open`), as the map in force writes it; preset o. */
+  readonly openKey?: string;
 }
 
 const SPEECH = "●";
@@ -339,6 +345,19 @@ const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineConte
   return [...lines, ...inner.map((line): Line => ({ row: row.id, spans: [{ text: "┊ ", color: "yellow" }, ...line.spans.map((span) => ({ ...span, dim: true }))] }))];
 };
 
+/**
+ * A fork's first row (#390): one line naming the session it was forked from
+ * and the prompt it was taken at, as far as its source shows them, with the
+ * key that opens the source (not in the pager, which opens nothing).
+ */
+const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext): Line[] => {
+  const { title, anchor } = context.forkedFrom ?? { title: null, anchor: null };
+  const head: Span[] = [{ text: "Forked from ", bold: true }, { text: title ?? "another session" }];
+  if (anchor !== null) head.push({ text: " at ", bold: true }, { text: oneLine(anchor, 160) });
+  if (!context.expanded) head.push({ text: ` · ${context.openKey ?? "o"} opens it`, dim: true });
+  return block(row.id, { text: "⑂", color: "cyan" }, [head], context.width, true);
+};
+
 /** The lines of one row. */
 export const rowLines = (row: Row, context: LineContext): Line[] => {
   const { width } = context;
@@ -379,6 +398,8 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       return [{ row: row.id, spans: [{ text: `${INDENT}· ${row.entry.type}: an event this version does not show`, dim: true }] }];
     case "rewound":
       return rewoundLines(row, context);
+    case "forked":
+      return forkedLines(row, context);
   }
 };
 

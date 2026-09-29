@@ -612,7 +612,9 @@ export const App = (props: AppProps) => {
     quietMs: (id: string) => quietFor(session.quiet, id, now),
     stopKey: keys("row.stop"),
     unfoldKey: keys("row.unfold"),
+    openKey: keys("row.open"),
     planDeltas: session.planDeltas,
+    ...(session.forkedFrom !== undefined && { forkedFrom: session.forkedFrom }),
     ...(standing !== null && undoVerb !== undefined && { rewound: { sequence: standing.sequence, availability: undoVerb, key: keys("row.rewindUndo") } }),
   };
   const lines: TranscriptLine[] = [
@@ -970,7 +972,11 @@ export const App = (props: AppProps) => {
     if (!projection || !opened) return say("There is no session open to export.");
     const name = file ?? `${opened.sessionId.slice(0, 8)}.md`;
     const path = resolve(cwd, expandHome(name, homedir()));
-    const text = exportMarkdown(projection, { environment: names.get(opened.environmentId) ?? "", at: clock.now() });
+    const text = exportMarkdown(projection, {
+      environment: names.get(opened.environmentId) ?? "",
+      at: clock.now(),
+      ...(session.forkedFrom !== undefined && { forked: session.forkedFrom }),
+    });
     void writeFile(path, text, "utf8").then(
       () => say(`Wrote the conversation to ${path}.`),
       (error: unknown) => say(`Not written: ${messageOf(error)}`),
@@ -1764,6 +1770,8 @@ export const App = (props: AppProps) => {
       "row.open": () => {
         const row = onRow();
         if (!row || !opened) return false;
+        // A fork's first row opens the session it was forked from (#390).
+        if (row.kind === "forked") return open({ environmentId: opened.environmentId, sessionId: row.entry.fromSessionId });
         const file = rowFile(row);
         if (!file) return say("That row names no file.");
         const workspace = projection?.summary?.workspace.path ?? "";
@@ -2053,7 +2061,7 @@ export const App = (props: AppProps) => {
   const fileVerbs =
     cursorRow === undefined
       ? ""
-      : `${rowFile(cursorRow) ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
+      : `${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
     card.kind === "panel"
       ? `The card has the keys · ${pickers.hint(card.panel)}`
