@@ -27,7 +27,7 @@ import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { basePathProblem } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
-import { openBaoProvider } from "./openbao.js";
+import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createVerificationSchedule } from "./verifier.js";
 
@@ -89,9 +89,6 @@ const VAULT_PREFIX = "key-manager:";
 
 /** A new vault entry for a credential given to `connectionId`: one per credential, so a replacement never overwrites the one it replaces. */
 const newEntry = (connectionId: string): string => `${VAULT_PREFIX}${connectionId}:${randomUUID()}`;
-
-/** The providers this environment signs in to; the rest arrive with their tickets (#377 to #379). */
-const PROVIDERS: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: openBaoProvider };
 
 /** How a provider is named to people. */
 const PROVIDER_NAMES: Record<KeyManagerProvider, string> = { openbao: "OpenBao", doppler: "Doppler", onepassword: "1Password", bitwarden: "Bitwarden Secrets Manager" };
@@ -200,6 +197,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const { log, clock, vault, scrub } = options;
   const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
+  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; the rest arrive with their tickets (#377 to #379). */
+  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: createOpenBaoProvider() };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -467,7 +466,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const settings = settingsOf(params, address);
       const basePathRefused = params.basePath === undefined ? null : basePathProblem(params.provider, params.basePath);
       if (basePathRefused !== null) invalid(["basePath"], basePathRefused);
-      const provider = PROVIDERS[params.provider];
+      const provider = providers[params.provider];
       if (given !== undefined && provider === undefined) return rejecting<"keyManagers.connections.add">(providerUnavailable(params.provider));
       /** The connection the state import made from the same source id, which a repeated import is answered with. */
       const imported = () => (params.importedFrom === undefined ? null : importedHolder(reader, params.importedFrom));
@@ -532,7 +531,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const held = liveConnection(reader, connectionId);
       if (held === null) return rejecting<"keyManagers.connections.signIn">(notFound(connectionId));
       const { record } = held;
-      const provider = PROVIDERS[record.provider];
+      const provider = providers[record.provider];
       if (provider === undefined) return rejecting<"keyManagers.connections.signIn">(providerUnavailable(record.provider));
       const method = given.method;
       const mount = mountFor(method, params.mount ?? (method === record.method ? (record.mount ?? undefined) : undefined));
@@ -633,7 +632,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
       // A new address or CA is signed in against first, with the credential held; a connection holding none changes at once.
       const target = targetOf(record, address, ca);
-      const provider = PROVIDERS[record.provider];
+      const provider = providers[record.provider];
       const entry = held.credential;
       if ((address === record.address && ca === record.ca) || entry === null || target === null || provider === undefined) return apply(null);
       return (async () => {
@@ -700,7 +699,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
    */
   const subjectOf = (connectionId: string): string | null => {
     const held = liveConnection(reader, connectionId);
-    if (held === null || held.credential === null || PROVIDERS[held.record.provider] === undefined || targetOf(held.record) === null) return null;
+    if (held === null || held.credential === null || providers[held.record.provider] === undefined || targetOf(held.record) === null) return null;
     return JSON.stringify([held.credential, epochOf(connectionId), held.record.tokenRole]);
   };
 
@@ -824,7 +823,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (closed) return;
       const subject = subjectOf(connectionId);
       const held = liveConnection(reader, connectionId);
-      const provider = held === null ? undefined : PROVIDERS[held.record.provider];
+      const provider = held === null ? undefined : providers[held.record.provider];
       const target = held === null ? null : targetOf(held.record);
       if (subject === null || held === null || held.credential === null || provider === undefined || target === null) return;
       const entry = held.credential;
@@ -880,7 +879,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
     startSigningInAndVerifying() {
       for (const { record, credential } of listConnections(reader)) {
-        const provider = PROVIDERS[record.provider];
+        const provider = providers[record.provider];
         const target = targetOf(record);
         if (credential === null || provider === undefined || target === null) continue;
         const running = signInFromVault(record, credential, provider, target).finally(() => {

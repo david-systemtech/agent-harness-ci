@@ -29,8 +29,21 @@ import { join } from "node:path";
  * otherwise (an error that echoes a secret, an answer held back), which it
  * does sealed or not, ahead of every rule above; and the
  * certificate it presents swapped mid-test. Every request is recorded by
- * method and path, never with its token or body. Later tickets extend it
- * (child tokens, KV reads and writes).
+ * method and path, never with its token or body; a list (`GET` with
+ * `?list=true`) is recorded as `LIST`.
+ *
+ * KV secrets engines (#370) are mounted at version 1 or 2 and hold the
+ * secrets the test writes: version 1 reads at `<mount>/<path>` and lists at
+ * `<mount>/<path>/`, version 2 at `<mount>/data/<path>` and
+ * `<mount>/metadata/<path>/`. As OpenBao does, a request's path is checked
+ * against the token's policies before anything is looked up, so a path the
+ * token may not read answers 403 whether it or its mount is there or not;
+ * one it may read with nothing there answers 404. The mount's UI endpoint
+ * (`sys/internal/ui/mounts/<path>`) answers the mount's type and version to
+ * a token with any access under it, and 403 alike for a mount that is not
+ * there, so it cannot be used to find mounts; with no path it lists the
+ * mounts the token has access under. Later tickets extend it (child tokens,
+ * KV writes).
  */
 
 /** A login a credential answers with: its policies, and what its token's lookup says of it. */
@@ -90,7 +103,11 @@ export interface FakeOpenBao {
   unseal(): void;
   /** Gives the policy `name` its text, in OpenBao's policy language: the capabilities it grants, and whether a token holding it may read other policies' texts. */
   policy(name: string, text: string): void;
-  /** Scripts what `route` (`GET auth/token/lookup-self`) answers from now on, in place of the fake's own answer; null to answer as the fake does. */
+  /** Mounts a KV secrets engine of `version` at `path` (`personal`, `secret/team`), holding no secret yet. */
+  kv(path: string, version: 1 | 2): void;
+  /** Writes the secret at `path` under the KV mount `mount`, replacing what it held: its keys and their values. */
+  secret(mount: string, path: string, data: Record<string, unknown>): void;
+  /** Scripts what `route` (`GET auth/token/lookup-self`, `LIST personal/metadata/`) answers from now on, in place of the fake's own answer; null to answer as the fake does. */
   answer(route: string, answer: FakeRouteAnswer | null): void;
   /** Presents `which` certificate from the next handshake on, closing every connection held, as a key manager restarted with it would. Preset `leaf`. */
   present(which: FakePresented): void;
@@ -199,6 +216,21 @@ const rulesOf = (text: string): { readonly path: string; readonly capabilities: 
 /** Whether a policy path matches `path`: exactly, or as a prefix ending in `*`. */
 const matches = (rule: string, path: string): boolean => (rule.endsWith("*") ? path.startsWith(rule.slice(0, -1)) : rule === path);
 
+/** Whether a policy path reaches anything under `mount`, as OpenBao's UI endpoint asks before it answers a mount. */
+const reachesUnder = (rule: string, mount: string): boolean => rule.startsWith(`${mount}/`) || (rule.endsWith("*") && `${mount}/`.startsWith(rule.slice(0, -1)));
+
+/** The names directly under `prefix` (empty, or ending in `/`) among `paths`: a secret's name, or a folder's ending in `/`, each once and sorted. */
+const namesUnder = (paths: Iterable<string>, prefix: string): string[] => {
+  const names = new Set<string>();
+  for (const path of paths) {
+    if (!path.startsWith(prefix)) continue;
+    const rest = path.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    names.add(slash === -1 ? rest : rest.slice(0, slash + 1));
+  }
+  return [...names].sort();
+};
+
 const isRefusal = (answer: FakeLogin | FakeRefusal): answer is FakeRefusal => "status" in answer;
 
 const readBody = (request: IncomingMessage): Promise<unknown> =>
@@ -234,6 +266,8 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   const tokens = new Map<string, FakeToken>();
   const policies = new Map<string, string>([["default", DEFAULT_POLICY]]);
   const routes = new Map<string, FakeRouteAnswer>();
+  /** The KV mounts, by path, with their version and the secrets they hold by path. */
+  const kvMounts = new Map<string, { readonly version: 1 | 2; readonly secrets: Map<string, Record<string, unknown>> }>();
   const minted: string[] = [];
   const requests: FakeOpenBaoRequest[] = [];
   let sealed = false;
@@ -270,6 +304,46 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       for (const rule of rules) if (rule.path === closest) for (const capability of rule.capabilities) granted.add(capability);
     }
     return granted.size === 0 || granted.has("deny") ? ["deny"] : [...granted];
+  };
+
+  /** Whether `token` may reach anything under `mount`: a root token, or a policy rule granting something there. */
+  const hasMountAccess = (token: FakeToken, mount: string): boolean =>
+    token.policies.some(
+      (name) => name === "root" || rulesOf(policies.get(name) ?? "").some((rule) => reachesUnder(rule.path, mount) && rule.capabilities.some((capability) => capability !== "deny")),
+    );
+
+  /** The KV mount `path` is under, the longest that is; undefined for none. */
+  const kvMountOf = (path: string): string | undefined =>
+    [...kvMounts.keys()].filter((mount) => path === mount || path.startsWith(`${mount}/`)).sort((a, b) => b.length - a.length)[0];
+
+  /** A mount as OpenBao's UI endpoint describes it. */
+  const describeMount = (mount: string) => {
+    const version = kvMounts.get(mount)?.version;
+    return { type: "kv", path: `${mount}/`, description: "", options: version === 2 ? { version: "2" } : null };
+  };
+
+  /**
+   * Answers a KV read or list under a mount: version 1's secrets sit at the
+   * path, version 2's under `data/` and their lists under `metadata/`. A
+   * path the version does not route is no handler's.
+   */
+  const serveKv = (response: ServerResponse, mount: string, method: string, path: string): void => {
+    const { version, secrets } = kvMounts.get(mount) ?? { version: 1, secrets: new Map() };
+    let rest = path === mount ? "" : path.slice(mount.length + 1);
+    if (version === 2) {
+      const area = method === "LIST" ? "metadata/" : "data/";
+      if (!rest.startsWith(area) && `${rest}/` !== area) return send(response, 404, { errors: [`no handler for route "${path}". route entry not found.`] });
+      rest = rest.startsWith(area) ? rest.slice(area.length) : "";
+    }
+    if (method === "LIST") {
+      const prefix = rest === "" || rest.endsWith("/") ? rest : `${rest}/`;
+      const keys = namesUnder(secrets.keys(), prefix);
+      return keys.length === 0 ? send(response, 404, { errors: [] }) : send(response, 200, { data: { keys } });
+    }
+    const data = secrets.get(rest);
+    if (data === undefined) return send(response, 404, { errors: [] });
+    if (version === 1) return send(response, 200, { data });
+    send(response, 200, { data: { data, metadata: { version: 1, created_time: now().toISOString(), deletion_time: "", destroyed: false } } });
   };
 
   const loginKey = (mount: string, ...credential: string[]): string => JSON.stringify([mount, ...credential]);
@@ -309,7 +383,7 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   const serve = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const url = new URL(request.url ?? "/", "https://127.0.0.1");
     const path = url.pathname.replace(/^\/v1\//, "");
-    const method = request.method ?? "GET";
+    const method = request.method === "GET" && url.searchParams.get("list") === "true" ? "LIST" : (request.method ?? "GET");
     requests.push({ method, path });
     const body = await readBody(request);
     const scripted = routes.get(`${method} ${path}`);
@@ -357,6 +431,30 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
         return logIn(response, logins.get(loginKey(mount, name, String(fields["password"]))), `userpass-${name}`, "invalid username or password");
       }
     }
+    if (method === "GET" && path === "sys/internal/ui/mounts") {
+      if (known === undefined) return send(response, 403, { errors: ["permission denied"] });
+      const visible = [...kvMounts.keys(), "cubbyhole"].filter((mount) => hasMountAccess(known, mount));
+      const secret = Object.fromEntries(visible.map((mount) => [`${mount}/`, mount === "cubbyhole" ? { type: "cubbyhole", path: "cubbyhole/", description: "", options: null } : describeMount(mount)]));
+      return send(response, 200, { data: { secret, auth: {} } });
+    }
+    const uiMount = /^sys\/internal\/ui\/mounts\/(.+)$/.exec(path);
+    if (method === "GET" && uiMount !== null) {
+      const asked = decodeURIComponent(uiMount[1] ?? "").replace(/\/$/, "");
+      const mount = kvMountOf(asked);
+      // A mount that is not there answers as one the token may not see, so the endpoint cannot be used to find mounts.
+      if (known === undefined || mount === undefined || !hasMountAccess(known, mount)) {
+        return send(response, 403, { errors: [`preflight capability check returned 403, please ensure client's policies grant access to path "${asked}/"`] });
+      }
+      return send(response, 200, { data: describeMount(mount) });
+    }
+    if (method === "GET" || method === "LIST") {
+      // The token's policies first, as OpenBao checks them before it routes: a path it may not read is refused whether it is there or not.
+      const wanted = method === "LIST" ? "list" : "read";
+      const aclPath = method === "LIST" && !path.endsWith("/") ? `${path}/` : path;
+      if (known === undefined || !capabilitiesOn(known, aclPath).some((capability) => capability === wanted || capability === "root")) return send(response, 403, { errors: ["permission denied"] });
+      const mount = kvMountOf(path.replace(/\/$/, ""));
+      if (mount !== undefined) return serveKv(response, mount, method, path.replace(/\/$/, ""));
+    }
     send(response, 404, { errors: [`no handler for route "${path}". route entry not found.`] });
   };
 
@@ -378,6 +476,12 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     seal: () => void (sealed = true),
     unseal: () => void (sealed = false),
     policy: (name, text) => void policies.set(name, text),
+    kv: (path, version) => void kvMounts.set(path, { version, secrets: new Map() }),
+    secret(mount, path, data) {
+      const held = kvMounts.get(mount);
+      if (held === undefined) throw new Error(`No KV mount ${mount} on the fake OpenBao.`);
+      held.secrets.set(path, { ...data });
+    },
     answer: (route, answer) => void (answer === null ? routes.delete(route) : routes.set(route, answer)),
     present(which) {
       const { otherKey, otherCertificate } = testCertificates();

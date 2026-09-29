@@ -3,17 +3,21 @@ import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { UNREACHABLE_OPENBAO, startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { PERSON_TOKEN, approle } from "../../test/key-manager-connections.js";
-import { openBaoProvider } from "./openbao.js";
+import { createOpenBaoProvider } from "./openbao.js";
 import type { SignInTarget } from "./provider.js";
 
 /**
  * The OpenBao provider against the fake OpenBao without the wire
  * (key-managers spec, "Testing Decisions"; #366): what a verification asks
  * and how it reads the answers, the write flag it reads from each policy's
- * text, and the categories every error falls into.
+ * text, and the categories every error falls into; a reference's read and a
+ * path's list on KV version 1 and 2 mounts, the version detected per mount
+ * from its UI endpoint (#370).
  */
 
 const { onCleanup } = useCleanups();
+
+const openBaoProvider = createOpenBaoProvider();
 
 const fakeOpenBao = async (): Promise<FakeOpenBao> => {
   const clock = manualClock();
@@ -201,5 +205,136 @@ describe("the error categories", () => {
     expect(await openBaoProvider.lookUp({ ...target, address: UNREACHABLE_OPENBAO }, PERSON_TOKEN)).toMatchObject({ outcome: "unreachable" });
     expect(await openBaoProvider.lookUp({ ...target, ca: testCertificates().otherCa }, PERSON_TOKEN)).toMatchObject({ outcome: "certificate-rejected" });
     expect(await openBaoProvider.lookUp(target, PERSON_TOKEN)).toMatchObject({ outcome: "found" });
+  });
+});
+
+describe("a reference's read", () => {
+  const V2_VALUE = "value-in-version-2-for-tests";
+  const V1_VALUE = "value-in-version-1-for-tests";
+
+  /** A fake OpenBao with a KV version 2 mount `personal` and a version 1 mount `legacy`, each holding a secret, and the test's token reading both. */
+  const withSecrets = async (text = `path "personal/data/*" { capabilities = ["read"] }\npath "legacy/*" { capabilities = ["read"] }`) => {
+    const bao = await fakeOpenBao();
+    bao.kv("personal", 2);
+    bao.kv("legacy", 1);
+    bao.secret("personal", "harness/forge-github", { token: V2_VALUE, note: "the forge's token" });
+    bao.secret("legacy", "forge", { token: V1_VALUE });
+    bao.policy("reader", text);
+    bao.token(PERSON_TOKEN, { policies: ["default", "reader"] });
+    return bao;
+  };
+
+  const personal = { provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount: "personal", path: "harness/forge-github", key: "token" } as const;
+  const legacy = { ...personal, mount: "legacy", path: "forge" } as const;
+
+  it("reads a version 2 mount's secret under data/ and a version 1 mount's at its path, asking each mount's UI endpoint once for the provider's life", async () => {
+    const bao = await withSecrets();
+    const provider = createOpenBaoProvider();
+
+    expect(await provider.read(targetOf(bao), PERSON_TOKEN, personal)).toEqual({ outcome: "read", value: V2_VALUE });
+    expect(await provider.read(targetOf(bao), PERSON_TOKEN, legacy)).toEqual({ outcome: "read", value: V1_VALUE });
+    expect(await provider.read(targetOf(bao), PERSON_TOKEN, personal)).toEqual({ outcome: "read", value: V2_VALUE });
+    expect(await provider.read(targetOf(bao), PERSON_TOKEN, legacy)).toEqual({ outcome: "read", value: V1_VALUE });
+
+    expect(bao.requests).toEqual([
+      { method: "GET", path: "sys/internal/ui/mounts/personal" },
+      { method: "GET", path: "personal/data/harness/forge-github" },
+      { method: "GET", path: "sys/internal/ui/mounts/legacy" },
+      { method: "GET", path: "legacy/forge" },
+      { method: "GET", path: "personal/data/harness/forge-github" },
+      { method: "GET", path: "legacy/forge" },
+    ]);
+  });
+
+  it("reads the value as it is now: a rotated secret answers its new value, nothing of the old one kept", async () => {
+    const bao = await withSecrets();
+    expect(await openBaoProvider.read(targetOf(bao), PERSON_TOKEN, personal)).toEqual({ outcome: "read", value: V2_VALUE });
+    bao.secret("personal", "harness/forge-github", { token: "rotated-value-for-tests" });
+    expect(await openBaoProvider.read(targetOf(bao), PERSON_TOKEN, personal)).toEqual({ outcome: "read", value: "rotated-value-for-tests" });
+  });
+
+  it("takes a mount whose UI endpoint the server does not have for version 1, as older servers answer", async () => {
+    const bao = await withSecrets();
+    bao.answer("GET sys/internal/ui/mounts/legacy", { status: 404, error: "unsupported path" });
+    expect(await createOpenBaoProvider().read(targetOf(bao), PERSON_TOKEN, legacy)).toEqual({ outcome: "read", value: V1_VALUE });
+  });
+
+  it("is denied alike for a path the login may not read, a path that is not there and a mount that is not there", async () => {
+    const bao = await withSecrets(`path "personal/data/harness/*" { capabilities = ["read"] }`);
+    bao.secret("personal", "elsewhere", { token: "a-value-not-granted-for-tests" });
+    const provider = createOpenBaoProvider();
+
+    const denied = await provider.read(targetOf(bao), PERSON_TOKEN, { ...personal, path: "elsewhere" });
+    expect(denied).toEqual({ outcome: "denied", message: `OpenBao at ${bao.address} did not let the login read personal/elsewhere (HTTP 403: permission denied).` });
+    expect(await provider.read(targetOf(bao), PERSON_TOKEN, { ...personal, path: "nothing-here" })).toEqual({
+      outcome: "denied",
+      message: `OpenBao at ${bao.address} did not let the login read personal/nothing-here (HTTP 403: permission denied).`,
+    });
+    expect(await provider.read(targetOf(bao), PERSON_TOKEN, { ...personal, mount: "nowhere" })).toEqual({
+      outcome: "denied",
+      message: `OpenBao at ${bao.address} did not let the login see the mount nowhere (HTTP 403: preflight capability check returned 403, please ensure client's policies grant access to path "nowhere/").`,
+    });
+  });
+
+  it("is not-found for a path the login may read with nothing there, and for a key the secret lacks, never naming a value", async () => {
+    const bao = await withSecrets();
+    expect(await openBaoProvider.read(targetOf(bao), PERSON_TOKEN, { ...personal, path: "harness/nothing-here" })).toEqual({
+      outcome: "not-found",
+      message: `OpenBao at ${bao.address} found nothing to read personal/harness/nothing-here (HTTP 404).`,
+    });
+    const lacking = await openBaoProvider.read(targetOf(bao), PERSON_TOKEN, { ...personal, key: "password" });
+    expect(lacking).toEqual({ outcome: "not-found", message: `OpenBao at ${bao.address} holds no key password with text in personal/harness/forge-github.` });
+    bao.secret("personal", "harness/forge-github", { token: 42 });
+    expect(await openBaoProvider.read(targetOf(bao), PERSON_TOKEN, personal)).toMatchObject({ outcome: "not-found" });
+  });
+
+  it("answers sealed, unreachable and a rejected certificate as a verification does", async () => {
+    const bao = await withSecrets();
+    bao.seal();
+    expect(await createOpenBaoProvider().read(targetOf(bao), PERSON_TOKEN, personal)).toMatchObject({ outcome: "sealed" });
+    bao.unseal();
+    expect(await openBaoProvider.read(targetOf(bao, { address: UNREACHABLE_OPENBAO }), PERSON_TOKEN, personal)).toMatchObject({ outcome: "unreachable" });
+    expect(await openBaoProvider.read(targetOf(bao, { ca: testCertificates().otherCa }), PERSON_TOKEN, personal)).toMatchObject({ outcome: "certificate-rejected" });
+  });
+});
+
+describe("a list", () => {
+  const withTree = async () => {
+    const bao = await fakeOpenBao();
+    bao.kv("personal", 2);
+    bao.kv("legacy", 1);
+    bao.kv("hidden", 2);
+    for (const path of ["harness/forge-github", "harness/bank-cortex", "notes"]) bao.secret("personal", path, { value: "a-value-for-tests" });
+    bao.secret("legacy", "forge", { token: "a-value-for-tests" });
+    bao.policy("browser", `path "personal/metadata/*" { capabilities = ["list"] }\npath "legacy/*" { capabilities = ["list"] }`);
+    bao.token(PERSON_TOKEN, { policies: ["default", "browser"] });
+    return bao;
+  };
+
+  it("names the KV mounts the login can see, each ending in /, and nothing it cannot", async () => {
+    const bao = await withTree();
+    expect(await openBaoProvider.list(targetOf(bao), PERSON_TOKEN, { mount: null, path: null })).toEqual({ outcome: "listed", names: ["personal/", "legacy/"] });
+    expect(bao.requests).toEqual([{ method: "GET", path: "sys/internal/ui/mounts" }]);
+  });
+
+  it("lists names under a path on either version, a folder's ending in /, and the mount's top without one", async () => {
+    const bao = await withTree();
+    const provider = createOpenBaoProvider();
+    expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: null })).toEqual({ outcome: "listed", names: ["harness/", "notes"] });
+    expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "harness" })).toEqual({ outcome: "listed", names: ["bank-cortex", "forge-github"] });
+    expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "legacy", path: null })).toEqual({ outcome: "listed", names: ["forge"] });
+    expect(bao.requests).toEqual([
+      { method: "GET", path: "sys/internal/ui/mounts/personal" },
+      { method: "LIST", path: "personal/metadata/" },
+      { method: "LIST", path: "personal/metadata/harness/" },
+      { method: "GET", path: "sys/internal/ui/mounts/legacy" },
+      { method: "LIST", path: "legacy/" },
+    ]);
+  });
+
+  it("is not-found for a path with nothing under it, and denied where the login may not list", async () => {
+    const bao = await withTree();
+    expect(await openBaoProvider.list(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "empty" })).toMatchObject({ outcome: "not-found" });
+    expect(await openBaoProvider.list(targetOf(bao), PERSON_TOKEN, { mount: "hidden", path: null })).toMatchObject({ outcome: "denied" });
   });
 });
