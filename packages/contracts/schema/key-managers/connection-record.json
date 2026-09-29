@@ -194,7 +194,15 @@
     },
     "injects": {
       "type": "boolean",
-      "description": "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it."
+      "description": "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does, until keyManagers.connections.setInjected moves it; signing out stops it."
+    },
+    "injectedVariables": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The names of the variables every provider process and terminal receives from this connection while it injects (for OpenBao, its block in both the BAO_ and VAULT_ families); names only, never a value. Empty for a connection that does not inject, or whose provider's block this version does not give yet."
     },
     "status": {
       "type": "object",
@@ -380,6 +388,7 @@
     "basePath",
     "suggestedBasePath",
     "injects",
+    "injectedVariables",
     "status",
     "tokenInformation",
     "canMint",
@@ -388,5 +397,5 @@
     "importedFrom",
     "createdAt"
   ],
-  "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set) and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
+  "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set), whether it injects and the names of the variables runs receive from it; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
 }

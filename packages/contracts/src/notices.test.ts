@@ -45,6 +45,7 @@ describe("environment notices", () => {
       "key-manager.connection.updated",
       "key-manager.connection.policies-set",
       "key-manager.connection.base-path-set",
+      "key-manager.connection.injected-set",
       "key-manager.connection.verified",
       "key-manager.connection.removed",
       "key-manager.moved",

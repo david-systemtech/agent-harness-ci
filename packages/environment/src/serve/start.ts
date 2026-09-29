@@ -108,6 +108,7 @@ import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
+import { KEY_MANAGER_CLI_DIRECTORY } from "../key-managers/run-tokens.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { settingsInjection } from "../key-managers/injection-setting.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
@@ -769,6 +770,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
       referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
     });
     closers.push(() => connections.close());
     await connections.start();
@@ -825,12 +827,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
-  // now its every call is gated), the worktrees and any root a later workstream declares (#325).
+  // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
+  // configuration, which an injected CLI reads (#368, David's decision on it).
   const user = passwdName();
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
-    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all],
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all, join(dataDir, KEY_MANAGER_CLI_DIRECTORY)],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
@@ -891,6 +894,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
   const processEnvironments = createProcessEnvironments(injection ?? settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })));
   if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
+  // The injecting key-manager connections' blocks and each holder's run tokens (#368).
+  processEnvironments.register(keyManagerConnections.processEnvironment);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -1067,7 +1072,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...options.terminals,
     processEnvironment: (sessionId) => {
       const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
-      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client", override: null });
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client", holder: "terminal", override: null });
     },
   });
   closers.push(() => terminalService.close());

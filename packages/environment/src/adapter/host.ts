@@ -1406,11 +1406,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** A run as its process environment and its injection answer are asked for: its session, its account, who started it, and a routine's own injection as its override (#367). */
+  /** A run's provider process as its process environment and its injection answer are asked for: its session, its account, who started it, and a routine's own injection as its override (#367). */
   const holderOf = (plan: PlannedRun): ProcessEnvironmentScope => ({
     sessionId: plan.sessionId,
     accountId: plan.account.id,
     origin: plan.actor.kind,
+    holder: "provider-process",
     override: runOverrideOf(plan.actor),
   });
 
@@ -2020,7 +2021,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
       }
       // As a run a client starts would be composed: with no extra always-on names.
-      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", override: null });
+      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
       return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment), injection }));
     },
     continueSession(sessionId) {

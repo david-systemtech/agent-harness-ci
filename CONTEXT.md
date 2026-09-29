@@ -404,6 +404,10 @@ _Avoid_: git credential store, token file, GCM
 The random value the credential helper proves itself with: minted for one harness git operation, a provider process or a terminal, naming the forge accounts it may be served, held only in the environment's memory as a secret, and void once what it was minted for ends or the environment restarts.
 _Avoid_: token (the forge's credential), session token, API key
 
+**Run token**:
+What a holder (a provider process, a terminal, a routine's pre-check, a verify command) receives for a key manager: for OpenBao or Vault a child token of the connection's current login with the ticked policies plus `default`, minted as the holder starts, renewed while it lives and revoked when it stops; for the other key managers, the connection's own token as it is.
+_Avoid_: child token (OpenBao's mechanism, not every key manager's), run-scoped secret (the credential helper's proof), login token (the connection's own)
+
 **Credential route**:
 The environment's internal route the credential helper asks over loopback: it serves a run-scoped secret's forge accounts on their canonical origins and verified aliases, reading the credential on every request, and refuses everything else.
 _Avoid_: token endpoint, credential server, auth API

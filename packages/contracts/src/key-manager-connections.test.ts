@@ -28,7 +28,7 @@ const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
 const approle = { method: "approle", roleId: "role-id-for-tests", secretId: "secret-id-for-tests" } as const;
 
 describe("the key-manager connection methods", () => {
-  it("have one scope each: the list at read; add, signIn, update, setPolicies, signOut and remove as admin commands; verify, the certificate preview and the references' check and browse as admin queries", () => {
+  it("have one scope each: the list at read; add, signIn, update, setPolicies, setInjected, signOut and remove as admin commands; verify, the certificate preview and the references' check and browse as admin queries", () => {
     const owned = methods.filter((m) => m.name.startsWith("keyManagers."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "keyManagers.list": ["query", "read"],
@@ -43,6 +43,7 @@ describe("the key-manager connection methods", () => {
       "keyManagers.references.check": ["query", "admin"],
       "keyManagers.references.browse": ["query", "admin"],
       "keyManagers.connections.setBasePath": ["command", "admin"],
+      "keyManagers.connections.setInjected": ["command", "admin"],
       "keyManagers.move.list": ["query", "read"],
       "keyManagers.move": ["command", "admin"],
       "keyManagers.move.copyValue": ["command", "admin"],
@@ -58,6 +59,12 @@ describe("the key-manager connection methods", () => {
     expect(Object.keys(registry["keyManagers.certificate.preview"].params.shape)).toEqual(["address"]);
     expect(Object.keys(KeyManagerCertificate.shape)).toEqual(["pem", "sha256Fingerprint", "subject", "names", "expiresAt", "selfSigned"]);
     expect(registry["keyManagers.certificate.preview"].errors.map((member) => member.shape.code.value)).toEqual(["unreachable"]);
+  });
+
+  it("setInjected takes the connection alone and answers its record (#368)", () => {
+    expect(Object.keys(registry["keyManagers.connections.setInjected"].params.shape)).toEqual(["commandId", "connectionId"]);
+    expect(Object.keys(registry["keyManagers.connections.setInjected"].result.shape)).toEqual(["connection"]);
+    expect(registry["keyManagers.connections.setInjected"].errors).toEqual([]);
   });
 
   it("add takes id, provider, label, address, CA, method, mount, username, token role, ticks, base path, where it came from, and an optional credential", () => {
@@ -123,6 +130,7 @@ describe("the connection record", () => {
       "basePath",
       "suggestedBasePath",
       "injects",
+      "injectedVariables",
       "status",
       "tokenInformation",
       "canMint",
@@ -158,7 +166,7 @@ describe("an address", () => {
 });
 
 describe("the key-manager connection events", () => {
-  it("are the eight on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
+  it("are the nine on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
     expect(Object.keys(KEY_MANAGER_EVENT_PAYLOADS)).toEqual([
       "key-manager.connection.added",
       "key-manager.connection.signed-in",
@@ -166,6 +174,7 @@ describe("the key-manager connection events", () => {
       "key-manager.connection.updated",
       "key-manager.connection.policies-set",
       "key-manager.connection.base-path-set",
+      "key-manager.connection.injected-set",
       "key-manager.connection.verified",
       "key-manager.connection.removed",
     ]);
@@ -176,6 +185,13 @@ describe("the key-manager connection events", () => {
     const notice = { type: "key-manager.connection.removed", payload: { connectionId } };
     expect(EnvironmentNotice.parse(notice)).toEqual(notice);
     expect(EnvironmentNotice.safeParse({ type: "key-manager.connection.signed-out", payload: { connectionId } }).success).toBe(false);
+  });
+
+  it("injected-set names the connection that injects now and the one of its provider it replaced, or none (#368)", () => {
+    const moved = { type: "key-manager.connection.injected-set", payload: { connectionId, replaced: "3c1d2e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f" } };
+    expect(EnvironmentNotice.parse(moved)).toEqual(moved);
+    const first = { type: "key-manager.connection.injected-set", payload: { connectionId, replaced: null } };
+    expect(EnvironmentNotice.parse(first)).toEqual(first);
   });
 });
 

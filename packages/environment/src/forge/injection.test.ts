@@ -392,7 +392,7 @@ describe("containment", () => {
 
     const projected = t.adapter.lastRun().input.denylist;
     expect(projected?.paths).toContain(dataDir);
-    expect(projected?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees"), join(dataDir, "bin")]);
+    expect(projected?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees"), join(dataDir, "key-manager-cli"), join(dataDir, "bin")]);
   });
 
   it("leaves the exempt directories as they are for a helper no denied path covers", async () => {
@@ -403,6 +403,6 @@ describe("containment", () => {
     await routineRun(t, session.id);
 
     const dataDir = t.env.dataDir;
-    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees")]);
+    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees"), join(dataDir, "key-manager-cli")]);
   });
 });

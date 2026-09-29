@@ -571,7 +571,7 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
     expect(projected?.paths).toContain(t.env.dataDir);
     expect(projected?.paths).not.toContain(join(home, ".aws"));
     expect(projected?.paths.every((path) => path.startsWith("/"))).toBe(true);
-    expect(projected?.exempt).toEqual([join(t.env.dataDir, "containment"), join(t.env.dataDir, "scratch"), join(t.env.dataDir, "worktrees")]);
+    expect(projected?.exempt).toEqual([join(t.env.dataDir, "containment"), join(t.env.dataDir, "scratch"), join(t.env.dataDir, "worktrees"), join(t.env.dataDir, "key-manager-cli")]);
     expect(projected?.commandPatterns).toContain("sudo *");
     expect(projected?.commandPatterns).toContain("terraform destroy *");
     expect(projected?.commandPatterns).not.toContain("reboot *");

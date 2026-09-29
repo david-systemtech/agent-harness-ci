@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "keyManagers.connections.signIn response",
+  "title": "keyManagers.connections.setInjected response",
   "type": "object",
   "properties": {
     "receipt": {

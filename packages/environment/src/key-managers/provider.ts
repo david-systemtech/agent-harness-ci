@@ -5,11 +5,13 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
  * provider per kind of key manager behind it, which the connections sign in
  * and verify through. OpenBao is the first (`openbao.ts`), as far as
  * logging in, looking a login's token up, verifying it and revoking it,
- * reading a reference and listing names under a path (#370), and checking
- * write access to a path and writing a value there (#371); renewal,
- * run tokens and the other kinds join the interface with the tickets that
- * use them (#368 to #379). A provider never disables TLS verification: a
- * pinned CA is the only trust it adds.
+ * reading a reference and listing names under a path (#370), checking
+ * write access to a path and writing a value there (#371), and minting a
+ * run token from a login and renewing it (#368), which it revokes as it
+ * revokes a login, with itself; a login's own renewal and the other kinds
+ * join the interface with the tickets that use them (#369, #377 to #379). A
+ * provider never disables TLS verification: a pinned CA is the only trust
+ * it adds.
  */
 
 /** How a provider is named to people. */
@@ -120,6 +122,25 @@ export interface WriteRequest {
 /** What a write answered: written, or a different value at the reference already, left as it was; never either value. */
 export type WriteAnswer = { readonly outcome: "written" } | { readonly outcome: "exists" } | ProviderFailure;
 
+/**
+ * What a run token is minted with (#368; key-managers spec, "Run tokens"):
+ * its policies, its time to live, the display name and metadata the key
+ * manager keeps with it, and the token role it is created against, if any.
+ */
+export interface RunTokenRequest {
+  readonly policies: readonly string[];
+  readonly ttlSeconds: number;
+  readonly displayName: string;
+  readonly metadata: Readonly<Record<string, string>>;
+  readonly tokenRole: string | null;
+}
+
+/** What a run token's minting answered: the token, or why there is none. */
+export type MintAnswer = { readonly outcome: "minted"; readonly token: string } | ProviderFailure;
+
+/** What a token's renewal of itself answered: the time to live it has from now, or why it was not renewed. */
+export type RenewAnswer = { readonly outcome: "renewed"; readonly ttlSeconds: number } | LoginFailure;
+
 export interface ConnectionProvider {
   /** Logs in at the target's mount with `credential`, whose method is the target's: a token is its own login. */
   logIn(target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<LogInAnswer>;
@@ -133,8 +154,12 @@ export interface ConnectionProvider {
   verify(target: SignInTarget, token: string, options: VerifyOptions): Promise<VerifyAnswer>;
   /** Reads the text of the policy `name` with the login's token. */
   readPolicy(target: SignInTarget, token: string, name: string, signal?: AbortSignal): Promise<PolicyTextAnswer>;
-  /** Revokes the login's token with itself. */
+  /** Revokes a token with itself: a login's, or a run token's (#368). */
   revoke(target: SignInTarget, token: string): Promise<RevokeAnswer>;
+  /** Mints a run token with the login's token (#368): a child of the login, or what its token role makes. */
+  mint(target: SignInTarget, token: string, request: RunTokenRequest, signal?: AbortSignal): Promise<MintAnswer>;
+  /** Renews a token with itself by `incrementSeconds` from now (#368: a run token, every twenty minutes while its holder lives). */
+  renew(target: SignInTarget, token: string, incrementSeconds: number, signal?: AbortSignal): Promise<RenewAnswer>;
   /** Reads the value `reference` names with the login's token, now: a value is never kept, whatever the provider keeps of the key manager's shape. */
   read(target: SignInTarget, token: string, reference: KeyManagerReference, signal?: AbortSignal): Promise<ReadAnswer>;
   /** Lists the names under `location` with the login's token: never a value. */

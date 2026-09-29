@@ -119,6 +119,8 @@ describe("keyManagers.connections.add", () => {
       basePath: null,
       suggestedBasePath: null,
       injects: true,
+      // The block runs receive, both families (#368).
+      injectedVariables: expect.arrayContaining(["BAO_ADDR", "BAO_TOKEN", "BAO_CACERT_BYTES", "VAULT_ADDR", "VAULT_TOKEN", "VAULT_CACERT_BYTES"]),
       status: { kind: "signed-in", since: MANUAL_CLOCK_START, message: "Signed in to OpenBao as approle." },
       tokenInformation: { displayName: "approle", policies: ["default", "agent-read"], ttlSeconds: 3600, renewable: true, expiresAt: IN_AN_HOUR },
       canMint: null,
@@ -683,7 +685,7 @@ describe("keyManagers.connections.signOut", () => {
     const out = await signOut(client, connection.id);
 
     const status = { kind: "awaiting-sign-in", since: "2026-09-24T00:01:00.000Z", message: "Signed out: sign in again in Set up, Key manager." };
-    expect(out.result?.connection).toEqual({ ...connection, status, tokenInformation: null, injects: false });
+    expect(out.result?.connection).toEqual({ ...connection, status, tokenInformation: null, injects: false, injectedVariables: [] });
     expect((await keyManagerEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["key-manager.connection.signed-out", { connectionId: connection.id, status }]]);
     await vi.waitFor(() => expect(bao.live(login)).toBe(false));
     expect(await saidBackOnceHeld(t, [SECRET_ID, login], [SECRET_ID, login])).toEqual([SECRET_ID, login]);
@@ -692,7 +694,7 @@ describe("keyManagers.connections.signOut", () => {
     await t.close();
     const asked = bao.requests.length;
     const again = await start({ dataDir });
-    expect(await list(await again.client())).toEqual([{ ...connection, status, tokenInformation: null, injects: false }]);
+    expect(await list(await again.client())).toEqual([{ ...connection, status, tokenInformation: null, injects: false, injectedVariables: [] }]);
     expect(await saidBack(again, [SECRET_ID])).toEqual([SECRET_ID]);
     expect(bao.requests).toHaveLength(asked);
   });
