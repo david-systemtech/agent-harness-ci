@@ -22,11 +22,17 @@ import { uuidv4, uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
 import { writable, type Observable } from "../observable.js";
 import type { Clock, DocumentStore, Timer } from "../platform.js";
+import type { SessionRunsView } from "../projections/runs.js";
+import type { SessionProjection } from "../projections/session.js";
+import type { VerbReason } from "../projections/verbs.js";
 import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 import { decodeOutbox, encodeOutbox, outboxDocument, type OutboxEntry } from "./entries.js";
 import { reachable, type EnvironmentOutbox, type OutboxView, type OverlayRecord } from "./overlay.js";
 import { overlayOf, reasonOf, targetOf, verbOf, type Target } from "./rules.js";
+import { createStopFirst } from "./stop-first.js";
+
+export { STOP_WAIT_MS } from "./stop-first.js";
 
 /**
  * The outbox (docs/specs/client-runtime.md, "The offline outbox, receipts
@@ -139,7 +145,9 @@ export interface Commands {
   moveToGroup(environmentId: string, sessionId: string, groupName: string | null): Promise<DispatchAnswer<"sessions.setGroup">>;
   /**
    * Rewinds a session to one of its user messages (ADR 0022):
-   * `sessions.rewind`; and when the environment refuses it
+   * `sessions.rewind`, once the drafts still waiting their second are sent,
+   * so the draft the rewind writes lands after what was typed; and when the
+   * environment refuses it
    * `use_new_session` (the session's first message, with nothing before it
    * to go back to), a new session in the same workspace with the message's
    * text as its draft: `sessions.create` with a client-minted id and a
@@ -152,8 +160,56 @@ export interface Commands {
    * rewind's own answer, with its notice, for any other refusal, and for
    * this one when it cannot start a session: the message not held, or the
    * connection without the scope (or flag) the create or the draft needs.
+   *
+   * With `stopFirst` (#390), a run live on the session is stopped first:
+   * `runs.interrupt`, then the rewind above once the run is no longer live,
+   * waiting at most `STOP_WAIT_MS` after the interrupt was accepted
+   * (`onStopping` is called then, with the run's id), else it gives up,
+   * having rewound nothing. It is refused at once, dispatching nothing,
+   * while messages are queued or while the run is only starting, with no id
+   * to interrupt (`stopFirstOffer`); with no run live it is the rewind above.
    */
-  rewind(environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer>;
+  rewind(environmentId: string, sessionId: string, messageId: string, options?: RewindOptions): Promise<RewindAnswer>;
+  /**
+   * Forks a session (ADR 0022; #390): `sessions.fork` through the outbox with
+   * a client-minted id, taken before the user message `anchor` (the whole
+   * session without one), onto `account` (the source's without one), titled
+   * `title` (the source's title carried without one). Answers the fork's id
+   * with the fork's answer; a refused fork raises its notice as any refused
+   * command does. The environment writes an anchored fork's draft, the
+   * message's text; a hand-off (an account and no anchor) has none written,
+   * so once the fork is accepted the source's draft, as this client shows it
+   * when the fork is asked for (a draft still waiting its second included),
+   * is sent as the fork's (`sessions.setDraft`). A source with no draft that
+   * is a fork this runtime made at a message, which no run of it has read
+   * yet, carries that message's text instead: the environment writes no
+   * draft for a fork of it (#273).
+   */
+  fork(environmentId: string, sessionId: string, options?: ForkOptions): Promise<ForkAnswer>;
+}
+
+/** How `commands.rewind` goes about it. */
+export interface RewindOptions {
+  /** Stop the live run first (`runs.interrupt`), then rewind once it is over. */
+  readonly stopFirst?: boolean;
+  /** Called once the stop-first form's interrupt is accepted, with the run it stopped, while the rewind waits for it to end. */
+  readonly onStopping?: (runId: string) => void;
+}
+
+/** What `commands.fork` makes: each part optional. */
+export interface ForkOptions {
+  /** The user message of the source the fork is taken before; the whole session without one. */
+  readonly anchor?: string;
+  /** The account the fork's runs use, one the environment holds and is signed in; the source's without one. */
+  readonly account?: string;
+  /** The fork's user title; the source's title is carried as its generated title without one. */
+  readonly title?: string;
+}
+
+/** What `commands.fork` did: the id minted for the fork, with the fork's answer. The session stands only when that answer is ok. */
+export interface ForkAnswer {
+  readonly sessionId: string;
+  readonly answer: DispatchAnswer<"sessions.fork">;
 }
 
 /**
@@ -164,12 +220,13 @@ export interface Commands {
  */
 export type RewindAnswer =
   | { readonly kind: "rewind"; readonly answer: DispatchAnswer<"sessions.rewind"> }
-  | { readonly kind: "new-session"; readonly sessionId: string; readonly answer: DispatchAnswer<"sessions.create"> };
-
-/** What a rewind refused `use_new_session` starts a new session from: the message's text. */
-export interface RewindSource {
-  readonly text: string;
-}
+  | { readonly kind: "new-session"; readonly sessionId: string; readonly answer: DispatchAnswer<"sessions.create"> }
+  /** The stop-first form, refused at once with nothing dispatched: messages queued, a run starting with no id to interrupt, or the rewind's own reason. */
+  | { readonly kind: "refused"; readonly reason: VerbReason; readonly message: string }
+  /** The stop-first form's interrupt, refused (with its notice, or at once): nothing was rewound. */
+  | { readonly kind: "interrupt"; readonly answer: Extract<DispatchAnswer<"runs.interrupt">, { readonly ok: false }> }
+  /** The stop-first form gave up: the run it stopped was still live `STOP_WAIT_MS` after the interrupt was accepted, and nothing was rewound. */
+  | { readonly kind: "gave-up"; readonly runId: string };
 
 export interface OutboxHost {
   readonly clock: Clock;
@@ -185,8 +242,12 @@ export interface OutboxHost {
   shown(environmentId: string): ListData | null;
   /** The environment's time now. */
   now(environmentId: string): Date;
-  /** A user message of a session the runtime holds; null when it is not held. */
-  rewindSource(environmentId: string, sessionId: string, messageId: string): RewindSource | null;
+  /** What the runtime holds of a session, read without subscribing anything: its transcript, runs and draft. */
+  held(environmentId: string, sessionId: string): SessionProjection;
+  /** One session's run state, queue and verbs (`projections.runs.session`): what the stop-first rewind reads and waits on. */
+  sessionRuns(environmentId: string, sessionId: string): Observable<SessionRunsView>;
+  /** Sends every draft still waiting its second (`drafts.flush`). */
+  flushDrafts(): void;
 }
 
 export interface Outbox extends Commands {
@@ -699,6 +760,77 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     return ("refused" in prepared ? Promise.resolve(prepared.refused) : prepared.enqueue()) as Promise<DispatchAnswer<N>>;
   };
 
+  /** The text of a user message of a session the runtime holds, as its transcript shows it; null when it is not held. */
+  const messageText = (environmentId: string, sessionId: string, messageId: string): string | null => {
+    const message = host.held(environmentId, sessionId).items.find((item) => item.kind === "user-message" && item.messageId.toLowerCase() === messageId.toLowerCase());
+    return message?.kind === "user-message" ? message.text : null;
+  };
+
+  /** A session as the outbox's maps key it. */
+  const sessionKey = (environmentId: string, sessionId: string): string => `${environmentId} ${sessionId.toLowerCase()}`;
+
+  /** The forks `fork` made at a message, with its text: what a hand-off of one carries while no run of it has read that message. */
+  const branches = new Map<string, string>();
+
+  /**
+   * What a hand-off of a session carries onto the fork: the session's draft
+   * as this client shows it (a draft still waiting its second laid over);
+   * with none, for a fork this runtime made at a message no run of it has
+   * read yet, that message's text, the draft emptied to hand it off (#273).
+   */
+  const handOffDraft = (environmentId: string, sessionId: string): string | null => {
+    const held = host.held(environmentId, sessionId);
+    const own = host.shown(environmentId)?.sessions.get(sessionId.toLowerCase())?.draft ?? held.draft;
+    if (own !== null && own.length > 0) return own;
+    return held.runs.length > 0 ? null : (branches.get(sessionKey(environmentId, sessionId)) ?? null);
+  };
+
+  const rewind = async (environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer> => {
+    // Read now: the session's transcript may move on while the rewind is under way.
+    const text = messageText(environmentId, sessionId, messageId);
+    // What was typed goes first, so the draft the rewind writes lands after it, and an undo can put it back (#232).
+    host.flushDrafts();
+    const rewound = prepare(environmentId, "sessions.rewind", { sessionId, messageId });
+    if ("refused" in rewound) return { kind: "rewind", answer: rewound.refused as DispatchAnswer<"sessions.rewind"> };
+    const startsOver = (error: DispatchFailure) => error.code === "conflict" && error.data?.["reason"] === "use_new_session";
+    // The refusal is answered here only when a new session can be started from it: the message is held, and
+    // the connection admits the create and the draft. Else it is the caller's, with its notice.
+    const record = host.record(environmentId);
+    const admitted = ["sessions.create", "sessions.setDraft"].every((method) => answerQueuedCommand(method as CommandMethodName, record).status === "present");
+    const caller: { readonly answers: (error: DispatchFailure) => boolean; notice?: () => void } = { answers: startsOver };
+    if (text !== null && admitted) answeredByCaller.set(rewound.commandId, caller);
+    let answer: DispatchAnswer<"sessions.rewind">;
+    try {
+      answer = (await rewound.enqueue()) as DispatchAnswer<"sessions.rewind">;
+    } finally {
+      answeredByCaller.delete(rewound.commandId);
+    }
+    if (answer.ok || caller.notice === undefined || text === null) return { kind: "rewind", answer };
+    const id = uuidv4();
+    // In the rewound session's workspace, as the environment has it now: a session request, never a copy of the summary's (#325).
+    const create = prepare(environmentId, "sessions.create", { id, workspace: { kind: "session", sessionId } });
+    if ("refused" in create) {
+      // Refused on the spot after all (the runtime closing, the environment removed): no session is started, and the rewind's
+      // refusal is the caller's, with the notice it would have raised.
+      caller.notice();
+      return { kind: "rewind", answer };
+    }
+    const created = (await create.enqueue()) as DispatchAnswer<"sessions.create">;
+    // The draft holds at most MAX_DRAFT_LENGTH characters: a longer message is cut to it, as a fork's anchored draft is (#137).
+    // Sent only once the session exists, so a create the environment refused leaves one notice, its own.
+    const draft = text.slice(0, MAX_DRAFT_LENGTH);
+    if (created.ok && draft.length > 0) void dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft });
+    return { kind: "new-session", sessionId: id, answer: created };
+  };
+
+  const stopFirst = createStopFirst({
+    clock,
+    held: (environmentId, sessionId) => host.held(environmentId, sessionId),
+    sessionRuns: (environmentId, sessionId) => host.sessionRuns(environmentId, sessionId),
+    interrupt: (environmentId, runId) => dispatch(environmentId, "runs.interrupt", { runId }),
+    rewind,
+  });
+
   const stopReady = host.seams.onReady((environmentId, hello) => {
     const sender = senderOf(environmentId);
     // A new socket: whatever was under way went with the old one, and stays in flight to be sent again.
@@ -754,40 +886,28 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       void create.enqueue();
       return move.enqueue() as Promise<DispatchAnswer<"sessions.setGroup">>;
     },
-    async rewind(environmentId, sessionId, messageId) {
-      // Read now: the session's transcript may move on while the rewind is under way.
-      const source = host.rewindSource(environmentId, sessionId, messageId);
-      const rewind = prepare(environmentId, "sessions.rewind", { sessionId, messageId });
-      if ("refused" in rewind) return { kind: "rewind", answer: rewind.refused as DispatchAnswer<"sessions.rewind"> };
-      const startsOver = (error: DispatchFailure) => error.code === "conflict" && error.data?.["reason"] === "use_new_session";
-      // The refusal is answered here only when a new session can be started from it: the message is held, and
-      // the connection admits the create and the draft. Else it is the caller's, with its notice.
-      const record = host.record(environmentId);
-      const admitted = ["sessions.create", "sessions.setDraft"].every((method) => answerQueuedCommand(method as CommandMethodName, record).status === "present");
-      const caller: { readonly answers: (error: DispatchFailure) => boolean; notice?: () => void } = { answers: startsOver };
-      if (source !== null && admitted) answeredByCaller.set(rewind.commandId, caller);
-      let answer: DispatchAnswer<"sessions.rewind">;
-      try {
-        answer = (await rewind.enqueue()) as DispatchAnswer<"sessions.rewind">;
-      } finally {
-        answeredByCaller.delete(rewind.commandId);
-      }
-      if (answer.ok || caller.notice === undefined || source === null) return { kind: "rewind", answer };
+    rewind(environmentId, sessionId, messageId, options = {}) {
+      return options.stopFirst === true ? stopFirst.rewind(environmentId, sessionId, messageId, options.onStopping) : rewind(environmentId, sessionId, messageId);
+    },
+    async fork(environmentId, sessionId, options = {}) {
+      const { anchor, account, title } = options;
       const id = uuidv4();
-      // In the rewound session's workspace, as the environment has it now: a session request, never a copy of the summary's (#325).
-      const create = prepare(environmentId, "sessions.create", { id, workspace: { kind: "session", sessionId } });
-      if ("refused" in create) {
-        // Refused on the spot after all (the runtime closing, the environment removed): no session is started, and the rewind's
-        // refusal is the caller's, with the notice it would have raised.
-        caller.notice();
-        return { kind: "rewind", answer };
+      // Read now: the source's transcript and draft may move on while the fork is under way.
+      const carried = account !== undefined && anchor === undefined ? handOffDraft(environmentId, sessionId) : null;
+      const anchorText = anchor === undefined ? null : messageText(environmentId, sessionId, anchor);
+      const answer = await dispatch(environmentId, "sessions.fork", {
+        sessionId,
+        id,
+        ...(anchor !== undefined && { atMessageId: anchor }),
+        ...(account !== undefined && { account }),
+        ...(title !== undefined && { title }),
+      });
+      if (answer.ok) {
+        if (anchorText !== null && anchorText.length > 0) branches.set(sessionKey(environmentId, id), anchorText);
+        // Sent only once the fork exists, so a fork the environment refused leaves one notice, its own.
+        if (carried !== null) void dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft: carried.slice(0, MAX_DRAFT_LENGTH) });
       }
-      const created = (await create.enqueue()) as DispatchAnswer<"sessions.create">;
-      // The draft holds at most MAX_DRAFT_LENGTH characters: a longer message is cut to it, as a fork's anchored draft is (#137).
-      // Sent only once the session exists, so a create the environment refused leaves one notice, its own.
-      const draft = source.text.slice(0, MAX_DRAFT_LENGTH);
-      if (created.ok && draft.length > 0) void dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft });
-      return { kind: "new-session", sessionId: id, answer: created };
+      return { sessionId: id, answer };
     },
     async load(environmentIds) {
       await Promise.all(environmentIds.map(load));
@@ -801,6 +921,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       // A command kept after a read still under way is kept before the close: its read's continuation runs first.
       await Promise.all([...senders.values()].map((sender) => sender.loaded));
       closed = true;
+      // A stop-first rewind still waiting goes on to its rewind, which is now refused closed.
+      stopFirst.close();
       stopReady();
       stopRecords();
       stopLists();

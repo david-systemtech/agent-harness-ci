@@ -76,14 +76,18 @@ export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilit
 export type { EnvironmentView } from "./projections/environments.js";
 export {
   COMMAND_EXPIRY_MS,
+  STOP_WAIT_MS,
   type AcceptedReceipt,
   type CommandParams,
   type Commands,
   type DispatchAnswer,
   type DispatchFailure,
   type DispatchFailureCode,
+  type ForkAnswer,
+  type ForkOptions,
   type RejectedReceipt,
   type RewindAnswer,
+  type RewindOptions,
 } from "./outbox/outbox.js";
 export { DRAFT_DEBOUNCE_MS, type Drafts } from "./outbox/drafts.js";
 export {
@@ -126,7 +130,7 @@ export {
   type SessionRun,
   type SessionRunsView,
 } from "./projections/runs.js";
-export type { QueuedMessage, SessionVerbs, VerbAvailability, VerbMethod, VerbReason } from "./projections/verbs.js";
+export { stopFirstOffer, type QueuedMessage, type SessionVerbs, type StopFirstOffer, type VerbAvailability, type VerbMethod, type VerbReason } from "./projections/verbs.js";
 export type { Attention, AttentionEvent } from "./projections/attention.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";

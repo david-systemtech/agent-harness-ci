@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
 import {
-  interruptRun,
   oneLine,
-  type Clock,
+  stopFirstOffer,
+  type RewindAnswer,
   type Runtime,
   type SessionProjection,
   type SessionRunsView,
@@ -22,15 +21,14 @@ import type { Opened } from "./use-session.js";
  * dispatches nothing; what the environment refuses is one line with its
  * message. A rewind the runtime says is refused because a run is live
  * (`run_active`), or one the environment refuses so, is offered as stop and
- * rewind: `runs.interrupt`, then, once that run has ended, `sessions.rewind`,
- * two commands, as the wire has no stop-and-rewind of its own. It is not
- * offered while messages are queued (the stop would leave them for the
- * rewind to be refused over), nor while the run is starting and there is
- * no run to stop yet. A rewind to the session's first user message is
+ * rewind: `commands.rewind`'s stop-first form (#390), which interrupts the
+ * run and rewinds once it has ended, the runtime's rule for every client
+ * (`stopFirstOffer`: not while messages are queued, nor while the run is only
+ * starting). A rewind to the session's first user message is
  * `commands.rewind`'s to turn into a new session (`use_new_session`), which
- * is opened. A fork is opened once the environment has it, holding the
- * anchored message as its draft; `/handoff` on it moves its next run to
- * another account, carrying the draft (`carriedDraft`).
+ * is opened. A fork is `commands.fork`, opened once the environment has it,
+ * holding the anchored message as its draft; `/handoff` on it moves its next
+ * run to another account, the runtime carrying the draft.
  */
 
 /** The user messages the picker lists and `/rewind n` and `/fork n` count back through: those a run has read, in the visible transcript, oldest first. */
@@ -50,16 +48,8 @@ export const messageWords = (text: string): string => oneLine(text, 80);
 /** A user message a rewind or a fork is anchored at. */
 export type Anchor = Pick<UserMessageEntry, "messageId" | "text">;
 
-/**
- * How long a stop-and-rewind waits for the run it stopped to end before it
- * gives the rewind up, saying so: a chosen default, well past the 8 s the
- * Claude adapter gives an interrupt before it forces its process down.
- */
-export const STOP_WAIT_MS = 30_000;
-
 export interface ForkRewindHost {
   readonly runtime: Runtime;
-  readonly clock: Clock;
   readonly opened: Opened | null;
   readonly projection: SessionProjection | undefined;
   /** The open session's queue, rewind and verbs (`projections.runs.session`). */
@@ -69,7 +59,6 @@ export interface ForkRewindHost {
   say(line: string): void;
   ask(question: Question): void;
   openSession(opened: Opened): void;
-  newSessionId(): string;
 }
 
 /** The verbs fork and rewind use, as they stand on the open session. */
@@ -89,58 +78,25 @@ export interface ForkRewind {
   rewind(message: Anchor): void;
   /** `/rewind n`: a rewind to the user message `back` from the end. */
   rewindBack(back: number): void;
-  /** `sessions.fork` before `message`, or of the whole session, the fork opened. */
+  /** `commands.fork` before `message`, or of the whole session, the fork opened. */
   fork(message: Anchor | null): void;
   /** `/fork [n]`: a fork before the user message `back` from the end, or (null) of the whole session. */
   forkBack(back: number | null): void;
   /** `sessions.undoRewind` of the latest rewind standing. */
   undo(): void;
-  /**
-   * The draft a hand-off of the open session carries onto its new session:
-   * the session's own; else, for a fork this terminal opened at a user
-   * message that no run has read yet, that message, the draft emptied to
-   * type `/handoff`.
-   */
-  carriedDraft(): string | null;
 }
 
 /** Whether an availability is the runtime's refusal because a run is live. */
 export const refusedLive = (availability: VerbAvailability): boolean => availability.status === "absent" && availability.reason === "run_active";
 
-/** Whether an availability is the connection's refusal: the environment out of reach, or not ready. */
-const outOfReach = (availability: VerbAvailability | undefined): boolean =>
-  availability === undefined || (availability.status === "absent" && (availability.reason === "unreachable" || availability.reason === "not-ready"));
-
-/** Why a rewind is not offered as a stop and a rewind: what is queued would be read after the stop, and the rewind refused over it. */
-const QUEUED_FIRST = "Messages are queued behind the live run: withdraw them first.";
-/** Why a rewind is not offered as a stop and a rewind: the run is starting, and there is no run to stop yet. */
-const STARTING = "A run is starting on this session: once it is running, a rewind offers to stop it.";
-
-const keyOf = (opened: Opened): string => `${opened.environmentId} ${opened.sessionId}`;
-
 export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   const { runtime, opened, runs } = host;
-  const runtimeRewind = runs?.verbs.rewind;
-  const queued = (runs?.queue.length ?? 0) > 0;
-  const offersStop = runtimeRewind !== undefined && refusedLive(runtimeRewind) && !queued && host.liveRunId !== undefined;
+  // The rewind as the runtime offers it now: a stop first while the live run can be stopped for it, else why not.
+  const offer = runs === undefined ? undefined : stopFirstOffer(runs, host.liveRunId);
+  const offersStop = offer !== undefined && offer.stops !== null;
   const verbs: ForkRewindVerbs | undefined =
-    runs === undefined || runtimeRewind === undefined
-      ? undefined
-      : {
-          rewind:
-            refusedLive(runtimeRewind) && queued
-              ? { status: "absent", reason: "queued_messages", message: QUEUED_FIRST }
-              : refusedLive(runtimeRewind) && host.liveRunId === undefined
-                ? { status: "absent", reason: "run_active", message: STARTING }
-                : runtimeRewind,
-          fork: runs.verbs.fork,
-          undoRewind: runs.verbs.undoRewind,
-        };
+    runs === undefined || offer === undefined ? undefined : { rewind: offer.rewind, fork: runs.verbs.fork, undoRewind: runs.verbs.undoRewind };
   const messages = (): readonly UserMessageEntry[] => (host.projection ? userMessagesOf(host.projection.items) : []);
-  // A stop-and-rewind whose stop was accepted: the rewind waits for the run it stopped to end, on the session it was asked on.
-  const [waiting, setWaiting] = useState<{ readonly target: Opened; readonly message: Anchor; readonly runId: string } | null>(null);
-  // The forks this terminal opened at a user message, with its text: what a hand-off of one carries while no run has read it.
-  const anchored = useRef(new Map<string, string>());
   const title = (): string => host.projection?.summary?.title ?? "this session";
 
   /** The open session and its verbs, or undefined, said in one line, when there is none to `verb`. */
@@ -150,56 +106,65 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
     return { target: opened, verbs };
   };
 
-  const stopThenRewind = (target: Opened, message: Anchor, runId: string) => {
-    void interruptRun(runtime, target.environmentId, runId).then((refused) => {
-      if (refused !== undefined) return host.say(`${refused} Nothing was rewound.`);
-      setWaiting({ target, message, runId });
-      host.say(`Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`);
-    });
+  /**
+   * What a rewind answered, in one line or by opening the session it started. `askedByKey`: a key action (the picker's
+   * Enter, `w`) asked for the rewind, so an offer to stop that follows takes y and n whatever the composer holds.
+   */
+  const rewound = (target: Opened, message: Anchor, done: RewindAnswer, askedByKey: boolean): void => {
+    switch (done.kind) {
+      case "new-session": {
+        if (!done.answer.ok) return host.say(`No session was started: ${done.answer.error.message}`);
+        const workspace = host.projection?.summary?.workspace.path;
+        host.openSession({ environmentId: target.environmentId, sessionId: done.sessionId });
+        return host.say(
+          `${messageWords(message.text)} was the first prompt, with nothing before it: a new session${workspace !== undefined ? ` in ${workspace}` : ""} starts with it as its draft.`,
+        );
+      }
+      case "rewind": {
+        const { answer } = done;
+        if (answer.ok) return;
+        if (answer.error.code === "conflict" && answer.error.data?.["reason"] === "run_active") return offerStop(target, message, askedByKey);
+        return host.say(`Not rewound: ${answer.error.message}`);
+      }
+      case "refused":
+        return host.say(`Not rewound: ${done.message}`);
+      case "interrupt":
+        return host.say(`Not interrupted: ${done.answer.error.message} Nothing was rewound.`);
+      case "gave-up":
+        return host.say("The run has not ended since the stop: not rewound. /rewind again once it has.");
+    }
+  };
+
+  /** Stops the live run, then rewinds to `message` once it has ended: the runtime's stop-first rewind. */
+  const stopThenRewind = (target: Opened, message: Anchor) => {
+    const stopping = () => host.say(`Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`);
+    // No key asks what follows the wait: it may have outlasted the start of the next message.
+    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId, { stopFirst: true, onStopping: stopping }).then((done) => rewound(target, message, done, false));
   };
 
   /**
-   * The offer to stop the live run, then rewind. `askedByKey`: a key action
-   * (the picker's Enter, `w`) asked for the rewind, so y and n answer the
-   * offer whatever the composer holds; a typed `/rewind` emptied the
-   * composer, and its offer, which may come once the next message is begun,
+   * The offer to stop the live run, then rewind, when the runtime says it can be had; else why not, in one line.
+   * `askedByKey`: a key action (the picker's Enter, `w`) asked for the rewind, so y and n answer the offer whatever the
+   * composer holds; a typed `/rewind` emptied the composer, and its offer, which may come once the next message is begun,
    * leaves what is typed to the composer.
    */
-  const offerStop = (target: Opened, message: Anchor, runId: string | undefined, askedByKey: boolean) => {
-    if (queued) return host.say(`Not rewound: ${QUEUED_FIRST}`);
-    if (runId === undefined) return host.say(`Not rewound: ${STARTING}`);
+  const offerStop = (target: Opened, message: Anchor, askedByKey: boolean) => {
+    // The stop-first rewind would be refused here (messages queued, the run only starting): its reason is said, and nothing is sent.
+    if (offer !== undefined && offer.stops === null && offer.rewind.status === "absent") return host.say(`Not rewound: ${offer.rewind.message}`);
     host.ask({
       text: `A run is live: stop it, then rewind to ${messageWords(message.text)}? y/n`,
-      yes: () => stopThenRewind(target, message, runId),
+      yes: () => stopThenRewind(target, message),
       no: () => host.say("Not rewound: the run goes on."),
       whileTyping: askedByKey,
     });
   };
 
   const rewindOn = (target: Opened, message: Anchor, askedByKey: boolean) => {
-    const workspace = host.projection?.summary?.workspace.path;
-    // What this terminal typed goes first, so the draft the rewind writes lands after it, and an undo can put it back.
-    runtime.drafts.flush();
-    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId).then((done) => {
-      if (done.kind === "new-session") {
-        if (!done.answer.ok) return host.say(`No session was started: ${done.answer.error.message}`);
-        host.openSession({ environmentId: target.environmentId, sessionId: done.sessionId });
-        return host.say(
-          `${messageWords(message.text)} was the first prompt, with nothing before it: a new session${workspace !== undefined ? ` in ${workspace}` : ""} starts with it as its draft.`,
-        );
-      }
-      const { answer } = done;
-      if (answer.ok) return;
-      if (answer.error.code === "conflict" && answer.error.data?.["reason"] === "run_active") {
-        const runId = answer.error.data["runId"];
-        return offerStop(target, message, typeof runId === "string" ? runId : undefined, askedByKey);
-      }
-      host.say(`Not rewound: ${answer.error.message}`);
-    });
+    void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId).then((done) => rewound(target, message, done, askedByKey));
   };
 
   const rewindTo = (target: Opened, available: ForkRewindVerbs, message: Anchor, askedByKey: boolean) => {
-    if (offersStop) return offerStop(target, message, host.liveRunId, askedByKey);
+    if (offersStop) return offerStop(target, message, askedByKey);
     if (available.rewind.status === "absent") return host.say(`Not rewound: ${available.rewind.message}`);
     rewindOn(target, message, askedByKey);
   };
@@ -207,11 +172,9 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
   const forkAt = (target: Opened, available: ForkRewindVerbs, message: Anchor | null) => {
     if (available.fork.status === "absent") return host.say(`Not forked: ${available.fork.message}`);
     const { environmentId, sessionId } = target;
-    const id = host.newSessionId();
     const from = title();
-    void runtime.commands.dispatch(environmentId, "sessions.fork", { sessionId, id, ...(message !== null && { atMessageId: message.messageId }) }).then((answer) => {
+    void runtime.commands.fork(environmentId, sessionId, message === null ? {} : { anchor: message.messageId }).then(({ sessionId: id, answer }) => {
       if (!answer.ok) return host.say(`Not forked: ${answer.error.message}`);
-      if (message !== null && message.text !== "") anchored.current.set(keyOf({ environmentId, sessionId: id }), message.text);
       host.openSession({ environmentId, sessionId: id });
       host.say(
         message === null
@@ -220,28 +183,6 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
       );
     });
   };
-
-  // The rewind a stop was asked for goes once the run it stopped is no longer the session's live run, held while the
-  // environment is out of reach (the run may still be live there), for at most STOP_WAIT_MS; another session opened drops it.
-  const waitingOn = waiting !== null && opened !== null && waiting.target.environmentId === opened.environmentId && waiting.target.sessionId === opened.sessionId;
-  const ended = waitingOn && host.liveRunId !== waiting.runId && !outOfReach(runtimeRewind);
-  useEffect(() => {
-    if (waiting === null) return;
-    if (!waitingOn) return setWaiting(null);
-    if (!ended) return;
-    setWaiting(null);
-    // No key asks this rewind: the wait may have outlasted the start of the next message.
-    rewindOn(waiting.target, waiting.message, false);
-  }, [waiting, waitingOn, ended]);
-  useEffect(() => {
-    if (waiting === null) return;
-    // Cancelled when the wait ends another way (the rewind sent, another session opened), so firing means it is still waiting.
-    const timer = host.clock.setTimeout(() => {
-      setWaiting(null);
-      host.say(`The run has not ended since the stop: not rewound. /rewind again once it has.`);
-    }, STOP_WAIT_MS);
-    return () => timer.cancel();
-  }, [waiting]);
 
   return {
     verbs,
@@ -282,12 +223,6 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
       void runtime.commands.dispatch(environmentId, "sessions.undoRewind", { sessionId }).then((answer) => {
         if (!answer.ok) host.say(`Not undone: ${answer.error.message}`);
       });
-    },
-    carriedDraft() {
-      const own = host.projection?.draft ?? null;
-      if (own !== null && own !== "") return own;
-      if (!opened || (host.projection?.runs.length ?? 0) > 0) return null;
-      return anchored.current.get(keyOf(opened)) ?? null;
     },
   };
 };

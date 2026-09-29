@@ -778,7 +778,6 @@ export const App = (props: AppProps) => {
   // Fork and rewind (ADR 0022; #232): the prompt picker's two actions, `/rewind`, `/fork` and the row verbs dispatch through it.
   const forkRewind = useForkRewind({
     runtime,
-    clock,
     opened,
     projection,
     runs: session.runs,
@@ -786,7 +785,6 @@ export const App = (props: AppProps) => {
     say,
     ask: (asked) => update({ question: asked }),
     openSession: (next) => open(next),
-    newSessionId: () => props.newSessionId?.() ?? crypto.randomUUID(),
   });
   /** A row verb's words for a hint: its keys and what it does, with the runtime's reason when it cannot be used now; `stop` when it is offered as a stop first. */
   const verbHint = (id: KeyActionId, words: string, availability: VerbAvailability | undefined, stop = false): string =>
@@ -808,9 +806,7 @@ export const App = (props: AppProps) => {
     say,
     ask: (asked) => update({ question: asked }),
     openSession: (next) => open(next),
-    carriedDraft: () => forkRewind.carriedDraft(),
     newCommandId: props.newCommandId,
-    newSessionId: () => props.newSessionId?.() ?? crypto.randomUUID(),
     keys,
   });
   const status = useStatus({
