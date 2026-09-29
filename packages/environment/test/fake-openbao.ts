@@ -61,6 +61,25 @@ export interface FakeLogin {
   readonly displayName?: string;
 }
 
+/** A token role (#368): whether the tokens created against it are orphans, and the policies it allows, when it bounds them. */
+export interface FakeRole {
+  readonly orphan?: boolean;
+  readonly allowedPolicies?: readonly string[];
+}
+
+/** A token as the fake holds it, for a test to read: what it was created with, and whose child it is. */
+export interface FakeIssued {
+  readonly policies: readonly string[];
+  readonly ttlSeconds: number;
+  readonly renewable: boolean;
+  readonly displayName: string;
+  readonly meta: Readonly<Record<string, string>>;
+  /** The token it was created by and dies with; null for an orphan, or a token a login minted or a test gave. */
+  readonly parent: string | null;
+  /** The token role it was created against; null for none. */
+  readonly role: string | null;
+}
+
 /** A refusal a credential answers with: the status and OpenBao's error line. */
 export interface FakeRefusal {
   readonly status: number;
@@ -103,6 +122,8 @@ export interface FakeOpenBao {
   token(token: string, login: FakeLogin): void;
   /** Makes `token` a root token. */
   root(token: string): void;
+  /** Adds the token role `name` (#368): an orphan's when `orphan` is set, and bounding a token's policies to `allowedPolicies` when given. */
+  role(name: string, role?: FakeRole): void;
   seal(): void;
   unseal(): void;
   /** Gives the policy `name` its text, in OpenBao's policy language: the capabilities it grants, and whether a token holding it may read other policies' texts. */
@@ -115,12 +136,18 @@ export interface FakeOpenBao {
   stored(mount: string, path: string): Record<string, unknown> | undefined;
   /** Scripts what `route` (`GET auth/token/lookup-self`, `LIST personal/metadata/`) answers from now on, in place of the fake's own answer; null to answer as the fake does. */
   answer(route: string, answer: FakeRouteAnswer | null): void;
+  /** Lets `route` do what it does, but ends its answer only once `until` settles (#368): the caller hears late of what is done already. Null answers at once again. */
+  delay(route: string, until: Promise<unknown> | null): void;
   /** Presents `which` certificate from the next handshake on, closing every connection held, as a key manager restarted with it would. Preset `leaf`. */
   present(which: FakePresented): void;
   /** How many connections the fake has accepted, a request sent over them or not. */
   connections(): number;
   /** The tokens logins minted, in order. */
   readonly minted: readonly string[];
+  /** The tokens created at the token-create paths (#368), in order. */
+  readonly created: readonly string[];
+  /** What the fake holds of a token it issued or was given: undefined for one it does not know. */
+  issued(token: string): FakeIssued | undefined;
   /** Whether `token` is live: known, not revoked and within its time to live. */
   live(token: string): boolean;
   /** Every request so far, in order. */
@@ -195,13 +222,11 @@ export const testCertificates = (): TestCertificates => {
   }
 };
 
-/** A token as the fake keeps it: its lookup's answer, when it was issued on the fake's clock, and whether it is revoked. */
-interface FakeToken {
-  readonly policies: readonly string[];
-  readonly ttlSeconds: number;
-  readonly renewable: boolean;
-  readonly displayName: string;
+/** A token as the fake keeps it: what it was issued with, when on the fake's clock, until when it lives (a renewal moves it), and whether it is revoked. */
+interface FakeToken extends FakeIssued {
   readonly issuedAt: number;
+  /** When it stops living; null for a token that does not expire. */
+  expiresAt: number | null;
   revoked: boolean;
 }
 
@@ -272,28 +297,29 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   const tokens = new Map<string, FakeToken>();
   const policies = new Map<string, string>([["default", DEFAULT_POLICY]]);
   const routes = new Map<string, FakeRouteAnswer>();
+  const delays = new Map<string, Promise<unknown>>();
   /** The KV mounts, by path, with their version and the secrets they hold by path. */
   const kvMounts = new Map<string, { readonly version: 1 | 2; readonly secrets: Map<string, Record<string, unknown>> }>();
   const minted: string[] = [];
+  const created: string[] = [];
+  const roles = new Map<string, FakeRole>();
   const requests: FakeOpenBaoRequest[] = [];
   let sealed = false;
   let connections = 0;
 
-  /** When a token stops living: its issue time and its time to live on the fake's clock; never for a time to live of 0. */
-  const expiresAt = (token: FakeToken): number | null => (token.ttlSeconds === 0 ? null : token.issuedAt + token.ttlSeconds * 1000);
+  /** Whether a token lives: known, not revoked, within its time to live on the fake's clock, and, a child, while its parent does. */
   const living = (token: FakeToken | undefined): token is FakeToken => {
     if (token === undefined || token.revoked) return false;
-    const end = expiresAt(token);
-    return end === null || now().getTime() < end;
+    if (token.expiresAt !== null && now().getTime() >= token.expiresAt) return false;
+    return token.parent === null || living(tokens.get(token.parent));
   };
-  const newToken = (login: FakeLogin, displayName: string): FakeToken => ({
-    policies: login.policies,
-    ttlSeconds: login.ttlSeconds ?? 3600,
-    renewable: login.renewable ?? true,
-    displayName: login.displayName ?? displayName,
-    issuedAt: now().getTime(),
-    revoked: false,
-  });
+  /** A token issued now with `ttlSeconds` to live (0 for none), as a login, a test or a create gives it. */
+  const issue = (fields: Omit<FakeIssued, "meta" | "parent" | "role"> & Partial<Pick<FakeIssued, "meta" | "parent" | "role">>): FakeToken => {
+    const issuedAt = now().getTime();
+    return { meta: {}, parent: null, role: null, ...fields, issuedAt, expiresAt: fields.ttlSeconds === 0 ? null : issuedAt + fields.ttlSeconds * 1000, revoked: false };
+  };
+  const newToken = (login: FakeLogin, displayName: string): FakeToken =>
+    issue({ policies: login.policies, ttlSeconds: login.ttlSeconds ?? 3600, renewable: login.renewable ?? true, displayName: login.displayName ?? displayName });
 
   /**
    * A token's capabilities on `path`, from its policies' texts: in each
@@ -381,7 +407,7 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   const loginKey = (mount: string, ...credential: string[]): string => JSON.stringify([mount, ...credential]);
 
   const lookup = (token: FakeToken) => {
-    const end = expiresAt(token);
+    const end = token.expiresAt;
     return {
       data: {
         accessor: "accessor-for-tests",
@@ -390,12 +416,69 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
         expire_time: end === null ? null : new Date(end).toISOString(),
         id: "[the token]",
         issue_time: new Date(token.issuedAt).toISOString(),
+        meta: token.meta,
+        orphan: token.parent === null,
         policies: token.policies,
         renewable: token.renewable,
         ttl: end === null ? 0 : Math.max(0, Math.floor((end - now().getTime()) / 1000)),
         type: "service",
       },
     };
+  };
+
+  /** A duration as OpenBao's API takes one: whole seconds, or a number of seconds, minutes or hours (`3600s`, `20m`, `1h`); undefined for none or one it cannot read. */
+  const durationOf = (value: unknown): number | undefined => {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+    const parts = typeof value === "string" ? /^(\d+)([smh]?)$/.exec(value) : null;
+    if (parts === null) return undefined;
+    return Number(parts[1]) * ({ "": 1, s: 1, m: 60, h: 3600 } as const)[parts[2] as "" | "s" | "m" | "h"];
+  };
+
+  /**
+   * Answers a token's creation at `auth/token/create` or a role's path, by
+   * the presented token: `update` there, as OpenBao's ACL checks; then the
+   * policies asked held to the role's allowed policies, or else to a subset
+   * of the creator's, `default` added when the creator holds it (or, under a
+   * role that bounds them, unless asked not to); an orphan under a role
+   * that says so, else a child of the creator.
+   */
+  const createToken = (response: ServerResponse, presented: string, creator: FakeToken, path: string, roleName: string | null, fields: Record<string, unknown>): void => {
+    if (!capabilitiesOn(creator, path).some((capability) => capability === "update" || capability === "root")) return send(response, 403, { errors: ["permission denied"] });
+    const role = roleName === null ? undefined : roles.get(roleName);
+    if (roleName !== null && role === undefined) return send(response, 400, { errors: [`unknown role ${roleName}`] });
+    const asked = [...new Set(Array.isArray(fields["policies"]) ? fields["policies"].map(String) : [])];
+    const withoutDefault = fields["no_default_policy"] === true;
+    let granted: string[];
+    if (role?.allowedPolicies !== undefined) {
+      const allowed = new Set([...role.allowedPolicies, "default"]);
+      if (asked.some((policy) => !allowed.has(policy))) {
+        return send(response, 400, { errors: [`token policies (${JSON.stringify(asked)}) must be subset of the role's allowed policies (${JSON.stringify(role.allowedPolicies)})`] });
+      }
+      granted = withoutDefault ? asked : [...new Set([...asked, "default"])];
+    } else {
+      const root = creator.policies.includes("root");
+      if (!root && asked.some((policy) => !creator.policies.includes(policy))) return send(response, 400, { errors: ["child policies must be subset of parent"] });
+      granted = !withoutDefault && creator.policies.includes("default") ? [...new Set([...asked, "default"])] : asked;
+    }
+    granted.sort();
+    const displayName = typeof fields["display_name"] === "string" && fields["display_name"] !== "" ? `token-${fields["display_name"]}` : "token";
+    const meta = typeof fields["meta"] === "object" && fields["meta"] !== null ? Object.fromEntries(Object.entries(fields["meta"]).map(([key, value]) => [key, String(value)])) : {};
+    const orphan = role?.orphan === true;
+    const token = `run-${created.length + 1}-token-for-tests`;
+    const held = issue({
+      policies: granted,
+      ttlSeconds: durationOf(fields["ttl"]) ?? 3600,
+      renewable: fields["renewable"] !== false,
+      displayName,
+      meta,
+      parent: orphan ? null : presented,
+      role: roleName,
+    });
+    created.push(token);
+    tokens.set(token, held);
+    send(response, 200, {
+      auth: { client_token: token, accessor: "accessor-for-tests", policies: granted, token_policies: granted, metadata: meta, lease_duration: held.ttlSeconds, renewable: held.renewable, orphan },
+    });
   };
 
   /** Answers a login as scripted: a token minted for a login, or the refusal; nothing scripted is OpenBao's own refusal. */
@@ -417,6 +500,14 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     const path = url.pathname.replace(/^\/v1\//, "");
     const method = request.method === "GET" && url.searchParams.get("list") === "true" ? "LIST" : (request.method ?? "GET");
     requests.push({ method, path });
+    const delayed = delays.get(`${method} ${path}`);
+    if (delayed !== undefined) {
+      const end = response.end.bind(response) as (...args: unknown[]) => ServerResponse;
+      response.end = ((...args: unknown[]) => {
+        void delayed.then(() => end(...args));
+        return response;
+      }) as typeof response.end;
+    }
     const body = await readBody(request);
     const scripted = routes.get(`${method} ${path}`);
     if (scripted !== undefined) {
@@ -449,6 +540,18 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       if (known === undefined) return send(response, 403, { errors: ["permission denied"] });
       known.revoked = true;
       return send(response, 204);
+    }
+    if (method === "POST" && path === "auth/token/renew-self") {
+      if (known === undefined) return send(response, 403, { errors: ["permission denied"] });
+      if (!known.renewable) return send(response, 400, { errors: ["lease is not renewable"] });
+      const increment = durationOf(fields["increment"]) ?? known.ttlSeconds;
+      known.expiresAt = now().getTime() + increment * 1000;
+      return send(response, 200, { auth: { client_token: header, accessor: "accessor-for-tests", policies: known.policies, lease_duration: increment, renewable: true } });
+    }
+    const create = /^auth\/token\/create(?:\/([^/]+))?$/.exec(path);
+    if (method === "POST" && create !== null) {
+      if (known === undefined || typeof header !== "string") return send(response, 403, { errors: ["permission denied"] });
+      return createToken(response, header, known, path, create[1] === undefined ? null : decodeURIComponent(create[1]), fields);
     }
     // Split at the first `/login`, as OpenBao routes by the mount's prefix: a user named login is still a userpass login.
     const login = /^auth\/(.+?)\/login(?:\/([^/]+))?$/.exec(path);
@@ -509,7 +612,8 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     approle: (roleId, secretId, answer, mount = "approle") => void logins.set(loginKey(mount, roleId, secretId), answer),
     userpass: (username, password, answer, mount = "userpass") => void logins.set(loginKey(mount, username, password), answer),
     token: (token, login) => void tokens.set(token, newToken(login, "token")),
-    root: (token) => void tokens.set(token, { policies: ["root"], ttlSeconds: 0, renewable: false, displayName: "root", issuedAt: now().getTime(), revoked: false }),
+    root: (token) => void tokens.set(token, issue({ policies: ["root"], ttlSeconds: 0, renewable: false, displayName: "root" })),
+    role: (name, role = {}) => void roles.set(name, role),
     seal: () => void (sealed = true),
     unseal: () => void (sealed = false),
     policy: (name, text) => void policies.set(name, text),
@@ -524,6 +628,7 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       return data === undefined ? undefined : { ...data };
     },
     answer: (route, answer) => void (answer === null ? routes.delete(route) : routes.set(route, answer)),
+    delay: (route, until) => void (until === null ? delays.delete(route) : delays.set(route, until)),
     present(which) {
       const { otherKey, otherCertificate } = testCertificates();
       server.setSecureContext(which === "other-ca" ? { key: otherKey, cert: otherCertificate } : { key, cert: which === "chain" ? `${certificate}${ca}` : certificate });
@@ -531,6 +636,13 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     },
     connections: () => connections,
     minted,
+    created,
+    issued(token) {
+      const held = tokens.get(token);
+      if (held === undefined) return undefined;
+      const { policies, ttlSeconds, renewable, displayName, meta, parent, role } = held;
+      return { policies, ttlSeconds, renewable, displayName, meta, parent, role };
+    },
     live: (token) => living(tokens.get(token)),
     requests,
     close: () =>

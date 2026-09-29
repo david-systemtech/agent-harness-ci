@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerConnectionInjectedSetPayload",
+  "type": "object",
+  "properties": {
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "replaced": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The connection of the same provider that injected until now, and no longer does; null for none."
+    }
+  },
+  "required": [
+    "connectionId",
+    "replaced"
+  ],
+  "description": "key-manager.connection.injected-set: a person made the connection the one of its provider whose variables runs receive (#368); the one it replaced serves references only from now on. The next run of each session gets a fresh process."
+}

@@ -44,6 +44,7 @@ export const keyManagerRecord = (fields: Partial<KeyManagerConnectionRecord> = {
     basePath: "personal/harness",
     suggestedBasePath: null,
     injects: true,
+    injectedVariables: ["BAO_ADDR", "BAO_TOKEN", "VAULT_ADDR", "VAULT_TOKEN"],
     status: keyManagerStatus("signed-in", "Signed in to OpenBao as approle."),
     tokenInformation: { displayName: "approle", policies: ["default", "agent-read"], ttlSeconds: 3600, renewable: true, expiresAt: "2026-09-24T01:00:00.000Z" },
     canMint: true,
@@ -89,6 +90,7 @@ export const keyManagerEventPayload = (type: KeyManagerEventType, connection: Ke
     "key-manager.connection.updated": { connectionId, label: connection.label },
     "key-manager.connection.policies-set": { connectionId, ticks: connection.ticks ?? [] },
     "key-manager.connection.base-path-set": { connectionId, basePath: connection.basePath ?? "personal/harness" },
+    "key-manager.connection.injected-set": { connectionId, replaced: null },
     "key-manager.connection.verified": {
       connectionId,
       status: connection.status,

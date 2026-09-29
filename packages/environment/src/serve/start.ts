@@ -55,7 +55,8 @@ import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments
 import { readSessionFacts } from "../runs/run-reads.js";
 import { composeInstructions } from "../instructions/composer.js";
 import { instructionMethods } from "../instructions/methods.js";
-import { soleSection } from "../instructions/orientation.js";
+import { environmentSection } from "../instructions/environment-section.js";
+import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
@@ -107,6 +108,7 @@ import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
+import { KEY_MANAGER_CLI_DIRECTORY } from "../key-managers/run-tokens.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { settingsInjection } from "../key-managers/injection-setting.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
@@ -327,8 +329,7 @@ export interface EnvironmentOptions {
     /**
      * Composes each run's standing instructions; preset: the composer
      * (`instructions/composer.ts`) with the orientation block filled by the
-     * forges section alone (#318) where runs are given the forge's
-     * variables, and no other layer filled.
+     * OrientationRenderer (#380), and no other layer filled.
      */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
@@ -340,6 +341,12 @@ export interface EnvironmentOptions {
     /** Whether a holder's process environment is supplied at all (#307); preset: `allow`, until #91's setting answers it. */
     readonly injection?: InjectionSeam;
   };
+  /**
+   * Sections registered with the OrientationRenderer at start, after the
+   * environment's own (#380): tests register providers that throw, stall and
+   * overflow. Preset: none.
+   */
+  readonly orientationSections?: readonly OrientationSection[];
   /**
    * What this environment can enforce (#133), probed once as the adapter
    * host starts: its capability flags, the containment default's preset and
@@ -763,6 +770,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
       referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
     });
     closers.push(() => connections.close());
     await connections.start();
@@ -819,12 +827,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
-  // now its every call is gated), the worktrees and any root a later workstream declares (#325).
+  // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
+  // configuration, which an injected CLI reads (#368, David's decision on it).
   const user = passwdName();
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
-    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all],
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all, join(dataDir, KEY_MANAGER_CLI_DIRECTORY)],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
@@ -857,16 +866,36 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // close ends every run (and so lets go of what each left parked).
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
+  const detector = options.containerDetector ?? processContainerDetector();
+  const inContainer = detector.inContainer();
+  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
+  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
+  // Its name, icon and colour (#323): the three commands' notices over the record's name and the presets, read where they
+  // are shown, so a rename shows in the next discovery answer, the next hello, the next snapshot and the next run's
+  // orientation block.
+  const look = createEnvironmentLook({
+    log,
+    stream: environmentStream,
+    presets: { name: record.name, icon: presetIcon(inContainer, options.platform ?? process.platform), colour: presetColour(record.id) },
+  });
+
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
-  // Every run's orientation block: the forges section alone until the OrientationRenderer registers it third (#380).
-  const instructions = hostSeams.instructions ?? composeInstructions(forge.orientation === undefined ? {} : { orientation: soleSection(forge.orientation) });
+  // Every run's orientation block (#380): this environment's section, then each service's in the block's order, the forges
+  // section third where runs are given the forge's variables.
+  const orientation = createOrientationRenderer({ clock });
+  orientation.register(environmentSection({ name: () => look.read().name, platform: options.platform ?? process.platform, arch: process.arch, user }));
+  if (forge.orientation !== undefined) orientation.register(forge.orientation);
+  for (const section of options.orientationSections ?? []) orientation.register(section);
+  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
   const processEnvironments = createProcessEnvironments(injection ?? settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })));
   if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
+  // The injecting key-manager connections' blocks and each holder's run tokens (#368).
+  processEnvironments.register(keyManagerConnections.processEnvironment);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -950,7 +979,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       containmentDirectories: sessionDirectories,
-      processEnvironment: processEnvironments.of,
+      processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
@@ -990,8 +1019,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => usagePool.close());
 
-  const detector = options.containerDetector ?? processContainerDetector();
-  const inContainer = detector.inContainer();
   // A container with no launcher: a host-side updater manages its updates, and it never updates itself (ADR 0007).
   const updatesManagedOutside = inContainer && !launcher.present();
   // Managed outside, the host-side updater's polls, the last kept in the data directory (#348).
@@ -1000,16 +1027,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // host-side updater polled in the last fifteen minutes (#348); under a foreground `serve` it cannot, and
   // `updates.status` says why. Read as discovery answers and as each hello is sent.
   const flags = (): CapabilityFlags => (launcher.present() || hostUpdater.selfUpdate() ? ["self-update", ...capabilities] : [...capabilities]);
-
-  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
-  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
-  // Its name, icon and colour (#323): the three commands' notices over the record's name and the presets, read where they
-  // are shown, so a rename shows in the next discovery answer, the next hello and the next snapshot.
-  const look = createEnvironmentLook({
-    log,
-    stream: environmentStream,
-    presets: { name: record.name, icon: presetIcon(inContainer, options.platform ?? process.platform), colour: presetColour(record.id) },
-  });
 
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
@@ -1055,7 +1072,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...options.terminals,
     processEnvironment: (sessionId) => {
       const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
-      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client", override: null });
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client", holder: "terminal", override: null });
     },
   });
   closers.push(() => terminalService.close());

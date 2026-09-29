@@ -12,15 +12,15 @@ import type { SignInTarget } from "./provider.js";
  * and how it reads the answers, the write flag it reads from each policy's
  * text, and the categories every error falls into; a reference's read and a
  * path's list on KV version 1 and 2 mounts, the version detected per mount
- * from its UI endpoint (#370).
+ * from its UI endpoint (#370); a run token's creation, renewal and
+ * revocation (#368).
  */
 
 const { onCleanup } = useCleanups();
 
 const openBaoProvider = createOpenBaoProvider();
 
-const fakeOpenBao = async (): Promise<FakeOpenBao> => {
-  const clock = manualClock();
+const fakeOpenBao = async (clock = manualClock()): Promise<FakeOpenBao> => {
   const bao = await startFakeOpenBao({ now: () => clock.now() });
   onCleanup(() => bao.close());
   return bao;
@@ -417,5 +417,89 @@ path "personal/data/replacing/*" { capabilities = ["update", "read"] }`);
     expect(await openBaoProvider.canWrite(targetOf(bao), PERSON_TOKEN, { mount: "legacy", path: "harness/entry" })).toEqual({ outcome: "checked", writable: true });
     // update alone replaces a secret that is there and creates none.
     expect(await openBaoProvider.canWrite(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "replacing/entry" })).toEqual({ outcome: "checked", writable: false });
+  });
+});
+
+describe("a run token (#368)", () => {
+  /** A fake OpenBao on `clock` whose token the test gives may mint at the token-create path and at the role runs's, and holds default and reader. */
+  const withMinter = async (clock = manualClock()) => {
+    const bao = await fakeOpenBao(clock);
+    bao.policy("minter", `path "auth/token/create" { capabilities = ["update"] }
+path "auth/token/create/runs" { capabilities = ["update"] }`);
+    bao.token(PERSON_TOKEN, { policies: ["default", "minter", "reader"], ttlSeconds: 7200 });
+    return bao;
+  };
+  const asked = { policies: ["reader", "default"], ttlSeconds: 1800, displayName: "agent-harness", metadata: { session: "session-for-tests", holder: "terminal" }, tokenRole: null };
+
+  it("is created at the token-create path as a renewable child of the login, with the policies, time to live, display name and metadata asked", async () => {
+    const bao = await withMinter();
+
+    const answer = await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, asked);
+
+    expect(answer).toEqual({ outcome: "minted", token: bao.created[0] });
+    expect(bao.issued(bao.created[0] ?? "")).toEqual({
+      policies: ["default", "reader"],
+      ttlSeconds: 1800,
+      renewable: true,
+      displayName: "token-agent-harness",
+      meta: { session: "session-for-tests", holder: "terminal" },
+      parent: PERSON_TOKEN,
+      role: null,
+    });
+    expect(bao.requests).toEqual([{ method: "POST", path: "auth/token/create" }]);
+  });
+
+  it("is created at its token role's path when there is one, an orphan when the role makes orphans", async () => {
+    const bao = await withMinter();
+    bao.role("runs", { orphan: true });
+
+    const answer = await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, { ...asked, tokenRole: "runs" });
+
+    expect(answer).toEqual({ outcome: "minted", token: bao.created[0] });
+    expect(bao.issued(bao.created[0] ?? "")).toMatchObject({ parent: null, role: "runs" });
+    expect(bao.requests).toEqual([{ method: "POST", path: "auth/token/create/runs" }]);
+  });
+
+  it("is denied where the login may not mint, or asks for a policy the login does not hold, naming OpenBao's reason", async () => {
+    const bao = await withMinter();
+    bao.token("reader-token-for-tests", { policies: ["default", "reader"] });
+
+    expect(await openBaoProvider.mint(targetOf(bao), "reader-token-for-tests", asked)).toEqual({
+      outcome: "denied",
+      message: `OpenBao at ${bao.address} did not let the login mint a run token (HTTP 403: permission denied).`,
+    });
+    expect(await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, { ...asked, policies: ["writer", "default"] })).toEqual({
+      outcome: "denied",
+      message: `OpenBao at ${bao.address} did not let the login mint a run token (HTTP 400: child policies must be subset of parent).`,
+    });
+    expect(bao.created).toEqual([]);
+  });
+
+  it("renews itself by the increment asked, and revokes itself; a child dies with the login, an orphan outlives it", async () => {
+    const clock = manualClock();
+    const bao = await withMinter(clock);
+    bao.role("runs", { orphan: true });
+    const child = await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, asked);
+    const orphan = await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, { ...asked, tokenRole: "runs" });
+    const [childToken = "", orphanToken = ""] = bao.created;
+    expect([child.outcome, orphan.outcome]).toEqual(["minted", "minted"]);
+
+    clock.advance(20 * 60_000);
+    expect(await openBaoProvider.renew(targetOf(bao), childToken, 3600)).toEqual({ outcome: "renewed", ttlSeconds: 3600 });
+    clock.advance(50 * 60_000);
+    // Past the half hour it was minted for, it lives on the hour its renewal gave it.
+    expect(bao.live(childToken)).toBe(true);
+    expect(bao.live(orphanToken)).toBe(false);
+
+    expect(await openBaoProvider.revoke(targetOf(bao), childToken)).toEqual({ outcome: "revoked" });
+    expect(bao.live(childToken)).toBe(false);
+    expect(await openBaoProvider.renew(targetOf(bao), childToken, 3600)).toMatchObject({ outcome: "credential-rejected" });
+
+    const second = await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, asked);
+    const third = await openBaoProvider.mint(targetOf(bao), PERSON_TOKEN, { ...asked, tokenRole: "runs" });
+    expect([second.outcome, third.outcome]).toEqual(["minted", "minted"]);
+    await openBaoProvider.revoke(targetOf(bao), PERSON_TOKEN);
+    expect(bao.live(bao.created[2] ?? "")).toBe(false);
+    expect(bao.live(bao.created[3] ?? "")).toBe(true);
   });
 });

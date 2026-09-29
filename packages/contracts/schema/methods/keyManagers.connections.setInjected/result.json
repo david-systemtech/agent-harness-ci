@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "keyManagers.connections.signOut result",
+  "title": "keyManagers.connections.setInjected result",
   "type": "object",
   "properties": {
     "connection": {

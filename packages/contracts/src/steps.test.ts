@@ -441,6 +441,7 @@ describe("the step registry", () => {
       { method: "keyManagers.connections.update", parts: ["keyManagerConnections"] },
       { method: "keyManagers.connections.setPolicies", parts: ["keyManagerConnections"] },
       { method: "keyManagers.connections.setBasePath", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.setInjected", parts: ["keyManagerConnections"] },
       { method: "keyManagers.connections.signOut", parts: ["keyManagerConnections"] },
       { method: "keyManagers.connections.remove", parts: ["keyManagerConnections"] },
       { method: "keyManagers.move", parts: ["storedTokens"] },

@@ -174,7 +174,7 @@ describe("a run's launch", () => {
 });
 
 describe("the instruction scope", () => {
-  it("carries the session, account and workspace, the trust key undecided, the origin, no bot, no extra always-on names and the account's channel", async () => {
+  it("carries the session, account and workspace, the trust key undecided, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names and the account's channel", async () => {
     const orientation = testOrientation();
     const identity = "https://git.example/david/receipts";
     const t = await start(orientation, {}, { workspaceResolver: scriptedResolver(() => ({ workspace, repositoryIdentity: identity })) });
@@ -194,6 +194,8 @@ describe("the instruction scope", () => {
         workspace,
         trust: { key: { kind: "identity", value: identity }, decision: "undecided" },
         origin: "client",
+        containment: "off",
+        injection: { answer: "allow", level: { kind: "environment" } },
         bot: null,
         alwaysOn: [],
         channel: { kind: "system-prompt-append", maxCharacters: null },
