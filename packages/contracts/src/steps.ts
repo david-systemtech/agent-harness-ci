@@ -133,7 +133,7 @@ export const anyValidValue =
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
  * (#120); Your machines, for the update settings (#335), whose not-root line
- * #141 adds; Permissions (#129's
+ * #141 adds; Browser, for the browser keys (#541); Permissions (#129's
  * keys, #141's entry); and Appearance, for the auto-settle keys (session-state
  * spec, "Auto-settle: rules and settings") and the transcript compaction
  * window beside them (#123), which sit on `environments.service`. The other
@@ -194,6 +194,39 @@ export const STEP_REGISTRY = [
         actions: ["check-again"],
       },
     ],
+    links: [],
+    skippable: false,
+  },
+  {
+    // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's
+    // Browser row, `access.browser` (ADR 0027): the nine browser keys (#541), which settings.update writes, each done on
+    // any valid value. Its state writes (a paired Chrome, an unpairing), its state checks, its skip check and its triggers
+    // are #559's, which makes it skippable; until then it has none of them.
+    id: "browser",
+    home: "access.browser",
+    writes: [
+      "browser.devSites",
+      "browser.evaluateEverywhere",
+      "browser.deepReadEverywhere",
+      "browser.reach",
+      "browser.headless.allowRuns",
+      "browser.headless.endpoint",
+      "browser.headless.executable",
+      "browser.headless.limits",
+      "browser.internalHosts",
+    ],
+    checks: [
+      { key: "browser.devSites", check: anyValidValue("browser.devSites") },
+      { key: "browser.evaluateEverywhere", check: anyValidValue("browser.evaluateEverywhere") },
+      { key: "browser.deepReadEverywhere", check: anyValidValue("browser.deepReadEverywhere") },
+      { key: "browser.reach", check: anyValidValue("browser.reach") },
+      { key: "browser.headless.allowRuns", check: anyValidValue("browser.headless.allowRuns") },
+      { key: "browser.headless.endpoint", check: anyValidValue("browser.headless.endpoint") },
+      { key: "browser.headless.executable", check: anyValidValue("browser.headless.executable") },
+      { key: "browser.headless.limits", check: anyValidValue("browser.headless.limits") },
+      { key: "browser.internalHosts", check: anyValidValue("browser.internalHosts") },
+    ],
+    stateChecks: [],
     links: [],
     skippable: false,
   },

@@ -471,12 +471,14 @@ describe("/settings", () => {
     expect(frame).toMatch(/permissions\.defaultCeiling\s+acceptEdits/);
     expect(frame).toMatch(/permissions\.parkedPrompt\.ttl\s+24 hours/);
     expect(frame).toMatch(/permissions\.unattended\.bypassAcknowledgedAt\s+none\s+read-only/);
-    // Down to the Service row's keys, past the four, five and five of the rows above it.
-    await app.press(...Array.from({ length: 14 }, () => KEY.down));
+    // Down to the Service row's keys, past the four, five, nine and five of the rows above it.
+    await app.press(...Array.from({ length: 23 }, () => KEY.down));
     await app.waitFor(/sessions\.autoSettleAfterIdle\s+14 days/);
-    expect(app.frame()).toMatch(/sessions\.autoSettleOnMerge\s+on/);
     // The key under the cursor says what it is.
     expect(app.frame()).toContain("How long a session is quiet before auto-settle settles it");
+    // The list scrolls with the cursor, to the key the environment holds changed.
+    await app.press(KEY.down);
+    await app.waitFor(/sessions\.autoSettleOnMerge\s+on/);
   });
 
   it("flips a switch, picks a choice and takes a typed value, each through the method that writes the key", async () => {
@@ -503,8 +505,8 @@ describe("/settings", () => {
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("permissions.defaultCeiling is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
-    // A switch flips on Enter: down past the rest of Permissions and Your machines to the Service row's second key.
-    await app.press(...Array.from({ length: 11 }, () => KEY.down), KEY.enter);
+    // A switch flips on Enter: down past the rest of Permissions, Browser and Your machines to the Service row's second key.
+    await app.press(...Array.from({ length: 20 }, () => KEY.down), KEY.enter);
     await app.waitFor("sessions.autoSettleOnMerge is on.");
     expect(env.settings()["sessions.autoSettleOnMerge"]).toBe(true);
   });
@@ -598,12 +600,13 @@ describe("/settings by row (#389)", () => {
     // The first row with keys heads the list, the key under the cursor described.
     expect(app.frame()).toMatch(/Default account and model\n.*accounts\.defaultAccount\s+none/);
     expect(app.frame()).toContain("The account a session with none of its own runs on");
-    // Down the list, each row's label over its keys: Permissions, then Your machines, then Service.
-    await app.press(...Array.from({ length: 16 }, () => KEY.down));
+    // Down the list, each row's label over its keys: Permissions, then Browser, then Your machines, then Service.
+    await app.press(...Array.from({ length: 25 }, () => KEY.down));
     await app.waitFor(/sessions\.transcriptCompactAfterDays\s+90/);
     const lines = linesOf(app.frame());
     const at = (text: string) => lines.findIndex((line) => line.startsWith(text));
-    expect(at("Your machines")).toBeGreaterThan(-1);
+    expect(at("browser.internalHosts")).toBeGreaterThan(-1);
+    expect(at("Your machines")).toBe(at("browser.internalHosts") + 1);
     expect(at("updates.autoUpdate")).toBe(at("Your machines") + 1);
     expect(at("Service")).toBeGreaterThan(at("updates.deferralCapHours"));
     expect(lines.slice(at("Service") + 1, at("Service") + 4).map((line) => line.split(/\s+/)[0])).toEqual([
@@ -647,7 +650,7 @@ describe("/settings by row (#389)", () => {
     await app.press(KEY.esc);
     await command(app, "/settings secrets");
     await app.waitFor(
-      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, environments.machines, environments.service.",
+      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, access.browser, environments.machines, environments.service.",
     );
   });
 });

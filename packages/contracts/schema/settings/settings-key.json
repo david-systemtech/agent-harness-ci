@@ -19,7 +19,16 @@
     "updates.channel",
     "updates.pinnedVersion",
     "updates.idleWindowMinutes",
-    "updates.deferralCapHours"
+    "updates.deferralCapHours",
+    "browser.devSites",
+    "browser.evaluateEverywhere",
+    "browser.deepReadEverywhere",
+    "browser.reach",
+    "browser.headless.allowRuns",
+    "browser.headless.endpoint",
+    "browser.headless.executable",
+    "browser.headless.limits",
+    "browser.internalHosts"
   ],
-  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours."
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts."
 }

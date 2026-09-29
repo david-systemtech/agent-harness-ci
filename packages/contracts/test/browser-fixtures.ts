@@ -2,7 +2,7 @@
  * Fixtures for the browser's shared vocabulary (#541): a valid and an
  * invalid instance of every browser schema the export writes (the
  * page-driver contract's verbs, calls and answers, the page policy, bridge
- * protocol version 2's messages and the port file).
+ * protocol version 2's messages, the port file and the `browser.*` keys).
  * `fixtures.ts` folds them into the package's fixture table.
  */
 
@@ -130,6 +130,8 @@ const bridgeFromEnvironment = {
   call: { type: "call", id: "call-1", ...call },
 } as const;
 
+const limits = { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 };
+
 export const browserSchemaFixtures: Record<string, Fixtures> = {
   "browser/page-driver-kind.json": { valid: ["chrome", "headless", "dock"], invalid: ["none", "extension", ""] },
   "browser/page-key.json": { valid: [`${environmentId}/${chromeId}`, "k"], invalid: ["", "x".repeat(257), 1] },
@@ -205,4 +207,22 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
     valid: [...Object.values(bridgeFromEnvironment), { type: "ping" }, { type: "pong" }, { type: "refused", reason: "No longer paired." }],
     invalid: [bridgeFromExtension.hello, bridgeFromExtension.proof, { type: "call" }, {}],
   },
+  "settings/keys/browser.devSites.json": { valid: [[], ["localhost", "*.myapp.test", "192.168.1.10"]], invalid: [["https://myapp.test"], ["myapp.test:3000"], "localhost"] },
+  "settings/keys/browser.evaluateEverywhere.json": { valid: [true, false], invalid: [null, "true"] },
+  "settings/keys/browser.deepReadEverywhere.json": { valid: [true, false], invalid: [null, 0] },
+  "settings/keys/browser.reach.json": {
+    valid: [{}, { "acc-1": "per-session", "acc-2": { chrome: { environmentId, chromeId } }, "acc-3": { chrome: { environmentId, chromeId: null } } }],
+    invalid: [{ "acc-1": "headless" }, { "acc-1": { chrome: { environmentId } } }, { "acc-1": { chrome: { environmentId: "desktop", chromeId: null } } }, { "": "per-session" }, []],
+  },
+  "settings/keys/browser.headless.allowRuns.json": { valid: [true, false], invalid: [null, "on"] },
+  "settings/keys/browser.headless.endpoint.json": {
+    valid: [null, "http://browser:9222", "ws://127.0.0.1:9222/devtools/browser/abc", "wss://chromium.example.com/cdp"],
+    invalid: ["", "browser:9222", "ftp://browser:9222", "http://"],
+  },
+  "settings/keys/browser.headless.executable.json": { valid: [null, "/usr/bin/chromium", "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"], invalid: ["", 1] },
+  "settings/keys/browser.headless.limits.json": {
+    valid: [limits, { maxContexts: 1, idleMinutes: 1, tabHeapMb: 1, exitMinutes: 1 }, { maxContexts: 16, idleMinutes: 1_440, tabHeapMb: 16_384, exitMinutes: 1_440 }],
+    invalid: [{ ...limits, maxContexts: 0 }, { ...limits, idleMinutes: 0 }, { ...limits, tabHeapMb: 16_385 }, { ...limits, exitMinutes: 1.5 }, { maxContexts: 2 }],
+  },
+  "settings/keys/browser.internalHosts.json": { valid: [[], ["localhost", "127.0.0.1", "::1", "*.lan"]], invalid: [["http://localhost"], [""], "::1"] },
 };

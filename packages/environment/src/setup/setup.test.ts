@@ -45,6 +45,7 @@ describe("setup.check", () => {
     expect(results.map((result) => [result.step, result.state, result.failing, result.actions])).toEqual([
       ["account", "done", [], []],
       ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
+      ["browser", "done", [], []],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],
     ]);

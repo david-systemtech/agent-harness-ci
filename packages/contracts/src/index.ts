@@ -8,6 +8,7 @@ export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
 export * from "./browser-driver.js";
 export * from "./browser-policy.js";
+export * from "./browser-settings.js";
 export * from "./calendar.js";
 export * from "./completions.js";
 export * from "./denylist.js";

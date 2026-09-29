@@ -31,7 +31,7 @@ const scopedClient = (t: TestEnvironment, scopes: Scope[]) =>
   t.client({ token: t.env.clientSessions.issue({ kind: "program", label: "a scoped program", scopes, ceiling: Ceiling.parse("acceptEdits") }).token });
 
 describe("settings.get", () => {
-  it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge, compaction after 90 days, no default account, family or effort, and the update keys' presets (#335)", async () => {
+  it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge, compaction after 90 days, no default account, family or effort, the update keys' presets (#335) and the browser keys' (#541)", async () => {
     const t = await start();
     const client = await t.client();
     expect(await client.request("settings.get", {})).toEqual({
@@ -49,6 +49,15 @@ describe("settings.get", () => {
         "updates.pinnedVersion": null,
         "updates.idleWindowMinutes": 10,
         "updates.deferralCapHours": 24,
+        "browser.devSites": [],
+        "browser.evaluateEverywhere": false,
+        "browser.deepReadEverywhere": false,
+        "browser.reach": {},
+        "browser.headless.allowRuns": true,
+        "browser.headless.endpoint": null,
+        "browser.headless.executable": null,
+        "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
+        "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
       },
     });
   });

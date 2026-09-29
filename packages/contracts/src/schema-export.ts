@@ -193,6 +193,17 @@ import {
 } from "./browser-bridge.js";
 import { PAGE_VERBS, PAGE_VERB_SCHEMAS, PageCall, PageCommand, PageDriverKind, PageKey, PageOutcome, PageRefusal } from "./browser-driver.js";
 import { OneTimeAllowance, PagePolicy } from "./browser-policy.js";
+import {
+  BrowserDeepReadEverywhere,
+  BrowserDevSites,
+  BrowserEvaluateEverywhere,
+  BrowserInternalHosts,
+  BrowserReach,
+  HeadlessAllowRuns,
+  HeadlessEndpoint,
+  HeadlessExecutable,
+  HeadlessLimits,
+} from "./browser-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -751,6 +762,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/updates.pinnedVersion.json", title: "PinnedVersion", schema: PinnedVersion },
   { path: "settings/keys/updates.idleWindowMinutes.json", title: "IdleWindowMinutes", schema: IdleWindowMinutes },
   { path: "settings/keys/updates.deferralCapHours.json", title: "DeferralCapHours", schema: DeferralCapHours },
+  { path: "settings/keys/browser.devSites.json", title: "BrowserDevSites", schema: BrowserDevSites },
+  { path: "settings/keys/browser.evaluateEverywhere.json", title: "BrowserEvaluateEverywhere", schema: BrowserEvaluateEverywhere },
+  { path: "settings/keys/browser.deepReadEverywhere.json", title: "BrowserDeepReadEverywhere", schema: BrowserDeepReadEverywhere },
+  { path: "settings/keys/browser.reach.json", title: "BrowserReach", schema: BrowserReach },
+  { path: "settings/keys/browser.headless.allowRuns.json", title: "HeadlessAllowRuns", schema: HeadlessAllowRuns },
+  { path: "settings/keys/browser.headless.endpoint.json", title: "HeadlessEndpoint", schema: HeadlessEndpoint },
+  { path: "settings/keys/browser.headless.executable.json", title: "HeadlessExecutable", schema: HeadlessExecutable },
+  { path: "settings/keys/browser.headless.limits.json", title: "HeadlessLimits", schema: HeadlessLimits },
+  { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },

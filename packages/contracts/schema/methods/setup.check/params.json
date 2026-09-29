@@ -9,6 +9,7 @@
       "enum": [
         "account",
         "your-machines",
+        "browser",
         "permissions",
         "appearance"
       ]

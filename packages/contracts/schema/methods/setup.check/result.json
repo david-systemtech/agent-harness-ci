@@ -13,10 +13,11 @@
             "enum": [
               "account",
               "your-machines",
+              "browser",
               "permissions",
               "appearance"
             ],
-            "description": "A step with an entry in the step registry: account, your-machines, permissions, appearance."
+            "description": "A step with an entry in the step registry: account, your-machines, browser, permissions, appearance."
           },
           "state": {
             "type": "string",

@@ -153,6 +153,7 @@ describe("keys and steps on rows", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.home])).toEqual([
       ["account", "accounts.accounts"],
       ["your-machines", "environments.machines"],
+      ["browser", "access.browser"],
       ["permissions", "access.permissions"],
       ["appearance", "appearance.theme"],
     ]);

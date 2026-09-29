@@ -1611,6 +1611,42 @@
       "title": "DeferralCapHours"
     },
     {
+      "path": "settings/keys/browser.devSites.json",
+      "title": "BrowserDevSites"
+    },
+    {
+      "path": "settings/keys/browser.evaluateEverywhere.json",
+      "title": "BrowserEvaluateEverywhere"
+    },
+    {
+      "path": "settings/keys/browser.deepReadEverywhere.json",
+      "title": "BrowserDeepReadEverywhere"
+    },
+    {
+      "path": "settings/keys/browser.reach.json",
+      "title": "BrowserReach"
+    },
+    {
+      "path": "settings/keys/browser.headless.allowRuns.json",
+      "title": "HeadlessAllowRuns"
+    },
+    {
+      "path": "settings/keys/browser.headless.endpoint.json",
+      "title": "HeadlessEndpoint"
+    },
+    {
+      "path": "settings/keys/browser.headless.executable.json",
+      "title": "HeadlessExecutable"
+    },
+    {
+      "path": "settings/keys/browser.headless.limits.json",
+      "title": "HeadlessLimits"
+    },
+    {
+      "path": "settings/keys/browser.internalHosts.json",
+      "title": "BrowserInternalHosts"
+    },
+    {
       "path": "settings/settings-values.json",
       "title": "SettingsValues"
     },

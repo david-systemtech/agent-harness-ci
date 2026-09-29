@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
+  BROWSER_SETTINGS_KEYS,
   BYPASS_SENTENCE,
   DENYLIST_SECTIONS,
   PERMISSION_SETTINGS_KEYS,
@@ -165,7 +166,20 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "browser", "permissions", "appearance"]);
+  });
+
+  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with no state checks, no state writes and no links yet, and not skippable until #559", () => {
+    const browser = stepOf("browser");
+    expect((STEP_ORDER as readonly string[]).indexOf("browser")).toBe(8);
+    expect(STEP_REGISTRY.find((step) => step.id === "browser")?.home).toBe("access.browser");
+    expect(browser.writes).toEqual([...BROWSER_SETTINGS_KEYS]);
+    expect(browser.checks.map((check) => check.key)).toEqual([...BROWSER_SETTINGS_KEYS]);
+    expect(browser).toMatchObject({ stateChecks: [], links: [], skippable: false });
+    expect(browser.writesState).toBeUndefined();
+    const presets = presetSettings();
+    for (const check of browser.checks) expect(check.check(presets[check.key as SettingsKey]), check.key).toBe(true);
+    expect(browser.checks.find((check) => check.key === "browser.devSites")?.check(["https://myapp.test"])).toBe("browser.devSites does not hold a valid value.");
   });
 
   it("puts both auto-settle keys and the transcript compaction window under the Appearance entry, on environments.service", () => {

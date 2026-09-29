@@ -293,6 +293,156 @@
               "minimum": 1,
               "maximum": 168,
               "description": "The deferral cap, in hours: how long busy work may hold a pending update before the environment drains for it anyway; 1 to 168, preset 24, with no never."
+            },
+            "browser.devSites": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+                "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+              },
+              "description": "browser.devSites: the hosts being developed, as host patterns (localhost, *.myapp.test), where a Chrome's cookie values, storage and evaluate are allowed; loopback and private addresses count without being listed. Preset empty."
+            },
+            "browser.evaluateEverywhere": {
+              "type": "boolean",
+              "description": "browser.evaluateEverywhere: a Chrome runs evaluate on every site, not only dev sites. Preset off."
+            },
+            "browser.deepReadEverywhere": {
+              "type": "boolean",
+              "description": "browser.deepReadEverywhere: a Chrome reads cookie values and storage on every site, not only dev sites. Preset off."
+            },
+            "browser.reach": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "per-session",
+                    "description": "No Chrome until one is chosen in the session: the preset."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "chrome": {
+                        "type": "object",
+                        "properties": {
+                          "environmentId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "description": "The environment the Chrome is paired with."
+                          },
+                          "chromeId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+                          }
+                        },
+                        "required": [
+                          "environmentId",
+                          "chromeId"
+                        ],
+                        "description": "A Chrome of an environment."
+                      }
+                    },
+                    "required": [
+                      "chrome"
+                    ],
+                    "description": "This Chrome for every new session of the account."
+                  }
+                ],
+                "description": "An account's reach: per-session, or a Chrome always."
+              },
+              "description": "browser.reach: by account id, whether a new session of the account starts with a Chrome: per-session (no Chrome until one is chosen), or a Chrome of an environment always. An account not listed is per-session; preset empty."
+            },
+            "browser.headless.allowRuns": {
+              "type": "boolean",
+              "description": "browser.headless.allowRuns: whether runs on this environment may drive its headless browser. Preset on."
+            },
+            "browser.headless.endpoint": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(?:https?|wss?):\\/\\/[^\\s/?#]+(?:[/?#]\\S*)?$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "browser.headless.endpoint: an operator's browser beside the environment, by its CDP address (http, https, ws or wss); null for none, when the environment launches a Chromium itself. Preset null."
+            },
+            "browser.headless.executable": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "browser.headless.executable: the Chromium or Chrome the environment launches when no endpoint is set; null to look in the platform's usual install locations and PATH. Preset null."
+            },
+            "browser.headless.limits": {
+              "type": "object",
+              "properties": {
+                "maxContexts": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16,
+                  "description": "The most live browser contexts, one per session; a session past them is refused with a sentence; 1 to 16, preset 2."
+                },
+                "idleMinutes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1440,
+                  "description": "Minutes with no tool call before a session's context is closed; 1 to 1440, preset 10."
+                },
+                "tabHeapMb": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16384,
+                  "description": "Megabytes of heap past which a tab is closed, least recently used first; 1 to 16384, preset 500."
+                },
+                "exitMinutes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1440,
+                  "description": "Minutes with no context before the browser is asked to exit; 1 to 1440, preset 5."
+                }
+              },
+              "required": [
+                "maxContexts",
+                "idleMinutes",
+                "tabHeapMb",
+                "exitMinutes"
+              ],
+              "description": "browser.headless.limits: the headless browser's tab rules, none of which can be switched off."
+            },
+            "browser.internalHosts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+                "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+              },
+              "description": "browser.internalHosts: the internal hosts, as host patterns, that the headless browser and web_read may reach; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names are refused unless listed, and cloud metadata addresses always. Preset localhost, 127.0.0.1 and ::1."
             }
           },
           "required": [
@@ -312,7 +462,16 @@
             "updates.channel",
             "updates.pinnedVersion",
             "updates.idleWindowMinutes",
-            "updates.deferralCapHours"
+            "updates.deferralCapHours",
+            "browser.devSites",
+            "browser.evaluateEverywhere",
+            "browser.deepReadEverywhere",
+            "browser.reach",
+            "browser.headless.allowRuns",
+            "browser.headless.endpoint",
+            "browser.headless.executable",
+            "browser.headless.limits",
+            "browser.internalHosts"
           ],
           "additionalProperties": false,
           "description": "Every setting's value, by key; a key never set holds its preset."
