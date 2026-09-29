@@ -1,5 +1,5 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
-import { FIRST_ROW, settingsRow, type SettingsRowId, type StepId } from "@agent-harness/contracts";
+import { FIRST_ROW, STEP_LABELS, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
@@ -9,9 +9,6 @@ import { EnvironmentPicker } from "./environment-picker.js";
 import { GenericEditor, reachWords } from "./generic-editor.js";
 import { dimReason } from "./rail.js";
 import { usePickedEnvironment, useSettings } from "./settings-window.js";
-
-/** A step's name as the checklist says it: its id in words (`carry-over` is Carry over). */
-const stepName = (step: StepId): string => `${step.charAt(0).toUpperCase()}${step.slice(1).replaceAll("-", " ")}`;
 
 /** One environment's part of an `everywhere` row: its heading with its name, icon and colour, then what the row holds of it. */
 const EnvironmentGroup = ({ view, children }: { readonly view: EnvironmentView; readonly children: ReactNode }) => {
@@ -85,7 +82,7 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
             <div className="flex flex-wrap gap-2">
               {steps.map((step) => (
                 <Button key={step} onClick={() => open(FIRST_ROW)}>
-                  Open the {stepName(step)} step in Set up
+                  Open the {STEP_LABELS[step]} step in Set up
                 </Button>
               ))}
             </div>

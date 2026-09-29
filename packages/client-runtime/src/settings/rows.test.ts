@@ -84,7 +84,7 @@ describe("the steps a row links to", () => {
   it("are the steps it is home to, then those whose keys it holds or that link it", () => {
     expect(rowSteps("accounts.accounts")).toEqual(["account", "carry-over"]);
     expect(rowSteps("accounts.default-model")).toEqual(["account"]);
-    expect(rowSteps("environments.service")).toEqual(["appearance"]);
+    expect(rowSteps("environments.service")).toEqual(["your-machines"]);
     expect(rowSteps("access.permissions")).toEqual(["permissions"]);
     expect(rowSteps("knowledge.banks")).toEqual(["memory-bank"]);
   });
