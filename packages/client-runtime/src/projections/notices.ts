@@ -170,6 +170,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "key-manager.connection.removed":
         case "key-manager.moved":
         case "key-manager.stored-value-deleted":
+        case "key-manager.value-copied":
           return;
         // Settings changed (#391): the request cache reads them again; where they show says what changed.
         case "settings.changed":

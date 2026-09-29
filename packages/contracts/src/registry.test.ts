@@ -235,6 +235,7 @@ describe("the method registry", () => {
       "keyManagers.connections.signOut",
       "keyManagers.connections.remove",
       "keyManagers.move",
+      "keyManagers.move.copyValue",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -431,6 +432,7 @@ describe("the method registry", () => {
       | "keyManagers.connections.setBasePath"
       | "keyManagers.move.list"
       | "keyManagers.move"
+      | "keyManagers.move.copyValue"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

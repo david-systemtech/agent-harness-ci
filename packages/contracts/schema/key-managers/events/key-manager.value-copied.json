@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "KeyManagerMovedPayload",
+  "title": "KeyManagerValueCopiedPayload",
   "type": "object",
   "properties": {
     "connectionId": {
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "The connection the item was moved to."
+      "description": "The connection whose login cannot write the target."
     },
     "item": {
       "type": "object",
@@ -200,29 +200,19 @@
           "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
         }
       ],
-      "description": "Where it went: the reference the item holds now."
+      "description": "The target the value was copied to be pasted at."
     },
-    "undeleted": {
-      "anyOf": [
-        {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "pattern": "^[^\\p{Cc}]+$",
-          "description": "Where an owning service keeps a stored value, never the value: a forge account's vault entry (forge:<forge account id>:<entry id>)."
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Where the stored value is kept still when its delete failed, which the next start deletes; null once it was deleted."
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The client session the value was answered to."
     }
   },
   "required": [
     "connectionId",
     "item",
     "reference",
-    "undeleted"
+    "clientSessionId"
   ],
-  "description": "key-manager.moved: an item's stored value was written to a key manager, or pasted there by a person and verified (verifyOnly), read back, and the item swapped to the reference. Never the value."
+  "description": "key-manager.value-copied: an item's stored value was answered once to a client session, to be pasted at a target the connection's login cannot write (#372). Never the value."
 }

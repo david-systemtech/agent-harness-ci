@@ -56,6 +56,10 @@
     "overwrite": {
       "description": "Replace a different value already at a target; absent or false refuses it conflict reason target_exists.",
       "type": "boolean"
+    },
+    "verifyOnly": {
+      "description": "Write nothing: read back what a person pasted at each target, compare it with the stored value, and swap and delete as a Move does. A different value there is conflict reason read_back_differs, and none reference_not_found, each leaving the item as it was.",
+      "type": "boolean"
     }
   },
   "required": [
