@@ -1,0 +1,96 @@
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { SecretStore, ShellPlatform } from "@agent-harness/client-runtime";
+import type { ElectronSafeStorage } from "./electron.js";
+
+/**
+ * The shell's `secrets` (docs/specs/gui.md, "The desktop shell"): the client
+ * session tokens the runtime keeps by environment id, one file each in the
+ * desktop's data directory, `secrets/<name>.secret`, encrypted by Electron's
+ * `safeStorage` under the key the OS keeps for the app: the macOS Keychain,
+ * Windows' DPAPI, a Linux secret service. Each file is written whole and
+ * renamed into place, readable by its owner alone.
+ *
+ * On Linux with no secret service answering, Chromium chooses its
+ * `basic_text` store and `safeStorage` refuses to encrypt unless asked to use
+ * Chromium's fixed key (Electron 44's `IsEncryptionAvailable`), which keeps a
+ * token no safer than its file's permissions. The desktop asks, so pairing
+ * works there, and says once that tokens are stored unprotected: the Your
+ * machines card (#416) says so too.
+ */
+
+export interface KeychainParts {
+  readonly safeStorage: ElectronSafeStorage;
+  readonly os: ShellPlatform;
+  /** The folder the files are kept in. */
+  readonly dir: string;
+  /** Hears the fall back to the fixed key, and a token that could not be read. */
+  readonly report: (error: unknown) => void;
+}
+
+const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts): SecretStore => {
+  let unprotected = false;
+  /** Whether `safeStorage` encrypts now: on Linux with no secret service, once it takes Chromium's fixed key. */
+  const encrypts = (): boolean => {
+    if (safeStorage.isEncryptionAvailable()) return true;
+    if (os !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text") return false;
+    safeStorage.setUsePlainTextEncryption(true);
+    if (!unprotected) {
+      unprotected = true;
+      report(
+        new Error(
+          "No secret service answers on this Linux session, so client session tokens are stored unprotected: " +
+            "under Chromium's fixed key, as safe as their files' permissions and no safer.",
+        ),
+      );
+    }
+    return safeStorage.isEncryptionAvailable();
+  };
+  const fileOf = (name: string): string => {
+    if (name === "") throw new TypeError("A secret's name must not be empty.");
+    return join(dir, `${encodeURIComponent(name)}.secret`);
+  };
+  return {
+    async get(name) {
+      const file = fileOf(name);
+      let kept: Buffer;
+      try {
+        kept = await readFile(file);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+      // A token that cannot be read is none: the runtime blocks its connection as revoked, and pairing again replaces it.
+      try {
+        if (!encrypts()) throw new Error("the OS keeps no key for this app now");
+        return safeStorage.decryptString(kept);
+      } catch (error) {
+        report(new Error(`The desktop cannot read the token kept for ${name} (${reasonOf(error)}): pair that environment again.`));
+        return undefined;
+      }
+    },
+    async set(name, secret) {
+      const file = fileOf(name);
+      if (!encrypts()) {
+        throw new Error("This desktop cannot keep a client session token: the OS keeps no key for it (safeStorage cannot encrypt). Unlock or set up the system keychain, then pair again.");
+      }
+      const encrypted = safeStorage.encryptString(secret);
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      if (os !== "win32") await chmod(dir, 0o700);
+      const next = `${file}.${randomUUID()}.next`;
+      try {
+        await writeFile(next, encrypted, { mode: 0o600 });
+        await rename(next, file);
+      } catch (error) {
+        await rm(next, { force: true });
+        throw error;
+      }
+    },
+    async delete(name) {
+      await rm(fileOf(name), { force: true });
+    },
+  };
+};
