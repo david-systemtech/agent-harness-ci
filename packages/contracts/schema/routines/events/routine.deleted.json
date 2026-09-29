@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineDeletedPayload",
+  "type": "object",
+  "properties": {},
+  "description": "routine.deleted: the routine is gone from the list; its history stays in the log."
+}

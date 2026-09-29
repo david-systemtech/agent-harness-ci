@@ -5,6 +5,7 @@ import { INSTRUCTION_SESSION_EVENT_TYPES } from "./instructions.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { PERMISSION_SESSION_EVENT_TYPES } from "./permissions.js";
 import { PROMPT_EVENT_TYPES } from "./prompts.js";
+import { ROUTINE_EVENT_TYPES, ROUTINE_STREAM_KIND } from "./routines.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
 import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
 import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
@@ -73,6 +74,7 @@ export const EVENT_TYPES = {
   [GROUP_STREAM_KIND]: GROUP_EVENT_TYPES,
   [SETTINGS_STREAM_KIND]: SETTINGS_EVENT_TYPES,
   [ACCOUNT_STREAM_KIND]: ACCOUNT_EVENT_TYPES,
+  [ROUTINE_STREAM_KIND]: ROUTINE_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 export type SessionEventType = keyof typeof sessionEventTypes;

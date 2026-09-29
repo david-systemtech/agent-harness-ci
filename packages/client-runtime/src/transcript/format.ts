@@ -189,6 +189,6 @@ export const turnFacts = (run: RunSummary): string[] => {
 
 /** How a run ended, in words, when it did not simply complete. */
 export const endWords = (run: RunSummary): string => {
-  if (run.reason === "interrupted") return run.cause === "read-now" ? "Interrupted to read the queue" : "Interrupted";
+  if (run.reason === "interrupted") return run.cause === "read-now" ? "Interrupted to read the queue" : run.cause === "timeout" ? "Interrupted at the routine's time limit" : "Interrupted";
   return (run.reason ?? "ended").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 };

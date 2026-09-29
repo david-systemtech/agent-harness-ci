@@ -166,9 +166,10 @@
               "enum": [
                 "user",
                 "auto-idle",
-                "auto-merge"
+                "auto-merge",
+                "routine"
               ],
-              "description": "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged)."
+              "description": "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged), routine (it is a routine's firing that ended silent, so it delivered nothing and left the active list)."
             },
             {
               "type": "null"
@@ -673,9 +674,10 @@
                   "user",
                   "read-now",
                   "restart",
-                  "parked"
+                  "parked",
+                  "timeout"
                 ],
-                "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+                "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt), timeout (a routine's firing ran past its maximum duration)."
               },
               {
                 "type": "null"

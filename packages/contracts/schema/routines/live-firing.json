@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LiveFiring",
+  "type": "object",
+  "properties": {
+    "firingId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "schedule",
+        "catch-up",
+        "run-now"
+      ],
+      "description": "What made an entry: schedule (a due time on time), catch-up (the latest of due times missed while the environment was down, fired once) or run-now (routines.runNow)."
+    },
+    "dueAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "The due time it fires for; for run now, when it was asked."
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "An instant as an ISO 8601 UTC timestamp."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The firing's session."
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The firing's live run: its first, or the one that continues it after an update."
+    }
+  },
+  "required": [
+    "firingId",
+    "trigger",
+    "dueAt",
+    "startedAt",
+    "sessionId",
+    "runId"
+  ],
+  "description": "A firing that has started and not ended: its id, trigger, due time, start, session and live run."
+}

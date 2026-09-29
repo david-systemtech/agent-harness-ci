@@ -134,10 +134,11 @@ export const SettledOverride = z.enum(SETTLED_OVERRIDES).meta({
 });
 export type SettledOverride = z.infer<typeof SettledOverride>;
 
-/** Who settled a session: the user, auto-settle after idle, or auto-settle on a merged pull request. */
-export const SETTLED_BY = ["user", "auto-idle", "auto-merge"] as const;
+/** Who settled a session: the user, auto-settle after idle, auto-settle on a merged pull request, or the routine whose firing it is, ended silent. */
+export const SETTLED_BY = ["user", "auto-idle", "auto-merge", "routine"] as const;
 export const SettledBy = z.enum(SETTLED_BY).meta({
-  description: "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged).",
+  description:
+    "Who settled a session: user, auto-idle (quiet past the idle span), auto-merge (its pull request merged), routine (it is a routine's firing that ended silent, so it delivered nothing and left the active list).",
 });
 export type SettledBy = z.infer<typeof SettledBy>;
 

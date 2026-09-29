@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeliveredOutcome",
+  "type": "string",
+  "enum": [
+    "succeeded",
+    "failed"
+  ],
+  "description": "How a delivered entry ended: succeeded (a firing), or failed (a failed firing, or a failing skip: pre-check-failed or cannot-start)."
+}

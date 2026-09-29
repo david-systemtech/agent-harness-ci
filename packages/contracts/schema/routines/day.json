@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineDay",
+  "type": "string",
+  "enum": [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday"
+  ],
+  "description": "A day of the week, named in English and lower case: monday to sunday."
+}
