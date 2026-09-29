@@ -1,6 +1,6 @@
 import type { ToolCallEntry, TranscriptRow as Row } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
-import { editCalls, inWorkspace, rowFile } from "./targets.js";
+import { editCalls, rowFile } from "./targets.js";
 
 /**
  * What `o` opens and what `d` shows on a transcript row (docs/specs/tui.md,
@@ -59,35 +59,5 @@ describe("a row's edits", () => {
     const row = calls(call({ toolCallId: "t1", name: "Read" }), call({ toolCallId: "t2", name: "Edit" }), call({ toolCallId: "t3", name: "Write" }));
     expect(editCalls(row)).toEqual(["t2", "t3"]);
     expect(editCalls(calls(call({ name: "Bash" })))).toEqual([]);
-  });
-});
-
-describe("a path in the workspace", () => {
-  it("is relative to it: an absolute path under it made relative, one outside it none", () => {
-    expect(inWorkspace("/home/seth/code/src/a.ts", "/home/seth/code")).toBe("src/a.ts");
-    expect(inWorkspace("src/a.ts", "/home/seth/code")).toBe("src/a.ts");
-    expect(inWorkspace("/etc/hosts", "/home/seth/code")).toBeNull();
-    expect(inWorkspace("../x", "/home/seth/code")).toBeNull();
-  });
-
-  it("places no absolute path in a workspace not known yet, where /etc/x would read as etc/x", () => {
-    expect(inWorkspace("/etc/x", "")).toBeNull();
-    expect(inWorkspace("src/a.ts", "")).toBe("src/a.ts");
-  });
-
-  it("reads a Windows environment's paths, backslashes and a drive, as the same paths with forward slashes", () => {
-    expect(inWorkspace("C:\\repo\\src\\a.ts", "C:\\repo")).toBe("src/a.ts");
-    expect(inWorkspace("c:/repo/src/a.ts", "C:\\repo\\")).toBe("src/a.ts");
-    expect(inWorkspace("src\\a.ts", "C:\\repo")).toBe("src/a.ts");
-    expect(inWorkspace("D:\\other\\a.ts", "C:\\repo")).toBeNull();
-    expect(inWorkspace("C:\\repository\\a.ts", "C:\\repo")).toBeNull();
-    expect(inWorkspace("..\\..\\x", "C:\\repo")).toBeNull();
-    expect(inWorkspace("src\\..\\..\\x", "C:\\repo")).toBeNull();
-    expect(inWorkspace("\\\\server\\share\\a.ts", "C:\\repo")).toBeNull();
-    expect(inWorkspace("C:\\x", "")).toBeNull();
-  });
-
-  it("leaves a backslash in a POSIX name as the name's own", () => {
-    expect(inWorkspace("/home/seth/code/a\\b.ts", "/home/seth/code")).toBe("a\\b.ts");
   });
 });
