@@ -1,4 +1,4 @@
-import type { PairingInput } from "@agent-harness/client-runtime";
+import { forkAsked, rewindAsked, type PairingInput } from "@agent-harness/client-runtime";
 import { actionById, isCommandId } from "@agent-harness/contracts";
 import { PICKER_COMMANDS, TAKES_ARGUMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
 import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
@@ -87,11 +87,6 @@ export type Command =
   | { readonly kind: "text"; readonly text: string };
 
 export const PAIR_USAGE = "Usage: /pair <link>, /pair <address> <code>, or /pair create.";
-export const REWIND_USAGE = "Usage: /rewind [n | undo]: n prompts back, one by default; undo takes the rewind back.";
-export const FORK_USAGE = "Usage: /fork [n]: bare, the whole session; n, before the prompt n back.";
-
-/** A count of prompts back: a whole number from one; undefined for anything else. */
-const countBack = (word: string): number | undefined => (/^[1-9][0-9]*$/.test(word) ? Number(word) : undefined);
 
 /** The hidden aliases: the name typed, and the command it names. */
 const ALIASES: Readonly<Record<string, string>> = { profile: "account", environments: "environment" };
@@ -158,19 +153,11 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "diff" }, "/diff");
     case "files":
       return { kind: "files", path: tail.length > 0 ? tail : null };
-    case "rewind": {
-      if (rest.length === 0) return { kind: "rewind", back: 1 };
-      const [first = ""] = rest;
-      if (rest.length === 1 && first.toLowerCase() === "undo") return { kind: "rewind-undo" };
-      const back = rest.length === 1 ? countBack(first) : undefined;
-      return back === undefined ? { kind: "usage", line: REWIND_USAGE } : { kind: "rewind", back };
-    }
-    case "fork": {
-      if (rest.length === 0) return { kind: "fork", back: null };
-      const [first = ""] = rest;
-      const back = rest.length === 1 ? countBack(first) : undefined;
-      return back === undefined ? { kind: "usage", line: FORK_USAGE } : { kind: "fork", back };
-    }
+    // Read as the window reads them: the runtime's.
+    case "rewind":
+      return rewindAsked(tail);
+    case "fork":
+      return forkAsked(tail);
     case "attach":
       return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
     case "export":

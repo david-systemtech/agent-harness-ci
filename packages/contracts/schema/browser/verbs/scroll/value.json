@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScrollValue",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The address the page has now."
+    },
+    "title": {
+      "type": "string",
+      "description": "The page's title."
+    }
+  },
+  "required": [
+    "url",
+    "title"
+  ],
+  "description": "Where the page is: its address and title."
+}

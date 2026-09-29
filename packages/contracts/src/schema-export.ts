@@ -171,6 +171,40 @@ import {
   SettingsRowScope,
 } from "./settings-rows.js";
 import { StepId } from "./steps.js";
+import {
+  BRIDGE_PROOF_TEST_VECTOR,
+  BridgeAnnounce,
+  BridgeAnnounced,
+  BridgeCall,
+  BridgeChallenge,
+  BridgeFromEnvironment,
+  BridgeFromExtension,
+  BridgeHello,
+  BridgePair,
+  BridgePaired,
+  BridgePing,
+  BridgePolicy,
+  BridgePong,
+  BridgeProof,
+  BridgeReady,
+  BridgeRefused,
+  BridgeResult,
+  ChromeId,
+  PortFile,
+} from "./browser-bridge.js";
+import { PAGE_VERBS, PAGE_VERB_SCHEMAS, PageCall, PageCommand, PageDriverKind, PageKey, PageOutcome, PageRefusal } from "./browser-driver.js";
+import { OneTimeAllowance, PagePolicy } from "./browser-policy.js";
+import {
+  BrowserDeepReadEverywhere,
+  BrowserDevSites,
+  BrowserEvaluateEverywhere,
+  BrowserInternalHosts,
+  BrowserReach,
+  HeadlessAllowRuns,
+  HeadlessEndpoint,
+  HeadlessExecutable,
+  HeadlessLimits,
+} from "./browser-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -376,7 +410,7 @@ import {
   ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
-import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind } from "./denylist.js";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
   DecidedBy,
@@ -848,6 +882,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/prompt-decision.json", title: "PromptDecisionValue", schema: PromptDecisionValue },
   { path: "permissions/prompt-answer-input.json", title: "PromptAnswerInput", schema: PromptAnswerInput },
   { path: "permissions/denylist-section.json", title: "DenylistSection", schema: DenylistSection },
+  { path: "permissions/host-pattern.json", title: "HostPattern", schema: HostPattern },
   { path: "permissions/denylist-entry.json", title: "DenylistEntry", schema: DenylistEntry },
   { path: "permissions/denylist.json", title: "Denylist", schema: Denylist },
   { path: "permissions/denylist-input.json", title: "DenylistInput", schema: DenylistInput },
@@ -910,6 +945,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/updates.pinnedVersion.json", title: "PinnedVersion", schema: PinnedVersion },
   { path: "settings/keys/updates.idleWindowMinutes.json", title: "IdleWindowMinutes", schema: IdleWindowMinutes },
   { path: "settings/keys/updates.deferralCapHours.json", title: "DeferralCapHours", schema: DeferralCapHours },
+  { path: "settings/keys/browser.devSites.json", title: "BrowserDevSites", schema: BrowserDevSites },
+  { path: "settings/keys/browser.evaluateEverywhere.json", title: "BrowserEvaluateEverywhere", schema: BrowserEvaluateEverywhere },
+  { path: "settings/keys/browser.deepReadEverywhere.json", title: "BrowserDeepReadEverywhere", schema: BrowserDeepReadEverywhere },
+  { path: "settings/keys/browser.reach.json", title: "BrowserReach", schema: BrowserReach },
+  { path: "settings/keys/browser.headless.allowRuns.json", title: "HeadlessAllowRuns", schema: HeadlessAllowRuns },
+  { path: "settings/keys/browser.headless.endpoint.json", title: "HeadlessEndpoint", schema: HeadlessEndpoint },
+  { path: "settings/keys/browser.headless.executable.json", title: "HeadlessExecutable", schema: HeadlessExecutable },
+  { path: "settings/keys/browser.headless.limits.json", title: "HeadlessLimits", schema: HeadlessLimits },
+  { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
@@ -1015,6 +1059,36 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/target.json", title: "SetupTarget", schema: SetupTarget },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
+  { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },
+  { path: "browser/page-key.json", title: "PageKey", schema: PageKey },
+  ...PAGE_VERBS.flatMap((verb) => [
+    { path: `browser/verbs/${verb}/args.json`, title: `${pascal(verb)}Args`, schema: PAGE_VERB_SCHEMAS[verb].args },
+    { path: `browser/verbs/${verb}/value.json`, title: `${pascal(verb)}Value`, schema: PAGE_VERB_SCHEMAS[verb].value },
+  ]),
+  { path: "browser/page-command.json", title: "PageCommand", schema: PageCommand },
+  { path: "browser/one-time-allowance.json", title: "OneTimeAllowance", schema: OneTimeAllowance },
+  { path: "browser/page-call.json", title: "PageCall", schema: PageCall },
+  { path: "browser/page-refusal.json", title: "PageRefusal", schema: PageRefusal },
+  { path: "browser/page-outcome.json", title: "PageOutcome", schema: PageOutcome },
+  { path: "browser/page-policy.json", title: "PagePolicy", schema: PagePolicy },
+  { path: "browser/chrome-id.json", title: "ChromeId", schema: ChromeId },
+  { path: "browser/port-file.json", title: "PortFile", schema: PortFile },
+  { path: "browser/bridge/announce.json", title: "BridgeAnnounce", schema: BridgeAnnounce },
+  { path: "browser/bridge/pair.json", title: "BridgePair", schema: BridgePair },
+  { path: "browser/bridge/hello.json", title: "BridgeHello", schema: BridgeHello },
+  { path: "browser/bridge/proof.json", title: "BridgeProof", schema: BridgeProof },
+  { path: "browser/bridge/result.json", title: "BridgeResult", schema: BridgeResult },
+  { path: "browser/bridge/announced.json", title: "BridgeAnnounced", schema: BridgeAnnounced },
+  { path: "browser/bridge/paired.json", title: "BridgePaired", schema: BridgePaired },
+  { path: "browser/bridge/challenge.json", title: "BridgeChallenge", schema: BridgeChallenge },
+  { path: "browser/bridge/ready.json", title: "BridgeReady", schema: BridgeReady },
+  { path: "browser/bridge/policy.json", title: "BridgePolicy", schema: BridgePolicy },
+  { path: "browser/bridge/call.json", title: "BridgeCall", schema: BridgeCall },
+  { path: "browser/bridge/ping.json", title: "BridgePing", schema: BridgePing },
+  { path: "browser/bridge/pong.json", title: "BridgePong", schema: BridgePong },
+  { path: "browser/bridge/refused.json", title: "BridgeRefused", schema: BridgeRefused },
+  { path: "browser/bridge/from-extension.json", title: "BridgeFromExtension", schema: BridgeFromExtension },
+  { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -1136,6 +1210,17 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
       "A refusal on the wire is an invalid_params issue at the field whose params are {rule: source-folder, reason}.",
     ].join(" "),
     cases: SOURCE_FOLDER_CASES,
+  },
+  {
+    path: "cases/bridge-proof.json",
+    title: "Bridge proof",
+    description: [
+      "The proof of bridge protocol version 2 (browser spec, \"The extension, its folder and its listener\"), which answers a challenge without sending the secret.",
+      "The secret and the nonce are each 32 bytes written as 64 lowercase hex characters, as paired and challenge carry them.",
+      "The proof is HMAC-SHA256 whose key is the 32 bytes the secret's hex denotes (not its characters) and whose message is the nonce's 64 characters as UTF-8, written as 64 lowercase hex characters.",
+      "Each case gives a secret, a nonce and the proof the rule answers.",
+    ].join(" "),
+    cases: [{ note: "The secret is the bytes 0x00 to 0x1f and the nonce the bytes 0x20 to 0x3f.", ...BRIDGE_PROOF_TEST_VECTOR }],
   },
 ];
 

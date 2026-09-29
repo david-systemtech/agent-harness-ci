@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NavigateArgs",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "description": "An address to open: an http or https URL, or a bare host with an optional port and path."
+    },
+    "snapshot": {
+      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+          "type": "string",
+          "enum": [
+            "interactive",
+            "all"
+          ]
+        },
+        "depth": {
+          "description": "How many levels of the tree to read.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "ref": {
+          "description": "Read only the subtree of the element with this ref.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "maxChars": {
+          "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200000
+        }
+      }
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "description": "navigate: go to an address and let the load settle."
+}
