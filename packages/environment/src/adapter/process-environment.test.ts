@@ -77,7 +77,7 @@ const testSupplier = (variables: Readonly<Record<string, string>>, name = "test"
 };
 
 describe("a run's process environment", () => {
-  it("has an empty key and adds nothing while no supplier is registered", async () => {
+  it("has an empty key and adds nothing while no supplier has anything to give", async () => {
     const t = await start();
     const client = await t.client();
     const session = await create(client);
@@ -110,7 +110,7 @@ describe("a run's process environment", () => {
     // Both runs went to the one process, spawned once and supplied once.
     expect(t.adapter.processesOf(session.id)).toHaveLength(1);
     expect(await t.adapter.processesOf(session.id)[0]?.supplied).toEqual({ HARNESS_TEST_TOKEN: "token-for-tests" });
-    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client" }]);
+    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process" }]);
     expect(texts(t, session.id)).toContain("The command said matched");
   });
 
@@ -212,8 +212,8 @@ describe("the injection answer", () => {
     await runTo(t, client, session.id, "And the refunds");
 
     expect(answered).toEqual([
-      { sessionId: session.id, accountId: "claude-max", origin: "client" },
-      { sessionId: session.id, accountId: "claude-max", origin: "client" },
+      { sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process" },
+      { sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process" },
     ]);
     expect(asked.supplies).toHaveLength(1);
   });
@@ -339,7 +339,7 @@ describe("the release of what a process was supplied", () => {
 });
 
 describe("a session's terminal", () => {
-  it("holds the session's process environment: supplied as it opens, for the session's account and a client, and released once as it closes", async () => {
+  it("holds the session's process environment: supplied as it opens, for the session's account, a client and a terminal, and released once as it closes", async () => {
     const pty = fakePty();
     const t = await start({}, { terminals: { pty, shell: () => ({ file: "/bin/sh", args: [] }) } });
     const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
@@ -351,7 +351,7 @@ describe("a session's terminal", () => {
 
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     expect(pty.spawned[0]?.options.env).toMatchObject({ HARNESS_TEST_TOKEN: "token-for-tests" });
-    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client" }]);
+    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client", holder: "terminal" }]);
     await terminalCommand(client, "terminals.close", { id: terminal.id });
     await vi.waitFor(() => expect(asked.releases).toEqual([1]));
   });

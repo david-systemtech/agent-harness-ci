@@ -13,9 +13,11 @@ import type { ProcessEnvironment, SuppliedVariables } from "./contract.js";
  * One injection answer is asked for each holder (ADR 0011's setting,
  * #91's; until then the seam's preset, `allow`, ADR 0028), and on `deny`
  * no supplier is asked anything. A seam that throws denies, logged. The key
- * is empty while no supplier is registered. Otherwise it names the answer
- * and, on `allow`, each supplier's part, in the order they were
- * registered, so a changed answer or a changed part is a changed key.
+ * is empty while no supplier is registered, and on `allow` while every
+ * supplier's part is empty, as the key managers' is with no injecting
+ * connection (#368). Otherwise it names the answer and, on `allow`, each
+ * supplier's part that is not empty, in the order they were registered, so
+ * a changed answer or a changed part is a changed key.
  *
  * A supplier's variables are asked at each spawn, every supplier at once;
  * where two name one variable, the one registered later wins. A supplier
@@ -24,11 +26,15 @@ import type { ProcessEnvironment, SuppliedVariables } from "./contract.js";
  * The release calls each supplier's release once, a failure logged.
  */
 
-/** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), and who started it (a client, for a terminal). */
+/** What a holder is (#368): a run's provider process or a session's terminal; the key managers' run tokens name it in their metadata. */
+export type HolderKind = "provider-process" | "terminal";
+
+/** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), who started it (a client, for a terminal), and what it is. */
 export interface ProcessEnvironmentScope {
   readonly sessionId: string;
   readonly accountId: string | null;
   readonly origin: RunActorKind;
+  readonly holder: HolderKind;
 }
 
 /** Whether a holder's suppliers are asked for its variables (ADR 0011). */
@@ -168,8 +174,9 @@ export const createProcessEnvironments = (injection: InjectionSeam = presetInjec
         }
       });
       const asked = parts.map((part) => part.supplier);
+      const named = parts.filter((part) => part.key !== "");
       return {
-        key: JSON.stringify({ injection: answer, suppliers: parts.map((part) => [part.supplier.name, part.key]) }),
+        key: named.length === 0 ? "" : JSON.stringify({ injection: answer, suppliers: named.map((part) => [part.supplier.name, part.key]) }),
         supply: () => supplyAll(asked, scope),
       };
     },

@@ -20,6 +20,7 @@ import {
   type ParamsOf,
   type ResultOf,
 } from "@agent-harness/contracts";
+import type { ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
@@ -30,6 +31,7 @@ import { basePathProblem, suggestBasePath } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
+import { createRunTokens } from "./run-tokens.js";
 import { createVerificationSchedule } from "./verifier.js";
 
 /**
@@ -134,6 +136,8 @@ export interface KeyManagerConnectionsOptions {
   readonly scrub: ScrubRegistry;
   /** What holds a reference to the connection: the forge accounts whose credential is one. Preset: nothing. */
   readonly referenceHolders?: (connectionId: string) => readonly KeyManagerReferenceHolder[];
+  /** The data directory's key-manager CLI directory, where the configuration the injected CLIs are pointed at is kept (#368). */
+  readonly cliDirectory: string;
 }
 
 /** A login the environment holds for a connection, as a reference is read with it: its token, and the provider and target it signed in through. */
@@ -172,6 +176,8 @@ export interface KeyManagerConnections {
   readonly remove: MethodHandler<"keyManagers.connections.remove">;
   /** The connection `connectionId` as references are read through it; null for one the environment does not hold. */
   readable(connectionId: string): ReadableConnection | null;
+  /** The key managers' part of every provider process and terminal (#368): the injecting connections' blocks and each holder's run tokens. */
+  readonly processEnvironment: ProcessEnvironmentSupplier;
   /** Stops the sign-ins and verifications under way from recording anything, and lets go of every login and credential registration; a login is not revoked, and expires. */
   close(): void;
 }
@@ -299,6 +305,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const forget = (connectionId: string, entry: string | null): void => {
     moved(connectionId);
     suggestions.delete(connectionId);
+    runTokens.revokeAll(connectionId);
     const login = logins.get(connectionId);
     logins.delete(connectionId);
     if (login !== undefined) void letGo(connectionId, login);
@@ -900,6 +907,25 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     verifyNow,
   });
 
+  const readable = (connectionId: string): ReadableConnection | null => {
+    const held = liveConnection(reader, connectionId.toLowerCase());
+    if (held === null) return null;
+    const login = logins.get(held.record.id);
+    return { record: standing(held.record), login: login === undefined ? null : { token: login.token, provider: login.provider, target: login.target } };
+  };
+
+  const runTokens = createRunTokens({
+    source: {
+      injecting: () => listConnections(reader).flatMap((held) => (held.record.injects ? [{ record: standing(held.record), generation: held.generation }] : [])),
+      readable,
+      signingIn: (connectionId) => startupSignIns.get(connectionId),
+    },
+    clock,
+    scrub,
+    cliDirectory: options.cliDirectory,
+    budgetMs,
+  });
+
   return {
     async start() {
       const entries = new Set<string>();
@@ -1011,16 +1037,14 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       return { aggregate: stream, result: { connectionId } };
     },
 
-    readable(connectionId) {
-      const held = liveConnection(reader, connectionId.toLowerCase());
-      if (held === null) return null;
-      const login = logins.get(held.record.id);
-      return { record: standing(held.record), login: login === undefined ? null : { token: login.token, provider: login.provider, target: login.target } };
-    },
+    readable,
+
+    processEnvironment: runTokens.supplier,
 
     close() {
       closed = true;
       schedule.close();
+      runTokens.close();
       for (const login of logins.values()) login.release();
       logins.clear();
       for (const release of credentials.values()) release();

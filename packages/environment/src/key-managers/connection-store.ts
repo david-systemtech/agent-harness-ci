@@ -58,6 +58,7 @@ export const KEY_MANAGER_CONNECTIONS_TABLES = {
     can_mint INTEGER CHECK (can_mint IN (0, 1)),
     verified_at TEXT,
     credential TEXT,
+    credential_generation INTEGER NOT NULL DEFAULT 0,
     copied_from TEXT,
     imported_from TEXT,
     created_at TEXT NOT NULL,
@@ -208,19 +209,22 @@ interface ConnectionRow {
   can_mint: number | null;
   verified_at: string | null;
   credential: string | null;
+  credential_generation: number;
   copied_from: string | null;
   imported_from: string | null;
   created_at: string;
 }
 
 const COLUMNS =
-  "id, provider, label, address, ca, method, mount, username, token_role, policies, ticks, base_path, injects, status, token_information, can_mint, verified_at, credential, copied_from, imported_from, created_at";
+  "id, provider, label, address, ca, method, mount, username, token_role, policies, ticks, base_path, injects, status, token_information, can_mint, verified_at, credential, credential_generation, copied_from, imported_from, created_at";
 
-/** A connection as the store holds it: its record, and the vault entry of its credential, which the record never shows. */
+/** A connection as the store holds it: its record, the vault entry of its credential and its credential generation, which the record never shows. */
 export interface StoredConnection {
   readonly record: KeyManagerConnectionRecord;
   /** The vault entry holding the credential; null for none. */
   readonly credential: string | null;
+  /** How many times what runs are given of it has changed (#368): what the process environment's key names. */
+  readonly generation: number;
 }
 
 const storedOf = (row: ConnectionRow): StoredConnection => ({
@@ -249,6 +253,7 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     createdAt: row.created_at,
   },
   credential: row.credential,
+  generation: row.credential_generation,
 });
 
 /** The connections the environment holds, in the order they were added. */

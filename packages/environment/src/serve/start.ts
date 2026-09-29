@@ -104,6 +104,7 @@ import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
+import { KEY_MANAGER_CLI_DIRECTORY } from "../key-managers/run-tokens.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
 import { keyManagerMovesProjector } from "../key-managers/move-store.js";
@@ -744,6 +745,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
       referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
     });
     closers.push(() => connections.close());
     await connections.start();
@@ -845,6 +847,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper.
   const processEnvironments = createProcessEnvironments(injection);
   if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
+  // The injecting key-manager connections' blocks and each holder's run tokens (#368).
+  processEnvironments.register(keyManagerConnections.processEnvironment);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -1032,7 +1036,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...options.terminals,
     processEnvironment: (sessionId) => {
       const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
-      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client" });
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client", holder: "terminal" });
     },
   });
   closers.push(() => terminalService.close());

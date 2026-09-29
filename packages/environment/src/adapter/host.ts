@@ -1394,7 +1394,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * calls it first.
    */
   const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
-    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind, holder: "provider-process" });
     const report = pool.supplied(plan.sessionId);
     return {
       key: built.key,
