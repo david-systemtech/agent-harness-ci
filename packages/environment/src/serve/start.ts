@@ -147,7 +147,7 @@ export const HARNESS_VERSION: string = (
  * package's. A managed tool found inside it, or inside the bundled binary's
  * package, is the harness's own and never a person's (ADR 0026).
  */
-export const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url));
+const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
  * The port an environment listens on when none is given. A chosen default, not

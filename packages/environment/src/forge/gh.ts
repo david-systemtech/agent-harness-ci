@@ -160,10 +160,20 @@ export const managedGh = (options: ManagedGhOptions): ManagedGh => {
 
   const notInstalled = (host: string): string => `gh is not installed on this environment: install the GitHub CLI ${GH_MINIMUM_VERSION} or later, then run gh auth login --hostname ${host}.`;
 
+  /** The row, or null when the registry has none to give: it never probed, the environment closing first. */
+  const rowNow = async (): Promise<ManagedToolRow | null> => {
+    try {
+      return await options.row();
+    } catch (error) {
+      console.error("The Managed tools registry gave no gh row:", error);
+      return null;
+    }
+  };
+
   return {
     async probe() {
-      const row = await options.row();
-      if (row.path === null) return { installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [] };
+      const row = await rowNow();
+      if (row === null || row.path === null) return { installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [] };
       const status = await run(row.path, ["auth", "status"]);
       return {
         installed: true,
@@ -175,7 +185,8 @@ export const managedGh = (options: ManagedGhOptions): ManagedGh => {
     },
 
     async token(host, login) {
-      const row = await options.row();
+      const row = await rowNow();
+      if (row === null) return { outcome: "unavailable", message: `gh on this environment could not be found: its managed tools have not been probed.` };
       if (row.path === null) return { outcome: "unavailable", message: notInstalled(host) };
       const answer = await run(row.path, ["auth", "token", "--hostname", host, "--user", login]);
       if (answer.outcome === "missing") return { outcome: "unavailable", message: notInstalled(host) };
