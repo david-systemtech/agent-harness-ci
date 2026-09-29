@@ -231,6 +231,23 @@ describe("the cadence", () => {
       ["forges", after(110 * MINUTE)],
     ]);
   });
+
+  it("counts a cached result dated later than now, as after the clock was set back, as due: the step waits no longer than its cadence", async () => {
+    const { setupSteps, calls } = cadenceRegistry();
+    const t = await start({ setupSteps });
+    await t.env.setup.startPass;
+    const client = await t.client();
+    const [account] = (await snapshot(t, client)).setup ?? [];
+    await client.close();
+    // The lower seam: Account's row as a check three hours on would have left it, under a clock since set back.
+    t.env.log.atomically((tx) => t.env.log.setupResults.write(tx, "account", JSON.stringify({ ...account, checkedAt: after(3 * HOUR) })));
+
+    for (let quarter = 0; quarter < 3; quarter += 1) await advance(t, 15 * MINUTE);
+    await advance(t, 15 * MINUTE - 1);
+    expect(calls()[0]).toBe(1);
+    await advance(t, 1);
+    expect(calls()[0]).toBe(2);
+  });
 });
 
 describe("what a pass the environment starts appends", () => {

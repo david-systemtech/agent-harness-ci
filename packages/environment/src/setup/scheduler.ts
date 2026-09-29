@@ -94,7 +94,7 @@ export const startSetupScheduler = (options: SetupSchedulerOptions): SetupSchedu
     arm(step, cadenceMs(step));
   };
 
-  /** A trigger of the step arrived: it is checked a second from now, unless a check of it is due by then or running. */
+  /** A trigger of the step arrived: it is checked a second from now, unless an earlier trigger's second is running, or its check is, whose result the trigger takes. */
   const trigger = (step: CheckedStep): void => {
     if (stopped || triggered.has(step.id) || setup.checking(step.id)) return;
     triggered.set(
