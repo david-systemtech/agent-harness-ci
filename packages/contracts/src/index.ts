@@ -75,6 +75,7 @@ export {
   KindUnsupportedError,
   MAX_FORGE_ALIASES,
   NotAForgeError,
+  NotAPullRequestError,
   VerificationFailedError,
 } from "./methods/forge.js";
 export {

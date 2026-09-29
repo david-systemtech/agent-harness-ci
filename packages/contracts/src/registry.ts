@@ -94,6 +94,9 @@ import {
   forgeDetect,
   forgeGhProbe,
   forgeOrgsList,
+  forgePullRequestsLink,
+  forgePullRequestsRefresh,
+  forgePullRequestsUnlink,
 } from "./methods/forge.js";
 import {
   keyManagersCertificatePreview,
@@ -225,6 +228,9 @@ export const methods = [
   forgeGhProbe,
   forgeDetect,
   forgeOrgsList,
+  forgePullRequestsLink,
+  forgePullRequestsUnlink,
+  forgePullRequestsRefresh,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,

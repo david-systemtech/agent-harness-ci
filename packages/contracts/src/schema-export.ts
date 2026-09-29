@@ -298,6 +298,7 @@ import {
   IdentityMismatchError,
   KindUnsupportedError,
   NotAForgeError,
+  NotAPullRequestError,
   VerificationFailedError,
 } from "./methods/forge.js";
 import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
@@ -961,6 +962,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
   { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
   { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
+  { path: "errors/not_a_pull_request.json", title: "NotAPullRequestError", schema: NotAPullRequestError },
   { path: "forge/errors/unreachable.json", title: "ForgeUnreachableError", schema: ForgeUnreachableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),

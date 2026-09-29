@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.pullRequests.link params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "description": "The pull request's web URL, or any page of it (its files, with a query or a fragment), on the forge's canonical origin or an alias of it."
+    }
+  },
+  "required": [
+    "commandId",
+    "sessionId",
+    "url"
+  ]
+}
