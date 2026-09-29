@@ -28,6 +28,7 @@ import {
   type RunContext,
   type RunEnd,
   type RunInput,
+  type ToolServer,
 } from "../../adapter/contract.js";
 import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
@@ -351,6 +352,12 @@ export class ClaudeProcess implements TurnControl {
   readonly #abort = new AbortController();
   readonly #ledger: TaskLedger;
   readonly #spawn: SpawnKey;
+  /**
+   * The tool servers the process was started with, whose in-process tools
+   * serve every run it serves (a later run attaches only when its tools
+   * have the same key): the gate reads a call to one as its tool declares.
+   */
+  readonly #toolServers: readonly ToolServer[];
   #applied: Applied;
   /** Settles once every settings call begun so far has; never rejects (`#serially`). */
   #settingsCalls: Promise<void> = Promise.resolve();
@@ -426,6 +433,7 @@ export class ClaudeProcess implements TurnControl {
     this.#context = context;
     this.#ledger = new TaskLedger(deps.clock);
     this.#spawn = this.#spawnKeyOf(first);
+    this.#toolServers = first.toolServers;
     this.#spawnedFresh = first.target.kind === "fresh";
     this.#applied = { model: first.model, mode, effort: first.effort };
   }
@@ -1031,7 +1039,7 @@ export class ClaudeProcess implements TurnControl {
       if (this.closed) return gateDenial(DISPOSED_DENY_MESSAGE);
       const callId = input.tool_use_id === "" ? randomUUID() : input.tool_use_id;
       const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
-      const ruling = await this.#context.gate.check(claudeGatedCall(input.tool_name, toolInput, callId), signal);
+      const ruling = await this.#context.gate.check(claudeGatedCall(input.tool_name, toolInput, callId, { servers: this.#toolServers }), signal);
       if (ruling.decision === "deny") return gateDenial(ruling.message);
       this.#hookGated.set(callId, JSON.stringify(toolInput));
       for (const oldest of this.#hookGated.keys()) {
@@ -1162,7 +1170,7 @@ export class ClaudeProcess implements TurnControl {
       // model is told why (#133); a denylist match is put to the person first, and only an allowed call comes on to the
       // provider's own prompt (#132). The SDK's signal goes with it: a request the CLI withdraws closes a prompt the gate parked.
       if (!this.#gatedByHook(toolUseID, input)) {
-        const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title), options.signal);
+        const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, { title: options.title, servers: this.#toolServers }), options.signal);
         if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
       }
       const kind = PROMPT_KINDS[toolName] ?? "permission";

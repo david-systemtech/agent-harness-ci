@@ -1,5 +1,5 @@
 import type { JsonObject } from "@agent-harness/contracts";
-import type { GatedToolCall, ToolAccess } from "../../adapter/contract.js";
+import { inProcessToolAccess, toolCallSummary, type GatedToolCall, type ToolAccess, type ToolServer } from "../../adapter/contract.js";
 
 /**
  * Claude's tools as the tool gate reads them (permissions spec, "Modules":
@@ -11,7 +11,9 @@ import type { GatedToolCall, ToolAccess } from "../../adapter/contract.js";
  * `WebFetch` its URL, `WebSearch` its query and allowed domains, and the
  * sandbox's ask for a host (`SandboxNetworkAccess`, which no hook sees) the
  * host, as a fetch; a write tool whose path is missing is a write naming
- * none, which a workspace level denies. Anything else (a tool server's
+ * none, which a workspace level denies. A call to one of the run's
+ * in-process tools is what that tool declares (#540: a browser verb's
+ * addresses, a fetch reader's URLs). Anything else (another tool server's
  * call, a question, a plan, a Monitor with no command) is `other`, whose
  * input the denylist reads.
  */
@@ -72,34 +74,20 @@ export const claudeToolAccess = (toolName: string, input: Readonly<Record<string
   return { kind: "other" };
 };
 
-/** Longest summary the gate records, in characters: longer is cut, with an ellipsis. */
-const SUMMARY_MAX = 200;
+/** What `claudeGatedCall` reads beside the call: the provider's title for it, and the run's tool servers, whose in-process tools declare what a call reaches. */
+export interface GatedCallContext {
+  readonly title?: string | undefined;
+  readonly servers?: readonly ToolServer[];
+}
 
-/** `text`'s first line, cut to `SUMMARY_MAX`. */
-const oneLine = (text: string): string => {
-  const line = (text.split("\n")[0] ?? "").trim();
-  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line;
-};
-
-/** The one-line summary the gate records: the call's title, else the tool and what it names, cut to a line of at most 200 characters. */
-const summaryOf = (toolName: string, access: ToolAccess, title: string | undefined): string => {
-  if (title !== undefined && title.trim() !== "") return oneLine(title.trim());
-  const named =
-    access.kind === "read" || access.kind === "write"
-      ? access.paths.join(", ")
-      : access.kind === "shell"
-        ? access.command
-        : access.kind === "fetch"
-          ? access.urls.join(", ")
-          : access.kind === "search"
-            ? access.query
-            : "";
-  return oneLine(`${toolName} ${named}`);
-};
-
-/** The gate's call for a Claude tool call: its id, name, a summary, and what it does. */
-export const claudeGatedCall = (toolName: string, input: Readonly<Record<string, unknown>>, toolCallId: string, title?: string): GatedToolCall => {
-  const access = claudeToolAccess(toolName, input);
+/**
+ * The gate's call for a Claude tool call: its id, name, a summary, and what
+ * it does, as a call to one of the run's in-process tools declares it
+ * (#540), else as Claude's tool map reads it.
+ */
+export const claudeGatedCall = (toolName: string, input: Readonly<Record<string, unknown>>, toolCallId: string, context: GatedCallContext = {}): GatedToolCall => {
   // The input as the model gave it, as JSON: a denylist prompt records it, and the denylist reads an `other` call's (#132).
-  return { toolCallId, tool: toolName, summary: summaryOf(toolName, access, title), access, input: JSON.parse(JSON.stringify(input)) as JsonObject };
+  const json = JSON.parse(JSON.stringify(input)) as JsonObject;
+  const access = inProcessToolAccess(context.servers ?? [], toolName, json) ?? claudeToolAccess(toolName, input);
+  return { toolCallId, tool: toolName, summary: toolCallSummary(toolName, access, context.title), access, input: json };
 };
