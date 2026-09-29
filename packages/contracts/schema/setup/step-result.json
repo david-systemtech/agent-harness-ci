@@ -162,7 +162,7 @@
         "reason",
         "checkedAt"
       ],
-      "description": "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated; absent when there has been none since the environment started."
+      "description": "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated: the step's cached result when that passed, else the last good result the cached one carried, so it survives a restart; absent when there is neither."
     }
   },
   "required": [
