@@ -82,9 +82,31 @@ export interface FileFilter {
   readonly extensions: readonly string[];
 }
 
+/** A file chosen in the open dialog, read by the desktop: its name, without its folders, and its size and bytes. */
+export interface ShellFile {
+  readonly name: string;
+  /** Its length in bytes. */
+  readonly size: number;
+  /** What it holds; null for a file larger than the dialog was told to read. */
+  readonly bytes: Uint8Array | null;
+}
+
 export interface ShellDialogs {
   /** Paths chosen, none when cancelled. */
   openFile(options?: { readonly title?: string; readonly filters?: readonly FileFilter[]; readonly multiple?: boolean }): Promise<readonly string[]>;
+  /**
+   * The open dialog for files the renderer takes in (an attachment, say):
+   * each file chosen, read, rather than its path, which a sandboxed renderer
+   * cannot read; none when cancelled. A file larger than `maxBytes` is
+   * answered with its size and no bytes, so a mistaken choice of a disk image
+   * is never read whole.
+   */
+  openFileContents(options?: {
+    readonly title?: string;
+    readonly filters?: readonly FileFilter[];
+    readonly multiple?: boolean;
+    readonly maxBytes?: number;
+  }): Promise<readonly ShellFile[]>;
   openDirectory(options?: { readonly title?: string }): Promise<string | undefined>;
   save(options?: { readonly title?: string; readonly defaultPath?: string; readonly filters?: readonly FileFilter[] }): Promise<string | undefined>;
 }

@@ -1,4 +1,4 @@
-import type { Clock, Runtime } from "@agent-harness/client-runtime";
+import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
 import { DEFAULT_THEME } from "@agent-harness/contracts";
 import { useLayoutEffect } from "react";
 import { Frame } from "./frame/frame.js";
@@ -16,6 +16,8 @@ export interface AppProps {
   readonly clock: Clock;
   /** Whether the keys' `Mod` is ⌘ (macOS) or Ctrl (everywhere else). */
   readonly macOS: boolean;
+  /** The desktop's shell, the platform's own: what only a desktop can do. Absent in a browser tab. */
+  readonly shell?: Shell | undefined;
 }
 
 /**
@@ -24,10 +26,10 @@ export interface AppProps {
  * (the preset's, until the window reads a theme of its own), its keys
  * dispatched through the GUI column of the shared action list.
  */
-export const App = ({ runtime, presentation, clock, macOS }: AppProps) => {
+export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) => {
   useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
   return (
-    <WindowProvider runtime={runtime} presentation={presentation} clock={clock}>
+    <WindowProvider runtime={runtime} presentation={presentation} clock={clock} shell={shell}>
       <KeyDispatch macOS={macOS}>
         <Frame />
       </KeyDispatch>

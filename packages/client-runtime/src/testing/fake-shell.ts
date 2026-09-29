@@ -28,6 +28,7 @@ import type {
 /** Every function the shell carries, by its path, as a recorded call names it. */
 export interface ShellFunctions {
   "dialogs.openFile": ShellDialogs["openFile"];
+  "dialogs.openFileContents": ShellDialogs["openFileContents"];
   "dialogs.openDirectory": ShellDialogs["openDirectory"];
   "dialogs.save": ShellDialogs["save"];
   "window.setTitle": ShellWindow["setTitle"];
@@ -98,6 +99,7 @@ export const fakeShell = (): FakeShell => {
     };
   const responders: ShellFunctions = {
     "dialogs.openFile": async () => [],
+    "dialogs.openFileContents": async () => [],
     "dialogs.openDirectory": async () => undefined,
     "dialogs.save": async () => undefined,
     "window.setTitle": () => undefined,
@@ -142,7 +144,12 @@ export const fakeShell = (): FakeShell => {
     }) as ShellFunctions[M];
 
   return {
-    dialogs: { openFile: recorded("dialogs.openFile"), openDirectory: recorded("dialogs.openDirectory"), save: recorded("dialogs.save") },
+    dialogs: {
+      openFile: recorded("dialogs.openFile"),
+      openFileContents: recorded("dialogs.openFileContents"),
+      openDirectory: recorded("dialogs.openDirectory"),
+      save: recorded("dialogs.save"),
+    },
     window: {
       setTitle: recorded("window.setTitle"),
       focus: recorded("window.focus"),

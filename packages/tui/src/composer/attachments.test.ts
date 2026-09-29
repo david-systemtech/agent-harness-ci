@@ -7,10 +7,11 @@ import { chmod, mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { UNKNOWN_MEDIA_TYPE } from "@agent-harness/client-runtime";
 import { AttachmentInput, MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, readAttachment } from "./attachments.js";
+import { readAttachment } from "./attachments.js";
 
 const temporaries: string[] = [];
 const temporaryDirectory = async (prefix: string): Promise<string> => {
@@ -98,48 +99,7 @@ describe("a path the way a person types it", () => {
   });
 });
 
-describe("attachmentFromBytes", () => {
-  const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
-
-  it("makes an image of an image media type and a file of anything else", () => {
-    expect(attachmentFromBytes("clipboard.png", "image/png", png)).toEqual({
-      kind: "image",
-      name: "clipboard.png",
-      mediaType: "image/png",
-      data: Buffer.from(png).toString("base64"),
-    });
-    expect(attachmentFromBytes("notes.txt", "text/plain", new TextEncoder().encode("hi"))).toMatchObject({
-      kind: "file",
-      mediaType: "text/plain",
-      data: Buffer.from("hi").toString("base64"),
-    });
-  });
-
-  it("is null past the cap and an attachment exactly at it", () => {
-    expect(attachmentFromBytes("big.png", "image/png", new Uint8Array(MAX_ATTACHMENT_BYTES + 1))).toBeNull();
-    const at = attachmentFromBytes("big.png", "image/png", new Uint8Array(MAX_ATTACHMENT_BYTES));
-    expect(at?.kind).toBe("image");
-    expect(onTheWire(at)).toBe(true);
-  });
-
-  it("always answers with something the wire takes: a media type it accepts and a name that is there", () => {
-    const odd = attachmentFromBytes("", "not a media type", png);
-    expect(odd).toMatchObject({ kind: "file", name: "attachment", mediaType: UNKNOWN_MEDIA_TYPE });
-    expect(onTheWire(odd)).toBe(true);
-  });
-
-  it("cuts a long name to the wire's length, never through half of an emoji", () => {
-    expect(MAX_ATTACHMENT_NAME).toBe(255);
-    const long = attachmentFromBytes(`${"a".repeat(300)}.png`, "image/png", png);
-    expect(long?.name).toBe("a".repeat(255));
-    expect(onTheWire(long)).toBe(true);
-
-    // 254 letters and an emoji: the emoji's second half would be the 256th unit, so both halves go.
-    const emoji = attachmentFromBytes(`${"a".repeat(254)}🎉 and more`, "image/png", png);
-    expect(emoji?.name).toBe("a".repeat(254));
-    expect(onTheWire(emoji)).toBe(true);
-  });
-
+describe("a long name", () => {
   it("reads back the longest name a file system allows whole", async () => {
     const dir = await temporaryDirectory("agent-harness-attach-");
     // Most file systems stop a name at 255 bytes, so the longest one there is is read back whole.

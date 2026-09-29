@@ -78,7 +78,7 @@ const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, 
     if (outcome.status !== "paired") throw new Error(`The harness could not pair ${name}: ${JSON.stringify(outcome)}.`);
   }
   const presentation = await openPresentation(platform.documents, platform.reportError);
-  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} macOS={macOS} />);
+  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} macOS={macOS} shell={shell} />);
   return {
     world,
     clock,
