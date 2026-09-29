@@ -52,14 +52,17 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * clean base and under the client's, never into argv, and released once,
  * as the terminal is closed or its shell exits, whichever comes first. Its
  * shell starts once they are supplied; what is typed at it before then is
- * typed once it starts, and a terminal closed before then exits at once,
- * starts none, and releases what it is supplied as that comes.
+ * typed once it starts, up to 64 KiB, what comes past that dropped and
+ * said once; and a terminal closed before then exits at once, starts none,
+ * and releases what it is supplied as that comes.
  */
 
 /** How long output is gathered into one chunk, in real milliseconds. */
 export const OUTPUT_GATHER_MS = 5;
 /** The most output gathered into one chunk before it is cut at once. */
 const CHUNK_BYTES = 64 * 1024;
+/** The most typed at a terminal before its shell started that is kept for it; what comes past it is dropped (a chosen default). */
+export const TYPED_AHEAD_BYTES = 64 * 1024;
 /** How long a hung-up shell has to exit before it is killed. */
 export const KILL_GRACE_MS = 3000;
 /** The longest a chunk's tail is held back while it could be the start of a registered value, by the environment's clock (a chosen default). */
@@ -147,8 +150,9 @@ interface Terminal {
   readonly scrollback: Scrollback;
   readonly listeners: Set<(event: EventEnvelope) => void>;
   process: PtyProcess | undefined;
-  /** What was typed at it before its shell started, typed once it starts. */
+  /** What was typed at it before its shell started, typed once it starts: at most `TYPED_AHEAD_BYTES`, counted in `typedBytes`. */
   readonly typed: string[];
+  typedBytes: number;
   /** The release of what its process environment supplied, until it is released. */
   release: (() => void) | undefined;
   pending: string[];
@@ -354,6 +358,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         listeners: new Set(),
         process: undefined,
         typed: [],
+        typedBytes: 0,
         release: undefined,
         pending: [],
         pendingBytes: 0,
@@ -388,8 +393,16 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     write(id, data) {
       const terminal = open.get(id);
       if (terminal === undefined || terminal.exit !== undefined) return;
-      if (terminal.process === undefined) terminal.typed.push(data);
-      else terminal.process.write(data);
+      if (terminal.process !== undefined) return terminal.process.write(data);
+      const bytes = Buffer.byteLength(data, "utf8");
+      if (terminal.typedBytes + bytes > TYPED_AHEAD_BYTES) {
+        // Said at the first write dropped; a count past the bound marks that it has been.
+        if (terminal.typedBytes <= TYPED_AHEAD_BYTES) console.error(`Terminal ${id} was typed at past ${TYPED_AHEAD_BYTES} bytes before its shell started; the rest is dropped.`);
+        terminal.typedBytes = TYPED_AHEAD_BYTES + 1;
+        return;
+      }
+      terminal.typed.push(data);
+      terminal.typedBytes += bytes;
     },
     resize(id, cols, rows) {
       const terminal = open.get(id);

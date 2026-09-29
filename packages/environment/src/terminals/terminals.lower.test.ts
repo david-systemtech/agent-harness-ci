@@ -82,6 +82,7 @@ const types = (answer: FeedCatchUp<TerminalSnapshot>) => answer.events.map((even
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("a terminal's shell", () => {
@@ -146,6 +147,24 @@ describe("a terminal as a holder of its session's process environment (#307)", (
     const [child] = (await spawned(pty)) as [FakeProcess];
     expect([child.options.cols, child.options.rows]).toEqual([132, 50]);
     expect(child.written).toEqual(["echo one\r", "echo two\r"]);
+  });
+
+  it("keeps at most 64 KiB of what is typed before its shell started, and drops the rest, saying so once", async () => {
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const supplied = gate();
+    const { pty, terminals } = holding({ HARNESS_TEST_TOKEN: "token-for-tests" }, supplied.opened);
+    terminals.open(request());
+    const kib = "k".repeat(1024);
+
+    for (let i = 0; i < 64; i += 1) terminals.write(ID, kib);
+    terminals.write(ID, "one too many");
+    terminals.write(ID, "and another");
+    supplied.open();
+
+    const [child] = (await spawned(pty)) as [FakeProcess];
+    expect(child.written.join("")).toBe(kib.repeat(64));
+    expect(loud.mock.calls.filter((call) => String(call[0]).includes("before its shell started; the rest is dropped"))).toHaveLength(1);
+    loud.mockRestore();
   });
 
   it("closed before its shell started, exits at once and never starts one, releasing what it is supplied as that comes", async () => {

@@ -313,6 +313,12 @@ describe("the release of what a process was supplied", () => {
     expect(before).toMatchObject({ stopped: true });
     expect(after).toMatchObject({ stopped: false, runs: 1 });
     expect(after?.key).not.toBe(before?.key);
+    // The fresh process's own is released as the pool lets that process go, and not before.
+    t.clock.advance(IDLE - 1);
+    expect(asked.releases).toEqual([1, 0]);
+    t.clock.advance(1);
+    await vi.waitFor(() => expect(asked.releases).toEqual([1, 1]));
+    expect(after).toMatchObject({ stopped: true });
   });
 
   it("is never called for a run that ended before its adapter was asked for it: nothing was supplied", async () => {
