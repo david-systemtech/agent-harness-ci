@@ -3,6 +3,7 @@ import { SlashCommands } from "../composer/slash-commands.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
 import { PaneLine } from "../session/pane-line.js";
+import { SideColumn } from "../side-column/side-column.js";
 import { Transcript } from "../transcript/transcript.js";
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
@@ -37,7 +38,11 @@ const NoSessionOpen = () => {
  * pane, showing the session presentation holds for it (`paneLayout`), or
  * saying none is open. The pane holds its one line and its session's queue
  * for what it draws: the transcript with the queued messages after their
- * turns, the strip over the composer that counts them, and the composer.
+ * turns, the strip over the composer that counts them, and the composer;
+ * and beside it the session's side column ("The seven panes and the grid"),
+ * whose refusals are said on the pane's line and whose panes the pane's
+ * slash commands open. Another session opened in the pane brings its own
+ * column.
  */
 export const SessionPaneRegion = () => {
   const [layout] = usePresentation("paneLayout");
@@ -47,17 +52,20 @@ export const SessionPaneRegion = () => {
       {session === null ? (
         <NoSessionOpen />
       ) : (
-        <section aria-label="Session pane" className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1">
           <PaneLine key={`${session.environmentId} ${session.sessionId}`}>
             <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
               <SlashCommands>
-                <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
-                <QueueStrip />
-                <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+                <section aria-label="Session pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
+                  <QueueStrip />
+                  <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+                </section>
+                <SideColumn environmentId={session.environmentId} sessionId={session.sessionId} />
               </SlashCommands>
             </SessionQueueProvider>
           </PaneLine>
-        </section>
+        </div>
       )}
     </main>
   );
