@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
 import {
+  inProcessToolAccess,
   inProcessToolName,
   isInProcess,
+  recordedImage,
+  toolCallSummary,
   type AccountRef,
   type Adapter,
   type AdapterEvent,
@@ -69,7 +72,10 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  *
  * The tool gate (#132, #133): a script plays a tool call as a provider
  * does under the gate (`toolCall`), asking the run context's gate before its
- * own evaluation; each run records every ruling (`gated`).
+ * own evaluation; each run records every ruling (`gated`). It calls one of
+ * the run's in-process tools the same way (`callHostTool`, #540), the gate
+ * handed what the tool declares the call reaches, and plays back the
+ * images a tool answers as the transcript records them.
  *
  * Plan usage (#136): the reading is scripted per account and can be changed
  * mid-test (`setUsage`), may wait on a gate or throw, and every read is
@@ -341,6 +347,54 @@ export async function* callClientTools(controls: ScriptControls, calls: readonly
 export async function* callClientTool(controls: ScriptControls, call: ClientToolCallScript): AsyncGenerator<AdapterEvent, HostToolResult> {
   const [result] = yield* callClientTools(controls, [call]);
   return result as HostToolResult;
+}
+
+/** A call a script makes to one of the in-process tools the run was handed (#540). */
+export interface HostToolCallScript {
+  /** The server's name, as the factory built it. */
+  readonly server: string;
+  readonly name: string;
+  readonly input?: JsonObject;
+  /** The provider's id for the call, as its `tool.started` names it; preset: a fresh `toolu_` id. */
+  readonly toolCallId?: string;
+}
+
+/**
+ * Calls one of the run's in-process tools as a provider does under the gate
+ * (#540, as Claude's hook does): a `tool.started` under the name the
+ * contract gives it (`mcp__<server>__<tool>`), then the gate asked about it
+ * with what the tool declares the call reaches (`inProcessToolAccess`: a
+ * browser verb's addresses, a fetch reader's URLs, `other` when it declares
+ * nothing) and the summary naming that; denied, the call ends `error` with
+ * what the model is told and the tool never runs; allowed, the tool runs and
+ * the call ends with what it answered, as the transcript records it: its
+ * text, or, with images, its text (when there is any) and each image as its
+ * media type and size (`recordedImage`), never its bytes. Returns what the
+ * model read: the tool's answer, or the gate's denial as an error.
+ */
+export async function* callHostTool(controls: ScriptControls, call: HostToolCallScript): AsyncGenerator<AdapterEvent, HostToolResult> {
+  const server = controls.input.toolServers.find((candidate) => candidate.name === call.server);
+  if (server === undefined || !isInProcess(server)) throw new Error(`The run was handed no in-process server ${call.server}.`);
+  const tool = server.tools.find((candidate) => candidate.name === call.name);
+  if (tool === undefined) throw new Error(`The server ${call.server} has no tool ${call.name}.`);
+  const name = inProcessToolName(call.server, call.name);
+  const input = call.input ?? {};
+  const toolCallId = call.toolCallId ?? `toolu_${randomUUID()}`;
+  yield { type: "tool.started", payload: { toolCallId, name, input, title: null, agentId: null, parentToolCallId: null } };
+  const access = inProcessToolAccess(controls.input.toolServers, name, input) ?? { kind: "other" };
+  const decision = await controls.context.gate.check({ toolCallId, tool: name, summary: toolCallSummary(name, access), access, input }, controls.signal);
+  if (decision.decision === "deny") {
+    yield { type: "tool.ended", payload: { toolCallId, status: "error", output: decision.message, durationMs: 1 } };
+    return { text: decision.message, isError: true };
+  }
+  const result = await tool.call(input, { toolCallId, signal: controls.signal });
+  const images = result.images ?? [];
+  const output =
+    images.length === 0
+      ? result.text
+      : [...(result.text === "" ? [] : [{ type: "text", text: result.text }]), ...images.map((image) => recordedImage(image.mediaType, image.data.byteLength))];
+  yield { type: "tool.ended", payload: { toolCallId, status: result.isError ? "error" : "ok", output, durationMs: 1 } };
+  return result;
 }
 
 /** What a script says a client tool answered, so a test reads what reached the run. */

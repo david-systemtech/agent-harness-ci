@@ -874,9 +874,10 @@ export const WebhookPayload = z
 export type WebhookPayload = z.infer<typeof WebhookPayload>;
 
 /** Why a routine method is refused in `conflict` (its `data.reason`). */
-export const ROUTINE_CONFLICT_REASONS = ["name_taken", "firing_running"] as const;
+export const ROUTINE_CONFLICT_REASONS = ["name_taken", "exists", "firing_running"] as const;
 export const RoutineConflictReason = z.enum(ROUTINE_CONFLICT_REASONS).meta({
-  description: "Why a routine method was refused in conflict: name_taken (another routine on the environment has the name, ignoring case) or firing_running (routines.runNow while a firing of the routine is live).",
+  description:
+    "Why a routine method was refused in conflict: name_taken (another routine on the environment has the name, ignoring case), exists (a routine was made under the id on the environment already, deleted since or not) or firing_running (routines.runNow while a firing of the routine is live).",
 });
 export type RoutineConflictReason = z.infer<typeof RoutineConflictReason>;
 
