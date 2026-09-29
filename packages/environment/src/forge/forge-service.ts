@@ -126,6 +126,8 @@ import type { OrientationSection } from "../instructions/orientation.js";
  *   process's and terminal's forge variables and credential helper
  *   (`injection.ts`), which the environment registers with its process
  *   environment.
+ * - **Runs are told of the forges** (#318): the orientation block's forges
+ *   section (`orientation.ts`), from the read model and never a clock.
  */
 
 /** What every vault entry holding a forge token is named with. */

@@ -17,9 +17,6 @@ import { readableMinute } from "./verification.js";
  * Nothing in the text is a secret: the records hold none.
  */
 
-/** The section's name, as the orientation seam's answer names it when it could not be read. */
-export const FORGES_SECTION = "forges";
-
 const KIND_NAMES: Readonly<Record<ForgeKind, string>> = { github: "GitHub", forgejo: "Forgejo", gitea: "Gitea", gitlab: "GitLab" };
 
 const PROBLEM_WORDS: Readonly<Record<ForgeProblemKind, string>> = {
@@ -59,6 +56,9 @@ const accountLine = (account: ForgeAccountRecord): string =>
 /** `A`, `A and B`, `A, B and C`. */
 const listed = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
+/** A list under its heading; null, leaving it out, when it has no line. */
+const headedList = (heading: string, lines: readonly string[]): string | null => (lines.length === 0 ? null : [heading, ...lines].join("\n"));
+
 /** Which forge is primary, the rest also connected, and where repositories go. */
 const primaryParagraph = (accounts: readonly ForgeAccountRecord[]): string => {
   const primary = accounts.find((account) => account.primary);
@@ -69,15 +69,12 @@ const primaryParagraph = (accounts: readonly ForgeAccountRecord[]): string => {
   return `Your primary forge is ${forgeName(primary)}${alsoConnected}. Repositories go to the primary forge unless the user names another.`;
 };
 
-/** Each injected forge account's variables, by slug, with its forge's API base; none for a forge account runs are not given. */
-const variablesList = (accounts: readonly ForgeAccountRecord[]): string | null => {
-  const lines = accounts.flatMap(({ slug, kind, origin, variables }) => {
-    const names = [...variables.url, ...variables.token, ...variables.kind];
-    return names.length === 0 ? [] : [`- ${slug}: ${listed(names)}; API base ${forgeApiBase(kind, origin)}.`];
-  });
-  if (lines.length === 0) return null;
-  return ["Variables each run is given, by slug (the origin in *_URL, the token in *_TOKEN, the kind in *_KIND), with each forge's API base:", ...lines].join("\n");
-};
+/** Each injected forge account's variables, by slug, with its forge's API base. */
+const variablesList = (injected: readonly ForgeAccountRecord[]): string | null =>
+  headedList(
+    "Variables each run is given, by slug (the origin in *_URL, the token in *_TOKEN, the kind in *_KIND), with each forge's API base:",
+    injected.map(({ slug, kind, origin, variables }) => `- ${slug}: ${listed([...variables.url, ...variables.token, ...variables.kind])}; API base ${forgeApiBase(kind, origin)}.`),
+  );
 
 /** The writes a forge account has been refused, with the status, then those it has not made yet; null when every one is verified. */
 const writesLine = ({ slug, capabilities }: ForgeAccountRecord): string | null => {
@@ -90,11 +87,12 @@ const writesLine = ({ slug, capabilities }: ForgeAccountRecord): string | null =
   return parts.length === 0 ? null : `- ${slug}: ${parts.join("; ")}.`;
 };
 
-/** Each injected forge account's writes not known to work; none for a forge account runs are not given. */
-const writesList = (accounts: readonly ForgeAccountRecord[]): string | null => {
-  const lines = accounts.filter(isInjected).flatMap((account) => writesLine(account) ?? []);
-  return lines.length === 0 ? null : ["Writes not known to work, by slug:", ...lines].join("\n");
-};
+/** Each injected forge account's writes not known to work. */
+const writesList = (injected: readonly ForgeAccountRecord[]): string | null =>
+  headedList(
+    "Writes not known to work, by slug:",
+    injected.flatMap((account) => writesLine(account) ?? []),
+  );
 
 /** Why a forge account is left out of runs, or its token may be: the problems that keep it out, and a credential that could not be read. */
 const LEFT_OUT: Partial<Readonly<Record<ForgeProblemKind, string>>> = {
@@ -104,17 +102,18 @@ const LEFT_OUT: Partial<Readonly<Record<ForgeProblemKind, string>>> = {
 };
 
 /** Each forge account left out of runs, or whose token may be, with the reason. */
-const leftOutList = (accounts: readonly ForgeAccountRecord[]): string | null => {
-  const lines = accounts.flatMap(({ slug, problem }) => {
-    const reason = problem === null ? undefined : LEFT_OUT[problem.kind];
-    return reason === undefined ? [] : [`- ${slug}: ${reason}.`];
-  });
-  return lines.length === 0 ? null : ["Left out of runs, by slug:", ...lines].join("\n");
-};
+const leftOutList = (accounts: readonly ForgeAccountRecord[]): string | null =>
+  headedList(
+    "Left out of runs, by slug:",
+    accounts.flatMap(({ slug, problem }) => {
+      const reason = problem === null ? undefined : LEFT_OUT[problem.kind];
+      return reason === undefined ? [] : [`- ${slug}: ${reason}.`];
+    }),
+  );
 
 /** The standing lines: git over https to the origins git's helper is given just works, ssh is the user's own, and no other origin has a credential. */
-const standingLines = (accounts: readonly ForgeAccountRecord[]): string => {
-  const origins = accounts.filter(isInjected).flatMap(servedOrigins);
+const standingLines = (injected: readonly ForgeAccountRecord[]): string => {
+  const origins = injected.flatMap(servedOrigins);
   if (origins.length === 0) return "Git over https has no credential here; ssh uses the user's own keys.";
   return `Git over https to these origins just works, the harness's credential helper answering for it: ${listed(origins)}. ssh uses the user's own keys. Other origins have no credential here.`;
 };
@@ -124,22 +123,24 @@ const NONE_CONNECTED =
   "No forge is connected here: git over https has no credential here, and ssh uses the user's own keys. Ask the user to connect a forge in Set up, Forges rather than searching for a token.";
 
 /** The section's lines for the forge accounts the environment holds, in the order they were added. */
-export const renderForges = (accounts: readonly ForgeAccountRecord[]): string => {
+const renderForges = (accounts: readonly ForgeAccountRecord[]): string => {
   if (accounts.length === 0) return NONE_CONNECTED;
+  // What runs are given (forge spec, "The injected set"): the variables, the helper's origins and the writes they may try.
+  const injected = accounts.filter(isInjected);
   const paragraphs = [
     accounts.map(accountLine).join("\n"),
     primaryParagraph(accounts),
-    variablesList(accounts),
-    writesList(accounts),
+    variablesList(injected),
+    writesList(injected),
     leftOutList(accounts),
-    standingLines(accounts),
+    standingLines(injected),
   ];
   return paragraphs.filter((paragraph) => paragraph !== null).join("\n\n");
 };
 
 /** The forges section's provider, over the forge accounts as the read model holds them now. */
 export const forgesSection = (accounts: () => readonly ForgeAccountRecord[]): OrientationSection => ({
-  name: FORGES_SECTION,
+  name: "forges",
   title: "Forges",
   render: () => renderForges(accounts()),
 });
