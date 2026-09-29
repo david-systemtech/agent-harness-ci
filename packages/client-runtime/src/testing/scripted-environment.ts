@@ -18,6 +18,9 @@ import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
   ContainmentReport,
+  DENYLIST_SECTIONS,
+  denylistPresets,
+  type Denylist,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
   UPDATE_SETTINGS_KEYS,
@@ -151,6 +154,8 @@ export interface ScriptedEnvironment {
   readonly containment?: Partial<ContainmentReport>;
   /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
   readonly settings?: Partial<SettingsValues>;
+  /** The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back: preset none. */
+  readonly lostPresets?: readonly string[];
   /** What `permissions.review.list` lists: preset nothing. */
   readonly review?: readonly Partial<ReviewRun>[];
   /** What `accounts.handoff.recommend` answers, over no recommendation. */
@@ -1473,6 +1478,23 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (refused) return refused;
     changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
+  });
+  // The denylist: the presets, but those the script says it lost, which restorePresets puts back in their sections.
+  const presets = denylistPresets(`${SCRIPTED_HOME}/.agent-harness`);
+  let lost = new Set(spec.lostPresets ?? []);
+  const kept = (entry: { readonly id: string }) => !lost.has(entry.id);
+  const denylistNow = (): Denylist => ({
+    browserDomains: presets.browserDomains.filter(kept),
+    paths: presets.paths.filter(kept),
+    commandPatterns: presets.commandPatterns.filter(kept),
+    hosts: presets.hosts.filter(kept),
+  });
+  wire.answer("permissions.denylist.restorePresets", () => {
+    const refused = rejection("permissions.denylist.restorePresets");
+    if (refused) return refused;
+    const restored = DENYLIST_SECTIONS.flatMap((section) => presets[section].filter((entry) => lost.has(entry.id)).map((entry) => ({ section, entry })));
+    lost = new Set();
+    return acceptedWith({ restored, denylist: denylistNow() });
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
