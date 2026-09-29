@@ -35,6 +35,26 @@
       "format": "date-time",
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
       "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+    },
+    "image": {
+      "description": "Managed outside, the target's image from its release manifest, which the host-side updater pulls and checks; absent for a native environment's update.",
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The image's reference, tagged with the exact version: git.systemtech.dev:5526/david/agent-harness:0.5.0."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The image's digest, sha256: then 64 lowercase hexadecimal digits: a pull is checked against it."
+        }
+      },
+      "required": [
+        "reference",
+        "digest"
+      ]
     }
   },
   "required": [
@@ -44,5 +64,5 @@
     "since",
     "deferUntil"
   ],
-  "description": "An update is pending: its id, the version it goes to, where it comes from, since when, and when the deferral cap forces it."
+  "description": "An update is pending: its id, the version it goes to, where it comes from, since when, when the deferral cap forces it, and, managed outside, its image."
 }

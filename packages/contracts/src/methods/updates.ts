@@ -109,9 +109,10 @@ export const updatesSettingsSet = defineMethod({
 /**
  * The host-side updater begins the ready update it pulled the image of,
  * named by its id: the environment appends `environment.update-started` and
- * drains, and the drain ends at the updater's stop. `conflict` with reason
- * `not_outside` under a launcher or outside a container, and `not_ready`
- * when that update is not the ready one.
+ * drains, and the drain ends at the updater's stop (#348). `conflict` with
+ * reason `not_outside` under a launcher or outside a container, `in_progress`
+ * when that update drains already, and `not_ready` when it is not the ready
+ * one; `unavailable` while the environment drains for something else.
  */
 export const updatesBegin = defineMethod({
   name: "updates.begin",

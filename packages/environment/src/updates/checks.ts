@@ -1,9 +1,9 @@
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { UpdateCheck, UpdateCheckFailure, UpdatesStatus } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { ChannelContext, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
+import { readKeptTime, writeKeptTime } from "./kept-time.js";
 
 /**
  * The checks of the release channel (launcher-update spec, "Reading the
@@ -75,40 +75,15 @@ export interface ChannelChecks {
   start(): () => void;
 }
 
-/** The time of the last check that read the channel, as the data directory keeps it; none when it keeps none it can read. */
-const readLastSucceeded = (path: string): number | undefined => {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    return undefined;
-  }
-  try {
-    const at = Date.parse((JSON.parse(text) as { lastSucceededAt?: unknown }).lastSucceededAt as string);
-    if (Number.isFinite(at)) return at;
-  } catch {
-    // Said below: a file that is not the record reads as none.
-  }
-  console.error(`${path} holds no time of a check of the release channel; it reads as none.`);
-  return undefined;
-};
-
-/** Keeps `at` as the time of the last check that read the channel: a temporary file renamed over the record, so it is whole or the one before. */
-const writeLastSucceeded = (path: string, at: number): void => {
-  const temporary = `${path}.tmp`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify({ lastSucceededAt: new Date(at).toISOString() })}\n`);
-    renameSync(temporary, path);
-  } catch (error) {
-    console.error(`Keeping the time of the last check of the release channel in ${path} failed; the environment holds it until it stops:`, error);
-  }
-};
+/** The field of `RELEASE_CHANNEL_FILE` holding the time of the last check that read the channel, and that time for people. */
+const LAST_SUCCEEDED = "lastSucceededAt";
+const LAST_CHECK = "the last check of the release channel";
 
 export const createChannelChecks = (options: ChannelChecksOptions): ChannelChecks => {
   const { clock, channel } = options;
   const recordPath = join(options.dataDir, RELEASE_CHANNEL_FILE);
   let status: ChannelStatus = { newest: null, lastCheck: null, target: null, passedOver: null };
-  let lastSucceededAt = readLastSucceeded(recordPath);
+  let lastSucceededAt = readKeptTime(recordPath, LAST_SUCCEEDED, LAST_CHECK);
   let lastStartedAt: number | undefined;
   let running: Promise<void> | undefined;
   /** Whether the settings changed while a check was under way, which read them before. */
@@ -125,7 +100,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
         lastCheck = { at: at.toISOString(), result: "failed", reason: read.reason, message: read.message };
       } else {
         lastSucceededAt = at.getTime();
-        writeLastSucceeded(recordPath, lastSucceededAt);
+        writeKeptTime(recordPath, LAST_SUCCEEDED, lastSucceededAt, LAST_CHECK);
         status = { ...status, newest: read.newest, target: read.target, passedOver: read.passedOver };
         const unstaged = await options.follow(read, settings);
         lastCheck = unstaged === null ? { at: at.toISOString(), result: "ok" } : { at: at.toISOString(), result: "failed", ...unstaged };

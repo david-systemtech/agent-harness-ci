@@ -54,7 +54,7 @@ export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag)
  * test holds it to that); an environment may still send a flag missing from
  * it, from a newer version, which an older client ignores.
  *
- * - `self-update`: the environment can update itself to a client's version (the launcher workstream, ADR 0007).
+ * - `self-update`: the environment can update itself to a client's version (the launcher workstream, ADR 0007): under a launcher, or in a container whose host-side updater polled in the last fifteen minutes (#348).
  * - `containment:workspace`, `containment:no-network`: the containment levels the environment can enforce (the permissions workstream).
  * - `forge`: the environment holds forge accounts and answers the `forge.*` methods (the forge workstream); without it a client shows Forges absent-with-reason.
  * - `keyManagers`: the environment holds key-manager connections and answers the `keyManagers.*` methods (the key-managers workstream); without it a client shows Key managers absent-with-reason.
