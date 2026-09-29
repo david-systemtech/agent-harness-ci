@@ -229,6 +229,20 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ code: "forge_account_missing", message: "No forge account covers https://codeberg.org: add one in Set up, Forges.", data: { origin: "https://codeberg.org", step: "forges" } }],
     invalid: [{ code: "forge_account_missing", message: "m", data: { origin: "https://codeberg.org" } }, { code: "forge_account_missing", message: "m", data: { origin: "codeberg.org", step: "forges" } }],
   },
+  "scrub/shape-rule-id.json": { valid: ["github", "openai-style", "key-assignment", "bitwarden"], invalid: ["registered-value", "entropy", "GitHub", ""] },
+  "scrub/secret-rule.json": { valid: ["github", "private-key", "registered-value"], invalid: ["registered", "entropy", ""] },
+  "errors/secret_shaped.json": {
+    valid: [
+      { code: "secret_shaped", message: "The issue's body holds a GitHub token: take it out. Nothing was sent to the forge.", data: { rule: "github", field: "body" } },
+      { code: "secret_shaped", message: "m", data: { rule: "registered-value", field: "title" } },
+    ],
+    invalid: [
+      { code: "secret_shaped", message: "m", data: { field: "body" } },
+      { code: "secret_shaped", message: "m", data: { rule: "entropy", field: "body" } },
+      { code: "secret_shaped", message: "m", data: { rule: "github", field: "" } },
+      { code: "secret_shaped", message: "m", data: { rule: "github" } },
+    ],
+  },
   "errors/credential_unavailable.json": {
     valid: [{ code: "credential_unavailable", message: "gh is not signed in to github.com as david.", data: { origin: "https://github.com" } }],
     invalid: [{ code: "credential_unavailable", message: "m", data: {} }, { code: "credential_unavailable", message: "m", data: { origin: "github.com" } }],

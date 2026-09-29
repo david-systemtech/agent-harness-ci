@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SecretShapedError } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -277,7 +278,7 @@ describe("issues", () => {
     expect((await list(client))[0]?.capabilities.writeIssues).toEqual({ state: "failed", verifiedAt: null, status: 404 });
   });
 
-  it("refuses a title or body holding a value the environment holds as a secret as secret_shaped, naming the field and never the value, and sends nothing", async () => {
+  it("refuses a title or body holding a value the environment holds as a secret as secret_shaped, naming the rule and the field and never the value, and sends nothing", async () => {
     const { t, forge } = await withAccount();
     forge.repository(TOKEN, "david/bank");
     const requests = forge.requests.length;
@@ -285,11 +286,34 @@ describe("issues", () => {
     const inBody = await t.env.forge.issues.create({ repository: "david/bank", title: "Landing fails", body: `The token ${TOKEN} was refused.`, purpose: "report" });
     expect(inBody).toEqual({
       outcome: "refused",
-      error: { code: "secret_shaped", message: "The issue's body holds a secret this environment holds: take it out. Nothing was sent to the forge.", data: { field: "body" } },
+      error: {
+        code: "secret_shaped",
+        message: "The issue's body holds a secret this environment holds: take it out. Nothing was sent to the forge.",
+        data: { rule: "registered-value", field: "body" },
+      },
     });
     const inTitle = await t.env.forge.pullRequests.create({ repository: "david/bank", title: `Use ${TOKEN}`, body: "", head: "a", base: "main", purpose: "land" });
-    expect(inTitle).toMatchObject({ outcome: "refused", error: { code: "secret_shaped", data: { field: "title" } } });
+    expect(inTitle).toMatchObject({ outcome: "refused", error: { code: "secret_shaped", data: { rule: "registered-value", field: "title" } } });
     expect(JSON.stringify([inBody, inTitle])).not.toContain(TOKEN);
+    expect(forge.requests).toHaveLength(requests);
+  });
+
+  it("refuses an issue body holding a GitHub-shaped token the environment never held as secret_shaped, naming the rule and the field and never the value, and nothing reaches the forge", async () => {
+    const { t, forge } = await withAccount();
+    forge.repository(TOKEN, "david/bank");
+    const requests = forge.requests.length;
+    // Put together here, so no line of the source looks like a key to a secret scanner.
+    const shaped = ["gh", "p_", "Fake0Test9".repeat(4).slice(0, 36)].join("");
+
+    const answer = await t.env.forge.issues.create({ repository: "david/bank", title: "Push refused", body: `Pushing with GITHUB_TOKEN=${shaped} fails.`, purpose: "report" });
+    expect(answer).toEqual({
+      outcome: "refused",
+      error: { code: "secret_shaped", message: "The issue's body holds a GitHub token: take it out. Nothing was sent to the forge.", data: { rule: "github", field: "body" } },
+    });
+    if (answer.outcome === "refused") expect(SecretShapedError.safeParse(answer.error).success).toBe(true);
+    const pull = await t.env.forge.pullRequests.create({ repository: "david/bank", title: "Rotate", body: `Authorization: Bearer ${"Fake0Test9".repeat(3)}`, head: "a", base: "main", purpose: "land" });
+    expect(pull).toMatchObject({ outcome: "refused", error: { code: "secret_shaped", data: { rule: "bearer", field: "body" } } });
+    expect(JSON.stringify([answer, pull])).not.toContain(shaped);
     expect(forge.requests).toHaveLength(requests);
   });
 });

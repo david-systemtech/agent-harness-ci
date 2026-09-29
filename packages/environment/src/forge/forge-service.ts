@@ -262,6 +262,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const git = createHarnessGit({
     accounts: () => listForgeAccounts(reader),
     secrets,
+    scrub,
     command: options.harnessCommand,
     address: options.address ?? (() => undefined),
     originMissing: (origin, operation) => missing.record(origin, operation),

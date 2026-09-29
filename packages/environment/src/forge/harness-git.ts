@@ -9,6 +9,7 @@ import {
   type ForgeAccountRecord,
   type ForgeOrigin,
 } from "@agent-harness/contracts";
+import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Address } from "../serve/http.js";
 import { UNTRANSLATED, runGit, type GitAnswer } from "../workspace/git.js";
 import { credentialHelper, gitConfigVariables, helperChain, servedOrigins, servingAccount } from "./git-helper.js";
@@ -30,6 +31,10 @@ import type { RunSecrets } from "./run-secrets.js";
  * reset with no helper, so git reads anonymously; when the forge asks for a
  * credential all the same, the operation is refused `forge_account_missing`
  * and the origin is recorded as missing.
+ *
+ * git's standard error, which it answers, passes the scrub registry's
+ * `scrubOutput` while the operation's secret is still registered: registered
+ * values, then shape rules (key-managers spec, "Where it applies").
  */
 
 /** How long a harness git operation may take before git is stopped (a chosen default): a clone of a large bank takes minutes. */
@@ -64,6 +69,8 @@ export interface HarnessGitOptions {
   /** The forge accounts the environment holds now. */
   readonly accounts: () => readonly ForgeAccountRecord[];
   readonly secrets: RunSecrets;
+  /** The scrub registry git's standard error passes before it is answered. */
+  readonly scrub: Pick<ScrubRegistry, "scrubOutput">;
   /** The command line that runs `agent-harness` before its verb, which git names as its helper; undefined when the environment was given none. */
   readonly command: readonly string[] | undefined;
   /** The environment's loopback address, where the helper asks; undefined until the environment listens. */
@@ -106,11 +113,12 @@ export const createHarnessGit =
 
     let git: GitAnswer;
     try {
-      git = await runGit(request.cwd, argumentsOf(request, url), {
+      const ran = await runGit(request.cwd, argumentsOf(request, url), {
         maxBytes: OUTPUT_BYTES,
         timeoutMs: request.timeoutMs ?? FORGE_GIT_TIMEOUT_MS,
         env: { ...UNTRANSLATED, ...gitConfigVariables(entries), ...helperVariables, GIT_TERMINAL_PROMPT: "0", GIT_ASKPASS: "" },
       });
+      git = { ...ran, stderr: options.scrub.scrubOutput(ran.stderr) };
     } finally {
       release();
     }
