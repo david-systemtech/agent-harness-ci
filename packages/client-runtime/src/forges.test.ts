@@ -1,0 +1,540 @@
+import { randomUUID } from "node:crypto";
+import type { Scope } from "@agent-harness/contracts";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { noticeEvent } from "../test/events.js";
+import { subscription, type Scripted } from "../test/scripted.js";
+import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
+import { createRuntimeWithSeams } from "./internal.js";
+import type { Shell } from "./shell.js";
+import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
+import { fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
+
+/**
+ * Forges in the client runtime (#320; forge spec, "Modules" and "Events";
+ * ADR 0020, ADR 0032), through the fake wire: `forge.accounts.list` in the
+ * request cache, fetched again on every `forge.account.*` notice.
+ */
+
+/** A runtime paired with one scripted environment offering the `forge` flag, its environment stream synchronized and held by the test. */
+const paired = async (options: { readonly capabilities?: readonly string[]; readonly shell?: Shell } = {}) => {
+  const clock = manualClock();
+  const wire: FakeWire = fakeWire({ clock, name: "desk", capabilities: [...(options.capabilities ?? ["forge"])] });
+  wire.answer("sessions.subscribe", () => undefined);
+  wire.answer("environment.subscribe", () => undefined);
+  const secrets = new Map<string, string>();
+  const platform = inMemoryPlatform({
+    clock,
+    fetch: wire.fetch,
+    webSocket: wire.webSocket,
+    secrets: { get: async (name) => secrets.get(name), set: async (name, value) => void secrets.set(name, value), delete: async (name) => void secrets.delete(name) },
+    ...(options.shell !== undefined && { kind: "desktop", label: "David's laptop", shell: options.shell }),
+  });
+  const { runtime } = createRuntimeWithSeams(platform);
+  onTestFinished(() => runtime.close());
+  await runtime.start();
+  const adding = runtime.connections.add({ link: wire.link });
+  await wire.server.accept();
+  (await subscription(wire, "sessions.subscribe")).synchronized(0);
+  const environment: Scripted = await subscription(wire, "environment.subscribe");
+  environment.synchronized(0);
+  expect(await adding).toMatchObject({ status: "paired" });
+  /** Everything this client keeps: its documents and its secrets, as text, to look for a token in. */
+  const kept = () => JSON.stringify({ documents: platform.documents.entries(), secrets: [...secrets.values()] });
+  return { clock, wire, platform, runtime, env: wire.environmentId, environment, kept };
+};
+
+/** A token as a person pastes one: nothing a secret scanner takes for a real one. */
+const TOKEN = "token-for-tests";
+
+describe("forge.accounts.list in the request cache", () => {
+  it("is fetched again on every forge.account.* notice, and not on a missing origin", async () => {
+    const { runtime, wire, env, environment } = await paired();
+    const account = forgeRecord();
+    let asked = 0;
+    wire.answer("forge.accounts.list", () => {
+      asked++;
+      return { result: { accounts: [account] } };
+    });
+    const cached = runtime.requests.cached(env, "forge.accounts.list", {});
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(asked).toBe(1);
+    expect(cached.read()).toMatchObject({ result: { accounts: [account] }, error: null });
+
+    const types = [
+      "forge.account.added",
+      "forge.account.updated",
+      "forge.account.primary-set",
+      "forge.account.verified",
+      "forge.account.capability-learned",
+      "forge.account.git-rejected",
+      "forge.account.removed",
+    ] as const;
+    for (const [index, type] of types.entries()) {
+      environment.event(noticeEvent(index + 1, env, type, forgeEventPayload(type, account)));
+      await flush();
+      expect(asked, type).toBe(index + 2);
+    }
+    environment.event(noticeEvent(types.length + 1, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    await flush();
+    expect(asked).toBe(types.length + 1);
+  });
+});
+
+describe("the forge methods without the forge flag", () => {
+  it("answer absent with reason unsupported, sending nothing, and present once the environment offers forge", async () => {
+    const { runtime, wire, env } = await paired({ capabilities: [] });
+    let asked = 0;
+    wire.answer("forge.accounts.list", () => {
+      asked++;
+      return { result: { accounts: [] } };
+    });
+    for (const method of ["forge.accounts.list", "forge.accounts.add", "forge.accounts.verify", "forge.gh.probe"] as const) {
+      expect(runtime.capability(env, method), method).toEqual({ status: "absent", reason: "unsupported", message: "desk does not offer forge; a version that does is needed." });
+    }
+    expect(await runtime.requests.call(env, "forge.accounts.list", {})).toEqual({
+      ok: false,
+      error: { code: "unsupported", message: "desk does not offer forge; a version that does is needed." },
+    });
+    const cached = runtime.requests.cached(env, "forge.accounts.list", {});
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(cached.read()).toMatchObject({ result: null, error: { code: "unsupported" } });
+    expect(asked).toBe(0);
+
+    const offered = await paired();
+    expect(offered.runtime.capability(offered.env, "forge.accounts.list")).toEqual({ status: "present" });
+    expect(offered.runtime.capability(offered.env, "forge.accounts.add")).toEqual({ status: "present" });
+  });
+});
+
+describe("a forge account's token", () => {
+  /** `forge.accounts.add`'s params with a pasted token, as `commands.dispatch` would take them: no command id. */
+  const toDispatch = () => ({ forgeAccountId: randomUUID(), url: "https://github.com", credential: { kind: "stored", provenance: "pasted", token: TOKEN } }) as const;
+  const addParams = () => ({ commandId: randomUUID(), ...toDispatch() });
+
+  it("is sent directly in forge.accounts.add and update, never through the outbox", async () => {
+    const { runtime, wire, env, kept } = await paired();
+    const account = forgeRecord();
+    wire.answer("forge.accounts.add", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { account } } }));
+    wire.answer("forge.accounts.update", () => ({ result: { receipt: { status: "accepted", sequence: 2, changed: true }, result: { account } } }));
+
+    expect(await runtime.commands.dispatch(env, "forge.accounts.add", toDispatch())).toMatchObject({ ok: false, commandId: null, error: { code: "direct" } });
+    expect(
+      await runtime.commands.dispatch(env, "forge.accounts.update", { forgeAccountId: account.id, credential: { kind: "stored", provenance: "pasted", token: TOKEN } }),
+    ).toMatchObject({ ok: false, commandId: null, error: { code: "direct" } });
+    expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method.startsWith("forge."))).toEqual([]);
+
+    const add = addParams();
+    expect(await runtime.requests.call(env, "forge.accounts.add", add)).toMatchObject({ ok: true, result: { receipt: { status: "accepted" }, result: { account } } });
+    const update = { commandId: randomUUID(), forgeAccountId: account.id, credential: { kind: "stored", provenance: "pasted", token: TOKEN } } as const;
+    expect(await runtime.requests.call(env, "forge.accounts.update", update)).toMatchObject({ ok: true, result: { receipt: { status: "accepted" } } });
+    const sent = wire.server.received().filter((frame) => frame.type === "request" && frame.method.startsWith("forge."));
+    expect(sent.map((frame) => frame.type === "request" && [frame.method, frame.params])).toEqual([
+      ["forge.accounts.add", add],
+      ["forge.accounts.update", update],
+    ]);
+    await flush();
+    expect(kept()).not.toContain(TOKEN);
+  });
+
+  it("fails at once while the environment cannot be reached, and nothing holding it is kept on the client", async () => {
+    const { runtime, wire, env, kept } = await paired();
+    wire.discovery("unreachable");
+    wire.server.drop();
+    await flush();
+    expect(runtime.connections.list.read()[0]?.phase).toBe("backoff");
+
+    expect(await runtime.requests.call(env, "forge.accounts.add", addParams())).toMatchObject({ ok: false, error: { code: "unreachable" } });
+    expect(
+      await runtime.requests.call(env, "forge.accounts.update", { commandId: randomUUID(), forgeAccountId: randomUUID(), credential: { kind: "stored", provenance: "pasted", token: TOKEN } }),
+    ).toMatchObject({ ok: false, error: { code: "unreachable" } });
+    expect(await runtime.commands.dispatch(env, "forge.accounts.add", toDispatch())).toMatchObject({ ok: false, commandId: null, error: { code: "direct" } });
+    await flush();
+    expect(runtime.projections.environments.read()[0]?.pendingCommands).toBe(0);
+    expect(kept()).not.toContain(TOKEN);
+
+    // Back again, nothing parked is sent: the environment hears no forge call it was not asked for now.
+    wire.discovery({});
+    void runtime.connections.retryNow(env);
+    await wire.server.accept();
+    await flush();
+    expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method.startsWith("forge."))).toEqual([]);
+  });
+});
+
+describe("the forge notices", () => {
+  /** What a notice says, and where it points. */
+  const shown = (runtime: Awaited<ReturnType<typeof paired>>["runtime"]) =>
+    runtime.projections.notices.read().map(({ environmentId, kind, message, action }) => ({ environmentId, kind, message, action }));
+
+  it("raise one row each for a failed capability, a new problem, a git rejection and a missing origin, naming the environment and the origin, offering the Forges step", async () => {
+    const { runtime, env, environment } = await paired();
+    const account = forgeRecord();
+    environment.event(noticeEvent(1, env, "forge.account.added", forgeEventPayload("forge.account.added", account)));
+    environment.event(noticeEvent(2, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", account)));
+    environment.event(
+      noticeEvent(3, env, "forge.account.verified", forgeEventPayload("forge.account.verified", account, { problem: forgeProblem("credential-rejected", "GitHub refused the token: give this forge account a new credential in Set up, Forges.") })),
+    );
+    environment.event(noticeEvent(4, env, "forge.account.git-rejected", forgeEventPayload("forge.account.git-rejected", account)));
+    environment.event(noticeEvent(5, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    await flush();
+
+    const forges = { environmentId: env, kind: "forge", action: "setup.forges" } as const;
+    expect(shown(runtime)).toEqual([
+      { ...forges, message: "https://github.com on desk refused to open an issue (403): its forge account cannot write issues; give it a credential that can in Set up, Forges." },
+      { ...forges, message: "https://github.com on desk: GitHub refused the token: give this forge account a new credential in Set up, Forges." },
+      { ...forges, message: "git on desk was refused on https://github.com with the forge account's credential, which desk is verifying again." },
+      { ...forges, message: "desk was refused on https://git.example.com when it tried to read a skill source: no forge account covers it; add one in Set up, Forges." },
+    ]);
+  });
+
+  it("raise none for an account added, verified or learning a capability with nothing wrong, nor for its primary set or its removal", async () => {
+    const { runtime, env, environment } = await paired();
+    const account = forgeRecord();
+    const events = [
+      noticeEvent(1, env, "forge.account.added", forgeEventPayload("forge.account.added", account)),
+      noticeEvent(2, env, "forge.account.verified", forgeEventPayload("forge.account.verified", account)),
+      noticeEvent(3, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", account, { state: "verified", status: 201 })),
+      noticeEvent(4, env, "forge.account.updated", forgeEventPayload("forge.account.updated", account, { slug: "gh" })),
+      noticeEvent(5, env, "forge.account.primary-set", forgeEventPayload("forge.account.primary-set", account)),
+      noticeEvent(6, env, "forge.account.removed", forgeEventPayload("forge.account.removed", account)),
+    ];
+    for (const event of events) environment.event(event);
+    await flush();
+    expect(shown(runtime)).toEqual([]);
+  });
+
+  it("raise a problem only when it is new: of another kind than the one last heard for that forge account, or on an add", async () => {
+    const { runtime, env, environment } = await paired();
+    const account = forgeRecord();
+    const copy = forgeRecord({ origin: "https://git.example.com", slug: "git_example_com", primary: false });
+    const verified = (sequence: number, problem: ReturnType<typeof forgeProblem> | null, fields: Record<string, unknown> = {}) =>
+      noticeEvent(sequence, env, "forge.account.verified", forgeEventPayload("forge.account.verified", account, { problem, ...fields }));
+    const events = [
+      noticeEvent(1, env, "forge.account.added", forgeEventPayload("forge.account.added", account)),
+      verified(2, forgeProblem("expiring", "The token expires at 2026-10-01 12:00 UTC: replace it in Set up, Forges before then.")),
+      // Still expiring, a read found failed beside it: not a new problem.
+      verified(3, forgeProblem("expiring", "The token expires at 2026-10-01 12:00 UTC: replace it in Set up, Forges before then."), {
+        capabilities: { ...account.capabilities, readReleases: { state: "failed", verifiedAt: null, status: 403 } },
+      }),
+      verified(4, forgeProblem("credential-rejected", "GitHub refused the token: give this forge account a new credential in Set up, Forges.")),
+      verified(5, null),
+      verified(6, forgeProblem("credential-rejected", "GitHub refused the token again: give this forge account a new credential in Set up, Forges.")),
+      // A credential replaced, whose forge does not answer.
+      noticeEvent(7, env, "forge.account.updated", forgeEventPayload("forge.account.updated", account, { credential: account.credential, problem: forgeProblem("unreachable", "github.com did not answer.") })),
+      // A copy added awaiting a credential here.
+      noticeEvent(
+        8,
+        env,
+        "forge.account.added",
+        forgeEventPayload("forge.account.added", copy, {
+          credential: { kind: "none" },
+          identity: null,
+          problem: forgeProblem("needs-credential", "This forge account has no credential on this environment: give it one in Set up, Forges."),
+          copiedFrom: { environmentId: randomUUID(), environmentName: "laptop" },
+        }),
+      ),
+    ];
+    for (const event of events) environment.event(event);
+    await flush();
+    expect(shown(runtime).map((notice) => notice.message)).toEqual([
+      "https://github.com on desk: The token expires at 2026-10-01 12:00 UTC: replace it in Set up, Forges before then.",
+      "https://github.com on desk: GitHub refused the token: give this forge account a new credential in Set up, Forges.",
+      "https://github.com on desk: GitHub refused the token again: give this forge account a new credential in Set up, Forges.",
+      "https://github.com on desk: github.com did not answer.",
+      "https://git.example.com on desk: This forge account has no credential on this environment: give it one in Set up, Forges.",
+    ]);
+  });
+
+  it("raise none for what a replay onto an empty cache holds, which is history, and read it for the origins it names", async () => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk", capabilities: ["forge"] });
+    for (const method of ["sessions.subscribe", "environment.subscribe"]) wire.answer(method, () => undefined);
+    let asked = 0;
+    wire.answer("forge.accounts.list", () => {
+      asked++;
+      return { result: { accounts: [] } };
+    });
+    const { runtime } = createRuntimeWithSeams(inMemoryPlatform({ clock, fetch: wire.fetch, webSocket: wire.webSocket }));
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    const adding = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const environment = await subscription(wire, "environment.subscribe");
+    const env = wire.environmentId;
+    const account = forgeRecord();
+    const history = [
+      noticeEvent(1, env, "forge.account.added", forgeEventPayload("forge.account.added", account)),
+      noticeEvent(2, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", account)),
+      noticeEvent(3, env, "forge.account.verified", forgeEventPayload("forge.account.verified", account, { problem: forgeProblem("credential-rejected") })),
+      noticeEvent(4, env, "forge.account.git-rejected", forgeEventPayload("forge.account.git-rejected", account)),
+      noticeEvent(5, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)),
+    ];
+    for (const event of history) environment.event(event);
+    environment.synchronized(history.length);
+    await adding;
+    await flush();
+    expect(shown(runtime)).toEqual([]);
+
+    // News after it: the origin is the one history named, with no read of the list; and the problem, still of the kind heard, is not new.
+    environment.event(noticeEvent(6, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", account, { capability: "pullRequests", operation: "open a pull request" })));
+    environment.event(noticeEvent(7, env, "forge.account.verified", forgeEventPayload("forge.account.verified", account, { problem: forgeProblem("credential-rejected") })));
+    await flush();
+    expect(shown(runtime).map((notice) => notice.message)).toEqual([
+      "https://github.com on desk refused to open a pull request (403): its forge account cannot work with pull requests; give it a credential that can in Set up, Forges.",
+    ]);
+    expect(asked).toBe(0);
+  });
+
+  it("read the forge accounts for an origin not heard, raising the row once they answer, in the order the rows were heard", async () => {
+    const { runtime, wire, env, environment } = await paired();
+    const account = forgeRecord({ origin: "https://git.example.com:8443", kind: "forgejo", slug: "git_example_com" });
+    let answer: (accounts: readonly ReturnType<typeof forgeRecord>[]) => void = () => undefined;
+    let asked = 0;
+    wire.answer("forge.accounts.list", () => {
+      asked++;
+      return new Promise((resolve) => (answer = (accounts) => resolve({ result: { accounts } })));
+    });
+    // Its add was before this client's cursor: nothing here names its origin.
+    environment.event(noticeEvent(1, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", account)));
+    environment.event(noticeEvent(2, env, "forge.origin-missing", forgeEventPayload("forge.origin-missing", account)));
+    environment.event(noticeEvent(3, env, "forge.account.verified", forgeEventPayload("forge.account.verified", account, { problem: forgeProblem("unreachable", "git.example.com did not answer.") })));
+    await flush();
+    expect(shown(runtime)).toEqual([]);
+    expect(asked).toBe(1);
+
+    answer([account]);
+    await flush();
+    expect(shown(runtime).map((notice) => notice.message)).toEqual([
+      "https://git.example.com:8443 on desk refused to open an issue (403): its forge account cannot write issues; give it a credential that can in Set up, Forges.",
+      "desk was refused on https://git.example.com when it tried to read a skill source: no forge account covers it; add one in Set up, Forges.",
+      "https://git.example.com:8443 on desk: git.example.com did not answer.",
+    ]);
+    expect(asked).toBe(1);
+
+    // One the environment no longer holds is said all the same, without its origin.
+    const gone = forgeRecord();
+    environment.event(noticeEvent(4, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", gone)));
+    await flush();
+    answer([account]);
+    await flush();
+    expect(shown(runtime).at(-1)?.message).toBe(
+      "A forge on desk refused to open an issue (403): its forge account cannot write issues; give it a credential that can in Set up, Forges.",
+    );
+  });
+});
+
+describe("handing this computer's gh over", () => {
+  /** The forge requests the environment heard, as method and params. */
+  const forgeRequests = (wire: FakeWire) =>
+    wire.server.received().flatMap((frame) => (frame.type === "request" && frame.method.startsWith("forge.") ? [[frame.method, frame.params] as const] : []));
+
+  const accepting = (wire: FakeWire) => {
+    const account = forgeRecord();
+    wire.answer("forge.accounts.add", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { account } } }));
+    return account;
+  };
+
+  it("reads gh's token for the forge's host and sends it once, in forge.accounts.add as a stored credential from this client's gh, keeping it nowhere", async () => {
+    const shell = fakeShell();
+    shell.answer("gh.token", async (host) => (host === "github.com" ? TOKEN : undefined));
+    const { runtime, wire, env, kept } = await paired({ shell });
+    const account = accepting(wire);
+
+    const answer = await runtime.forges.handOverGh(env, { url: "git@github.com:david/bank.git", primary: true });
+    expect(answer).toEqual({ ok: true, result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { account } } });
+    expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([["gh.token", "github.com"]]);
+    expect(forgeRequests(wire)).toEqual([
+      [
+        "forge.accounts.add",
+        {
+          commandId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          forgeAccountId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+          url: "git@github.com:david/bank.git",
+          primary: true,
+          credential: { kind: "stored", provenance: "client-gh", token: TOKEN },
+        },
+      ],
+    ]);
+    await flush();
+    expect(kept()).not.toContain(TOKEN);
+  });
+
+  it("names an Enterprise host with its port to gh", async () => {
+    const shell = fakeShell();
+    shell.answer("gh.token", async () => TOKEN);
+    const { runtime, wire, env } = await paired({ shell });
+    accepting(wire);
+    expect(await runtime.forges.handOverGh(env, { url: "https://GHE.example.com:8443/org/repo.git", kind: "github" })).toMatchObject({ ok: true });
+    expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([["gh.token", "ghe.example.com:8443"]]);
+  });
+
+  it("is absent with its reason where the shell has no gh, as in the terminal UI and a browser tab, reading and sending nothing", async () => {
+    const { runtime, wire, env } = await paired();
+    accepting(wire);
+    expect(runtime.capability(env, "shell.gh")).toEqual({ status: "absent", reason: "no-shell", message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh." });
+    expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
+      ok: false,
+      error: { code: "no-shell", message: "This client cannot read the gh signed in on this computer: its shell has no shell.gh." },
+    });
+    expect(forgeRequests(wire)).toEqual([]);
+  });
+
+  it("fails sending nothing when gh gives no token for the host, when it fails, or when the URL is no forge's", async () => {
+    const shell = fakeShell();
+    const { runtime, wire, env } = await paired({ shell });
+    accepting(wire);
+    expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
+      ok: false,
+      error: { code: "gh-unavailable", message: "The gh on this computer is not signed in to github.com: run gh auth login --hostname github.com here, or paste a token." },
+    });
+    shell.answer("gh.token", async () => {
+      throw new Error("gh exited with status 4");
+    });
+    expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toEqual({
+      ok: false,
+      error: { code: "gh-unavailable", message: "The gh on this computer could not be read: gh exited with status 4" },
+    });
+    shell.answer("gh.token", async () => TOKEN);
+    expect(await runtime.forges.handOverGh(env, { url: "/home/david/bank" })).toMatchObject({ ok: false, error: { code: "invalid_params" } });
+    expect(forgeRequests(wire)).toEqual([]);
+    expect(shell.calls.filter(([member]) => member === "gh.token")).toHaveLength(2);
+  });
+
+  it("fails at once, reading nothing from gh, while the environment cannot take the add", async () => {
+    const shell = fakeShell();
+    shell.answer("gh.token", async () => TOKEN);
+    const { runtime, wire, env } = await paired({ shell });
+    wire.discovery("unreachable");
+    wire.server.drop();
+    await flush();
+    expect(await runtime.forges.handOverGh(env, { url: "https://github.com" })).toMatchObject({ ok: false, error: { code: "unreachable" } });
+    expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([]);
+
+    const bare = await paired({ capabilities: [], shell });
+    expect(await bare.runtime.forges.handOverGh(bare.env, { url: "https://github.com" })).toMatchObject({ ok: false, error: { code: "unsupported" } });
+    expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([]);
+  });
+});
+
+/** A runtime paired with a scripted environment per entry, each offering `forge` and granting its scopes (every scope when absent). */
+const pairedMany = async (environments: readonly { readonly name: string; readonly scopes?: readonly Scope[] }[]) => {
+  const clock = manualClock();
+  const wires = environments.map(({ name }, index) => fakeWire({ clock, name, capabilities: ["forge"], address: { host: `env-${index}.test`, port: 7433 } }));
+  const route = (url: string) => wires.find((_, index) => url.includes(`env-${index}.test`)) ?? (wires[0] as FakeWire);
+  const platform = inMemoryPlatform({ clock, fetch: (url, request) => route(url).fetch(url, request), webSocket: (url, handlers) => route(url).webSocket(url, handlers) });
+  const { runtime } = createRuntimeWithSeams(platform);
+  onTestFinished(() => runtime.close());
+  await runtime.start();
+  for (const [index, wire] of wires.entries()) {
+    for (const method of ["sessions.subscribe", "environment.subscribe"]) wire.answer(method, () => undefined);
+    const adding = runtime.connections.add({ link: wire.link });
+    const scopes = environments[index]?.scopes;
+    await wire.server.accept(scopes === undefined ? {} : { scopes: [...scopes] });
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    (await subscription(wire, "environment.subscribe")).synchronized(0);
+    expect(await adding).toMatchObject({ status: "paired" });
+  }
+  return { clock, runtime, wires, ids: wires.map((wire) => wire.environmentId) };
+};
+
+/** Answers every forge.accounts.add accepted, with the account it would add, and records what each was asked. */
+const acceptingAdds = (wire: FakeWire) => {
+  const asked: Record<string, unknown>[] = [];
+  wire.answer("forge.accounts.add", (params) => {
+    asked.push(params);
+    const account = forgeRecord({ id: params["forgeAccountId"] as string });
+    return { result: { receipt: { status: "accepted", sequence: asked.length, changed: true }, result: { account } } };
+  });
+  return asked;
+};
+
+describe("copying a forge account to other environments", () => {
+  const reference = { provider: "openbao", connectionId: randomUUID(), mount: "personal", path: "harness/forge-github", key: "token" } as const;
+
+  it("calls forge.accounts.add on each chosen environment with its origin, aliases, kind, slug, primary and source: a reference as it is, a stored token as none, gh as gh", async () => {
+    const { runtime, wires, ids } = await pairedMany([{ name: "desk" }, { name: "laptop" }, { name: "server" }]);
+    const [desk, laptop, server] = ids as [string, string, string];
+    const [, laptopWire, serverWire] = wires as [FakeWire, FakeWire, FakeWire];
+    const onLaptop = acceptingAdds(laptopWire);
+    const onServer = acceptingAdds(serverWire);
+    const stored = forgeRecord({ aliases: [{ origin: "http://100.64.0.7:3000", verifiedAt: null }] });
+    const forgejo = forgeRecord({ origin: "https://git.example.com", kind: "forgejo", slug: "git_example_com", primary: false, credential: { kind: "reference", reference } });
+    const gh = forgeRecord({ origin: "https://ghe.example.com", slug: "ghe_example_com", primary: false, credential: { kind: "gh", login: "david" } });
+
+    const reports = await Promise.all([stored, forgejo, gh].map((account) => runtime.forges.copy(desk, account, [laptop, server])));
+    expect(reports.flat().map(({ environmentId, status }) => [environmentId, status])).toEqual([
+      [laptop, "copied"],
+      [server, "copied"],
+      [laptop, "copied"],
+      [server, "copied"],
+      [laptop, "copied"],
+      [server, "copied"],
+    ]);
+    const copiedFrom = { environmentId: desk, environmentName: "desk" };
+    const expected = [
+      { url: "https://github.com", kind: "github", slug: "github", aliases: ["http://100.64.0.7:3000"], primary: true, credential: { kind: "none" }, copiedFrom },
+      { url: "https://git.example.com", kind: "forgejo", slug: "git_example_com", aliases: [], primary: false, credential: { kind: "reference", reference }, copiedFrom },
+      { url: "https://ghe.example.com", kind: "github", slug: "ghe_example_com", aliases: [], primary: false, credential: { kind: "gh", login: "david" }, copiedFrom },
+    ];
+    for (const asked of [onLaptop, onServer]) {
+      expect(asked).toEqual(expected.map((params) => ({ ...params, commandId: expect.any(String), forgeAccountId: expect.any(String) })));
+      // A copy is a new forge account there: its own id, never the source's.
+      expect(asked.map((params) => params["forgeAccountId"])).not.toContain(stored.id);
+    }
+    expect(JSON.stringify([onLaptop, onServer])).not.toContain(stored.credential.kind === "stored" ? stored.credential.entry : "");
+  });
+
+  it("reports each environment on its own, going on past one that refuses it, cannot be reached, or was paired without admin", async () => {
+    const { runtime, wires, ids } = await pairedMany([{ name: "desk" }, { name: "laptop" }, { name: "server" }, { name: "phone", scopes: ["read", "sessions:write"] }, { name: "attic" }]);
+    const [desk, laptop, server, phone, attic] = ids as [string, string, string, string, string];
+    const [, laptopWire, serverWire, , atticWire] = wires as [FakeWire, FakeWire, FakeWire, FakeWire, FakeWire];
+    acceptingAdds(laptopWire);
+    serverWire.answer("forge.accounts.add", () => ({
+      result: {
+        receipt: { status: "rejected", sequence: 3, changed: false, reason: "conflict", error: { code: "conflict", message: "https://github.com is held by another forge account.", data: { reason: "origin_held" } } },
+      },
+    }));
+    atticWire.discovery("unreachable");
+    atticWire.server.drop();
+    await flush();
+
+    const account = forgeRecord();
+    const reports = await runtime.forges.copy(desk, account, [laptop, server, phone, attic, randomUUID()]);
+    expect(reports.map(({ environmentId, status }) => [environmentId, status])).toEqual([
+      [laptop, "copied"],
+      [server, "refused"],
+      [phone, "refused"],
+      [attic, "refused"],
+      [expect.any(String), "refused"],
+    ]);
+    const [copied, conflict, scope, unreachable, unknown] = reports;
+    expect(copied).toMatchObject({ status: "copied", result: { id: expect.any(String), origin: "https://github.com" } });
+    expect(conflict).toMatchObject({ error: { code: "conflict", message: "https://github.com is held by another forge account.", data: { reason: "origin_held" } } });
+    expect(scope).toMatchObject({ error: { code: "scope", message: "This client was paired with phone without the admin scope." } });
+    expect(unreachable).toMatchObject({ error: { code: "unreachable" } });
+    expect(unknown).toMatchObject({ error: { code: "unreachable" } });
+  });
+
+  it("offers every other enabled environment this client holds an admin connection to", async () => {
+    const { runtime, ids } = await pairedMany([{ name: "desk" }, { name: "laptop" }, { name: "phone", scopes: ["read"] }, { name: "server" }, { name: "attic" }]);
+    const [desk, laptop, , server, attic] = ids as [string, string, string, string, string];
+    const targets = runtime.projections.copyTargets(desk);
+    expect(runtime.projections.copyTargets(desk)).toBe(targets);
+    expect(targets.read()).toEqual([
+      { environmentId: laptop, name: "laptop" },
+      { environmentId: server, name: "server" },
+      { environmentId: attic, name: "attic" },
+    ]);
+    const heard: unknown[] = [];
+    targets.subscribe((value) => heard.push(value));
+    await runtime.connections.setEnabled(attic, false);
+    expect(heard.at(-1)).toEqual([
+      { environmentId: laptop, name: "laptop" },
+      { environmentId: server, name: "server" },
+    ]);
+    expect(runtime.projections.copyTargets(laptop).read().map((target) => target.environmentId)).toEqual([desk, server]);
+  });
+});

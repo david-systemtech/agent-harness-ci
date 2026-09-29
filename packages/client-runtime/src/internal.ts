@@ -13,6 +13,9 @@ import { createAttention } from "./projections/attention.js";
 import { createClientCalls } from "./projections/client-calls.js";
 import { environmentsProjection } from "./projections/environments.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
+import { copyTargetsOf, type CopyTarget } from "./copies.js";
+import { createForges } from "./forges.js";
+import { createForgeNotices } from "./projections/forge-notices.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
@@ -73,6 +76,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         }
       }
       if (stream !== "environment") return;
+      // The forge's rows read every forge event, history too, for the origins and problems it names (#320).
+      forgeNotices.heard(environmentId, event, news);
       // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
       // again. Only news says how it was settled (`environmentNotices.heard`, below).
       if (event.type === "prompt.resolved") {
@@ -138,6 +143,17 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const requestCache = createRequestCache({ clock: platform.clock, call, records: registry.list, report });
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
   const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
+  const forgeNotices = createForgeNotices({
+    notices,
+    name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? "The environment",
+    held: (environmentId) => requestCache.peek(environmentId, "forge.accounts.list", {})?.accounts ?? null,
+    list: async (environmentId) => {
+      const answer = await call(environmentId, "forge.accounts.list", {});
+      return answer.ok ? answer.result.accounts : null;
+    },
+    report,
+  });
+  registry.seams.onForget((environmentId) => forgeNotices.forget(environmentId));
 
   // The projections of #142: runs and parked asks, one session's transcript, accounts, models and plan usage, the mode picker,
   // and the calls the environment addresses to this client.
@@ -190,6 +206,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const accountsProjections = memo((environmentId): Observable<AccountsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "accounts.list", {}), (result) => result.accounts));
   const modelsProjections = memo((environmentId): Observable<ModelsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "models.list", {}), (result) => result.catalogues));
   const modesProjections = memo((environmentId): Observable<ModePicker> => modesProjection(registry.list, environmentId));
+  const copyTargets = memo((environmentId): Observable<readonly CopyTarget[]> => derived([registry.list] as const, (records) => copyTargetsOf(records, environmentId)));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>
       list.filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId),
@@ -229,6 +246,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       models: (environmentId) => modelsProjections(environmentId),
       usage,
       modes: (environmentId) => modesProjections(environmentId),
+      copyTargets: (environmentId) => copyTargets(environmentId),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
@@ -248,6 +266,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     notices: { dismiss: (id) => notices.dismiss(id) },
     environmentNow: (environmentId) => made.now(environmentId),
     requests,
+    forges: createForges({ clock: platform.clock, shell: platform.shell, capability, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
     capability,
     close() {
       closing ??= (async () => {
@@ -259,6 +278,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         sessionList.stop();
         runs.close();
         clientCalls.close();
+        forgeNotices.close();
         requestCache.close();
         await made.close();
       })();

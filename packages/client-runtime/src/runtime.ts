@@ -5,6 +5,8 @@ import type { Connections } from "./connections/registry.js";
 import type { Notice } from "./notices.js";
 import type { Commands } from "./outbox/outbox.js";
 import type { Drafts } from "./outbox/drafts.js";
+import type { CopyTarget } from "./copies.js";
+import type { Forges } from "./forges.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
@@ -76,6 +78,8 @@ export interface Runtime {
     readonly usage: Observable<UsageView>;
     /** The mode picker for the environment: the contracts' modes in their order, each allowed up to the connection's ceiling. */
     modes(environmentId: string): Observable<ModePicker>;
+    /** The environments a copy from this one offers: every other enabled one this client holds an `admin` connection to, in the connection list's order (#320). */
+    copyTargets(environmentId: string): Observable<readonly CopyTarget[]>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;
@@ -108,6 +112,8 @@ export interface Runtime {
   readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */
   readonly requests: Requests;
+  /** Forge accounts beyond their cached list: this computer's `gh` handed over once, and copies to other environments, direct and never queued (#320). */
+  readonly forges: Forges;
   /**
    * The environment's time now, as this client reckons it from the server
    * time its last `hello` carried: what a snooze-until or a prompt's TTL is

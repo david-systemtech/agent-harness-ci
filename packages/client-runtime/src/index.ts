@@ -34,6 +34,7 @@ export {
   type ShellDeepLinks,
   type ShellDialogs,
   type ShellFile,
+  type ShellGh,
   type ShellInstaller,
   type ShellMember,
   type ShellNetwork,
@@ -61,7 +62,10 @@ export {
 } from "./connections/records.js";
 export type { Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
-export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject } from "./notices.js";
+export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject, type StepAction } from "./notices.js";
+export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
+export type { Forges, HandOverParams } from "./forges.js";
+export type { CopyOutcome, CopyReport, CopyTarget } from "./copies.js";
 export {
   pairingDeepLink,
   parsePairingInput,
