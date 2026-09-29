@@ -16,7 +16,9 @@ import { git, gitWith } from "../../test/workspaces.js";
  * and a real client over real git repositories made in the test's
  * temporary directory, a bare one among them, with worktrees the harness
  * made and worktrees git made directly. Nothing reaches a network: every
- * remote is a path or a host never dialled.
+ * remote is a path or a host never dialled. A test that makes repositories
+ * has two minutes, as its dozen git processes can each take seconds on a
+ * loaded runner; each waits on the answer itself, never on a clock.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -167,7 +169,7 @@ describe("workspaces.inspect", () => {
       branches: [],
       branchesTruncated: false,
     });
-  });
+  }, 120_000);
 
   it("answers origin/HEAD as git last cached it and fetches nothing, however far the upstream has moved since", async () => {
     const { base, source, second } = upstream();
@@ -185,7 +187,7 @@ describe("workspaces.inspect", () => {
     expect(answer.repository).toMatchObject({ originHead: "origin/main", head: { commit: second } });
     expect(git(checkout, "for-each-ref", "refs/remotes")).toBe(remotes);
     expect(existsSync(join(checkout, ".git", "FETCH_HEAD"))).toBe(false);
-  });
+  }, 120_000);
 
   it(
     "answers inside a bare repository, and inside a worktree git made from one, with the bare repository as the main checkout and the worktree holding its branch",
@@ -336,7 +338,7 @@ describe("workspaces.inspect", () => {
     expect(existsSync(marker) ? readFileSync(marker, "utf8") : "").toBe("");
     // Nothing was checked out: the change is still the only thing in the file.
     expect(readFileSync(join(checkout, "more.md"), "utf8")).toBe("changed, not committed\n");
-  });
+  }, 120_000);
 
   it("has no repository where there is no git, as a session there gets no identity, and answers conflict, reason git_failed, when git runs and fails", async () => {
     const { base, source } = upstream();
@@ -354,7 +356,7 @@ describe("workspaces.inspect", () => {
 
     setEnv("PATH", tempDir("agent-harness-no-git-"));
     expect(await client.request("workspaces.inspect", { path: checkout })).toEqual({ path: checkout, problem: null, repository: null });
-  });
+  }, 120_000);
 });
 
 describe("the workspace picker's queries", () => {
