@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EventEnvelope, EventFrame, PullRequest, ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import type { Script } from "../../test/fake-adapter.js";
+import { end, say, type Script } from "../../test/fake-adapter.js";
 import { MERGED_OR_CLOSED_AT, startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added, rejection } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -74,6 +74,15 @@ const repositoryOn = (remotes: Readonly<Record<string, string>>, branch: string,
     git(directory, "config", `branch.${branch}.merge`, `refs/heads/${upstream.branch}`);
   }
   return directory;
+};
+
+/** A tool call the run makes, and what it answered: `output`, whose strings a run's end reads. */
+const toolCall = (output: unknown) => {
+  const toolCallId = `toolu_${randomUUID()}`;
+  return [
+    { type: "tool.started", payload: { toolCallId, name: "Bash", input: { command: "tea pulls" }, title: null, agentId: null, parentToolCallId: null } },
+    { type: "tool.ended", payload: { toolCallId, status: "ok", output, durationMs: 5 } },
+  ] as const;
 };
 
 /** Runs the session once to its end as the fake adapter's next script plays it (preset: its reply), then waits for what the end found to be appended. */
@@ -269,6 +278,59 @@ describe("at a run's end", () => {
       ["session.pull-request-linked", { kind: "system", id: "forge" }],
       ["session.pull-request-linked", { kind: "system", id: "forge" }],
     ]);
+  });
+
+  it("links the pull-request URLs on an origin a forge account serves in the run's tool outputs and assistant text, the first twenty not linked yet, each read first", async () => {
+    const { t, forge, client } = await withAccount();
+    const other = await fakeForge();
+    for (let number = 1; number <= 23; number++) forge.pullRequest(TOKEN, "david/bank", number);
+    forge.answer(TOKEN, "GET /api/v1/repos/david/bank/pulls/2", { status: 404, body: { message: "Not Found" } });
+    other.pullRequest(null, "someone/tool", 3);
+    const { id } = await create(client);
+    const on = (number: number) => `${forge.origin}/david/bank/pulls/${number}`;
+    const from = (first: number, last: number) => Array.from({ length: last - first + 1 }, (_, index) => first + index);
+    await link(client, id, on(6));
+    const asked = forge.requests.length;
+
+    await runToEnd(t, client, id, () => [
+      ...toolCall({ stdout: `${on(1)}\n${on(2)}\t${other.origin}/someone/tool/pulls/3\n${forge.origin}/david/bank/issues/9`, stderr: "" }),
+      say(`Opened ${on(1)}/files, see (${on(4)}). And [#5](${on(5)}), beside ${on(6)}.`),
+      ...toolCall([{ type: "text", text: from(7, 23).map(on).join(" ") }]),
+      end(),
+    ]);
+
+    // Twenty candidates: 1, 2, 4, 5, then 7 to 22; 6 is linked already, read as one that has not merged; 23 is the twenty-first.
+    const read = forge.requests.slice(asked).flatMap((request) => /\/pulls\/(\d+)$/.exec(request.path)?.[1] ?? []).map(Number);
+    expect(read.filter((number) => number !== 6).sort((a, b) => a - b)).toEqual([1, 2, 4, 5, ...from(7, 22)]);
+    expect(other.requests).toEqual([]);
+    const linked = (await get(client, id)).pullRequests.map((pullRequest) => pullRequest.url);
+    expect(linked).toEqual([on(6), on(1), on(4), on(5), ...from(7, 22).map(on)]);
+    const events = await pullRequestEvents(client, id);
+    expect(events.slice(1).every((event) => event.actor.kind === "system" && event.actor.id === "forge")).toBe(true);
+  });
+
+  it("never links again a pull request whose latest event is an unlink, and a person's link still does", async () => {
+    const { t, forge, client } = await withAccount();
+    forge.repository(TOKEN, "david/bank");
+    forge.pullRequest(TOKEN, "david/bank", 6);
+    forge.pullRequest(TOKEN, "david/bank", 7, { head: "other" });
+    const repository = repositoryOn({ origin: `${forge.origin}/david/bank.git` }, "feature");
+    const { id } = await create(client, { workspace: { kind: "directory", path: repository } });
+    const [fromBranch, inText] = [`${forge.origin}/david/bank/pulls/6`, `${forge.origin}/david/bank/pulls/7`];
+    const mentioning = () => [say(`Opened ${inText}.`), end()];
+    await runToEnd(t, client, id, mentioning);
+    expect((await get(client, id)).pullRequests.map((pullRequest) => pullRequest.url)).toEqual([fromBranch, inText]);
+
+    await unlink(client, id, fromBranch);
+    await unlink(client, id, inText);
+    await runToEnd(t, client, id, mentioning);
+    expect((await get(client, id)).pullRequests).toEqual([]);
+
+    await link(client, id, fromBranch);
+    await unlink(client, id, fromBranch);
+    await link(client, id, fromBranch);
+    await runToEnd(t, client, id, mentioning);
+    expect((await get(client, id)).pullRequests.map((pullRequest) => pullRequest.url)).toEqual([fromBranch]);
   });
 
   it("looks on the upstream's remote for the upstream's branch, and finds nothing on the default branch, a detached head or an origin no forge account serves", async () => {
