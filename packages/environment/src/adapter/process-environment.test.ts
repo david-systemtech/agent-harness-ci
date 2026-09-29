@@ -6,7 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, runCommand, say, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { fakePty } from "../../test/fake-pty.js";
 import { create } from "../../test/sessions.js";
+import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent } from "./contract.js";
 import { presetInjection, type InjectionAnswer, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "./process-environment.js";
@@ -327,5 +329,24 @@ describe("the release of what a process was supplied", () => {
     await t.close();
     expect(t.adapter.processes).toEqual([]);
     expect(asked).toEqual({ keys: [], supplies: [], releases: [] });
+  });
+});
+
+describe("a session's terminal", () => {
+  it("holds the session's process environment: supplied as it opens, for the session's account and a client, and released once as it closes", async () => {
+    const pty = fakePty();
+    const t = await start({}, { terminals: { pty, shell: () => ({ file: "/bin/sh", args: [] }) } });
+    const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    t.env.processEnvironments.register(supplier);
+    const client = await t.client();
+    const session = await create(client);
+
+    const terminal = await openTerminal(client, session.id);
+
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    expect(pty.spawned[0]?.options.env).toMatchObject({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client" }]);
+    await terminalCommand(client, "terminals.close", { id: terminal.id });
+    await vi.waitFor(() => expect(asked.releases).toEqual([1]));
   });
 });

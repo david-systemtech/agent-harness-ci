@@ -50,6 +50,7 @@ import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
+import { readSessionFacts } from "../runs/run-reads.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -319,7 +320,7 @@ export interface EnvironmentOptions {
    */
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub">;
+  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub" | "processEnvironment">;
   /**
    * The resolver `sessions.create` and the completions surface give a new
    * session its workspace through (#321). Preset: the environment's
@@ -919,8 +920,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
     ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
   });
-  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion. Each
+  // holds its session's process environment as its runs' processes do (#307): the account its runs go through, a client's.
+  const terminalService = createTerminalService({
+    log,
+    clock,
+    scrub,
+    availability,
+    ...options.terminals,
+    processEnvironment: (sessionId) => {
+      const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client" });
+    },
+  });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
