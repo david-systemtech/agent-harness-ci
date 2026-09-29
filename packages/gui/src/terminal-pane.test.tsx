@@ -153,8 +153,11 @@ describe("the Terminal pane", () => {
     app.open("desk", 0);
     await screen.findByRole("region", { name: "Transcript" });
     expect(env.requests("terminals.close")).toEqual([]);
+    // Drawn afresh in a hidden column, xterm.js waits to open until it is on screen, since it measures its cells as it opens.
+    expect(document.querySelector('section[aria-label="Terminal"] .xterm')).toBeNull();
 
     await app.user.click(action());
+    await drawn(["$"]);
     await app.user.click(within(column() as HTMLElement).getByRole("button", { name: "Close Terminal" }));
     await waitFor(() => expect(env.terminal(FIRST).closed).toBe(true));
     expect(env.requests("terminals.close").map((request) => request.params)).toEqual([expect.objectContaining({ id: FIRST })]);

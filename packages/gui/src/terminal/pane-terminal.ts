@@ -154,10 +154,19 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const term = new Terminal({ theme: options.theme, scrollback: TERMINAL_SCROLLBACK.lines, fontFamily: FONT_FAMILY, fontSize: 13 });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  openStyled(term, host);
 
   let drawn: Drawn | null = null;
   let onScreen = options.onScreen;
+  /**
+   * xterm.js measures its cells as it opens, so it opens in the pane the first time the pane is on screen, never
+   * hidden; until then what the terminal prints is taken in all the same.
+   */
+  let opened = false;
+  const openOnScreen = () => {
+    if (opened || !onScreen) return;
+    opened = true;
+    openStyled(term, host);
+  };
   let wantsKeys = false;
   let disposed = false;
   /** Output is taken into xterm.js one chunk at a time, so what it answers while it parses is known to be to that chunk. */
@@ -236,7 +245,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   };
 
   const fitNow = () => {
-    if (!onScreen || disposed) return;
+    if (!onScreen || !opened || disposed) return;
     const proposed = fit.proposeDimensions();
     if (proposed === undefined || !(proposed.cols > 0 && proposed.rows > 0)) return;
     if (proposed.cols !== term.cols || proposed.rows !== term.rows) term.resize(proposed.cols, proposed.rows);
@@ -419,6 +428,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const observer = new ResizeObserver(() => fitNow());
   observer.observe(host);
   stops.push(() => observer.disconnect());
+  openOnScreen();
 
   return {
     ask(ask) {
@@ -451,6 +461,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     onScreen(next) {
       onScreen = next;
       if (!next) return;
+      openOnScreen();
       fitNow();
       if (wantsKeys) takeKeys();
     },
