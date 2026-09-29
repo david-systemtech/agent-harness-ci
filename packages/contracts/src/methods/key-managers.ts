@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import {
+  KeyManagerAddress,
   KeyManagerAuthMethod,
   KeyManagerBasePath,
-  KeyManagerAddress,
   KeyManagerCa,
   KeyManagerCertificate,
   KeyManagerConnectionRecord,
