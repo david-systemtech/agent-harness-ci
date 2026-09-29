@@ -176,6 +176,14 @@ describe("environment.subscribe's snapshot", () => {
     expect(await snapshot(t, client)).toEqual({ status: IDLE, setup: [account, permissions] });
   });
 
+  it("carries every registered step's result once the step registry's checks have run, in the milestone-1 order", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { results } = await client.request("setup.check", {});
+    expect(results.map((result) => result.step)).toEqual(["account", "your-machines", "forges", "permissions", "appearance"]);
+    expect((await snapshot(t, client)).setup).toEqual(results);
+  });
+
   it("carries the cached results after a restart on the same data directory, with their checked-at, and a first check there that finds the same appends nothing", async () => {
     const { answers, setupSteps } = scriptedRegistry();
     const dataDir = `${tempDir()}/data`;
