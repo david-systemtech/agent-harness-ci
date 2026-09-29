@@ -311,8 +311,8 @@ export type SkillMemberWarning = z.infer<typeof SkillMemberWarning>;
  * 0029), the source folder's last segment (null for `.`, the repository's
  * root) and the repository's last path segment (null when there is none).
  * A command file in the own directory's `commands/` is `file`, its name
- * without `.md`: a command is named by its file alone, as Claude Code names
- * one, so its frontmatter's `name` is passed over.
+ * without `.md`: a command is named by its file alone, so its
+ * frontmatter's `name` is passed over.
  */
 export type SkillMemberFolder =
   | { readonly kind: "folder"; readonly name: string }

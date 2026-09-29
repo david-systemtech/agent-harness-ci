@@ -6,8 +6,8 @@ import { SKILL_REPOSITORY_ROOTS, type SkillLayer, type SkillMember, type SkillSe
  * repository wins (`.claude/skills` over `.agents/skills`, then a nearer
  * directory over its parents), then the own directory, then the sources,
  * the earliest added first. Within one layer a skill folder wins over a
- * command file of the same name, as in Claude Code, and of two folders
- * holding one name the one named for it wins, then the first by path. The
+ * command file of the same name, and of two folders holding one name the
+ * one named for it wins, then the first by path. The
  * member that wins is in the set; each other valid member holding its name
  * is listed with it as the member that shadows it. An invalid member is
  * listed, shadows nothing and is shadowed by nothing.
