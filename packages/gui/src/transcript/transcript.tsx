@@ -140,7 +140,8 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const environments = useObservable(runtime.projections.environments);
   const [textSize] = usePresentation("textSize");
   const [readingWidth] = usePresentation("readingWidth");
-  const rows = useMemo(() => transcriptRows(projection), [projection]);
+  // A parked prompt waits on the card under the transcript, and is drawn here, where it was asked, once answered.
+  const rows = useMemo(() => transcriptRows(projection).filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [projection]);
   const { queue } = useSessionQueue().runs;
   const drawn = useMemo(() => withQueued(rows, queue), [rows, queue]);
   const tasks = useMemo(() => liveTasks(projection, liveRun(projection)?.runId), [projection]);
