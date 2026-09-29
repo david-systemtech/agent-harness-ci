@@ -1,5 +1,4 @@
 import {
-  adapterOf,
   attachmentRefusal,
   interruptRun,
   isLive,
@@ -8,11 +7,12 @@ import {
   replaceMention,
   sendMessage,
   type CapabilityAnswer,
-  type SessionProjection,
 } from "@agent-harness/client-runtime";
-import type { AdapterCapabilities } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { KeyContext, useKeyAction } from "../keys/key-dispatch.js";
+import { useSessionQueue } from "../queue/session-queue.js";
+import { usePaneLine } from "../session/pane-line.js";
+import { useProvider } from "../session/provider.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AttachmentChips, useAttachments } from "./attachments.js";
@@ -46,6 +46,9 @@ export interface ComposerProps {
  * - **Attachments** by a paste, a drop or the shell's file dialog (Attach
  *   files, `/attach`), shown as chips.
  * - **Send and Stop** share one button (story 9).
+ * - **The queue** (#401): ↑ in an empty composer takes the newest queued
+ *   message back (`composer.withdrawLast`), and `composer.readNow` reads the
+ *   whole queue from the command palette.
  */
 export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const runtime = useRuntime();
@@ -54,7 +57,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const provider = useProvider(environmentId, projection);
-  const [line, say] = useState<string | undefined>(undefined);
+  const [line, say] = usePaneLine();
   const box = useBox();
   useSessionDraft(environmentId, sessionId, projection, box);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
@@ -62,6 +65,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const walk = usePromptWalk(projection, box);
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose);
+  const queue = useSessionQueue();
 
   const lock = lockOf(runtime.capability(environmentId, "runs.send"));
   // The run a send joins and Stop interrupts, and the run this composer asked to stop: Stopping… while it is still live.
@@ -128,6 +132,11 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     if (row !== undefined) box.put(`/${row.name}${row.usage.includes(" ") ? " " : ""}`);
   };
   const submit = () => (menu !== null && at >= 0 ? choose(at) : send(box.current()));
+  /**
+   * ↑ in an empty composer: the newest queued message a withdraw can reach (the runtime's `withdrawTarget`) taken back into
+   * the draft; with none to reach, the key is declined, and ↑ walks the prompts.
+   */
+  const withdrawLast = (): false | void => (queue.runs.withdrawTarget === null ? false : queue.withdrawNewest());
 
   const conditions = {
     "composer.atStart": () => box.field.current?.selectionStart === 0 && box.field.current.selectionEnd === 0,
@@ -143,6 +152,8 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
         commandMenu={() => (box.current().length > 0 ? false : box.put("/"))}
         fileMention={() => box.insert("@")}
         paste={attachments.paste}
+        withdrawLast={withdrawLast}
+        readNow={queue.readNow}
       />
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3" onDragOver={attachments.dragging} onDrop={attachments.dropped}>
         {lock.locked && <p className="text-xs text-amber">Locked: {lock.reason}</p>}
@@ -189,14 +200,6 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   );
 };
 
-/** The session's provider, once `providers.list` has answered: the environment's only one, else its account's. */
-const useProvider = (environmentId: string, projection: SessionProjection): AdapterCapabilities | undefined => {
-  const runtime = useRuntime();
-  const providers = useObservable(useMemo(() => runtime.requests.cached(environmentId, "providers.list", {}), [runtime, environmentId]));
-  const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
-  return adapterOf(projection.summary?.accountId ?? null, accounts.value, providers.result?.providers ?? null) ?? undefined;
-};
-
 interface ComposerKeysProps {
   readonly send: () => void;
   readonly newline: () => void;
@@ -205,10 +208,15 @@ interface ComposerKeysProps {
   readonly commandMenu: () => false | void;
   readonly fileMention: () => void;
   readonly paste: () => false | void;
+  readonly withdrawLast: () => false | void;
+  readonly readNow: () => void;
 }
 
-/** The composer's actions from its GUI column, wired in its region; one with nothing to do declines the key. */
-const ComposerKeys = ({ send, newline, navigate, complete, commandMenu, fileMention, paste }: ComposerKeysProps) => {
+/**
+ * The composer's actions from its GUI column, wired in its region; one with nothing to do declines the key.
+ * `composer.readNow` has no key by default: the command palette runs it.
+ */
+const ComposerKeys = ({ send, newline, navigate, complete, commandMenu, fileMention, paste, withdrawLast, readNow }: ComposerKeysProps) => {
   useKeyAction("composer.send", send);
   useKeyAction("composer.newline", newline);
   useKeyAction("composer.navigate", navigate);
@@ -216,6 +224,8 @@ const ComposerKeys = ({ send, newline, navigate, complete, commandMenu, fileMent
   useKeyAction("composer.command.menu", commandMenu);
   useKeyAction("composer.file.mention", fileMention);
   useKeyAction("composer.paste", paste);
+  useKeyAction("composer.withdrawLast", withdrawLast);
+  useKeyAction("composer.readNow", readNow);
   return null;
 };
 

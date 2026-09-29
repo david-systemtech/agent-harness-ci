@@ -15,6 +15,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { ReadingWidth } from "../presentation.js";
 import { KeyContext } from "../keys/key-dispatch.js";
+import { withQueued } from "../queue/placement.js";
+import { QueuedRow } from "../queue/queued.js";
+import { useSessionQueue } from "../queue/session-queue.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { FindBar, FindKeys, FindQuery, useFindBar } from "./find.js";
@@ -120,7 +123,8 @@ const useFollow = () => {
 /**
  * A session's conversation (docs/specs/gui.md, "A session pane"; #399):
  * `projections.session` drawn as the runtime's transcript rows, which the
- * terminal UI draws too, so the two fold a session alike (ADR 0004).
+ * terminal UI draws too, so the two fold a session alike (ADR 0004), with
+ * each message of the session's queue drawn after its turn (#401).
  * Following the projection holds the session's subscription while the
  * transcript is on screen. It is bottom-anchored and follows new output
  * until David scrolls up, offering a way back to the end. Until its stream
@@ -137,6 +141,8 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const [textSize] = usePresentation("textSize");
   const [readingWidth] = usePresentation("readingWidth");
   const rows = useMemo(() => transcriptRows(projection), [projection]);
+  const { queue } = useSessionQueue().runs;
+  const drawn = useMemo(() => withQueued(rows, queue), [rows, queue]);
   const tasks = useMemo(() => liveTasks(projection, liveRun(projection)?.runId), [projection]);
   // What the stream held when it first went live was written before this transcript was watching: only what comes after arrives.
   const [liveFrom, setLiveFrom] = useState<number | null>(null);
@@ -164,13 +170,17 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
                 {projection.freshness === "cached" ? `Cached: what this window last saw of it; ${name} is not answering` : "Catching up…"}
               </p>
             )}
-            {rows.length === 0 && (projection.deleted || projection.freshness === "live") && (
+            {drawn.length === 0 && (projection.deleted || projection.freshness === "live") && (
               <p className="text-ink-faint">{projection.deleted ? "This session was deleted." : "Nothing said yet."}</p>
             )}
             <FindQuery value={find.marked}>
-              {rows.map((row) => (
-                <TranscriptRowView key={row.id} row={row} facts={facts} />
-              ))}
+              {drawn.map((item) =>
+                item.kind === "row" ? (
+                  <TranscriptRowView key={item.row.id} row={item.row} facts={facts} />
+                ) : (
+                  <QueuedRow key={`queued:${item.message.messageId}`} message={item.message} />
+                ),
+              )}
             </FindQuery>
           </div>
         </section>

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom-on-node
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { DRAFT_DEBOUNCE_MS, createRuntime, uuidv4, type Runtime } from "@agent-harness/client-runtime";
 import { fakeShell, inMemoryPlatform, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
-import { end, gate, say, type Script } from "../../environment/test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { workspace } from "../../environment/test/sessions.js";
 import { App } from "../src/app.js";
@@ -19,7 +19,9 @@ import { openPresentation } from "../src/presentation.js";
  * jsdom over it. A send streams through the fake provider into the rendered
  * transcript, and the composer's text reaches a second runtime of the same
  * environment as the session's draft, whose own draft comes back into the
- * composer only while nothing was typed over what the window held.
+ * composer only while nothing was typed over what the window held. A
+ * message queued during a run and taken back with Edit (#401) comes back
+ * through the draft into the window's composer and a second window's.
  */
 
 const { onCleanup } = useCleanups();
@@ -34,8 +36,11 @@ const pairedRuntime = async (t: TestEnvironment, platform: InMemoryPlatform): Pr
   return runtime;
 };
 
-/** The window over its own runtime, paired with `t`'s environment, with a session made there open in its pane. */
-const openWindow = async (t: TestEnvironment) => {
+/**
+ * A window over its own runtime, paired with `t`'s environment, with a session open in its pane: `sessionId`, made
+ * there by another window, or one it makes. Its parts are found within it, so two windows can be open side by side.
+ */
+const openWindow = async (t: TestEnvironment, opening?: { readonly sessionId: string }) => {
   const platform = inMemoryPlatform({ kind: "desktop", shell: fakeShell() });
   const runtime = await pairedRuntime(t, platform);
   const presentation = await openPresentation(platform.documents, platform.reportError);
@@ -44,18 +49,23 @@ const openWindow = async (t: TestEnvironment) => {
   onCleanup(() => view.unmount());
 
   const environmentId = t.env.id;
-  const sessionId = uuidv4();
-  const created = await runtime.commands.dispatch(environmentId, "sessions.create", { id: sessionId, workspace });
-  if (!created.ok) throw new Error(`The session was not made: ${created.error.message}`);
+  const sessionId = opening?.sessionId ?? uuidv4();
+  if (opening === undefined) {
+    const created = await runtime.commands.dispatch(environmentId, "sessions.create", { id: sessionId, workspace });
+    if (!created.ok) throw new Error(`The session was not made: ${created.error.message}`);
+  }
   act(() => presentation.set("paneLayout", { session: { environmentId, sessionId } }));
-  const transcript = await screen.findByRole("region", { name: "Transcript" });
+  const inWindow = within(view.container);
+  const transcript = await inWindow.findByRole("region", { name: "Transcript" });
   await within(transcript).findByText("Nothing said yet.", {}, { timeout: 5000 });
-  const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const box = inWindow.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
   const user = userEvent.setup();
   return {
     platform,
     environmentId,
     sessionId,
+    inWindow,
+    user,
     transcript,
     box,
     /** Keys typed into the composer, focused first: jsdom lays nothing out, so a click would land on the sidebar's divider. */
@@ -95,7 +105,7 @@ describe.sequential("the composer through the real spine", () => {
     await waitFor(() => expect(within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("Looking at "), { timeout: 5000 });
     streamed.open();
     await waitFor(() => expect(within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("Looking at the receipts."), { timeout: 5000 });
-    await screen.findByRole("button", { name: "Send" });
+    await window.inWindow.findByRole("button", { name: "Send" });
 
     // The text is the session's draft: typed in the window, it is in another runtime of the same environment.
     const other = await secondClient(t, window.environmentId, window.sessionId);
@@ -124,5 +134,32 @@ describe.sequential("the composer through the real spine", () => {
     act(() => window.platform.clock.advance(DRAFT_DEBOUNCE_MS));
     await waitFor(() => expect(other.draft()).toBe("typed on the laptop, and more"), { timeout: 5000 });
     expect(window.box.value).toBe("typed on the laptop, and more");
+  });
+
+  it("takes a queued message back with Edit: its text comes into this window's composer and a second window's open on the session", async () => {
+    // A provider without a queue of its own: the environment holds what is sent during a run, and takes it back itself.
+    const t = await startTestEnvironment({ name: "smoke-withdraw", adapter: fakeAdapter({ capabilities: { providerQueue: false, steering: false } }) });
+    onCleanup(() => t.close());
+    const working = gate();
+    t.adapter.nextScripts.push(async function* () {
+      await working.opened;
+      yield say("Done.");
+      yield end();
+    });
+    const window = await openWindow(t);
+    const other = await openWindow(t, { sessionId: window.sessionId });
+
+    await window.write("Fix the receipts{Enter}");
+    await window.inWindow.findByRole("button", { name: "Stop" }, { timeout: 5000 });
+    await window.write("and the tests{Enter}");
+    const queued = await within(window.transcript).findByRole("article", { name: "Queued message" }, { timeout: 5000 });
+    await within(other.transcript).findByRole("article", { name: "Queued message" }, { timeout: 5000 });
+
+    await window.user.click(within(queued).getByRole("button", { name: "Edit" }));
+    await waitFor(() => expect(window.box.value).toBe("and the tests"), { timeout: 5000 });
+    await waitFor(() => expect(other.box.value).toBe("and the tests"), { timeout: 5000 });
+    expect(within(window.transcript).queryByRole("article", { name: "Queued message" })).toBeNull();
+    expect(within(other.transcript).queryByRole("article", { name: "Queued message" })).toBeNull();
+    working.open();
   });
 });
