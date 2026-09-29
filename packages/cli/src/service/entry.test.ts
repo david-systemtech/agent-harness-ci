@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { installVersion } from "../../test/launcher-fixtures.js";
 import { makeTempDir } from "../../test/service-helpers.js";
+import { HANDOVER_FILE, HANDOVER_STARTS_FILE } from "../launch/handover.js";
 import { LAUNCHER_VERSION_FILE } from "../launch/launcher-version.js";
 import { VERSION_SENTINEL, versionDirectory } from "../launch/versions.js";
 import { LAUNCHER_ENTRY_FILES, renderLauncherEntry } from "./entry.js";
@@ -135,6 +136,67 @@ describe.runIf(posix)("the launcher entry, run by sh", () => {
         `launcher entry: ${dataDir}/launcher-version names no version, so no launcher starts; \`agent-harness service install\` writes it.\n`,
       );
     }
+  });
+
+  describe("after a handover", () => {
+    /** A data directory whose launcher version file names 0.5.0's launcher, handed over to by 0.4.0's. */
+    const handedOver = (record = "0.4.0\n0.5.0\n"): string => {
+      const dataDir = tempDataDir();
+      installVersion(dataDir, "0.4.0", ECHO_CHILD);
+      installVersion(dataDir, "0.5.0", ECHO_CHILD);
+      writeFileSync(join(dataDir, LAUNCHER_VERSION_FILE), "0.5.0\n");
+      writeFileSync(join(dataDir, HANDOVER_FILE), record);
+      return dataDir;
+    };
+    const read = (dataDir: string, file: string): string | undefined => (existsSync(join(dataDir, file)) ? readFileSync(join(dataDir, file), "utf8") : undefined);
+
+    it("counts each start of the launcher handed over to, and once three went unconfirmed names the launcher that handed over again and starts it", () => {
+      const dataDir = handedOver();
+      for (const count of [1, 2, 3]) {
+        const ran = runEntry(dataDir);
+        expect(ran, `start ${count}`).toMatchObject({ code: 0, stderr: "" });
+        expect(JSON.parse(ran.stdout)).toMatchObject({ version: "0.5.0" });
+        expect(read(dataDir, HANDOVER_STARTS_FILE)).toBe(`${count}\n`);
+      }
+      const fourth = runEntry(dataDir);
+      expect(fourth.code).toBe(0);
+      expect(JSON.parse(fourth.stdout)).toMatchObject({ version: "0.4.0", args: ["launch", "--data-dir", dataDir, "--port", "7433"] });
+      expect(fourth.stderr).toBe(
+        "launcher entry: the launcher of 0.5.0 was started 3 times without confirming that its child passed the gate, so the launcher of 0.4.0 starts again.\n",
+      );
+      expect(read(dataDir, LAUNCHER_VERSION_FILE)).toBe("0.4.0\n");
+      // The launcher that handed over finds the record naming itself, and clears it with the counter.
+      expect(read(dataDir, HANDOVER_FILE)).toBe("0.4.0\n0.5.0\n");
+      expect(read(dataDir, HANDOVER_STARTS_FILE)).toBe("3\n");
+      expect(readdirSync(dataDir).filter((name) => name.startsWith("."))).toEqual([]);
+    });
+
+    it("counts again from one once the launcher handed over to confirmed and removed its files", () => {
+      const dataDir = handedOver();
+      runEntry(dataDir);
+      runEntry(dataDir);
+      rmSync(join(dataDir, HANDOVER_FILE));
+      rmSync(join(dataDir, HANDOVER_STARTS_FILE));
+      for (let start = 0; start < 4; start++) expect(JSON.parse(runEntry(dataDir).stdout)).toMatchObject({ version: "0.5.0" });
+      expect(read(dataDir, HANDOVER_STARTS_FILE)).toBeUndefined();
+    });
+
+    it("counts nothing for a handover record naming another launcher than the one it starts, or naming no version it hands over from", () => {
+      for (const record of ["0.4.0\n0.6.0\n", "../0.4.0\n0.5.0\n", "0.5.0\n"]) {
+        const dataDir = handedOver(record);
+        writeFileSync(join(dataDir, HANDOVER_STARTS_FILE), "3\n");
+        expect(JSON.parse(runEntry(dataDir).stdout), record).toMatchObject({ version: "0.5.0" });
+        expect(read(dataDir, HANDOVER_STARTS_FILE), record).toBe("3\n");
+        expect(read(dataDir, LAUNCHER_VERSION_FILE), record).toBe("0.5.0\n");
+      }
+    });
+
+    it("takes a start counter that is not a number as none", () => {
+      const dataDir = handedOver();
+      writeFileSync(join(dataDir, HANDOVER_STARTS_FILE), "three\n");
+      expect(JSON.parse(runEntry(dataDir).stdout)).toMatchObject({ version: "0.5.0" });
+      expect(read(dataDir, HANDOVER_STARTS_FILE)).toBe("1\n");
+    });
   });
 
   it("starts nothing and exits 0 when the version it names is not complete", () => {
