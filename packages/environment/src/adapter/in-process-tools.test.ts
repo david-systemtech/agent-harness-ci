@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { registry, type Mode, type ParamsOf, type PromptOpenedPayload, type ResponseOf, type ToolDecisionPayload } from "@agent-harness/contracts";
+import { registry, type ParamsOf, type PromptOpenedPayload, type ResponseOf, type ToolDecisionPayload } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { bubblewrapProbe } from "../../test/containment.js";
@@ -101,9 +101,9 @@ const send = async <N extends Command>(client: WireClient, method: N, params: Om
   registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
 
 /** Runs `script` in the session as a client starts a run: attended. */
-const startAttended = async (t: TestEnvironment, client: WireClient, sessionId: string, script: Script, mode?: Mode): Promise<string> => {
+const startAttended = async (t: TestEnvironment, client: WireClient, sessionId: string, script: Script): Promise<string> => {
   (t.adapter as FakeAdapter).nextScripts.push(script);
-  const answer = await send(client, "runs.start", { sessionId, text: "Go", ...(mode !== undefined && { mode }) });
+  const answer = await send(client, "runs.start", { sessionId, text: "Go" });
   if (answer.result === undefined) throw new Error(`runs.start was not applied: ${JSON.stringify(answer.receipt)}`);
   return answer.result.runId;
 };
