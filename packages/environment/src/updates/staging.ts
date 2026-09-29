@@ -5,12 +5,13 @@ import { join } from "node:path";
 import { stagingArea } from "../serve/launcher-files.js";
 
 /**
- * Staging an artefact on this machine (launcher-update spec, "Staging";
- * #343): the server artefact a path names (the desktop's bundled one, or
- * `update apply`'s) is unpacked into the staging area, the one place in the
- * data directory the environment writes of the launcher's, as the folder
- * `install?` names. The launcher moves an installed version out of it; a
- * version it refused is removed from it.
+ * Staging an artefact (launcher-update spec, "Staging"; #343, #347): the
+ * server artefact a path names (the desktop's bundled one, or `update
+ * apply`'s), or one downloaded from its release into the staging area, is
+ * unpacked into the staging area, the one place in the data directory the
+ * environment writes of the launcher's, as the folder `install?` names. The
+ * launcher moves an installed version out of it; a version it refused is
+ * removed from it.
  */
 
 /** Unpacks the archive `archive` into the empty folder `into`, the archive's top at the folder's. Rejects saying why when it cannot. */
@@ -42,6 +43,13 @@ export class StagingError extends Error {
     this.kind = kind;
   }
 }
+
+/** A fresh file in the staging area of `dataDir` that `version`'s artefact is downloaded into before it is unpacked; the area is made when missing. */
+export const downloadDestination = (dataDir: string, version: string): string => {
+  const area = stagingArea(dataDir);
+  mkdirSync(area, { recursive: true, mode: 0o700 });
+  return join(area, `.${version}-${randomUUID()}.download`);
+};
 
 /** The folder in the staging area of `dataDir` that `version` is staged in. */
 export const stagedVersion = (dataDir: string, version: string): string => join(stagingArea(dataDir), version);

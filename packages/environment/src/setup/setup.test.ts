@@ -82,7 +82,7 @@ describe("the Your machines step's health line", () => {
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     expect(await check(client, "your-machines")).toMatchObject({
       state: "done",
-      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours.",
+      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind.",
       failing: [],
     });
   });

@@ -1,9 +1,9 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { UpdateCheck, UpdatesStatus } from "@agent-harness/contracts";
+import type { UpdateCheck, UpdateCheckFailure, UpdatesStatus } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
-import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
+import type { ChannelContext, ChannelReading, ChannelSettings, ReleaseChannelReader } from "./channel.js";
 
 /**
  * The checks of the release channel (launcher-update spec, "Reading the
@@ -11,7 +11,9 @@ import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
  * hourly; on `updates.check`, at most once a minute, a repeat within a
  * minute of the last check's start answering that check's result without
  * reading the forge; and once the update settings the target follows
- * change. A failed check is state, never a notice: `updates.status` shows
+ * change. A check that reads the channel hands what it found to the update
+ * coordinator, which stages it (#347), and the check fails as its staging
+ * does. A failed check is state, never a notice: `updates.status` shows
  * the last check with its reason, and the channel's newest, the target and
  * a release passed over as the last check that read the channel found
  * them. The Your machines step's `your-machines.release-channel` reads it:
@@ -41,6 +43,12 @@ export const RELEASE_CHANNEL_FRESH_MS = 24 * 60 * MINUTE_MS;
 /** What `updates.status` shows of the channel. */
 export type ChannelStatus = Pick<UpdatesStatus, "newest" | "lastCheck" | "target" | "passedOver">;
 
+/** Why the staging of what a check found failed: the check's reason, and what failed. */
+export interface StagingFailure {
+  readonly reason: UpdateCheckFailure;
+  readonly message: string;
+}
+
 export interface ChannelChecksOptions {
   readonly clock: Clock;
   /** The data directory, where the time of the last check that read the channel is kept. */
@@ -48,6 +56,10 @@ export interface ChannelChecksOptions {
   readonly channel: ReleaseChannelReader;
   /** The update settings as they are now, read at each check's start. */
   readonly settings: () => ChannelSettings;
+  /** What the channel is read with beside the settings, read at each check's start. */
+  readonly context: () => Promise<ChannelContext>;
+  /** Stages what a check that read the channel under `settings` found: null once staged or when there is nothing to stage, else why not. */
+  readonly follow: (reading: ChannelReading, settings: ChannelSettings) => Promise<StagingFailure | null>;
 }
 
 export interface ChannelChecks {
@@ -107,14 +119,16 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
     const at = clock.now();
     let lastCheck: UpdateCheck;
     try {
-      const read = await channel.read(options.settings());
+      const settings = options.settings();
+      const read = await channel.read(settings, await options.context());
       if (read.outcome === "failed") {
         lastCheck = { at: at.toISOString(), result: "failed", reason: read.reason, message: read.message };
       } else {
-        lastCheck = { at: at.toISOString(), result: "ok" };
         lastSucceededAt = at.getTime();
         writeLastSucceeded(recordPath, lastSucceededAt);
         status = { ...status, newest: read.newest, target: read.target, passedOver: read.passedOver };
+        const unstaged = await options.follow(read, settings);
+        lastCheck = unstaged === null ? { at: at.toISOString(), result: "ok" } : { at: at.toISOString(), result: "failed", ...unstaged };
       }
     } catch (error) {
       // A fault of the environment's own, such as a temporary file it could not write: the check failed, and says why.
