@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineMethod } from "../method.js";
-import { RegisteredStepId, StepResult } from "../setup.js";
+import { RegisteredStepId, StepResults } from "../setup.js";
 
 /**
  * `setup.check` (ADR 0031): runs a step's health check on this environment
@@ -19,7 +19,10 @@ export const setupCheck = defineMethod({
     step: RegisteredStepId.optional().meta({ description: "The step to check; every registered step when absent." }),
   }),
   result: z.object({
-    results: z.array(StepResult).meta({ description: "The step's result, or every registered step's in the milestone-1 order." }),
+    results: StepResults.meta({
+      description:
+        "The step's result, or every registered step's in the milestone-1 order. The reader passes over a result of a step past that order, a later milestone's, and reads the rest.",
+    }),
   }),
   errors: [],
 });

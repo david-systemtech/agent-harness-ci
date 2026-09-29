@@ -62,7 +62,8 @@ const heldChecks = (wire: FakeWire) => {
   const waiting: ((body: { result: { results: StepResult[] } } | { error: { code: string; message: string; data: Record<string, unknown> } }) => void)[] = [];
   wire.answer("setup.check", () => new Promise((resolve) => waiting.push(resolve)));
   return {
-    answer: (results: StepResult[]) => waiting.shift()?.({ result: { results } }),
+    // Raw, as the environment sends them: a newer one's may not read as this build's `StepResult` (#693).
+    answer: (results: readonly unknown[]) => waiting.shift()?.({ result: { results: results as StepResult[] } }),
     fail: (code: string) => waiting.shift()?.({ error: { code, message: `The check failed: ${code}.`, data: {} } }),
   };
 };
@@ -160,6 +161,28 @@ describe("the environment stream's results", () => {
     await flush();
     expect(resultOf(runtime, env, "skills")).toMatchObject({ state: "needs-attention", actions: ["pull-now"], stale: false });
     expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 3, done: 2, needsAttention: 1, skipped: 0, attention: ["skills"] });
+    expect(platform.reported).toEqual([]);
+  });
+
+  it("read a newer environment's result offering a verb or naming a kind of item this build does not know, from the snapshot and a notice, leaving out only that part (#693)", async () => {
+    const { runtime, platform, env, environment, adding } = await paired();
+    const tool = { action: "install", kind: "tool", id: "gh", label: "gh" };
+    const forges = {
+      ...attentionResult("forges", "forges.gh", ["install"]),
+      actions: ["install", "link-gh"],
+      targets: [tool, { action: "link-gh", kind: "tool", id: "gh", label: "gh" }],
+    };
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), forges] });
+    environment.synchronized(3);
+    await adding;
+    await flush();
+    expect(resultOf(runtime, env, "forges")).toMatchObject({ state: "needs-attention", actions: ["install"], targets: [tool], stale: false });
+
+    const skills = { ...attentionResult("skills", "skills.pulled", ["pull-now"], { checkedAt: after(4_000) }), targets: [{ action: "pull-now", kind: "skill-feed", id: "feed-1", label: "team feed" }] };
+    environment.event(noticeEvent(4, env, "setup.result-changed", skills));
+    await flush();
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ state: "needs-attention", reason: "skills.pulled does not hold.", actions: [], stale: false });
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 3, done: 1, needsAttention: 2, skipped: 0, attention: ["forges", "skills"] });
     expect(platform.reported).toEqual([]);
   });
 
@@ -279,6 +302,30 @@ describe("this client's own check", () => {
     clock.advance(2);
     await flush();
     expect(resultOf(runtime, env, "key-manager")).toMatchObject({ olderThanCadence: true });
+  });
+
+  it("applies a newer environment's answer whole, leaving out only what its vocabulary has and this build's lacks: a verb, a kind of item, a later milestone's step (#693)", async () => {
+    const { runtime, wire, env } = await withResults();
+    const checks = heldChecks(wire);
+    const all = runtime.setup.check(env);
+    await flush();
+    const forgeAccount = { action: "sign-in-again", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" };
+    const calendar = { action: "sign-in-again", kind: "calendar-account", id: "calendar-work", label: "Work calendar" };
+    const forges = {
+      ...attentionResult("forges", "forges.identity", ["sign-in-again", "check-again"], { checkedAt: after(1) }),
+      actions: ["rotate-token", "sign-in-again", "check-again"],
+      targets: [calendar, forgeAccount],
+    };
+    // Restore names only a section of a kind this build does not know: offered on no section, it would restore another.
+    const permissions = { ...attentionResult("permissions", "permissions.denylist", ["restore"], { checkedAt: after(1) }), targets: [{ action: "restore", kind: "denylist-folder", id: "paths", label: "Paths" }] };
+    const housekeeping = { ...doneResult("account", { checkedAt: after(1) }), step: "housekeeping", reason: "Nothing to sweep." };
+    checks.answer([doneResult("account", { checkedAt: after(1) }), forges, housekeeping, permissions]);
+
+    expect(await all).toMatchObject({ ok: true });
+    expect(resultOf(runtime, env, "forges")).toMatchObject({ state: "needs-attention", actions: ["sign-in-again", "check-again"], targets: [forgeAccount], stale: false });
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", reason: "permissions.denylist does not hold.", actions: [], checkedAt: after(1) });
+    expect(resultOf(runtime, env, "permissions")).not.toHaveProperty("targets");
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 3, done: 1, needsAttention: 2, skipped: 0, attention: ["forges", "permissions"] });
   });
 
   it("stops reading pending at the request's failure, keeping the result held", async () => {

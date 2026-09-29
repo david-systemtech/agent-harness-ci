@@ -2411,6 +2411,10 @@
       "title": "StepResult"
     },
     {
+      "path": "setup/step-results.json",
+      "title": "StepResults"
+    },
+    {
       "path": "browser/page-driver-kind.json",
       "title": "PageDriverKind"
     },

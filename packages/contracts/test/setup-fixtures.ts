@@ -102,9 +102,16 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       forgeRejected,
       // A step of the milestone-1 order this build does not register: a newer environment's result (#672).
       { ...done, step: "key-manager", reason: "The key manager is reachable and its login is valid." },
+      // A verb and a kind of item a newer environment's vocabulary has and this one's lacks: read, and left out (#693).
+      { ...needsAttention, actions: ["reboot", "restore"] },
+      { ...signedOutResult, targets: [{ ...signedOut, kind: "workspace" }] },
+      { ...signedOutResult, actions: ["rotate-token"], targets: [{ ...signedOut, action: "rotate-token" }] },
     ],
     invalid: [
-      { ...signedOutResult, targets: [{ ...signedOut, kind: "workspace" }] },
+      { ...needsAttention, actions: ["Reboot"] },
+      { ...needsAttention, actions: ["try again"] },
+      { ...signedOutResult, targets: [{ ...signedOut, kind: "forge account" }] },
+      { ...signedOutResult, targets: [{ ...signedOut, action: "" }] },
       { ...signedOutResult, targets: [{ ...signedOut, label: "" }] },
       { ...signedOutResult, targets: signedOut },
       { ...timedOut, lastGood: { ...timedOut.lastGood, state: "needs-attention" } },
@@ -113,11 +120,19 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
       { ...timedOut, lastGood: "The environment runs as a non-root user." },
       { ...done, reason: "" },
       { ...done, state: "pending" },
-      { ...needsAttention, actions: ["reboot"] },
       { ...done, checkedAt: "yesterday" },
       { ...done, step: "housekeeping" },
       { state: "done", reason: "x", failing: [], actions: [], checkedAt: "2026-09-25T08:00:00.000Z" },
     ],
+  },
+  "setup/step-results.json": {
+    valid: [
+      [],
+      [done, needsAttention, signedOutResult],
+      // A step past the milestone-1 order, a later milestone's: passed over whatever it holds, the rest read (#693).
+      [done, { ...done, step: "housekeeping" }, { step: "housekeeping", state: "idle" }],
+    ],
+    invalid: [done, [{ ...done, state: "pending" }], [done, { ...done, step: "" }], [{ ...done, step: "Housekeeping" }], [{ state: "done", reason: "x", failing: [], actions: [], checkedAt: done.checkedAt }]],
   },
 };
 
@@ -125,8 +140,14 @@ export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "setup.check": {
     params: { valid: [{}, { step: "permissions" }, { step: "forges" }], invalid: [{ step: "key-manager" }, { step: "" }, { step: ["permissions"] }] },
     result: {
-      valid: [{ results: [] }, { results: [done, needsAttention, timedOut, signedOutResult] }, { results: [skipped, { ...skipped, step: "memory-bank", reason: "No bank is registered." }, done] }],
-      invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }, { results: [done, { ...done, step: "housekeeping" }] }],
+      valid: [
+        { results: [] },
+        { results: [done, needsAttention, timedOut, signedOutResult] },
+        { results: [skipped, { ...skipped, step: "memory-bank", reason: "No bank is registered." }, done] },
+        // A later milestone's step passed over, and a verb this version lacks left out (#693).
+        { results: [done, { ...done, step: "housekeeping" }, { ...needsAttention, actions: ["reboot"] }] },
+      ],
+      invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }, { results: [done, { ...done, step: "" }] }],
     },
   },
 };

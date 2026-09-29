@@ -141,10 +141,11 @@ const SnapshotLook = EnvironmentSnapshot.pick({ environment: true });
 /**
  * The results a snapshot's `setup` carries that this build can read. One of
  * a step this build does not register reads, since a result names any step
- * of the milestone-1 order (#672); one this build cannot read (a later
- * shape: a step past that order, an action or a target kind it does not
- * know) is left out, as a notice this client does not know is, and the
- * others still read.
+ * of the milestone-1 order (#672), and one offering a verb or naming a kind
+ * of item it does not know reads with that action or target left out
+ * (#693); one this build cannot read even so (a step past that order, or
+ * another shape) is left out, as a notice this client does not know is,
+ * and the others still read.
  */
 const readResults = (value: unknown): StepResult[] => {
   if (value === undefined) return [];
