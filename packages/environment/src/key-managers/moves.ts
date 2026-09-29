@@ -3,6 +3,7 @@ import {
   ENVIRONMENT_STREAM_KIND,
   invalidParams,
   referenceLocator,
+  type KeyManagerCannotWriteError,
   type KeyManagerConnectionRecord,
   type KeyManagerMovedPayload,
   type KeyManagerMoveItemKind,
@@ -38,18 +39,29 @@ import { sameValue } from "./same-value.js";
  *   one level below the base path (`base-path.ts`).
  * - **A Move** takes a connection and its items, or all, one item at a time,
  *   and one Move at a time on the environment. For each it reads the stored
- *   value, registered with the scrub registry until the item is done;
- *   writes it with the connection's login, with its entry's note, service
- *   and the day it was added beside it, refusing a different value there
- *   (`conflict` reason `target_exists`) unless asked to overwrite; reads it
- *   back through the registry's resolve and compares in constant time;
- *   swaps the item through its owner's command; deletes the stored value;
- *   and the command appends `key-manager.moved` for each item moved, in its
- *   own transaction once every item is done. An item that fails says at
- *   which step and why, its stored value left in place, and so is any copy
+ *   value, registered with the scrub registry until the item is done; asks
+ *   the key manager whether the login may write the target (#372), and
+ *   answers `cannot_write` with nothing written when it may not; writes it
+ *   with the connection's login, with its entry's note, service and the day
+ *   it was added beside it, refusing a different value there (`conflict`
+ *   reason `target_exists`) unless asked to overwrite; reads it back
+ *   through the registry's resolve and compares in constant time; swaps the
+ *   item through its owner's command; deletes the stored value; and the
+ *   command appends `key-manager.moved` for each item moved, in its own
+ *   transaction once every item is done. An item that fails says at which
+ *   step and why, its stored value left in place, and so is any copy
  *   written; the next item goes on. Every line a key manager's or an
  *   owner's text becomes passes the scrub registry while the value is still
  *   registered: no value reaches an answer, an event, a receipt or a log.
+ * - **Copy the value** (ADR 0028; #372): an item a Move answered
+ *   `cannot_write` is offered one copy of its stored value on that
+ *   connection, which `keyManagers.move.copyValue` answers, the one answer
+ *   that ever holds a stored value, appending `key-manager.value-copied`
+ *   with the client session. The offer is held in memory until the copy
+ *   takes it, the item moves, or a later Move of it that writes answers
+ *   otherwise. A Move with `verifyOnly` then writes nothing: it reads back
+ *   what a person pasted at each target, and swaps and deletes as above; a
+ *   different value there, or none, leaves the item as it was.
  * - **A delete that fails** leaves the item moved: its `key-manager.moved`
  *   names where the stored value is kept still (`undeleted`), and every
  *   start after the gate deletes those again, appending
@@ -166,7 +178,12 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     [...sources.values()].flatMap((source) => source.items().map((item) => ({ source, item })));
 
   /** An item's failure at `step`, `written` saying whether a copy was left at the target. */
-  const failed = (item: KeyManagerMoveItemRef, step: Extract<KeyManagerMoveItemResult, { outcome: "failed" }>["step"], written: boolean, error: WireError | KeyManagerTargetExistsError): KeyManagerMoveItemResult => ({
+  const failed = (
+    item: KeyManagerMoveItemRef,
+    step: Extract<KeyManagerMoveItemResult, { outcome: "failed" }>["step"],
+    written: boolean,
+    error: WireError | KeyManagerTargetExistsError | KeyManagerCannotWriteError,
+  ): KeyManagerMoveItemResult => ({
     item,
     outcome: "failed",
     step,
@@ -180,66 +197,94 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     readonly event: KeyManagerMovedPayload | null;
   }
 
+  /** How a Move takes its items: whether a different value at a target is replaced, or nothing is written and what a person pasted there only verified (#372). */
+  interface MoveMode {
+    readonly overwrite: boolean;
+    readonly verifyOnly: boolean;
+  }
+
   /**
-   * Moves one item to its target on the connection: read, write, read back,
-   * swap, delete. The value is registered for scrubbing from its read until
-   * the item is done, and every line said of it is scrubbed meanwhile.
+   * Moves one item to its target on the connection: read, ask whether the
+   * login may write the target, write, read back, swap, delete; with
+   * `verifyOnly`, read, read back, swap, delete. The value is registered for
+   * scrubbing from its read until the item is done, and every line said of
+   * it is scrubbed meanwhile.
    */
-  const moveOne = async (source: MoveSource, item: MoveSourceItem, record: KeyManagerConnectionRecord, login: HeldLogin, overwrite: boolean, caller: MethodContext): Promise<Moved> => {
+  const moveOne = async (source: MoveSource, item: MoveSourceItem, record: KeyManagerConnectionRecord, login: HeldLogin, mode: MoveMode, caller: MethodContext): Promise<Moved> => {
     const ref = refOf(source.kind, item.id);
     const reference = moveTarget(record, item.entry, source.key);
     if (reference === null) throw new Error(`The key-manager connection ${record.id} has no target for ${item.entry}.`);
     const named = `${PROVIDER_NAMES[record.provider]} at ${referenceLocator(reference)}`;
     const connectionId = record.id;
+    const kind = ITEM_KINDS[source.kind];
+    const offer = offerOf(connectionId, ref);
+    // A Move that writes answers afresh whether a copy is offered; one that only verifies leaves an offer as it is.
+    if (!mode.verifyOnly) offered.delete(offer);
     const stored = await source.read(item.id);
     if (stored === null) {
-      return { result: failed(ref, "read", false, { code: "not_found", message: `The ${ITEM_KINDS[source.kind]} ${item.name} holds no stored token to move now.`, data: { kind: source.kind, id: item.id } }), event: null };
+      return { result: failed(ref, "read", false, { code: "not_found", message: `The ${kind} ${item.name} holds no stored token to move now.`, data: { kind: source.kind, id: item.id } }), event: null };
     }
     const release = scrub.register(stored.value, { owner: `key-manager:move:${source.kind}:${item.id}` });
     try {
       const said = (message: string): string => scrub.scrubOutput(message);
-      const keeps = `the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token`;
-      // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
-      const checked = await login.provider.canWrite(login.target, login.token, { mount: reference.mount, path: reference.path }, AbortSignal.timeout(budgetMs));
-      if (checked.outcome !== "checked") {
-        return { result: failed(ref, "write", false, { code: WRITE_CODES[checked.outcome], message: `${said(checked.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
+      const keeps = `the ${kind} ${item.name} keeps its stored token`;
+      if (!mode.verifyOnly) {
+        // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
+        const checked = await login.provider.canWrite(login.target, login.token, { mount: reference.mount, path: reference.path }, AbortSignal.timeout(budgetMs));
+        if (checked.outcome !== "checked") {
+          return { result: failed(ref, "write", false, { code: WRITE_CODES[checked.outcome], message: `${said(checked.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
+        }
+        if (!checked.writable) {
+          offered.add(offer);
+          const message = `The login of ${record.label} may not write ${named}: nothing was written, and ${keeps}. Copy the value to paste it there by hand, then verify it to finish the move.`;
+          return { result: failed(ref, "write", false, { code: "cannot_write", message, data: { connectionId, reference } }), event: null };
+        }
+        // `added` is the environment's day.
+        const fields = { note: item.note, service: item.service, added: clock.now().toISOString().slice(0, 10) };
+        const written = await login.provider.write(login.target, login.token, { reference, value: stored.value, fields, overwrite: mode.overwrite }, AbortSignal.timeout(budgetMs));
+        if (written.outcome === "exists") {
+          const message = `A different value is at ${named} already: nothing was written, and ${keeps}. Move it with overwrite to replace that value.`;
+          return { result: failed(ref, "write", false, { code: "conflict", message, data: { reason: "target_exists", connectionId, reference } }), event: null };
+        }
+        if (written.outcome !== "written") {
+          return { result: failed(ref, "write", false, { code: WRITE_CODES[written.outcome], message: `${said(written.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
+        }
       }
-      if (!checked.writable) {
-        offered.add(offerOf(connectionId, ref));
-        const message = `The login of ${record.label} may not write ${named}: nothing was written, and ${keeps}. Copy the value to paste it there by hand, then verify it to finish the move.`;
-        return { result: failed(ref, "write", false, { code: "cannot_write", message, data: { connectionId, reference } }), event: null };
-      }
-      // `added` is the environment's day.
-      const fields = { note: item.note, service: item.service, added: clock.now().toISOString().slice(0, 10) };
-      const written = await login.provider.write(login.target, login.token, { reference, value: stored.value, fields, overwrite }, AbortSignal.timeout(budgetMs));
-      if (written.outcome === "exists") {
-        const message = `A different value is at ${named} already: nothing was written, and ${keeps}. Move it with overwrite to replace that value.`;
-        return { result: failed(ref, "write", false, { code: "conflict", message, data: { reason: "target_exists", connectionId, reference } }), event: null };
-      }
-      if (written.outcome !== "written") {
-        return { result: failed(ref, "write", false, { code: WRITE_CODES[written.outcome], message: `${said(written.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
-      }
-      const leftCopy = `The copy written to ${named} and the stored token of the ${ITEM_KINDS[source.kind]} ${item.name} are both left in place.`;
+      // A copy this Move wrote is left at the target when the item goes no further; with verifyOnly it wrote none.
+      const written = !mode.verifyOnly;
+      const left = written
+        ? `The copy written to ${named} and the stored token of the ${kind} ${item.name} are both left in place.`
+        : "The value there and the stored token are both left as they were.";
       const back = await registry.resolve({ reference, owner: `key-manager:move:${source.kind}:${item.id}`, purpose: "read back a move" });
-      if (back.outcome === "unavailable") return { result: failed(ref, "read-back", true, { code: back.code, message: `${said(back.message)} ${leftCopy}`, data: { connectionId } }), event: null };
+      if (back.outcome === "unavailable") {
+        const message =
+          mode.verifyOnly && back.code === "reference_not_found"
+            ? `${said(back.message)} Nothing is pasted at ${named} yet: paste the value there, then verify it again. The ${kind} ${item.name} keeps its stored token.`
+            : `${said(back.message)} ${left}`;
+        return { result: failed(ref, "read-back", written, { code: back.code, message, data: { connectionId } }), event: null };
+      }
       const same = sameValue(back.value, stored.value);
       back.release();
       if (!same) {
-        const message = `${named} answered another value than the one written, so the ${ITEM_KINDS[source.kind]} was not swapped to it. ${leftCopy}`;
-        return { result: failed(ref, "read-back", true, { code: "conflict", message, data: { reason: "read_back_differs", connectionId, reference } }), event: null };
+        const message = written
+          ? `${named} answered another value than the one written, so the ${kind} was not swapped to it. ${left}`
+          : `${named} holds another value than the stored token of the ${kind} ${item.name}, so the ${kind} was not swapped to it. ${left}`;
+        return { result: failed(ref, "read-back", written, { code: "conflict", message, data: { reason: "read_back_differs", connectionId, reference } }), event: null };
       }
       const swapped = await source.swap(item.id, reference, caller);
       if (swapped.outcome !== "swapped") {
-        return { result: failed(ref, "swap", true, { code: swapped.error.code, message: `${said(swapped.error.message)} ${leftCopy}`, data: swapped.error.data }), event: null };
+        return { result: failed(ref, "swap", written, { code: swapped.error.code, message: `${said(swapped.error.message)} ${left}`, data: swapped.error.data }), event: null };
       }
+      offered.delete(offer);
       let deleted = true;
       try {
         await source.delete(item.id, stored.storedAt);
       } catch (error) {
         deleted = false;
-        console.error(`Deleting the stored token of the ${ITEM_KINDS[source.kind]} ${item.id} a Move took failed; the next start deletes it:`, error);
+        console.error(`Deleting the stored token of the ${kind} ${item.id} a Move took failed; the next start deletes it:`, error);
       }
-      const message = `Moved to ${named}; ${deleted ? "the stored token was deleted." : "deleting the stored token failed, and the next start deletes it."}`;
+      const how = written ? `Moved to ${named}` : `Verified the value pasted at ${named} and moved to it`;
+      const message = `${how}; ${deleted ? "the stored token was deleted." : "deleting the stored token failed, and the next start deletes it."}`;
       return {
         result: { item: ref, outcome: "moved", reference, storedValueDeleted: deleted, message },
         event: { connectionId, item: ref, reference, undeleted: deleted ? null : stored.storedAt },
@@ -277,6 +322,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
           return rejecting({ code: "provider_unavailable", message: `This environment cannot move stored tokens into ${PROVIDER_NAMES[record.provider]} yet.`, data: { provider: record.provider } });
         }
         if (record.basePath === null) invalid(["connectionId"], `The key-manager connection ${record.label} has no base path: set where Move keeps the harness's secrets first.`);
+        if (params.verifyOnly === true && params.overwrite === true) invalid(["overwrite"], "A Move with verifyOnly writes nothing, so it has nothing to overwrite.");
         if (record.status.kind !== "signed-in" || login === null) {
           return rejecting({
             code: "credential_source_unavailable",
@@ -297,7 +343,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
             done.push({ result: failed(ref, "read", false, { code: "not_found", message: `No ${ITEM_KINDS[ref.kind]} ${ref.id} holds a stored token on this environment.`, data: { kind: ref.kind, id: ref.id } }), event: null });
             continue;
           }
-          done.push(await moveOne(source, item, record, login, params.overwrite === true, context));
+          done.push(await moveOne(source, item, record, login, { overwrite: params.overwrite === true, verifyOnly: params.verifyOnly === true }, context));
         }
         return (_params, command) => {
           const at = { tx: command.tx, actor: command.actor, commandId: command.commandId };

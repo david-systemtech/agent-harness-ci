@@ -425,6 +425,97 @@ describe("keyManagers.move.copyValue", () => {
   });
 });
 
+describe("keyManagers.move with verifyOnly", () => {
+  it("end to end on a read-only OpenBao: cannot_write, the value copied and pasted by hand, then read back and swapped with nothing written, the forge account verifying through its reference", async () => {
+    const { t, bao, client, connection, account } = await withForgeAccount(READER);
+    await setBasePath(client, connection.id, "personal/harness");
+    const item = { kind: "forge-account", id: account.id } as const;
+    const reference = homeTarget(connection.id);
+
+    const refused = await move(client, { connectionId: connection.id });
+    expect(refused.result?.items).toMatchObject([{ item, outcome: "failed", step: "write", written: false, error: { code: "cannot_write", data: { connectionId: connection.id, reference } } }]);
+    const copied = await copyValue(client, { connectionId: connection.id, item });
+    // The person pastes the value at the target by hand.
+    bao.secret("personal", "harness/forge-home", { token: copied.result?.value });
+    const asked = bao.requests.length;
+    const from = t.env.log.head();
+
+    const verified = await move(client, { connectionId: connection.id, verifyOnly: true });
+
+    expect(verified.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect(verified.result?.items).toEqual([
+      {
+        item,
+        outcome: "moved",
+        reference,
+        storedValueDeleted: true,
+        message: "Verified the value pasted at OpenBao at personal/harness/forge-home (key token) and moved to it; the stored token was deleted.",
+      },
+    ]);
+    expect(bao.requests.slice(asked).filter((request) => request.method !== "GET")).toEqual([]);
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({ token: TOKEN });
+    expect(await forgeList(client)).toMatchObject([{ id: account.id, credential: { kind: "reference", reference }, problem: null }]);
+    const events = await environmentEvents(client, from);
+    expect(events.map((event) => event.type)).toEqual(["forge.account.updated", "key-manager.moved"]);
+    expect(events[1]?.payload).toEqual({ connectionId: connection.id, item, reference, undeleted: null });
+    expect((await vaultKeys(t)).filter((key) => key.startsWith("forge:"))).toEqual([]);
+    expect(await moveList(client)).toEqual([]);
+    expect(await forgeVerify(client, account.id)).toMatchObject([{ id: account.id, identity: { login: "david" }, problem: null }]);
+  });
+
+  it("leaves the stored token and the forge account as they were when the target holds nothing or another value, saying which", async () => {
+    const { t, bao, client, connection, account } = await withForgeAccount(READER);
+    await setBasePath(client, connection.id, "personal/harness");
+    const item = { kind: "forge-account", id: account.id } as const;
+    const reference = homeTarget(connection.id);
+    const from = t.env.log.head();
+
+    const nothing = await move(client, { connectionId: connection.id, verifyOnly: true });
+    bao.secret("personal", "harness/forge-home", { token: OTHER_VALUE });
+    const differs = await move(client, { connectionId: connection.id, verifyOnly: true });
+
+    expect(nothing.result?.items).toEqual([
+      {
+        item,
+        outcome: "failed",
+        step: "read-back",
+        written: false,
+        error: {
+          code: "reference_not_found",
+          message: expect.stringMatching(
+            new RegExp(`found nothing to read personal/harness/forge-home .* Nothing is pasted at OpenBao at personal/harness/forge-home \\(key token\\) yet: paste the value there, then verify it again\\. The forge account ${account.origin} keeps its stored token\\.$`),
+          ),
+          data: { connectionId: connection.id },
+        },
+      },
+    ]);
+    expect(differs.result?.items).toEqual([
+      {
+        item,
+        outcome: "failed",
+        step: "read-back",
+        written: false,
+        error: {
+          code: "conflict",
+          message: `OpenBao at personal/harness/forge-home (key token) holds another value than the stored token of the forge account ${account.origin}, so the forge account was not swapped to it. The value there and the stored token are both left as they were.`,
+          data: { reason: "read_back_differs", connectionId: connection.id, reference },
+        },
+      },
+    ]);
+    expect(bao.stored("personal", "harness/forge-home")).toEqual({ token: OTHER_VALUE });
+    expect(await forgeList(client)).toMatchObject([{ id: account.id, credential: { kind: "stored" } }]);
+    expect((await vaultKeys(t)).filter((key) => key.startsWith("forge:"))).toHaveLength(1);
+    expect(await keyManagerEvents(client, from)).toEqual([]);
+    expect(JSON.stringify([nothing, differs])).not.toMatch(new RegExp(`${OTHER_VALUE}|${TOKEN}`));
+  });
+
+  it("is invalid_params with overwrite, since it writes nothing", async () => {
+    const { client, connection } = await withForgeAccount(READER);
+    await setBasePath(client, connection.id, "personal/harness");
+    await expect(move(client, { connectionId: connection.id, verifyOnly: true, overwrite: true })).rejects.toMatchObject({ code: "invalid_params", message: expect.stringContaining("writes nothing") });
+  });
+});
+
 describe("the value a Move takes", () => {
   it("is never in an event, a receipt, a log line or an answer", async () => {
     // Every line handed to the logger, before its scrub: a value must never reach it at all.
