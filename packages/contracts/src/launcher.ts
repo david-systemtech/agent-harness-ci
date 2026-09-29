@@ -40,6 +40,52 @@ export const LAUNCHER_PROTOCOL = 1;
 export const RELEASE_VERSION_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
 
+/** A release version's parts: its three numbers, its prerelease identifiers (none for a release), its build metadata left out. */
+const partsOf = (version: string): { readonly numbers: readonly string[]; readonly prerelease: readonly string[] } => {
+  const core = version.split("+", 1)[0] ?? "";
+  const dash = core.indexOf("-");
+  const numbers = (dash === -1 ? core : core.slice(0, dash)).split(".");
+  return { numbers, prerelease: dash === -1 ? [] : core.slice(dash + 1).split(".") };
+};
+
+const NUMERIC = /^\d+$/;
+
+/** Two digit strings without leading zeros, compared as numbers of any length. */
+const compareNumbers = (a: string, b: string): number => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+
+/** Two prerelease identifiers: numbers numerically and below any alphanumeric one, which compare in ASCII order. */
+const compareIdentifiers = (a: string, b: string): number => {
+  const [numericA, numericB] = [NUMERIC.test(a), NUMERIC.test(b)];
+  if (numericA && numericB) return compareNumbers(a, b);
+  if (numericA !== numericB) return numericA ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+};
+
+/**
+ * Two release versions by SemVer precedence: below zero when `a` comes
+ * before `b`, above when after, zero when they are equal in precedence
+ * (build metadata is ignored). A prerelease comes before its release; its
+ * identifiers compare one by one, and a longer set comes after its prefix.
+ * Both must be release versions (`RELEASE_VERSION_PATTERN`). Defined here,
+ * where the launcher reads it to keep the versions before the active one.
+ */
+export const compareReleaseVersions = (a: string, b: string): number => {
+  const [left, right] = [partsOf(a), partsOf(b)];
+  for (let index = 0; index < 3; index++) {
+    const order = compareNumbers(left.numbers[index] ?? "0", right.numbers[index] ?? "0");
+    if (order !== 0) return order;
+  }
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) return right.prerelease.length - left.prerelease.length;
+  for (let index = 0; index < Math.min(left.prerelease.length, right.prerelease.length); index++) {
+    const order = compareIdentifiers(left.prerelease[index] ?? "", right.prerelease[index] ?? "");
+    if (order !== 0) return order;
+  }
+  return left.prerelease.length - right.prerelease.length;
+};
+
+/** Whether a release version has a prerelease part: only the beta channel follows one. */
+export const isPrerelease = (version: string): boolean => partsOf(version).prerelease.length > 0;
+
 /**
  * An update's id, as the launcher reads it: a version 4 UUID, in either case
  * (the update vocabulary's `UpdateId`, which takes the same). The launcher
