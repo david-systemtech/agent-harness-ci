@@ -45,6 +45,9 @@ export type WriteCommandKind =
  */
 export const SESSION_WRITE_COMMANDS = {
   "sessions.create": { ordered: "Makes the session: a second create with another id is another session." },
+  "sessions.setWorkspace": {
+    ordered: "Refused workspace_present unless the session's workspace is missing, which an earlier setWorkspace of the session clears; and its request makes a directory or a worktree.",
+  },
   "sessions.rename": { setter: { target: "session", fields: ["title", "titleSource"] } },
   "sessions.archive": { setter: { target: "session", fields: ["archivedAt"] } },
   "sessions.unarchive": { setter: { target: "session", fields: ["archivedAt"] } },

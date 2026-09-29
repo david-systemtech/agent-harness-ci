@@ -219,6 +219,29 @@ describe("compacting an old session", () => {
     expect(log.read("SELECT repository_identity FROM sessions WHERE id = ?", old)).toEqual([{ repository_identity: "https://git.systemtech.dev/david/agent-harness" }]);
   });
 
+  it("keeps the availability watcher's mark and a session.workspace-set, so a rebuild after it gives the session its place and mark again (#328)", () => {
+    const clock = manualClock();
+    const log = open(clock);
+    log.append(stream(old), [created], { actor });
+    log.append(stream(old), [{ type: "session.workspace-status-changed", payload: { status: "missing" } }], { actor: "system:workspaces" });
+    log.append(stream(old), [{ type: "session.workspace-set", payload: { workspace: { kind: "directory", path: "/work/moved" }, repositoryIdentity: null } }], { actor });
+    log.append(stream(old), wholeRun(runIds[0], [messageIds[0], messageIds[1]]), { actor: "adapter:fake", correlationId: runIds[0] });
+    log.append(stream(old), [{ type: "session.workspace-status-changed", payload: { status: "missing" } }], { actor: "system:workspaces" });
+    const marked = log.read("SELECT workspace, workspace_missing_since FROM sessions WHERE id = ?", old);
+    clock.advance(THRESHOLD + 1);
+
+    expect(createCompactionSweep({ log, clock }).sweep()).toEqual({ compacted: [old], failed: [] });
+    log.rebuildProjections();
+
+    expect(typesOf(log, old).filter((type) => type.startsWith("session.workspace"))).toEqual([
+      "session.workspace-status-changed",
+      "session.workspace-set",
+      "session.workspace-status-changed",
+    ]);
+    expect(log.read("SELECT workspace, workspace_missing_since FROM sessions WHERE id = ?", old)).toEqual(marked);
+    expect(marked).toEqual([{ workspace: JSON.stringify({ kind: "directory", path: "/work/moved" }), workspace_missing_since: expect.any(String) }]);
+  });
+
   it("folds on from the snapshot when a compacted session runs again and is left again: the fold is the whole session's", () => {
     const clock = manualClock();
     const log = open(clock);

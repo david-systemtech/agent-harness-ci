@@ -503,6 +503,10 @@
       "title": "SessionWorkspaceStatusChangedPayload"
     },
     {
+      "path": "sessions/events/session.workspace-set.json",
+      "title": "SessionWorkspaceSetPayload"
+    },
+    {
       "path": "sessions/events/session.repository-identified.json",
       "title": "SessionRepositoryIdentifiedPayload"
     },
@@ -2575,6 +2579,22 @@
       "title": "sessions.create error"
     },
     {
+      "path": "methods/sessions.setWorkspace/params.json",
+      "title": "sessions.setWorkspace params"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/result.json",
+      "title": "sessions.setWorkspace result"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/response.json",
+      "title": "sessions.setWorkspace response"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/error.json",
+      "title": "sessions.setWorkspace error"
+    },
+    {
       "path": "methods/sessions.rename/params.json",
       "title": "sessions.rename params"
     },
@@ -4596,6 +4616,16 @@
       "result": "methods/sessions.create/result.json",
       "response": "methods/sessions.create/response.json",
       "error": "methods/sessions.create/error.json"
+    },
+    {
+      "name": "sessions.setWorkspace",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setWorkspace/params.json",
+      "result": "methods/sessions.setWorkspace/result.json",
+      "response": "methods/sessions.setWorkspace/response.json",
+      "error": "methods/sessions.setWorkspace/error.json"
     },
     {
       "name": "sessions.rename",

@@ -27,6 +27,7 @@
     "session.pull-request-unlinked",
     "session.pull-request-synced",
     "session.workspace-status-changed",
+    "session.workspace-set",
     "session.repository-identified",
     "prompt.opened",
     "prompt.answered",

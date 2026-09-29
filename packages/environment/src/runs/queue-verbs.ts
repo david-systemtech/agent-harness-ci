@@ -1,7 +1,7 @@
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
-import type { CommandContext, MethodHandlers } from "../serve/methods.js";
+import type { CommandContext, MethodHandler, PreparedCommand } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -45,7 +45,13 @@ export interface QueueVerbOptions {
 /** Where a withdraw of a message this environment does not know keeps its receipt: no session can be named, so the message's own id. */
 const messageAggregate = (messageId: string): StreamRef => ({ kind: "message", id: messageId });
 
-export const queueVerbMethods = (options: QueueVerbOptions): MethodHandlers => {
+/** The two verbs' handlers: read now's decides in its transaction, withdraw's hears from the provider first. */
+export interface QueueVerbHandlers {
+  readonly "runs.readNow": MethodHandler<"runs.readNow">;
+  readonly "runs.withdraw": PreparedCommand<"runs.withdraw">;
+}
+
+export const queueVerbMethods = (options: QueueVerbOptions): QueueVerbHandlers => {
   const { log, host, actorOf } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 

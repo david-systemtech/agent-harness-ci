@@ -26,6 +26,7 @@ import {
   ttlWords,
   typedPath,
   undoableFold,
+  userMessagesOf,
   withdrawQueued,
   type BrowseRow,
   type Clock,
@@ -107,7 +108,7 @@ import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./scree
 import { PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
-import { useForkRewind, userMessagesOf } from "./session/use-fork-rewind.js";
+import { useForkRewind } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
@@ -440,6 +441,9 @@ export const App = (props: AppProps) => {
   // The session on screen.
   const session = useSession(runtime, clock, request);
   const { opened, projection } = session;
+  // The open session's workspace, when the environment has found it gone (#328): read from its list row, as the rail's.
+  const openRow = opened ? list.rows.find((row) => row.environmentId === opened.environmentId && row.summary.id === opened.sessionId) : undefined;
+  const gone = openRow?.summary.workspaceMissingSince != null ? openRow.summary.workspace.path : undefined;
   const [view, setView] = useState<View>(FRESH_VIEW);
   const [viewport, setViewport] = useState(0);
   const [sending, setSending] = useState<readonly Sending[]>([]);
@@ -843,6 +847,10 @@ export const App = (props: AppProps) => {
     }
     if (session.lock.locked) {
       say(`Not sent: ${session.lock.reason}`);
+      return false;
+    }
+    if (gone !== undefined) {
+      say(`Not sent: ${gone} is gone; /cwd chooses a workspace for the session.`);
       return false;
     }
     const refused = attachmentRefusal(message, session.provider);
@@ -2284,6 +2292,7 @@ export const App = (props: AppProps) => {
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
         locked={opened && session.lock.locked ? session.lock.reason : undefined}
+        gone={gone}
         placeholder={placeholder}
         popup={popup}
         highlight={popup ? highlighted(composer.state, popup) : -1}

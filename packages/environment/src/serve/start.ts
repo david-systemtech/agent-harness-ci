@@ -43,7 +43,7 @@ import {
 } from "../auth/client-sessions.js";
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
-import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { formatActor, openEventLog, type EventLog, type Projector, type Tx } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
@@ -114,8 +114,10 @@ import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
+import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
 import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
 import { createIdentityPasses } from "../workspace/identity-passes.js";
+import { setWorkspaceMethods } from "../workspace/set-workspace.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
 import { workspaceRoots } from "../workspace/roots.js";
@@ -323,9 +325,10 @@ export interface EnvironmentOptions {
    * the workspace roots later workstreams declare beside the data
    * directory's scratch and worktrees, which are exempt from the denylist's
    * data-directory preset as they are; the home `~` stands for; whether a
-   * directory can be read; how long git gets. Each has a preset.
+   * directory can be read; how long git gets; and how the availability
+   * watcher looks at a workspace (#328). Each has a preset.
    */
-  readonly workspaces?: WorkspaceSettings;
+  readonly workspaces?: WorkspaceSettings & AvailabilitySettings;
   /**
    * The command line that runs the `agent-harness` binary before its verb
    * (#314): git names it, with `git-credential <slug>`, as its credential
@@ -474,6 +477,14 @@ export interface EnvironmentHandle {
     readonly checkoutIndex: CheckoutIndex;
     /** Settles once this start's resolved identity pass, run once the wire is open, has run: what a test waits on before reading what it left. */
     readonly identityPass: Promise<void>;
+    /** Settles once this start's availability pass (#328), run once the wire is open, has looked at every session's workspace. */
+    readonly availabilityPass: Promise<void>;
+    /**
+     * Marks a session missing in the open transaction `tx`, right after the
+     * `session.created` that recorded it with a directory that is gone: the
+     * Carry over import's entry (#88; ADR 0021), as `system:workspaces`.
+     */
+    markMissing(tx: Tx, sessionId: string): void;
   };
   /**
    * The key-manager registry's resolve (#370): how the harness's services
@@ -703,8 +714,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
 
-  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at and the identity passes carry (#329).
+  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
+  // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
   const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
+  const autoMemory = createAutoMemory(autoMemoryRoot);
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -877,8 +890,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(startPromptNotices({ log, stream: environmentStream }));
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
+  // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
+  // looks and what the terminal, file and diff methods find; its passes start once the wire is open.
+  const availability = createAvailabilityWatcher({
+    log,
+    clock,
+    ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
+    ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
+  });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, scrub, ...options.terminals });
+  const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
@@ -1003,6 +1024,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
+    // A missing session given another workspace (#328), from a request the create's resolver serves.
+    ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
     // Fork, rewind and the subagent transcript (#137), beside the session commands.
     ...forkRewindMethods({
@@ -1013,7 +1036,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
-    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
@@ -1038,6 +1061,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
       log,
+      availability,
       directoryRules: environmentResolver,
       worktreesRoot: roots.worktrees,
       ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
@@ -1191,10 +1215,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const identityPasses = createIdentityPasses({
     log,
     forgeAccounts,
-    autoMemory: createAutoMemory(autoMemoryRoot),
+    autoMemory,
     ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
   }).start();
   closers.push(() => identityPasses.stop());
+  // The availability watcher's pass (#328): every session's workspace looked at now, past the gate, then hourly.
+  const availabilityPasses = availability.start();
+  closers.push(() => availabilityPasses.stop());
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
@@ -1274,7 +1301,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     startPairing,
-    workspaces: { checkoutIndex: createCheckoutIndex(log), identityPass: identityPasses.resolved },
+    workspaces: {
+      checkoutIndex: createCheckoutIndex(log),
+      identityPass: identityPasses.resolved,
+      availabilityPass: availabilityPasses.pass,
+      markMissing: (tx, sessionId) => availability.markMissing(tx, sessionId.toLowerCase()),
+    },
     close,
   };
 };

@@ -1,6 +1,7 @@
 import type { EventLog } from "../event-log/event-log.js";
 import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
 import type { MethodHandlers } from "../serve/methods.js";
+import type { AvailabilityWatcher } from "./availability.js";
 import { browseDirectory } from "./browse.js";
 import { sessionDiff, workingTreeDiff } from "./diffs.js";
 import { listFiles, readWorkspaceFile } from "./files.js";
@@ -14,13 +15,18 @@ import { requireSessionWorkspace, worktreeSession } from "./session.js";
  * files and diffs"; #124): read-only queries at scope `terminal` over a
  * session's workspace directory. A session that is not on this environment,
  * or is deleted, is `not_found` (kind `session`); a workspace directory that
- * is gone is `conflict`, reason `workspace_missing`. Beside them, at the same
- * scope, browsing and inspecting the environment's directories for the
- * workspace picker (#331), which read a path by the resolver's own rules.
+ * is gone is `conflict`, reason `workspace_missing`, and what each finds of
+ * the workspace, gone or there, marks the session through the availability
+ * watcher (#328); `diffs.session` reads the log and marks nothing. Beside
+ * them, at the same scope, browsing and inspecting the environment's
+ * directories for the workspace picker (#331), which read a path by the
+ * resolver's own rules.
  */
 
 export interface WorkspaceMethodsOptions {
   readonly log: EventLog;
+  /** Told what a file or working-tree diff method found of a session's workspace, gone or there (#328). */
+  readonly availability: Pick<AvailabilityWatcher, "found">;
   /** The environment's resolver's directory rules: how a path is recorded, its problem, the identity a session there gets. */
   readonly directoryRules: DirectoryRules;
   /** The data directory's worktrees root, where the worktrees the harness makes are. */
@@ -29,9 +35,20 @@ export interface WorkspaceMethodsOptions {
   readonly gitTimeoutMs?: number;
 }
 
-export const workspaceMethods = ({ log, directoryRules, worktreesRoot, gitTimeoutMs }: WorkspaceMethodsOptions): MethodHandlers => {
-  /** The session's workspace as its real path, which every read resolves inside. */
-  const rootOf = (sessionId: string): Promise<string> => workspaceRoot(requireSessionWorkspace(log, sessionId.toLowerCase()));
+export const workspaceMethods = ({ log, availability, directoryRules, worktreesRoot, gitTimeoutMs }: WorkspaceMethodsOptions): MethodHandlers => {
+  /** The session's workspace as its real path, which every read resolves inside; what was found of it marks the session. */
+  const rootOf = async (sessionId: string): Promise<string> => {
+    const id = sessionId.toLowerCase();
+    const recorded = requireSessionWorkspace(log, id);
+    try {
+      const real = await workspaceRoot(recorded);
+      availability.found(id, recorded, "present");
+      return real;
+    } catch (error) {
+      availability.found(id, recorded, "missing");
+      throw error;
+    }
+  };
 
   return {
     "workspaces.browse": (params) => browseDirectory(directoryRules.recorded(params.path ?? "~"), params.hidden === true, directoryRules),
