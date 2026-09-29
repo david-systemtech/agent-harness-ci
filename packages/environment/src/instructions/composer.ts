@@ -70,7 +70,7 @@ export interface InstructionLayers {
 }
 
 /** The orientation block's part: its id in the manifest and its title in a preview. */
-export const ORIENTATION_PART = { id: "orientation", title: "Orientation" } as const;
+const ORIENTATION_PART = { id: "orientation", title: "Orientation" } as const;
 
 /** What sits between two parts of the text. */
 const PART_SEPARATOR = "\n\n";
@@ -117,7 +117,7 @@ export const composeInstructions =
       "always-on": [],
     };
     const composed: InstructionPart[] = INSTRUCTION_LAYERS.flatMap((layer) =>
-      given[layer].filter((part) => part.text.trim() !== "").map((part) => ({ layer, ...part })),
+      given[layer].filter((part) => part.text.trim() !== "").map((part) => ({ ...part, layer })),
     );
     const channelNone = scope.channel.kind === "none";
     const parts = channelNone ? [] : composed;

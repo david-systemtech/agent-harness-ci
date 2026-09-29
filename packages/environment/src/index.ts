@@ -126,7 +126,6 @@ export {
   type ToolServerScope,
 } from "./adapter/seams.js";
 export {
-  ORIENTATION_PART,
   composeInstructions,
   instructionsDigest,
   type InstructionLayers,

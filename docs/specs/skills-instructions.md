@@ -233,6 +233,13 @@ Chosen defaults, for review:
 - `sessions.setInstructions` at `runs:drive`; one stream per kind (`skills`, `trust`, `instructions`) keyed by the environment; `run.instructions.composed` carrying a digest, not the text; the `instructions.orientation` key preset on.
 - The catalogue job weekly and on catalogue or overlay changes.
 
+Chosen in the composer's build (#493), for review:
+
+- **A run while it composes** is live from its launch, with no provider process begun: a stop, an interrupt or a read-now ends it there, as the host's, `interrupted`, what it was launched with back in the environment's queue; a message sent to it is held by the environment for the run after it (`message.requeued` at once); a mode set on it is the mode its adapter is handed; a composition that fails ends it `error`. `run.instructions.composed` is the host's (`system:adapter-host`), and its digest is the SHA-256 of the composed text alone, not of the run's own text after it.
+- **The manifest** lists only the layers the text holds, each part by its id, version and characters; the orientation block is the part `orientation`, titled Orientation, and a blank part is left out unlisted. A channel of kind `none` hands the run no text, its own included, and lists every composed part as left out, `channel-none`; the cap's reasons are #505's and #507's.
+- **The scope's trust** until the trust gate (#500): undecided, keyed by the session's repository identity, else a worktree's main checkout, else the workspace path, a scratch workspace unkeyed; #500 adds a directory's main checkout and the decisions. The origin is who started the run (client, routine, bot, completions).
+- **`instructions.preview`** composes as a run a client starts (origin `client`, no extra always-on names) and records nothing; with an account and a workspace it reads no repository identity (a new session's is read when it is made), and both are required.
+
 Verify first, on the pinned SDK and its bundled CLI:
 
 1. A local plugin whose `skills/` entries are symbolic links loads each one, and junctions do on Windows (links were measured on Linux and Windows junctions fixed previously; re-check on this CLI).
