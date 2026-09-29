@@ -193,7 +193,7 @@ describe("keyManagers.references.browse", () => {
   it("lists the KV mounts the login can see, then the names under a path on either version, folders ending in /, never a value", async () => {
     const { client, connection } = await withOpenBao();
 
-    expect(await browse(client, connection.id)).toEqual({ names: ["personal/", "legacy/"] });
+    expect(await browse(client, connection.id)).toEqual({ names: ["legacy/", "personal/"] });
     expect(await browse(client, connection.id, "personal")).toEqual({ names: ["elsewhere", "harness/"] });
     expect(await browse(client, connection.id, "personal", "harness")).toEqual({ names: ["forge-github"] });
     const legacy = await browse(client, connection.id, "legacy");

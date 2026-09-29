@@ -313,7 +313,7 @@ describe("a list", () => {
 
   it("names the KV mounts the login can see, each ending in /, and nothing it cannot", async () => {
     const bao = await withTree();
-    expect(await openBaoProvider.list(targetOf(bao), PERSON_TOKEN, { mount: null, path: null })).toEqual({ outcome: "listed", names: ["personal/", "legacy/"] });
+    expect(await openBaoProvider.list(targetOf(bao), PERSON_TOKEN, { mount: null, path: null })).toEqual({ outcome: "listed", names: ["legacy/", "personal/"] });
     expect(bao.requests).toEqual([{ method: "GET", path: "sys/internal/ui/mounts" }]);
   });
 

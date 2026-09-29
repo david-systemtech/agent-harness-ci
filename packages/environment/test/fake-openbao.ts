@@ -433,7 +433,8 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
     }
     if (method === "GET" && path === "sys/internal/ui/mounts") {
       if (known === undefined) return send(response, 403, { errors: ["permission denied"] });
-      const visible = [...kvMounts.keys(), "cubbyhole"].filter((mount) => hasMountAccess(known, mount));
+      // Sorted, as OpenBao's JSON gives a map's keys.
+      const visible = [...kvMounts.keys(), "cubbyhole"].filter((mount) => hasMountAccess(known, mount)).sort();
       const secret = Object.fromEntries(visible.map((mount) => [`${mount}/`, mount === "cubbyhole" ? { type: "cubbyhole", path: "cubbyhole/", description: "", options: null } : describeMount(mount)]));
       return send(response, 200, { data: { secret, auth: {} } });
     }

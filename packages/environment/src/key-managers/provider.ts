@@ -14,7 +14,10 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
 /** How a provider is named to people. */
 export const PROVIDER_NAMES: Record<KeyManagerProvider, string> = { openbao: "OpenBao", doppler: "Doppler", onepassword: "1Password", bitwarden: "Bitwarden Secrets Manager" };
 
-/** How long one exchange with a key manager may take, a verification or a certificate preview (ADR 0031's budget), past which it is `unreachable`. */
+/**
+ * How long one exchange with a key manager may take (ADR 0031's budget): a verification or a certificate preview, past
+ * which it is `unreachable`, or a reference's read or a path's list (#370), past which the key manager has not answered.
+ */
 export const KEY_MANAGER_BUDGET_MS = 10_000;
 
 /** Where a provider signs in: the connection's address, its pinned CA, and its auth method at its mount. */
