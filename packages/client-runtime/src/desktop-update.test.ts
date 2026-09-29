@@ -283,6 +283,19 @@ describe("the server artefact the desktop carries", () => {
     for (const { desk } of [same, pending, none]) expect(desk.requests("updates.apply")).toEqual([]);
   });
 
+  it("reports a shell that cannot say what it carries as a failure, at the start and on the card's call alike, never as a rejection", async () => {
+    const { runtime, desk, until, bundled } = await launch({
+      updates: { status: { version: RUNNING } },
+      shell: (shell) => shell.answer("installer.bundledServer", async () => Promise.reject(new Error("resources/server is unreadable"))),
+    });
+    await until(() => bundled().state === "failed", "reported the failure");
+    const failure = { state: "failed", version: null, reason: "shell", message: "The desktop could not say which server it carries: resources/server is unreadable" };
+    expect(bundled()).toEqual(failure);
+
+    expect(await runtime.desktopUpdate.applyBundledServer()).toEqual(failure);
+    expect(desk.requests("updates.apply")).toEqual([]);
+  });
+
   it("reports the environment's refusal with its reason", async () => {
     const { until, bundled } = await launch({
       updates: { status: { version: RUNNING } },

@@ -4,7 +4,7 @@ import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
 import type { Requests } from "./requests.js";
-import type { Shell, ShellStagedBuild } from "./shell.js";
+import type { Shell, ShellBundledServer, ShellStagedBuild } from "./shell.js";
 
 /**
  * The desktop's update flow (launcher-update spec, "The desktop moves with
@@ -70,7 +70,8 @@ export type BundledServerView =
   | { readonly state: "handing-over"; readonly version: string }
   /** The environment took it as its update `updateId`, which waits for idle there. */
   | { readonly state: "handed-over"; readonly version: string; readonly updateId: string }
-  | { readonly state: "failed"; readonly version: string; readonly reason: string; readonly message: string };
+  /** Handing it over, or looking at it, failed: the environment's refusal with its reason, or `shell` when the desktop could not say what it carries (its version then null). */
+  | { readonly state: "failed"; readonly version: string | null; readonly reason: string; readonly message: string };
 
 export interface DesktopUpdateView {
   readonly build: DesktopBuildView;
@@ -209,11 +210,21 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     }
   };
 
+  /** The server artefact the desktop carries, as its shell says; a shell that cannot say is a failure, never a rejection. */
+  const carried = async (): Promise<ShellBundledServer | null | Extract<BundledServerView, { readonly state: "failed" }>> => {
+    try {
+      return (await installer?.bundledServer()) ?? null;
+    } catch (error) {
+      return { state: "failed", version: null, reason: "shell", message: `The desktop could not say which server it carries: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  };
+
   /** The bundled server against the local environment `environmentId`: none, offered, or handed over. */
   const lookAtBundled = async (environmentId: string): Promise<BundledServerView> => {
     if (installer === undefined) return { state: "unchecked" };
-    const bundled = await installer.bundledServer();
+    const bundled = await carried();
     if (bundled === null) return { state: "none" };
+    if ("state" in bundled) return bundled;
     const status = await host.call(environmentId, "updates.status", {});
     if (!status.ok) return { state: "failed", version: bundled.version, reason: status.error.code, message: status.error.message };
     const { version: environmentVersion, pending, failedVersions } = status.result;
@@ -282,15 +293,11 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     },
 
     async applyBundledServer() {
-      const bundled = view.read().bundledServer;
+      const held = view.read().bundledServer;
       const environmentId = readyLocal();
-      if ((bundled.state !== "offered" && bundled.state !== "failed") || environmentId === undefined || installer === undefined) return bundled;
-      const carried = await installer.bundledServer();
-      if (carried === null) {
-        setBundled({ state: "none" });
-        return view.read().bundledServer;
-      }
-      setBundled(await handOver(environmentId, carried.version, carried.path));
+      if ((held.state !== "offered" && held.state !== "failed") || environmentId === undefined || installer === undefined) return held;
+      const bundled = await carried();
+      setBundled(bundled === null ? { state: "none" } : "state" in bundled ? bundled : await handOver(environmentId, bundled.version, bundled.path));
       return view.read().bundledServer;
     },
 
