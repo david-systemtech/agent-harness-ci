@@ -172,6 +172,7 @@ export interface KeyManagerConnections {
   readonly update: PreparedCommand<"keyManagers.connections.update">;
   readonly setPolicies: MethodHandler<"keyManagers.connections.setPolicies">;
   readonly setBasePath: MethodHandler<"keyManagers.connections.setBasePath">;
+  readonly setInjected: MethodHandler<"keyManagers.connections.setInjected">;
   readonly signOut: MethodHandler<"keyManagers.connections.signOut">;
   readonly remove: MethodHandler<"keyManagers.connections.remove">;
   /** The connection `connectionId` as references are read through it; null for one the environment does not hold. */
@@ -995,6 +996,17 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (params.basePath === record.basePath) return { aggregate: stream, result: { connection: standing(record) } };
       const payload = { connectionId, basePath: params.basePath };
       log.append(stream, [{ type: "key-manager.connection.base-path-set", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+      return { aggregate: stream, result: { connection: recordOf(connectionId) } };
+    },
+
+    setInjected(params, command) {
+      const connectionId = params.connectionId.toLowerCase();
+      const held = liveConnection(reader, connectionId);
+      if (held === null) return { aggregate: stream, rejected: notFound(connectionId) };
+      const { record } = held;
+      if (record.injects) return { aggregate: stream, result: { connection: standing(record) } };
+      const replaced = listConnections(reader).find((each) => each.record.provider === record.provider && each.record.injects)?.record.id ?? null;
+      log.append(stream, [{ type: "key-manager.connection.injected-set", payload: { connectionId, replaced } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
       return { aggregate: stream, result: { connection: recordOf(connectionId) } };
     },
 

@@ -3,6 +3,7 @@ import {
   type KeyManagerAuthMethod,
   type KeyManagerConnectionAddedPayload,
   type KeyManagerConnectionBasePathSetPayload,
+  type KeyManagerConnectionInjectedSetPayload,
   type KeyManagerConnectionPoliciesSetPayload,
   type KeyManagerConnectionRecord,
   type KeyManagerConnectionRemovedPayload,
@@ -18,6 +19,7 @@ import {
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { OPENBAO_BLOCK_NAMES } from "./openbao-block.js";
 
 /**
  * The key-manager connections' read model (key-managers spec, "The
@@ -38,8 +40,9 @@ import type { Reader } from "../sessions/session-tables.js";
  * of the connection changed, so the process environment's key gives the
  * next run a fresh process. A person's sign-in with a credential, a
  * sign-out, a new address, CA or token role, new ticks and the injects flag
- * raise it; the environment's own sign-in from the kept credential, a
- * verification, a label and a base path do not.
+ * (the first sign-in's, and `injected-set` on both the connection it moves
+ * to and the one it moves from) raise it; the environment's own sign-in
+ * from the kept credential, a verification, a label and a base path do not.
  */
 
 export const KEY_MANAGER_CONNECTIONS_PROJECTOR = "key-manager-connections";
@@ -153,6 +156,16 @@ const basePathSet = (db: ProjectionDb, payload: KeyManagerConnectionBasePathSetP
   db.run("UPDATE key_manager_connections SET base_path = ? WHERE id = ?", payload.basePath, payload.connectionId);
 };
 
+const injectedSet = (db: ProjectionDb, payload: KeyManagerConnectionInjectedSetPayload): void => {
+  // The one it replaces first, so the one injecting connection per provider holds throughout.
+  if (payload.replaced !== null) {
+    db.run("UPDATE key_manager_connections SET injects = 0 WHERE id = ?", payload.replaced);
+    raiseGeneration(db, payload.replaced);
+  }
+  db.run("UPDATE key_manager_connections SET injects = 1 WHERE id = ?", payload.connectionId);
+  raiseGeneration(db, payload.connectionId);
+};
+
 const verified = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnectionVerifiedPayload): void => {
   const { connectionId } = payload;
   moveStatus(db, connectionId, payload.status);
@@ -198,6 +211,8 @@ export const keyManagerConnectionsProjector: Projector = {
         return policiesSet(db, event.payload as KeyManagerConnectionPoliciesSetPayload);
       case "key-manager.connection.base-path-set":
         return basePathSet(db, event.payload as KeyManagerConnectionBasePathSetPayload);
+      case "key-manager.connection.injected-set":
+        return injectedSet(db, event.payload as KeyManagerConnectionInjectedSetPayload);
       case "key-manager.connection.verified":
         return verified(db, event, event.payload as KeyManagerConnectionVerifiedPayload);
       case "key-manager.connection.removed":
@@ -261,6 +276,8 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     // Suggested in memory from the provider (`connections.ts`), never kept.
     suggestedBasePath: null,
     injects: row.injects === 1,
+    // OpenBao's block alone this version gives (#368); the other providers' join with their tickets.
+    injectedVariables: row.injects === 1 && row.provider === "openbao" ? [...OPENBAO_BLOCK_NAMES] : [],
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),
     canMint: row.can_mint === null ? null : row.can_mint === 1,

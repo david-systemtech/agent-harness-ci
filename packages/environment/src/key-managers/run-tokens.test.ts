@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { registry } from "@agent-harness/contracts";
@@ -8,13 +8,30 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import type { ManualClock } from "../../test/clock.js";
 import type { AdapterEvent } from "../adapter/contract.js";
+import type { InjectionAnswer } from "../adapter/process-environment.js";
 import { end, fakeAdapter, runCommand, say } from "../../test/fake-adapter.js";
 import { baoHash, baoSaw, installFakeBao } from "../../test/fake-bao.js";
 import { startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { fakePty } from "../../test/fake-pty.js";
 import { saidBack, saidBackOnceHeld } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { OTHER_SECRET_ID, PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, list, setPolicies, signIn, signOut, token, update, verify } from "../../test/key-manager-connections.js";
+import {
+  OTHER_SECRET_ID,
+  PERSON_TOKEN,
+  ROLE_ID,
+  SECRET_ID,
+  added,
+  approle,
+  keyManagerEvents,
+  list,
+  setInjected,
+  setPolicies,
+  signIn,
+  signOut,
+  token,
+  update,
+  verify,
+} from "../../test/key-manager-connections.js";
 import { create } from "../../test/sessions.js";
 import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -157,7 +174,9 @@ describe("a host environment's stray variables", () => {
   /** The environment's own process holds the stray variables, as a machine's shell would have exported them. */
   const strayHost = (): void => {
     for (const [name, value] of Object.entries(STRAY)) vi.stubEnv(name, value);
-    onCleanup(() => vi.unstubAllEnvs());
+    onCleanup(() => {
+      vi.unstubAllEnvs();
+    });
   };
 
   it("reach the CLI in a provider process only as the block's values", async () => {
@@ -512,5 +531,113 @@ describe("a spawn while a connection signs in", () => {
     expect(env).toEqual(block({ address: bao.address, token: "", ca: bao.ca, config: configOf(t) }));
     expect(bao.created).toEqual([]);
     expect(errors.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("was still signing in after 5 s"));
+  });
+});
+
+describe("which connection injects", () => {
+  /** The names of the block's variables, in the spec's order. */
+  const NAMES = Object.keys(block({ address: "", token: "", ca: "", config: "" }));
+
+  it("is one per provider, the first signed in, until setInjected moves it and appends injected-set; the others serve references only, and keyManagers.list names the injecting one's variables", async () => {
+    const { t, bao, client } = await withOpenBao();
+    const other = await scriptedOpenBao(t);
+    const first = await connected(client, bao);
+    const second = await connected(client, other);
+    expect((await list(client)).map((each) => [each.id, each.injects, each.injectedVariables])).toEqual([
+      [first.id, true, NAMES],
+      [second.id, false, []],
+    ]);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    expect((await spawnedWith(t, session.id))["BAO_ADDR"]).toBe(bao.address);
+    const from = t.env.log.head();
+
+    const moved = await setInjected(client, second.id);
+
+    expect(moved.result?.connection).toMatchObject({ id: second.id, injects: true, injectedVariables: NAMES });
+    expect((await list(client)).map((each) => [each.id, each.injects, each.injectedVariables])).toEqual([
+      [first.id, false, []],
+      [second.id, true, NAMES],
+    ]);
+    expect(await keyManagerEvents(client, from)).toEqual([
+      expect.objectContaining({ type: "key-manager.connection.injected-set", commandId: expect.any(String), payload: { connectionId: second.id, replaced: first.id } }),
+    ]);
+    await runTo(t, client, session.id, "After the move");
+    expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+    expect(await spawnedWith(t, session.id)).toEqual(block({ address: other.address, token: other.created[0] ?? "", ca: other.ca, config: configOf(t) }));
+    // The one injecting already: nothing changes.
+    const again = t.env.log.head();
+    expect((await setInjected(client, second.id)).result?.connection).toMatchObject({ id: second.id, injects: true });
+    expect(await keyManagerEvents(client, again)).toEqual([]);
+  });
+
+  it("gives holders of a connection that is not signed in the address with an empty token, and an empty CACERT_BYTES without a pinned CA", async () => {
+    const { t, bao, client } = await withOpenBao();
+    const waiting = await added(client, { address: bao.address, method: "approle" });
+
+    await setInjected(client, waiting.id);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+
+    expect(await spawnedWith(t, session.id)).toEqual(block({ address: bao.address, token: "", ca: "", config: configOf(t) }));
+    expect(bao.requests).toEqual([]);
+  });
+});
+
+describe("where the block and the run token go", () => {
+  it("nowhere on a deny answer: no run token is minted and no variable added, and a run allowed after is served by a fresh process that has them", async () => {
+    let answer: InjectionAnswer = "deny";
+    const { t, bao, client } = await withOpenBao({ adapterSeams: { injection: () => answer } });
+    await connected(client, bao);
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+
+    expect(await spawnedWith(t, session.id)).toEqual({});
+    expect(bao.created).toEqual([]);
+    answer = "allow";
+    await runTo(t, client, session.id, "Allowed now");
+    expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+    expect((await spawnedWith(t, session.id))["BAO_TOKEN"]).toBe(bao.created[0]);
+  });
+
+  it("never to the data directory, the event log or a terminal's argv", async () => {
+    const dataDir = join(tempDir(), "data");
+    const { pty, terminals } = fakeTerminals();
+    const { t, bao, client } = await withOpenBao({ dataDir, terminals });
+    await connected(client, bao);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    await spawnedWith(t, session.id);
+    await openTerminal(client, session.id);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    const tokens = [...bao.created];
+    expect(tokens).toHaveLength(2);
+
+    const spawned = pty.spawned[0];
+    expect([spawned?.file, ...(spawned?.args ?? [])].filter((word) => tokens.some((token) => word.includes(token)))).toEqual([]);
+    const logged = t.env.log.read<{ payload: string }>("SELECT payload FROM events");
+    expect(logged.filter((row) => tokens.some((token) => row.payload.includes(token)))).toEqual([]);
+    await t.close();
+    const written = readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile());
+    expect(written.map((entry) => entry.name)).toContain("openbao.hcl");
+    expect(written.filter((entry) => tokens.some((token) => readFileSync(join(entry.parentPath, entry.name)).includes(token))).map((entry) => entry.name)).toEqual([]);
+  });
+});
+
+describe("the harness-owned configuration", () => {
+  it("is left out of the denylist's data-directory preset, by the gate and in an unattended run's projection, so a contained run's CLI can read it", async () => {
+    const { t, client } = await withOpenBao();
+    const matches = async (path: string) => registry["permissions.denylist.test"].result.parse(await client.request("permissions.denylist.test", { kind: "path", value: path })).matches;
+    expect(await matches(configOf(t))).toEqual([]);
+    expect(await matches(join(t.env.dataDir, "environment.db"))).not.toEqual([]);
+    const session = await create(client);
+
+    t.env.startRun({ sessionId: session.id, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
+    await vi.waitFor(() => expect(ended(t, session.id)).toHaveLength(1));
+
+    const projected = t.adapter.lastRun().input.denylist;
+    expect(projected?.paths).toContain(t.env.dataDir);
+    expect(projected?.exempt).toContain(join(t.env.dataDir, "key-manager-cli"));
   });
 });
