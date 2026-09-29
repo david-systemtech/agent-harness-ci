@@ -98,7 +98,7 @@ describe("the container image", () => {
   });
 });
 
-describe("the install script's compose file", () => {
+describe("the published compose file", () => {
   it("runs the image's user, by the uid and gid the image gives it", () => {
     const { uid, gid } = imageUser();
     const user = composeLines().filter((line) => /^\s+user:/.test(line));
