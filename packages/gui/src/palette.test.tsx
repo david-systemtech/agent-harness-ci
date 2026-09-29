@@ -118,7 +118,12 @@ describe("its entries", () => {
       "Have the queued message read now, mid-turnNothing is queued to read.",
       "Take the newest queued message back to edit↑Nothing is queued to withdraw.",
     ]);
-    expect(entriesUnder("Slash commands")).toEqual(["/attachSend an image or file with the next message"]);
+    expect(entriesUnder("Slash commands")).toEqual([
+      "/attachSend an image or file with the next message",
+      "/diffWhat this conversation changed, and the working tree's diff",
+      "/tasksBackground work: what is running, and what a delegated agent did",
+      "/filesBrowse the workspace's files, and read one in the pager",
+    ]);
     // Its own keys are not listed: the list's, and the one that opens it.
     expect(within(palette() as HTMLElement).queryByRole("group", { name: "A list to choose from" })).toBeNull();
     expect(entries()).not.toContainEqual(expect.stringContaining("Open the command palette"));

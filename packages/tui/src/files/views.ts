@@ -1,5 +1,5 @@
-import type { Runtime } from "@agent-harness/client-runtime";
-import { DIFF_CAP, FILES_READ_CAP, type SessionDiffFile } from "@agent-harness/contracts";
+import { DIFF_CUT_NOTE, binaryNote, fileMarks, sessionDiffNote, workingTreeNote, type Runtime } from "@agent-harness/client-runtime";
+import { DIFF_CAP, type SessionDiffFile } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import type { Line, Span } from "../transcript/lines.js";
 import { externalDiffTool, pipeThrough, type DiffToolDeps, type PipeDeps, type PipeResult } from "./diff-filter.js";
@@ -57,21 +57,16 @@ export type Paged =
 
 const MIB = 1024 * 1024;
 
-/** A size in the units a person reads it in. */
-export const formatBytes = (bytes: number): string =>
-  bytes < 1024 ? `${String(bytes)} bytes` : bytes < MIB ? `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB` : `${(bytes / MIB).toFixed(1)} MB`;
-
 const line = (row: string, spans: readonly Span[]): Line => ({ row, spans });
 
 /** `path` read through `files.read`, as a page. */
 export const readFile = async (runtime: Runtime, target: Opened, path: string, width: number): Promise<Paged> => {
   const answer = await runtime.requests.call(target.environmentId, "files.read", { sessionId: target.sessionId, path });
   if (!answer.ok) return { ok: false, line: `Not read: ${answer.error.message}`, directory: answer.error.data?.["reason"] === "not_a_file" };
-  const { size, binary, truncated, text } = answer.result;
-  const marks = [formatBytes(size), ...(binary ? ["binary"] : []), ...(truncated ? [`the first ${String(FILES_READ_CAP / MIB)} MiB`] : [])];
+  const { size, binary, text } = answer.result;
   // A text file ends in a newline; the page ends at the last line, not at the blank row after it, as the diff pages do.
-  const lines = binary || text === null ? [line("file:binary", [{ text: `A binary file of ${formatBytes(size)}: not shown as text.`, dim: true }])] : plainPage(text.replace(/\n$/, ""), width);
-  return { ok: true, page: { title: `${answer.result.path} · ${marks.join(" · ")}`, lines } };
+  const lines = binary || text === null ? [line("file:binary", [{ text: binaryNote(size), dim: true }])] : plainPage(text.replace(/\n$/, ""), width);
+  return { ok: true, page: { title: `${answer.result.path} · ${fileMarks(answer.result).join(" · ")}`, lines } };
 };
 
 /** A diff as the pager draws it: through the filter when there is one, else coloured here; the filter's failure beside it. */
@@ -84,10 +79,7 @@ export const diffLines = async (text: string, width: number, filter: DiffFilter 
 
 const joined = (files: readonly SessionDiffFile[]): string => files.map((file) => (file.diff.endsWith("\n") ? file.diff : `${file.diff}\n`)).join("").replace(/\n$/, "");
 
-/** Said for a diff that was cut before anything of it could be shown. */
-const CUT_LEFT_NOTHING = "The cut left nothing to show.";
-
-const cutMark = (row: string): Line => line(row, [{ text: `… cut at ${String(DIFF_CAP / MIB)} MiB: the rest is not shown.`, color: "yellow" }]);
+const cutMark = (row: string): Line => line(row, [{ text: DIFF_CUT_NOTE, color: "yellow" }]);
 
 /** `d` on a row: the session's diff of the files the row's edits (`calls`, tool call ids) changed. */
 export const rowDiff = async (runtime: Runtime, target: Opened, calls: readonly string[], width: number, filter: DiffFilter | null): Promise<Paged> => {
@@ -121,30 +113,24 @@ export const sessionDiff = async (runtime: Runtime, target: Opened, width: numbe
   const said = (row: string, text: string): Line => line(row, [{ text, dim: true }]);
 
   const sessionLines: Line[] = [heading("session", "What this session changed")];
-  if (!session.ok) sessionLines.push(said("session:none", `Not read: ${session.error.message}`));
-  else if (session.result.files.length === 0) {
-    // A cut before the first file is not the same as the session changing nothing.
-    sessionLines.push(...(session.result.truncated ? [said("session:none", CUT_LEFT_NOTHING), cutMark("session:cut")] : [said("session:none", "Nothing yet.")]));
-  } else {
+  const sessionNote = sessionDiffNote(session);
+  if (sessionNote !== null) sessionLines.push(said("session:none", sessionNote));
+  else if (session.ok) {
     const shown = await diffLines(joined(session.result.files), width, filter);
     if (shown.problem !== null) problems.push(shown.problem);
     sessionLines.push(...shown.lines);
-    if (session.result.truncated) sessionLines.push(cutMark("session:cut"));
   }
+  if (session.ok && session.result.truncated) sessionLines.push(cutMark("session:cut"));
 
   const treeLines: Line[] = [heading("tree", "The working tree against HEAD")];
-  if (!tree.ok) {
-    const reason = tree.error.data?.["reason"];
-    treeLines.push(said("tree:none", reason === "git_unavailable" ? "There is no git on the environment." : `Not read: ${tree.error.message}`));
-  } else if (!tree.result.repository) treeLines.push(said("tree:none", "The workspace is in no git repository."));
-  else if (tree.result.diff.trim().length === 0) {
-    treeLines.push(...(tree.result.truncated ? [said("tree:none", CUT_LEFT_NOTHING), cutMark("tree:cut")] : [said("tree:none", "Nothing changed.")]));
-  } else {
+  const treeNote = workingTreeNote(tree);
+  if (treeNote !== null) treeLines.push(said("tree:none", treeNote));
+  else if (tree.ok) {
     const shown = await diffLines(tree.result.diff.replace(/\n$/, ""), width, filter);
     if (shown.problem !== null && !problems.includes(shown.problem)) problems.push(shown.problem);
     treeLines.push(...shown.lines);
-    if (tree.result.truncated) treeLines.push(cutMark("tree:cut"));
   }
+  if (tree.ok && tree.result.repository && tree.result.truncated) treeLines.push(cutMark("tree:cut"));
   const via = filter !== null && problems.length === 0 ? ` · via ${filter.label}` : "";
   return { ok: true, page: { title: `Diff${via}`, lines: [...sessionLines, line("gap", []), ...treeLines] }, ...(problems.length > 0 && { note: problems.join(" ") }) };
 };
