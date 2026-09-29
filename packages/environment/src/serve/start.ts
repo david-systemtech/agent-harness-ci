@@ -95,6 +95,9 @@ import { forgeMethods } from "../forge/methods.js";
 import type { ManagedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
+import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
+import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
+import { keyManagerMethods } from "../key-managers/methods.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -429,6 +432,11 @@ export interface EnvironmentHandle {
    */
   readonly forge: ForgeService;
   /**
+   * The key-manager connections (#365): the add the state import (ADR
+   * 0036) and the bulk copy call in process, without a credential.
+   */
+  readonly keyManagerConnections: KeyManagerConnections;
+  /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
    * launcher channel, each even when another fails. Idempotent; after a failure, calling it
@@ -531,6 +539,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       permissionsProjector,
       accountsProjector,
       forgeAccountsProjector,
+      keyManagerConnectionsProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -549,8 +558,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
   // The forge accounts' store (#310) starts in this step too, after the client sessions whose labels a token handed over
   // from a client's gh records (#312): each stored token is registered with its Basic-auth form, and the vault entries of
-  // forge accounts that are gone are deleted, before anything can read them.
-  const { record, clientSessions, pairings, accessLog, forge } = await step("identity", async () => {
+  // forge accounts that are gone are deleted, before anything can read them. So do the key-manager connections (#365): each
+  // credential the vault holds is registered, and the entries of connections that are gone deleted.
+  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -594,7 +604,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     closers.push(() => forgeService.close());
     await forgeService.start();
     capabilities.push("forge");
-    return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access, forge: forgeService };
+    const connections = createKeyManagerConnections({ log, clock, environmentId: loaded.id, vault, scrub });
+    closers.push(() => connections.close());
+    await connections.start();
+    capabilities.push("keyManagers");
+    return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access, forge: forgeService, keyManagerConnections: connections };
   });
 
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
@@ -893,6 +907,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...forgeMethods(forge),
+    ...keyManagerMethods(keyManagerConnections),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
@@ -1030,6 +1045,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   launcher.onQuery((query) => lifecycle.answer(query));
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate.
+  keyManagerConnections.startSigningIn();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
   // The release channel's checks: two minutes from now, then hourly (#346).
@@ -1095,6 +1112,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     subscriptions: () => wire.subscriptions(),
     log,
     forge,
+    keyManagerConnections,
     close,
   };
 };
