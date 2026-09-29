@@ -440,7 +440,14 @@ describe("a target that needs a newer launcher", () => {
 
     // Update now to it is refused the same way.
     const asked = await client.request("updates.apply", { commandId: randomUUID(), version: "0.7.0", when: "idle" });
-    expect(asked.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "launcher" }, message: expect.stringContaining("service install") as unknown as string } });
+    expect(asked.receipt).toMatchObject({
+      status: "rejected",
+      error: {
+        code: "conflict",
+        data: { reason: "launcher" },
+        message: "Cannot update to 0.7.0: 0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.7.0 release to install its launcher.",
+      },
+    });
   });
 });
 

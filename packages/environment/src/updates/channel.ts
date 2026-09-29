@@ -46,7 +46,9 @@ import type { ForgeRelease, ForgeReleaseAsset } from "../forge/providers.js";
  *   database schema is below the database's, or that has no artefact for
  *   this platform, is passed over, and nothing of it is downloaded.
  * - **A failed version** (its trial or its watch failed, #344) is never
- *   the target: the next newer release is, and Update now may retry it.
+ *   the target, as the channel's newest or as the pin: the target is none
+ *   until a release newer than it is published, which is taken as any
+ *   channel's newest is; Update now may retry the failed one.
  * - **What is staged** (#347): the target, when the running launcher hosts
  *   the launcher protocol its manifest names; else the stepping stone, the
  *   newest release on the way (newer than what runs, on the channel, not
@@ -425,7 +427,7 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
         case "target": {
           const needs = examined.release.launcherProtocol;
           if (needs <= launcherProtocol) return examined.release;
-          return { code: "conflict", message: `Cannot update to ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
+          return { code: "conflict", message: `Cannot update to ${version}: ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
         }
       }
     },
