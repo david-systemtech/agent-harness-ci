@@ -138,6 +138,8 @@ export type {
   UserMessageEntry,
 } from "./projections/session.js";
 export {
+  DOCUMENT_KIND_WORDS,
+  documentFacts,
   documentKindOf,
   documentWritten,
   sessionDocuments,

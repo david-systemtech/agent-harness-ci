@@ -1,4 +1,4 @@
-import { formatBytes, type DocumentKind, type SessionDocument } from "@agent-harness/client-runtime";
+import { documentFacts } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
 import { usePaneDocuments } from "../session/pane-documents.js";
 import { usePaneLine } from "../session/pane-line.js";
@@ -25,27 +25,6 @@ export interface DocumentsPaneProps {
   source(path: string): void;
 }
 
-/** What each kind of document is called. */
-export const KIND_WORDS: Readonly<Record<DocumentKind, string>> = { page: "Page", svg: "SVG", markdown: "Markdown" };
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** When a turn started, where the window is: its time on the day it is now, else its day and time. */
-const whenWords = (iso: string, now: Date): string => {
-  const at = new Date(iso);
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-  return at.toDateString() === now.toDateString() ? time : `${at.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} ${time}`;
-};
-
-/** What is said of a document under its path: its kind, its size when last written whole, its revisions, and when its last one's turn started. */
-const factsOf = (document: SessionDocument, now: Date): string =>
-  [
-    KIND_WORDS[document.kind],
-    ...(document.size === null ? [] : [formatBytes(document.size)]),
-    `${String(document.revisions)} ${document.revisions === 1 ? "revision" : "revisions"}`,
-    ...(document.last.at === null ? [] : [whenWords(document.last.at, now)]),
-  ].join(" · ");
-
 export const DocumentsPane = ({ environmentId, sessionId, source }: DocumentsPaneProps) => {
   const runtime = useRuntime();
   const clock = useClock();
@@ -64,7 +43,7 @@ export const DocumentsPane = ({ environmentId, sessionId, source }: DocumentsPan
         <li key={document.path}>
           <article aria-label={document.path} className="flex flex-col gap-1 rounded-md border border-hairline px-2.5 py-1.5 text-xs">
             <p className="truncate font-mono text-ink">{document.path}</p>
-            <p className="text-ink-muted">{factsOf(document, now)}</p>
+            <p className="text-ink-muted">{documentFacts(document, now).join(" · ")}</p>
             <div className="flex items-center gap-1">
               <VerbButton
                 does="Shows it in the Preview, read as it is now."

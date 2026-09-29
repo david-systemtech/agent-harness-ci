@@ -1,6 +1,7 @@
 import { directoryOf, outsideWorkspace, typedPath } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
+import { PreviewPane } from "../preview/preview-pane.js";
 import type { SidePane } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { TerminalPane } from "../terminal/terminal-pane.js";
@@ -9,7 +10,6 @@ import { Button, Tooltip } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { closePane, hideColumn, showPane, useSideColumn } from "./column.js";
-import { PreviewPane } from "../preview/preview-pane.js";
 import { DiffPane } from "./diff-pane.js";
 import { DocumentsPane } from "./documents-pane.js";
 import { FilesPane, WORKSPACE_TOP, type FilesPlace } from "./files-pane.js";

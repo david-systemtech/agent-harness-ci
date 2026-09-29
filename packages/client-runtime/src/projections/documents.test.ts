@@ -1,6 +1,6 @@
 import type { RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { sessionDocuments } from "./documents.js";
+import { documentFacts, sessionDocuments, type SessionDocument } from "./documents.js";
 import type { RewoundEntry, SubagentEntry, ToolCallEntry, TranscriptEntry } from "./session.js";
 
 /**
@@ -150,5 +150,32 @@ describe("sessionDocuments", () => {
   it("has no time for a call whose run the session does not hold", () => {
     const [orphan] = fold([write(1, `${WORKSPACE}/orphan.md`, "o", { runId: "0199a100-0000-4000-8000-00000000000f" })]);
     expect(orphan?.first.at).toBeNull();
+  });
+});
+
+describe("documentFacts", () => {
+  const document = (more: Partial<SessionDocument>): SessionDocument => ({
+    path: "site/index.html",
+    kind: "page",
+    first: { toolCallId: "call-1", runId: RUN, sequence: 1, at: null },
+    last: { toolCallId: "call-2", runId: RUN, sequence: 2, at: null },
+    revisions: 2,
+    size: 2048,
+    ...more,
+  });
+  /** An instant at `hours`:`minutes` on the day `day` of September 2026, or of `year`, where the test runs. */
+  const at = (day: number, hours: number, minutes: number, year = 2026) => new Date(year, 8, day, hours, minutes);
+
+  it("says a document's kind, its size when last written whole, its revisions and when its last turn started: the time today", () => {
+    const now = at(29, 18, 0);
+    expect(documentFacts(document({ last: { toolCallId: "call-2", runId: RUN, sequence: 2, at: at(29, 9, 5).toISOString() } }), now)).toEqual(["Page", "2.0 KB", "2 revisions", "09:05"]);
+    expect(documentFacts(document({ kind: "svg", size: null, revisions: 1 }), now)).toEqual(["SVG", "1 revision"]);
+  });
+
+  it("names the day of a turn on another day, and the year of one in another year", () => {
+    const now = at(29, 18, 0);
+    const markdown = (when: Date) => documentFacts(document({ kind: "markdown", size: 10, last: { toolCallId: "call-2", runId: RUN, sequence: 2, at: when.toISOString() } }), now);
+    expect(markdown(at(3, 14, 30))).toEqual(["Markdown", "10 bytes", "2 revisions", "3 Sep 14:30"]);
+    expect(markdown(at(3, 14, 30, 2025))).toEqual(["Markdown", "10 bytes", "2 revisions", "3 Sep 2025 14:30"]);
   });
 });

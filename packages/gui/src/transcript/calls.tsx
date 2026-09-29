@@ -70,8 +70,8 @@ interface CallsRowProps {
 
 export const CallsRow = ({ calls, facts }: CallsRowProps) => {
   const { quietMs } = facts;
-  const [open, setOpen] = useOpenedFor(calls.filter(folded), facts.revealed);
   const done = calls.filter(folded);
+  const [open, setOpen] = useOpenedFor(done, facts.revealed);
   const standing = calls.filter((call) => !folded(call));
   const summary = describeActivity(countsOf(done));
   return (
