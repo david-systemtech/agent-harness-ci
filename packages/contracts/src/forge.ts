@@ -393,12 +393,14 @@ const permissionParameter = (permission: ForgeTokenPermission): string => permis
 const queryOf = (pairs: readonly (readonly [string, string])[]): string => pairs.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
 
 /**
- * GitHub's token pages on `origin`. Only github.com (and Enterprise Cloud)
- * fills in a fine-grained token from its link, so there it is offered
- * first, with no expiry, since the step turns amber on a token expiring
- * within thirty days and GitHub's own default is thirty; an Enterprise
- * Server's fine-grained page is offered after the classic one, whose link
- * ticks its scopes everywhere.
+ * GitHub's token pages on `origin`. GitHub documents filling in a
+ * fine-grained token from its link for github.com and Enterprise Cloud,
+ * whose organisations live on github.com itself, and not for Enterprise
+ * Server. On github.com the fine-grained link is offered first, with no
+ * expiry, since the step turns amber on a token expiring within thirty days
+ * and GitHub's own default is thirty; on any other origin, an Enterprise
+ * Server's, its fine-grained page follows the classic link, which ticks its
+ * scopes everywhere.
  */
 const githubTokenPages = (origin: ForgeOrigin): ForgeTokenPage[] => {
   const fineGrainedPage = `${origin}/settings/personal-access-tokens/new`;
