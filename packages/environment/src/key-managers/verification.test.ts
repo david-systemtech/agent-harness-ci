@@ -99,7 +99,7 @@ const joined = (...parts: string[]): string => parts.join("");
 const SERVICE_TOKEN = joined("hv", "s.", "Fake0Test9".repeat(3));
 
 describe("keyManagers.connections.verify", () => {
-  it("reads the seal status, the login's lookup, its capabilities on the token-create path and its policies' texts, records what changed as system:key-manager with no command id, and answers the records", async () => {
+  it("reads the seal status, the login's lookup, its capabilities on the token-create path and its policies' texts, then with no base path set the mounts for a suggestion, records what changed as system:key-manager with no command id, and answers the records", async () => {
     const { t, bao, client } = await withOpenBao();
     const connection = await connected({ bao, client });
     const asked = bao.requests.length;
@@ -118,6 +118,7 @@ describe("keyManagers.connections.verify", () => {
       { method: "GET", path: "sys/policies/acl/agent-read" },
       { method: "GET", path: "sys/policies/acl/agent-write" },
       { method: "GET", path: "sys/policies/acl/harness" },
+      { method: "GET", path: "sys/internal/ui/mounts" },
     ]);
     expect(await keyManagerEvents(client, from)).toEqual([
       expect.objectContaining({

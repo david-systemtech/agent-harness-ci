@@ -5,7 +5,8 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
  * provider per kind of key manager behind it, which the connections sign in
  * and verify through. OpenBao is the first (`openbao.ts`), as far as
  * logging in, looking a login's token up, verifying it and revoking it,
- * and reading a reference and listing names under a path (#370); renewal,
+ * reading a reference and listing names under a path (#370), and checking
+ * write access to a path and writing a value there (#371); renewal,
  * run tokens and the other kinds join the interface with the tickets that
  * use them (#368 to #379). A provider never disables TLS verification: a
  * pinned CA is the only trust it adds.
@@ -97,6 +98,15 @@ export interface ListLocation {
 /** What a list answered: the names under the location, a folder's or a mount's ending in `/`; never a value. */
 export type ListAnswer = { readonly outcome: "listed"; readonly names: readonly string[] } | ProviderFailure;
 
+/** Where a secret sits for a write or a write check (#371): a KV mount and a path under it. */
+export interface SecretLocation {
+  readonly mount: string;
+  readonly path: string;
+}
+
+/** What a write check answered: whether the login may write a secret at the location, creating or replacing it. */
+export type WriteCheckAnswer = { readonly outcome: "checked"; readonly writable: boolean } | ProviderFailure;
+
 export interface ConnectionProvider {
   /** Logs in at the target's mount with `credential`, whose method is the target's: a token is its own login. */
   logIn(target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<LogInAnswer>;
@@ -116,4 +126,6 @@ export interface ConnectionProvider {
   read(target: SignInTarget, token: string, reference: KeyManagerReference, signal?: AbortSignal): Promise<ReadAnswer>;
   /** Lists the names under `location` with the login's token: never a value. */
   list(target: SignInTarget, token: string, location: ListLocation, signal?: AbortSignal): Promise<ListAnswer>;
+  /** Asks whether the login's token may write a secret at `location` (#371): its capabilities there, nothing written. */
+  canWrite(target: SignInTarget, token: string, location: SecretLocation, signal?: AbortSignal): Promise<WriteCheckAnswer>;
 }

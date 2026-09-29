@@ -2,7 +2,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import type { KeyManagerLoginPolicy, KeyManagerTokenInformation } from "@agent-harness/contracts";
 import { policyWrites } from "./policy-writes.js";
-import type { ConnectionProvider, ListAnswer, LoginFailure, ProviderFailure, SignInTarget } from "./provider.js";
+import type { ConnectionProvider, ListAnswer, LoginFailure, ProviderFailure, SignInTarget, WriteCheckAnswer } from "./provider.js";
 
 /**
  * The OpenBao provider (key-managers spec, "Providers": OpenBao and Vault
@@ -29,6 +29,10 @@ import type { ConnectionProvider, ListAnswer, LoginFailure, ProviderFailure, Sig
  * nothing else is: every value is read again. A list is OpenBao's
  * (`?list=true`), under `metadata/` on version 2; with no mount, the KV
  * mounts the UI endpoint names.
+ *
+ * Whether a login may write a secret (#371) is its capabilities on the
+ * secret's path, as `sys/capabilities-self` answers them: `create` or
+ * `update` (or `root`) there, `<mount>/data/<path>` on version 2.
  *
  * An answer other than a success falls into one of the provider's
  * categories: a 503 read against the seal status, sealed or not; a 429
@@ -282,6 +286,12 @@ const readPolicy: ConnectionProvider["readPolicy"] = async (target, token, name,
 /** The KV versions a mount is, 1 or 2. */
 type KvVersion = 1 | 2;
 
+/** The path of the secret at `path` under a KV mount of `version`, as OpenBao's API and its policies name it: under `data/` on version 2. */
+const secretPath = (version: KvVersion, mount: string, path: string): string => (version === 2 ? `${mount}/data/${path}` : `${mount}/${path}`);
+
+/** The capabilities that let a login write a secret: create a new one or replace one, or everything. */
+const WRITING = new Set(["create", "update", "root"]);
+
 /** The names a list answered: `keys` under `data`, each a name; a folder's ends in `/`. */
 const keysIn = (body: unknown): string[] => {
   const data = isRecord(body) ? body["data"] : undefined;
@@ -375,8 +385,7 @@ export const createOpenBaoProvider = (): ConnectionProvider => {
       const where = `${reference.mount}/${reference.path}`;
       const detected = await versionOf(target, token, reference.mount, signal);
       if (detected.outcome !== "detected") return detected;
-      const path = detected.version === 2 ? `${encodedPath(reference.mount)}/data/${encodedPath(reference.path)}` : encodedPath(where);
-      const reply = await call(target, "GET", path, { token, signal });
+      const reply = await call(target, "GET", encodedPath(secretPath(detected.version, reference.mount, reference.path)), { token, signal });
       if (reply.outcome !== "answered") return reply;
       if (reply.status !== 200) return readRefusal(target, `read ${where}`, reply.status, reply.body, signal);
       const data = isRecord(reply.body) ? reply.body["data"] : undefined;
@@ -402,6 +411,16 @@ export const createOpenBaoProvider = (): ConnectionProvider => {
       if (reply.outcome !== "answered") return reply;
       if (reply.status !== 200) return readRefusal(target, `list ${where}`, reply.status, reply.body, signal);
       return { outcome: "listed", names: keysIn(reply.body) };
+    },
+
+    async canWrite(target, token, { mount, path }, signal): Promise<WriteCheckAnswer> {
+      const detected = await versionOf(target, token, mount, signal);
+      if (detected.outcome !== "detected") return detected;
+      const asked = secretPath(detected.version, mount, path);
+      const reply = await call(target, "POST", "sys/capabilities-self", { token, body: { paths: [asked] }, signal });
+      if (reply.outcome !== "answered") return reply;
+      if (reply.status !== 200) return readRefusal(target, "ask its capabilities", reply.status, reply.body, signal);
+      return { outcome: "checked", writable: capabilitiesIn(reply.body, asked).some((capability) => WRITING.has(capability)) };
     },
   };
 };

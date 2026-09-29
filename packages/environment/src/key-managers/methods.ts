@@ -18,6 +18,7 @@ export const keyManagerMethods = (connections: KeyManagerConnections, references
   "keyManagers.connections.signIn": connections.signIn,
   "keyManagers.connections.update": connections.update,
   "keyManagers.connections.setPolicies": connections.setPolicies,
+  "keyManagers.connections.setBasePath": connections.setBasePath,
   "keyManagers.connections.signOut": connections.signOut,
   "keyManagers.connections.remove": connections.remove,
   "keyManagers.connections.verify": async ({ connectionId }) => ({ connections: await connections.verify(connectionId) }),

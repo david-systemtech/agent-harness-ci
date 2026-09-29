@@ -26,7 +26,7 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
-import { basePathProblem } from "./base-path.js";
+import { basePathProblem, suggestBasePath } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
@@ -86,6 +86,11 @@ import { createVerificationSchedule } from "./verifier.js";
  *   reference names is removed only with `force`, else `conflict` reason
  *   `referenced` naming its holders, which the services holding references
  *   answer (`referenceHolders`).
+ * - **The base path** (#371) is set by `setBasePath`, held to the base
+ *   path's rule (`base-path.ts`). While none is set, a verification that
+ *   finds the login signed in asks the provider for one to suggest, within
+ *   the budget again; the suggestion is kept in memory beside the record,
+ *   as the verified-at times are, and answered on it until a base is set.
  */
 
 /** The environment's own sign-ins' actor. */
@@ -162,6 +167,7 @@ export interface KeyManagerConnections {
   readonly signIn: PreparedCommand<"keyManagers.connections.signIn">;
   readonly update: PreparedCommand<"keyManagers.connections.update">;
   readonly setPolicies: MethodHandler<"keyManagers.connections.setPolicies">;
+  readonly setBasePath: MethodHandler<"keyManagers.connections.setBasePath">;
   readonly signOut: MethodHandler<"keyManagers.connections.signOut">;
   readonly remove: MethodHandler<"keyManagers.connections.remove">;
   /** The connection `connectionId` as references are read through it; null for one the environment does not hold. */
@@ -236,6 +242,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const startupSignIns = new Map<string, Promise<void>>();
   /** When each connection was last verified, whatever it found: beside the record, which keeps only the time of the last one that changed something. */
   const verifiedTimes = new Map<string, string>();
+  /** The base path each connection's provider suggested at its last verification that asked, while it has none (#371). */
+  const suggestions = new Map<string, string | null>();
   /** Raised by every committed command that changes a connection's credential, login or address: a sign-in begun before records nothing. */
   const epochs = new Map<string, number>();
   let closed = false;
@@ -290,6 +298,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /** Lets go of everything a connection held once its sign-out or removal has committed: its login, its credential's registration and entry. */
   const forget = (connectionId: string, entry: string | null): void => {
     moved(connectionId);
+    suggestions.delete(connectionId);
     const login = logins.get(connectionId);
     logins.delete(connectionId);
     if (login !== undefined) void letGo(connectionId, login);
@@ -360,10 +369,11 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return { outcome: "signed-in", login, information: found.information };
   };
 
-  /** `record` with when it was last verified: the later of its own time and the one kept beside it. */
+  /** `record` with when it was last verified, the later of its own time and the one kept beside it, and the base path suggested while it has none. */
   const seen = (record: KeyManagerConnectionRecord): KeyManagerConnectionRecord => {
     const at = verifiedTimes.get(record.id);
-    return at === undefined || (record.verifiedAt !== null && record.verifiedAt >= at) ? record : { ...record, verifiedAt: at };
+    const verified = at === undefined || (record.verifiedAt !== null && record.verifiedAt >= at) ? record : { ...record, verifiedAt: at };
+    return record.basePath === null ? { ...verified, suggestedBasePath: suggestions.get(record.id) ?? null } : verified;
   };
 
   /** A record as it stands now: signing in while a sign-in from the kept credential is under way, and with when it was last verified. */
@@ -873,6 +883,11 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           else void letGo(connectionId, checked.login);
         }
       }
+      if (taken && checked.outcome === "verified" && held.record.basePath === null) {
+        // On the wall clock, never the environment's, which a test may hold still.
+        const suggested = await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs));
+        if (!closed) suggestions.set(connectionId, suggested);
+      }
     } catch (error) {
       console.error(`Verifying the key-manager connection ${connectionId} failed:`, error);
     }
@@ -941,6 +956,19 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const ticks = policies.filter((policy) => params.ticks.includes(policy));
       if (JSON.stringify(ticks) === JSON.stringify(record.ticks)) return { aggregate: stream, result: { connection: standing(record) } };
       log.append(stream, [{ type: "key-manager.connection.policies-set", payload: { connectionId, ticks } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+      return { aggregate: stream, result: { connection: recordOf(connectionId) } };
+    },
+
+    setBasePath(params, command) {
+      const connectionId = params.connectionId.toLowerCase();
+      const held = liveConnection(reader, connectionId);
+      if (held === null) return { aggregate: stream, rejected: notFound(connectionId) };
+      const { record } = held;
+      const problem = basePathProblem(record.provider, params.basePath);
+      if (problem !== null) invalid(["basePath"], problem);
+      if (params.basePath === record.basePath) return { aggregate: stream, result: { connection: standing(record) } };
+      const payload = { connectionId, basePath: params.basePath };
+      log.append(stream, [{ type: "key-manager.connection.base-path-set", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
       return { aggregate: stream, result: { connection: recordOf(connectionId) } };
     },
 
