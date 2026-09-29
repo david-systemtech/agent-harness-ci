@@ -426,6 +426,17 @@ describe("updates.apply in a container", () => {
     expect(t.env.log.head()).toBe(head);
   });
 
+  it("keeps an ask to go now for its update until it is begun or withdrawn: a later ask for it when idle does not take it back, as a native drain cannot be", async () => {
+    const { t, client, updateId } = await pendingUpdate();
+    await apply(client, { when: "now" });
+    expect((await apply(client, { version: TARGET, when: "idle" })).result).toEqual({ updateId, toVersion: TARGET });
+    expect(await pendingOf(client)).toMatchObject({ state: "ready", updateId });
+
+    await client.request("updates.cancel", { commandId: randomUUID() });
+    expect(await pendingOf(client)).toEqual({ state: "current" });
+    expect(t.env.readiness()).toBe("ready");
+  });
+
   it("refuses an artefact path, conflict no_launcher: the host-side updater takes a container's updates by version", async () => {
     const { t, client } = await container();
     const artefact = serverArtefact(tempDir("agent-harness-artefact-"), TARGET);

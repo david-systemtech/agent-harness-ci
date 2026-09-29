@@ -212,7 +212,10 @@ type Held =
   | {
       readonly state: "waiting";
       readonly update: Update;
-      /** Asked for with `when: now`: managed outside, ready whatever the activity, for the host-side updater. */
+      /**
+       * Asked for with `when: now`: managed outside, ready whatever the activity, for the host-side updater, until it is
+       * begun or withdrawn; a later ask for it when idle does not take it back, as a native drain `now` began cannot be.
+       */
       readonly now?: boolean;
     }
   | { readonly state: "draining" | "switching"; readonly update: Update; readonly cause: UpdateCause };
