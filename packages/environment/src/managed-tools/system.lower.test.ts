@@ -4,15 +4,16 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeToolPath } from "../../test/fake-tools.js";
 import { systemClock } from "../serve/clock.js";
-import { readLoginPath } from "./login-path.js";
+import { WINDOWS_PATH_SCRIPT, readLoginPath } from "./login-path.js";
 import { systemPackageOwner } from "./package-owner.js";
 
 /**
  * The Managed tools registry's two reads of the machine, below the wire
  * (#373): the login shell's PATH, from a real `/bin/sh -l` over a home
- * whose profile adds to it and prints around it; and the package owner,
- * from fake `dpkg` and `rpm` answering as the real ones do. Neither is
- * about time, so each runs on the system clock with room to spare.
+ * whose profile adds to it and prints around it, and the Windows Path from
+ * a stand-in `powershell.exe`; and the package owner, from fake `dpkg` and
+ * `rpm` answering as the real ones do. None is about time, so each runs on
+ * the system clock with room to spare.
  */
 
 const { tempDir } = useCleanups();
@@ -44,6 +45,18 @@ describe.runIf(process.platform !== "win32")("the login shell's PATH", () => {
     await expect(
       readLoginPath({ clock: systemClock, env: { HOME: home }, timeoutMs: ROOM_MS, platform: "linux", shell: { file: join(home, "no-such-shell"), args: ["-l"] } }),
     ).rejects.toThrow(/is not installed/);
+  });
+});
+
+describe.runIf(process.platform !== "win32")("the Windows Path", () => {
+  it("is PowerShell's machine then user Path, asked to write it as UTF-8, which the runner reads", async () => {
+    // A stand-in powershell.exe on a POSIX PATH: it records what it was asked and answers a Path with a name outside any code page.
+    const path = fakeToolPath(realpathSync(tempDir()));
+    const powershell = path.install("powershell.exe", { output: "C:\\Windows\\system32;C:\\Users\\Zoë\\AppData\\Local\\Microsoft\\WinGet\\Links" });
+    const read = await readLoginPath({ clock: systemClock, env: { PATH: path.path() }, timeoutMs: ROOM_MS, platform: "win32" });
+    expect(read).toBe("C:\\Windows\\system32;C:\\Users\\Zoë\\AppData\\Local\\Microsoft\\WinGet\\Links");
+    expect(powershell.calls()).toEqual([["-NoProfile", "-NonInteractive", "-Command", ...WINDOWS_PATH_SCRIPT.split(" ")]]);
+    expect(WINDOWS_PATH_SCRIPT.startsWith("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;")).toBe(true);
   });
 });
 

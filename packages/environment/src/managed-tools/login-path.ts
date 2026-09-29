@@ -32,8 +32,14 @@ export interface LoginPathOptions {
 /** Shells whose `-l` must be their only flag, so they are asked without it. */
 const LOGIN_FLAG_ALONE = new Set(["csh", "tcsh"]);
 
-/** Machine then user, as Windows composes a new process's Path; each expanded by the registry's read. */
-const WINDOWS_PATH_SCRIPT = "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')";
+/**
+ * Machine then user, as Windows composes a new process's Path; each expanded
+ * by the registry's read. Written as UTF-8, which the runner decodes: Windows
+ * PowerShell otherwise writes a redirected stream in the console's code
+ * page, and a user name outside it in a profile directory would not survive.
+ */
+export const WINDOWS_PATH_SCRIPT =
+  "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')";
 
 /** The login shell's PATH, read now; rejects with why when it cannot be read. */
 export const readLoginPath = async (options: LoginPathOptions): Promise<string> => {

@@ -22,6 +22,9 @@ import type { WireClient } from "../../test/wire-client.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** The fakes are `#!/bin/sh` scripts on a colon-joined PATH, linked with symlinks: POSIX only, as `system.lower.test.ts` is. */
+const posix = describe.runIf(process.platform !== "win32");
+
 const FIFTEEN_MINUTES = 15 * 60_000;
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
@@ -58,7 +61,7 @@ const toolsEvents = async (client: WireClient, afterSequence: number): Promise<E
   }
 };
 
-describe("tools.list", () => {
+posix("tools.list", () => {
   it("answers a row per tool in the table's order, each not installed with the Install action when nothing is on the PATH", async () => {
     const { client } = await withTools(fakePath());
     const answer = await list(client);
@@ -166,7 +169,7 @@ describe("tools.list", () => {
   });
 });
 
-describe("the install method", () => {
+posix("the install method", () => {
   it("comes from the realpath's shape: a Homebrew Cellar or Caskroom, WinGet's packages or links, Scoop, mise, asdf, node_modules, and claude's native versions directory", async () => {
     const path = fakePath();
     const doppler = path.install("doppler", { at: "homebrew/Cellar/doppler/3.80.0/bin/doppler", output: "v3.80.0" });
@@ -256,7 +259,7 @@ describe("the install method", () => {
   });
 });
 
-describe("the probe's cadence", () => {
+posix("the probe's cadence", () => {
   it("probes at start, and again on a refresh at most every fifteen minutes; a list without refresh never probes", async () => {
     const path = fakePath();
     const gh = path.install("gh", { output: "gh version 2.39.2 (2023-11-01)" });
@@ -318,7 +321,7 @@ describe("the probe's cadence", () => {
   });
 });
 
-describe("tools.updated", () => {
+posix("tools.updated", () => {
   it("is not raised by a first start that finds no tool: a tool the log never carried is not installed", async () => {
     const { client } = await withTools(fakePath());
     await list(client);
@@ -363,7 +366,7 @@ describe("tools.updated", () => {
   });
 });
 
-describe("the sign-in director's managed tool", () => {
+posix("the sign-in director's managed tool", () => {
   /** An environment holding one Claude account, `work`, whose bundled binary runs no sign-in, so a sign-in runs the managed tool. */
   const withSignIn = async (path: FakeToolPath) => {
     const spawner = fakeSignInSpawner();
@@ -402,7 +405,7 @@ describe("the sign-in director's managed tool", () => {
   });
 });
 
-describe("the managedTools capability flag", () => {
+posix("the managedTools capability flag", () => {
   it("is in hello and the discovery document", async () => {
     const { t, client } = await withTools(fakePath());
     expect(client.hello.capabilities).toContain("managedTools");
