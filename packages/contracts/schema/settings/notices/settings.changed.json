@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsChangedNoticePayload",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "sessions.autoSettleAfterIdle",
+          "sessions.autoSettleOnMerge",
+          "sessions.transcriptCompactAfterDays",
+          "accounts.defaultAccount",
+          "accounts.defaultModelFamily",
+          "accounts.defaultEffort",
+          "providers.processIdleMinutes",
+          "permissions.defaultCeiling",
+          "permissions.unattended.mode",
+          "permissions.unattended.bypassAcknowledgedAt",
+          "permissions.parkedPrompt.ttl",
+          "permissions.containment.default",
+          "updates.autoUpdate",
+          "updates.channel",
+          "updates.pinnedVersion",
+          "updates.idleWindowMinutes",
+          "updates.deferralCapHours",
+          "appearance.theme"
+        ],
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme."
+      },
+      "uniqueItems": true,
+      "description": "The keys whose values changed, each once, in the order settings.updated names them."
+    }
+  },
+  "required": [
+    "keys"
+  ],
+  "description": "settings.changed: settings changed on the environment; the keys that did, whose values a client reads again."
+}

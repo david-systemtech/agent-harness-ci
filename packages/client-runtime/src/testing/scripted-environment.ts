@@ -5,6 +5,7 @@ import {
   LIST_PATCH_KEY,
   MODES,
   PAIR_PATH,
+  PROTOCOL_VERSION,
   SCOPES,
   ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
@@ -30,6 +31,7 @@ import {
   type Mode,
   type SettingsValues,
   type SignInState,
+  UpdatesStatus,
   type AttachmentInput,
   type ByeReason,
   type CapabilityFlags,
@@ -58,8 +60,9 @@ import {
   type TerminalInfo,
   type WorkspaceProblem,
 } from "@agent-harness/contracts";
+import { uuidv4 } from "../ids.js";
 import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
-import { fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
+import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
 import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
@@ -176,6 +179,22 @@ export interface ScriptedEnvironment {
   readonly oneOff?: (command: string) => { readonly output: string; readonly exitCode?: number };
   /** Whether the login shell runs a one-off's line: preset true; false is a shell that is not POSIX, which refuses the line and exits 127. */
   readonly posixShell?: boolean;
+  /** What the update methods answer (#354): preset a current environment of discovery's version under a launcher, before any check, with no desktop build published. */
+  readonly updates?: ScriptedUpdates;
+}
+
+/**
+ * The update methods' answers: `updates.status` and `updates.check` answer
+ * `status` over a current environment's; `updates.desktop.stage` the build
+ * `desktopBuild` names, whatever platform and format it is asked for, or
+ * its refusal, an error with the reason as its code; `updates.apply` is
+ * accepted, the update going to the version asked for (else the channel's
+ * newest), unless `receipts` rejects it.
+ */
+export interface ScriptedUpdates {
+  readonly status?: Partial<UpdatesStatus>;
+  /** Preset: refused `not_found`, as a release with no build for the platform and format is. */
+  readonly desktopBuild?: ResultOf<"updates.desktop.stage"> | { readonly refused: string; readonly message?: string; readonly data?: Readonly<Record<string, unknown>> };
 }
 
 /** A file as `files.read` answers it. */
@@ -271,6 +290,18 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   liveRun(sessionId: string): string | undefined;
   /** The id of the message sent to the session with `text`, the latest of that text; throws when none was. */
   messageId(sessionId: string, text: string): string;
+  /**
+   * The session's run `runId` writes `text` whole to `path` (relative to the workspace), as Claude's `Write` does: its
+   * `tool.started`, naming the file by its absolute path, and a `tool.ended` ok. `files.read` answers the text from then
+   * on, and `files.list` lists the path. Answers the call's id.
+   */
+  writeFile(sessionId: string, runId: string, path: string, text: string): string;
+  /**
+   * The session's run `runId` edits `path`, as Claude's `Edit` does: the first `oldText` in what `files.read` answers
+   * becomes `newText`, then its `tool.started` and a `tool.ended` ok. Throws for a file with no text to edit. Answers the
+   * call's id.
+   */
+  editFile(sessionId: string, runId: string, path: string, oldText: string, newText: string): string;
   /** The session's log as the environment holds it: every event appended since its snapshot, in order. */
   events(sessionId: string): readonly EventEnvelope[];
   /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
@@ -287,6 +318,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   recommend(recommendation: Partial<HandoffRecommendation>): void;
   /** The settings' values the environment holds now. */
   settings(): SettingsValues;
+  /** Changes settings as another client would: the values change, and a `settings.changed` notice names the keys that did (#391). */
+  setSettings(values: Partial<SettingsValues>): void;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
   /** The terminals the environment has held, oldest first, closed ones included. */
@@ -301,6 +334,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   exitTerminal(id: string, exitCode: number, signal?: number | null): void;
   /** The terminal's scrollback loses its oldest `chunks`, as the cap drops them: a cursor before what is kept gets a truncated snapshot. */
   dropScrollback(id: string, chunks: number): void;
+  /** Changes what the update methods answer from now on, over what they answer now: a release published since, a build staged. */
+  setUpdates(changes: ScriptedUpdates): void;
 }
 
 export interface ScriptedWorld {
@@ -693,6 +728,27 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued, lastChoice.get(sessionId)).runId;
   };
 
+  // A run's file tools, as Claude's name them: the call, then the file as the environment reads it.
+  let fileCalls = 0;
+  const fileCall = (sessionId: string, runId: string, name: string, input: Record<string, unknown>): string => {
+    const toolCallId = `toolu-${name.toLowerCase()}-${++fileCalls}`;
+    emit(sessionId, "tool.started", { runId, toolCallId, name, input, title: null, agentId: null, parentToolCallId: null });
+    emit(sessionId, "tool.ended", { runId, toolCallId, status: "ok", output: null, durationMs: 20 });
+    return toolCallId;
+  };
+  const inWorkspaceOf = (sessionId: string, path: string) => `${summaryNow(sessionId).workspace.path.replace(/\/+$/, "")}/${path}`;
+  const writeFile: EnvironmentHandle["writeFile"] = (sessionId, runId, path, text) => {
+    contents.set(path, text);
+    if (!listed.includes(path)) listed.push(path);
+    return fileCall(sessionId, runId, "Write", { file_path: inWorkspaceOf(sessionId, path), content: text });
+  };
+  const editFile: EnvironmentHandle["editFile"] = (sessionId, runId, path, oldText, newText) => {
+    const text = contents.get(path);
+    if (typeof text !== "string") throw new Error(`${spec.name} holds no text at ${path} to edit.`);
+    contents.set(path, text.replace(oldText, () => newText));
+    return fileCall(sessionId, runId, "Edit", { file_path: inWorkspaceOf(sessionId, path), old_string: oldText, new_string: newText });
+  };
+
   // Parked prompts and their answers (`scripted-prompts.ts`).
   const { prompts, answer: answerPrompt } = scriptedPrompts({
     clock,
@@ -942,12 +998,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId });
     return acceptedWith({ summary });
   });
-  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: spec.filesTruncated ?? false, source: "git" } }));
+  // The workspace's files, which a run's writes and edits (`writeFile`, `editFile`) change.
+  const listed = [...(spec.files ?? [])];
+  const contents = new Map<string, ScriptedFile>(Object.entries(spec.fileContents ?? {}));
+  wire.answer("files.list", () => ({ result: { files: [...listed], truncated: spec.filesTruncated ?? false, source: "git" } }));
   wire.answer("files.read", (params) => {
     const path = String(params["path"]);
-    const file = spec.fileContents?.[path];
+    const file = contents.get(path);
     if (file === undefined) {
-      if ((spec.files ?? []).some((f) => f.startsWith(`${path}/`))) {
+      if (listed.some((f) => f.startsWith(`${path}/`))) {
         return { error: { code: "invalid_params", message: `${path} is not a file.`, data: { reason: "not_a_file" } } };
       }
       return { error: { code: "not_found", message: `No file ${path} in the workspace.`, data: { kind: "file" } } };
@@ -1373,6 +1432,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...spec.containment,
   });
   const permissionValues = () => Object.fromEntries(PERMISSION_SETTINGS_KEYS.map((key) => [key, values[key]]));
+  /** Takes some settings' values as every write does: the keys whose values change, said with one `settings.changed` notice naming them (#391). */
+  const changeSettings = (patch: Partial<SettingsValues>) => {
+    const keys = (Object.keys(patch) as (keyof SettingsValues)[]).filter((key) => JSON.stringify(values[key]) !== JSON.stringify(patch[key]));
+    values = { ...values, ...patch };
+    if (keys.length > 0) notice("settings.changed", { keys });
+  };
   wire.answer("settings.get", (params) => {
     const keys = (params["keys"] as readonly (keyof SettingsValues)[] | undefined) ?? (Object.keys(values) as (keyof SettingsValues)[]);
     return { result: { values: Object.fromEntries(keys.map((key) => [key, values[key]])) } };
@@ -1380,16 +1445,53 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("settings.update", (params) => {
     const refused = rejection("settings.update");
     if (refused) return refused;
-    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
     const refused = rejection("updates.settings.set");
     if (refused) return refused;
-    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values: Object.fromEntries(UPDATE_SETTINGS_KEYS.map((key) => [key, values[key]])) });
   });
+  // The update methods (#354), as `ScriptedUpdates` says.
+  let updates: { readonly status: UpdatesStatus; readonly desktopBuild: NonNullable<ScriptedUpdates["desktopBuild"]> } = {
+    status: checked(UpdatesStatus, {
+      version: FAKE_HARNESS_VERSION,
+      protocolVersion: spec.protocolVersion ?? PROTOCOL_VERSION,
+      bundledClaudeCodeVersion: "2.1.0-test",
+      manager: { kind: "launcher", launcherVersion: FAKE_HARNESS_VERSION },
+      releaseSource: { origin: "https://git.example.test", kind: "forgejo", repository: "david/agent-harness" },
+      newest: null,
+      lastCheck: null,
+      target: null,
+      passedOver: null,
+      pending: { state: "current" },
+      lastOutcome: null,
+      failedVersions: [],
+      installed: [FAKE_HARNESS_VERSION],
+      ...spec.updates?.status,
+    }),
+    desktopBuild: spec.updates?.desktopBuild ?? { refused: "not_found", message: "The release has no desktop build for this platform and format." },
+  };
+  const setUpdates = (changes: ScriptedUpdates) => {
+    updates = { status: checked(UpdatesStatus, { ...updates.status, ...changes.status }), desktopBuild: changes.desktopBuild ?? updates.desktopBuild };
+  };
+  wire.answer("updates.status", () => ({ result: updates.status }));
+  wire.answer("updates.check", () => ({ result: updates.status }));
+  wire.answer("updates.desktop.stage", () => {
+    const build = updates.desktopBuild;
+    if (!("refused" in build)) return { result: { ...build } };
+    return { error: { code: build.refused, message: build.message ?? `Refused: ${build.refused}.`, data: { ...build.data } } };
+  });
+  wire.answer("updates.apply", (params) => {
+    const refused = rejection("updates.apply");
+    if (refused) return refused;
+    const toVersion = (params["version"] as string | undefined) ?? updates.status.newest ?? updates.status.version;
+    return acceptedWith({ updateId: uuidv4(), toVersion });
+  });
+
   wire.answer("permissions.settings.get", () => ({
     result: { values: permissionValues(), containment, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
   }));
@@ -1397,11 +1499,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const refused = rejection("permissions.settings.set");
     if (refused) return refused;
     const asked = params["values"] as Partial<SettingsValues>;
+    let acknowledged: Partial<SettingsValues> = {};
     if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
       if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
-      values = { ...values, "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
+      acknowledged = { "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
     }
-    values = { ...values, ...asked };
+    changeSettings({ ...asked, ...acknowledged });
     return acceptedWith({ values: permissionValues() });
   });
 
@@ -1539,6 +1642,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "accounts.signin.cancel",
     "settings.update",
     "updates.settings.set",
+    "updates.apply",
     "permissions.settings.set",
     "permissions.mode.set",
     "permissions.containment.set",
@@ -1640,6 +1744,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit,
     startRun,
     endRun,
+    writeFile,
+    editFile,
     liveRun: (sessionId) => live.get(sessionId),
     messageId(sessionId, text) {
       const sent = (logs.get(sessionId)?.events ?? []).filter((event) => event.type === "message.sent" && (event.payload as Record<string, unknown>)["text"] === text).at(-1);
@@ -1649,12 +1755,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     events: (sessionId) => [...(logs.get(sessionId)?.events ?? [])],
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
     setUsage,
+    setUpdates,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
     holdRewinds,
     signIn: moveSignIn,
     currentSignIn: () => signIn,
     recommend,
     settings: () => values,
+    setSettings: changeSettings,
     notice,
     ...prompts,
     terminals: () => [...terminals.values()],

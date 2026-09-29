@@ -689,7 +689,7 @@ describe("environment.subscribe", () => {
     expect(EnvironmentNotice.parse(live.event).type).toBe("environment.draining");
   });
 
-  it("snapshots the environment's status when its notices after the cursor are out of bounds", async () => {
+  it("snapshots the environment's status, and Set up's cached results, none on a fresh environment, when its notices after the cursor are out of bounds", async () => {
     const t = await start();
     const notices: EventInput[] = Array.from({ length: REPLAY_BOUND.events }, () => ({
       type: "environment.started",
@@ -702,7 +702,7 @@ describe("environment.subscribe", () => {
       type: "snapshot",
       subscription,
       sequence: events.at(-1)?.sequence,
-      payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } },
+      payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: [] },
     });
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);

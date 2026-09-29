@@ -9,7 +9,8 @@ import type { DesktopElectron, ElectronBrowserWindow, ElectronIpcMain, IpcCaller
 import { lockNavigation, lockNetwork } from "./lockdown.js";
 import { bringForward, shellMembers, type Members } from "./members.js";
 import type { DesktopPlatform } from "./platform.js";
-import { APP_SCHEME, APP_URL, isAppPage } from "./schemes.js";
+import { PREVIEW_SCHEME_REGISTRATION, previews } from "./preview.js";
+import { APP_SCHEME, APP_URL, PREVIEW_SCHEME, isAppPage } from "./schemes.js";
 import { keychainSecrets } from "./secrets.js";
 import { bundledService, type ServiceWait } from "./service.js";
 
@@ -93,7 +94,8 @@ export const startDesktop = async (electron: DesktopElectron, platform: DesktopP
     app.quit();
     return;
   }
-  protocol.registerSchemesAsPrivileged([APP_SCHEME_REGISTRATION]);
+  // Once, both schemes together: Electron takes this call only once, before the app is ready.
+  protocol.registerSchemesAsPrivileged([APP_SCHEME_REGISTRATION, PREVIEW_SCHEME_REGISTRATION]);
   if (platform.relaunch) app.setAsDefaultProtocolClient(APP_SCHEME, platform.relaunch.executable, [...platform.relaunch.args]);
   else app.setAsDefaultProtocolClient(APP_SCHEME);
 
@@ -116,6 +118,8 @@ export const startDesktop = async (electron: DesktopElectron, platform: DesktopP
 
   await app.whenReady();
   protocol.handle(APP_SCHEME, serveApp(platform.paths.renderer));
+  const preview = previews();
+  protocol.handle(PREVIEW_SCHEME, (request) => preview.serve(request));
   const canvas = canvasStore(platform.paths.data);
   const window = electron.openWindow(windowOptions(platform, (await canvas.read()) ?? presetCanvas(electron.nativeTheme.shouldUseDarkColors)));
   shown.window = window;
@@ -128,6 +132,6 @@ export const startDesktop = async (electron: DesktopElectron, platform: DesktopP
   const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: platform.os, dir: join(platform.paths.data, SECRETS_DIRECTORY), report: reportError });
   const localGrant = grantFile(platform.paths.environment, reportError);
   const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
-  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, platform, window, canvas, network, links }), reportError);
+  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, platform, window, canvas, network, links, preview }), reportError);
   await window.loadURL(APP_URL).catch(reportError);
 };

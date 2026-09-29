@@ -21,6 +21,7 @@ import {
   groupsReorder,
   sessionsArchive,
   sessionsCreate,
+  sessionsSetWorkspace,
   sessionsDelete,
   sessionsFork,
   sessionsGet,
@@ -84,7 +85,21 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
-import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate, forgeAccountsVerify, forgeGhProbe } from "./methods/forge.js";
+import { instructionsPreview } from "./methods/instructions.js";
+import {
+  forgeAccountsAdd,
+  forgeAccountsList,
+  forgeAccountsRemove,
+  forgeAccountsSetPrimary,
+  forgeAccountsUpdate,
+  forgeAccountsVerify,
+  forgeDetect,
+  forgeGhProbe,
+  forgeOrgsList,
+  forgePullRequestsLink,
+  forgePullRequestsRefresh,
+  forgePullRequestsUnlink,
+} from "./methods/forge.js";
 import {
   keyManagersCertificatePreview,
   keyManagersConnectionsAdd,
@@ -95,6 +110,8 @@ import {
   keyManagersConnectionsUpdate,
   keyManagersConnectionsVerify,
   keyManagersList,
+  keyManagersReferencesBrowse,
+  keyManagersReferencesCheck,
 } from "./methods/key-managers.js";
 import {
   updatesApply,
@@ -106,6 +123,7 @@ import {
   updatesStatus,
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
+import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -150,6 +168,7 @@ export const methods = [
   accessSessionsSetCeiling,
   accessLogList,
   sessionsCreate,
+  sessionsSetWorkspace,
   sessionsRename,
   sessionsArchive,
   sessionsUnarchive,
@@ -206,6 +225,7 @@ export const methods = [
   accountsHandoffRecommend,
   modelsList,
   commandsList,
+  instructionsPreview,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,
@@ -213,6 +233,11 @@ export const methods = [
   forgeAccountsSetPrimary,
   forgeAccountsVerify,
   forgeGhProbe,
+  forgeDetect,
+  forgeOrgsList,
+  forgePullRequestsLink,
+  forgePullRequestsUnlink,
+  forgePullRequestsRefresh,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,
@@ -222,6 +247,8 @@ export const methods = [
   keyManagersConnectionsRemove,
   keyManagersConnectionsVerify,
   keyManagersCertificatePreview,
+  keyManagersReferencesCheck,
+  keyManagersReferencesBrowse,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
@@ -247,6 +274,8 @@ export const methods = [
   filesRead,
   diffsWorkingTree,
   diffsSession,
+  workspacesBrowse,
+  workspacesInspect,
   updatesStatus,
   updatesCheck,
   updatesApply,
@@ -288,8 +317,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
-  "updates.desktop.stage": "#354",
   // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and commands.
   "routines.history": "#523",
   "routines.runNow": "#523",

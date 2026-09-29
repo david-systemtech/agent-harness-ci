@@ -10,6 +10,7 @@ import {
   startEnvironment,
   type EnvironmentHandle,
   type EnvironmentOptions,
+  type PreflightSeams,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
 import { harnessCommand } from "./harness-command.js";
@@ -20,6 +21,7 @@ import { status } from "./status.js";
 import { GIT_CREDENTIAL_USAGE, gitCredential, readStandardInput } from "./git-credential.js";
 import { LocalFailure, type Net } from "./local-session.js";
 import { mintPairing, renderPairing, type PairArgs } from "./pair.js";
+import { preflight, PREFLIGHT_USAGE } from "./preflight.js";
 import { TUI_USAGE, tui, type RunTui } from "./tui.js";
 import { UPDATE_USAGE, update } from "./update.js";
 
@@ -27,6 +29,7 @@ const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} ${LAUNCH_USAGE}`,
+  `       ${PRODUCT_NAME} ${PREFLIGHT_USAGE}`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
@@ -49,7 +52,9 @@ export interface CliContext extends ProcessContext {
   readonly fetch?: typeof globalThis.fetch;
   /** Seams into the service verbs for tests, under the same rule as `environment`. */
   readonly service?: ServiceSeams;
-  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment">;
+  /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
+  readonly preflight?: PreflightSeams;
+  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector">;
   /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
@@ -126,10 +131,12 @@ const pair = async (args: readonly string[], context: CliContext): Promise<numbe
 
 /**
  * `serve`: runs the environment, printing the discovery address once it is
- * ready, until a drain ends: one SIGINT or SIGTERM starts, or the launcher's
- * drain query or `environment.drain`. Everything it does is the environment
- * package's; this only refuses, parses, prints and waits. The refusal comes
- * before the arguments are read, so no argument gets past it.
+ * ready (and, in a declared container no client has paired with yet, a
+ * pairing as `pair` prints it), until a drain ends: one SIGINT or SIGTERM
+ * starts, or the launcher's drain query or `environment.drain`. Everything
+ * it does is the environment package's; this only refuses, parses, prints
+ * and waits. The refusal comes before the arguments are read, so no
+ * argument gets past it.
  */
 const serve = async (args: readonly string[], context: CliContext): Promise<number> => {
   const user = context.environment?.user ?? processUserCheck();
@@ -154,6 +161,12 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   }
   const { host, port } = environment.address;
   context.stdout(`http://${host}:${port}${DISCOVERY_PATH}\n`);
+  // A declared container no client has paired with pairs from this output, its log (ADR 0025, #349).
+  if (environment.startPairing !== undefined) {
+    context.stdout(
+      `No client has paired with this environment yet. Pair one with this code, or run ${PRODUCT_NAME} pair --data-dir ${environment.dataDir} in the container for a new one.\n${renderPairing(environment.startPairing)}`,
+    );
+  }
   // The drain's own end is awaited below, whatever started it.
   void context.stopRequested().then(() => environment.drain("signal")).catch(() => undefined);
   try {
@@ -175,6 +188,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
     }
     if (args[0] === "serve") return await serve(args.slice(1), context);
     if (args[0] === "launch") return await launch(args.slice(1), context);
+    if (args[0] === "preflight") return await preflight(args.slice(1), { stdout: context.stdout, stderr: context.stderr, seams: context.preflight ?? {} });
     if (args[0] === "status") return await status(args.slice(1), { stdout: context.stdout, fetch: context.fetch ?? fetch });
     if (args[0] === "service") {
       return await service(args.slice(1), {

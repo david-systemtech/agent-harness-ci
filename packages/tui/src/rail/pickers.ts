@@ -16,7 +16,9 @@ import { WHEN_EXAMPLES, parseWhen, presetTimes, whenWords } from "./when.js";
  * on an environment: its account, its model, then its workspace, a
  * `directory` from the paths that environment's sessions already carry, or
  * typed, which the environment checks (#325). Each is a function of the
- * runtime's projections, read as drawn.
+ * runtime's projections, read as drawn. `/cwd` on a session whose workspace
+ * is missing is the workspace step for that session, which gives it the
+ * directory chosen (#328).
  */
 
 /** What a picker does through the rail: commands, lines, and where the cursor goes. */
@@ -259,14 +261,17 @@ interface Choice {
 const DEFAULT_ACCOUNT: Choice = { id: null, label: "default" };
 const DEFAULT_MODEL: Choice = { id: null, label: "default" };
 
-const chipsOf = (acts: RailActs, view: EnvironmentView, account?: Choice, model?: Choice): Chip[] => {
+/** The environment a step is on, with its badge. */
+const environmentChip = (acts: RailActs, view: EnvironmentView): Chip => {
   const badge = acts.badges.get(view.environmentId);
-  return [
-    { label: "environment", value: `${badge ? `${badge.icon}${badge.abbreviation} ` : ""}${nameOf(view)}`, ...(badge && { colour: badge.colour }) },
-    { label: "account", value: account?.label ?? "…" },
-    { label: "model", value: model?.label ?? "…" },
-  ];
+  return { label: "environment", value: `${badge ? `${badge.icon}${badge.abbreviation} ` : ""}${nameOf(view)}`, ...(badge && { colour: badge.colour }) };
 };
+
+const chipsOf = (acts: RailActs, view: EnvironmentView, account?: Choice, model?: Choice): Chip[] => [
+  environmentChip(acts, view),
+  { label: "account", value: account?.label ?? "…" },
+  { label: "model", value: model?.label ?? "…" },
+];
 
 /** Whether the terminal's own directory is a full path, which the local environment's step offers as it is. */
 const isFullPath = (path: string) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
@@ -296,17 +301,18 @@ const PROBLEM_LINES: Readonly<Record<WorkspaceProblem, (path: string, where: str
 };
 
 /**
- * A refusal of a new session's directory in one line: a path that is not
- * full (the contracts' own check, refused before it is sent), a problem the
- * environment names, or else what the environment says.
+ * A refusal of a directory chosen on the workspace step in one line: a
+ * path that is not full (the contracts' own check, refused before it is
+ * sent), a problem the environment names, or else what the environment
+ * says after `unsent` (what did not happen).
  */
-const refusalLine = (failure: DispatchFailure, path: string, view: EnvironmentView): string => {
+const refusalLine = (failure: DispatchFailure, path: string, view: EnvironmentView, unsent: string): string => {
   const where = nameOf(view);
   if (failure.code === "invalid_params") return `A workspace is a full path on ${where}, or one from its home (~).`;
   const problem = WorkspaceProblem.safeParse(failure.data?.["problem"]);
   const at = failure.data?.["path"];
   if (problem.success) return PROBLEM_LINES[problem.data](typeof at === "string" ? at : path, where);
-  return `No session was started: ${failure.message}`;
+  return `${unsent}: ${failure.message}`;
 };
 
 /** The workspace step a choice is made on: the picker, its note, and the query it was chosen at. */
@@ -316,43 +322,71 @@ interface StepAt {
   readonly query: string;
 }
 
+/** A command the workspace step sends for the path chosen, and how it reads. */
+interface StepCommand<N extends "sessions.create" | "sessions.setWorkspace"> {
+  readonly method: N;
+  readonly params: CommandParams<N>;
+  /** What the activity line says as it is sent, before any "when back" and the full stop. */
+  readonly said: string;
+  /** What a refusal the step has no line of its own for says did not happen. */
+  readonly unsent: string;
+  /** What follows once the environment accepts it. */
+  readonly done: () => void;
+}
+
 /**
- * Asks the environment for a session in `path`, as typed; the environment
- * checks it, not the step (#325). While the environment can answer, the step
- * stays open until it does: made, the step closes and the cursor goes to the
- * session; refused, the step says why in one line and waits for another
- * path. An environment that cannot be reached applies it when it is back:
- * the step closes at once, and a refusal then is the runtime's notice.
+ * Sends the step's command for `path`, as typed; the environment checks
+ * the path, not the step (#325). While the environment can answer, the step
+ * stays open until it does: accepted, the step closes and `done` follows;
+ * refused, the step says why in one line and waits for another path. An
+ * environment that cannot be reached applies it when it is back: the step
+ * closes at once, and a refusal then is the runtime's notice.
  */
-const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, path: string, at: StepAt): typeof STAYS | void => {
+const sendFromStep = <N extends "sessions.create" | "sessions.setWorkspace">(
+  acts: RailActs,
+  view: EnvironmentView,
+  path: string,
+  at: StepAt,
+  command: StepCommand<N>,
+): typeof STAYS | void => {
   const now = at.note.read();
   if (now !== null && "waiting" in now) return STAYS;
-  const id = acts.newId();
-  const key = `${view.environmentId}/${id}`;
   const later = whenBack(acts, view.environmentId);
-  const params: CommandParams<"sessions.create"> = {
-    id,
-    workspace: { kind: "directory", path },
-    ...(account.id !== null && { account: account.id }),
-    ...(model.id !== null && { model: model.id }),
-  };
-  const said = `Starting a session on ${nameOf(view)} in ${path}${later}.`;
-  // Accepted later, maybe once the keys are elsewhere: the cursor goes to it, the focus and a filter stay.
-  if (later !== "") return acts.send(view.environmentId, "sessions.create", params, said, () => acts.land(key));
+  const said = `${command.said}${later}.`;
+  // Accepted later, maybe once the keys are elsewhere: what follows then leaves the focus and a filter where they are.
+  if (later !== "") return acts.send(view.environmentId, command.method, command.params, said, command.done);
   at.note.set({ waiting: `Waiting for ${nameOf(view)}'s answer…` });
   acts.send(
     view.environmentId,
-    "sessions.create",
-    params,
+    command.method,
+    command.params,
     said,
     () => {
       at.note.set(null);
       acts.close(at.step);
-      acts.land(key);
+      command.done();
     },
-    (failure) => at.note.set({ refused: refusalLine(failure, path, view), query: at.query }),
+    (failure) => at.note.set({ refused: refusalLine(failure, path, view, command.unsent), query: at.query }),
   );
   return STAYS;
+};
+
+/** Asks the environment for a session in `path`; made, the cursor goes to it. */
+const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, path: string, at: StepAt): typeof STAYS | void => {
+  const id = acts.newId();
+  const key = `${view.environmentId}/${id}`;
+  return sendFromStep(acts, view, path, at, {
+    method: "sessions.create",
+    params: {
+      id,
+      workspace: { kind: "directory", path },
+      ...(account.id !== null && { account: account.id }),
+      ...(model.id !== null && { model: model.id }),
+    },
+    said: `Starting a session on ${nameOf(view)} in ${path}`,
+    unsent: "No session was started",
+    done: () => acts.land(key),
+  });
 };
 
 /**
@@ -456,3 +490,58 @@ export const startPicker = (acts: RailActs, view: EnvironmentView): Picker => {
 
 /** `/cwd`: the workspace step on its own, on the environment the header is about, with its default account and model. */
 export const cwdPicker = (acts: RailActs, view: EnvironmentView, query: string): Picker => workspacePicker(acts, view, DEFAULT_ACCOUNT, DEFAULT_MODEL, undefined, query);
+
+/**
+ * `/cwd` on a session whose workspace is missing (workspace-picker spec,
+ * "Missing workspaces"; ADR 0021; #328): the workspace step for that
+ * session, a `directory` from the directories its environment's sessions
+ * use (`projections.knownDirectories`, one found gone shown so and not
+ * offered), the terminal's own on the local environment, or typed as it is;
+ * the one chosen becomes the session's workspace (`sessions.setWorkspace`).
+ */
+export const setWorkspacePicker = (acts: RailActs, view: EnvironmentView, row: SessionRow, query = ""): Picker => {
+  const note = writable<StepNote | null>(null);
+  const known = acts.runtime.projections.knownDirectories(view.environmentId);
+  const title = titleOf(row);
+  const step: Picker = pickerOf({
+    title: `Choose a workspace for ${title} on ${nameOf(view)}`,
+    chips: [environmentChip(acts, view)],
+    typed: true,
+    placeholder: `a path on ${nameOf(view)} (~ for its home), or pick one its sessions use`,
+    query,
+    follows: [note, known],
+    note: (typed) => {
+      const now = note.read();
+      if (now === null) return undefined;
+      return "waiting" in now ? now.waiting : typed === now.query ? now.refused : undefined;
+    },
+    rows: (typed) => {
+      const needle = typed.trim();
+      const chosen = (path: string) => () =>
+        sendFromStep(acts, view, path, { step, note, query: typed }, {
+          method: "sessions.setWorkspace",
+          params: { sessionId: row.summary.id, workspace: { kind: "directory", path } },
+          said: `${title} works in ${path} now`,
+          unsent: "The workspace was not changed",
+          done: () => undefined,
+        });
+      const listed = known.read();
+      const here = view.kind === "local" && isFullPath(acts.workspace) && !listed.some((directory) => directory.path === acts.workspace);
+      const paths = [
+        ...(here ? [{ path: acts.workspace, detail: "this directory", missingSince: null }] : []),
+        ...listed.map((directory) => ({ path: directory.path, detail: directory.repositoryIdentity, missingSince: directory.missingSince })),
+      ]
+        .filter(({ path }) => path.toLowerCase().includes(needle.toLowerCase()))
+        .map(
+          ({ path, detail, missingSince }): PickerRow =>
+            missingSince === null
+              ? { key: `path:${path}`, text: path, ...(detail !== null && { detail }), choose: chosen(path) }
+              : { key: `path:${path}`, text: path, absent: `gone since ${whenWords(new Date(missingSince))}` },
+        );
+      const exact = paths.some((one) => one.text === needle);
+      const typedRow: PickerRow[] = needle === "" || exact ? [] : [{ key: "typed", text: needle, detail: "typed", choose: chosen(needle) }];
+      return [...typedRow, ...paths];
+    },
+  });
+  return step;
+};

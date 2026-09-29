@@ -4,6 +4,7 @@ import {
   type AssistantDeltaPayload,
   type AssistantTextPayload,
   type CommandRanPayload,
+  type ContainmentLevel,
   type DelegatedWorkRow,
   type EventEnvelope,
   type MessageDeliveredPayload,
@@ -14,8 +15,12 @@ import {
   type PromptAnsweredPayload,
   type PromptOpenedPayload,
   type RunEndedPayload,
+  type RunPolicy,
+  type RunPolicyResolvedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type SessionContainmentSetPayload,
+  type SessionForkedPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type SessionSummary,
@@ -71,6 +76,12 @@ import type { SessionLease } from "../streams/streams.js";
  *   whose `toolCallId` is the call the subagent's calls are nested under);
  * - the run's delegated-work ledger (`tasks`) and slash commands (`command`)
  *   as the snapshot has them;
+ * - **`session.forked`** is a fork's first entry, `forked` (#390): the
+ *   session it was forked from and the user message it was taken before
+ *   (null for the whole session), as the event names them. The fork's own
+ *   stream starts at its creation, so nothing of the source's history is
+ *   among its entries; a renderer names the source from the source's own
+ *   projection (`forkedFrom`, `transcript/rows.ts`);
  * - **`session.rewound`** cuts the message rewound to and every entry after
  *   it out of the transcript (they stay in the log; ADR 0022) into one
  *   `rewound` fold at the rewind point (#230): the cut branch, never mixed
@@ -93,13 +104,17 @@ import type { SessionLease } from "../streams/streams.js";
  *   neither the snapshot nor the events hold, it has nothing to show, and
  *   the session's stream kind resubscribes for a fresh snapshot
  *   (`undoesUnheardRewind`, `streams/kinds.ts`);
+ * - **each run's policy** (`run.policy.resolved`) by run id, and **the
+ *   session's own containment level** from `session.containment.set`, or a
+ *   run's policy naming the level it asked for, whichever came last (#402:
+ *   run info and the status line read them). Neither makes an entry, and a
+ *   snapshot carries neither, so both are what was heard after it;
  * - an event of a type the contracts do not know, and one of a known type
  *   whose payload cannot be folded, is kept as an `opaque` entry naming its
  *   type, and the fold goes on (ADR 0001): an older client survives a newer
  *   environment. A snapshot item of a kind this client does not know is
  *   opaque the same way, naming its kind. A known type with nothing to show
- *   (the organisation events, `run.policy.resolved`, `plan.limit`, ...)
- *   makes no entry.
+ *   (the organisation events, `plan.limit`, ...) makes no entry.
  *
  * The view (`projectSession`) puts the reduction beside the stream's
  * freshness, its summary with the outbox's overlay and a waiting draft laid
@@ -174,6 +189,26 @@ export interface OpaqueEntry {
 }
 
 /**
+ * A fork's first entry (#390): where it came from, as its `session.forked`
+ * names it. The fork's stream holds nothing of its source's history, so a
+ * renderer draws this as one row naming the source and the message, which
+ * opens the source.
+ */
+export interface ForkedEntry {
+  readonly kind: "forked";
+  /** The sequence of its `session.forked`. */
+  readonly sequence: number;
+  /** The session it was forked from. */
+  readonly fromSessionId: string;
+  /**
+   * The user message it was taken before; null for a fork of the whole
+   * session. A fork of a fork that no run had continued names its source's
+   * own anchor, a message of the source's source (the contracts' `SessionForkedPayload`).
+   */
+  readonly atMessageId: string | null;
+}
+
+/**
  * The branch a rewind cut (ADR 0022; #230): the message rewound to and every
  * entry after it, folded at the rewind point, so a renderer draws it closed
  * under the message's text and never among the entries that came after the
@@ -194,7 +229,17 @@ export interface RewoundEntry {
   readonly items: readonly TranscriptEntry[];
 }
 
-export type TranscriptEntry = UserMessageEntry | AssistantEntry | ToolCallEntry | CommandEntry | TasksEntry | PromptEntry | SubagentEntry | RewoundEntry | OpaqueEntry;
+export type TranscriptEntry =
+  | UserMessageEntry
+  | AssistantEntry
+  | ToolCallEntry
+  | CommandEntry
+  | TasksEntry
+  | PromptEntry
+  | SubagentEntry
+  | ForkedEntry
+  | RewoundEntry
+  | OpaqueEntry;
 
 /** The latest rewind standing on a session, not undone (ADR 0022): what the rewound strip says, and what `sessions.undoRewind` would take back. */
 export interface RewoundAt {
@@ -210,6 +255,20 @@ export interface RewoundAt {
 
 /** What one session's stream reduces to. */
 export interface SessionTranscript {
+  /**
+   * Each run's resolved policy (who started it, attended or not, its mode and
+   * containment as resolved), by run id, from the `run.policy.resolved`
+   * heard after the snapshot: a snapshot carries none, so a run the snapshot
+   * holds has none here.
+   */
+  readonly policies: Readonly<Record<string, RunPolicy>>;
+  /**
+   * The session's own containment level, as its latest `session.containment.set`
+   * gave it or the latest run's policy asked for it; null while neither was
+   * heard, when the environment's default applies as far as this client knows
+   * (the level is on no summary and no snapshot).
+   */
+  readonly containment: ContainmentLevel | null;
   /** Every run, oldest first. */
   readonly runs: readonly RunSummary[];
   /** The transcript, in the order its entries were opened; what a rewind cut is one `rewound` fold at the rewind point. */
@@ -246,6 +305,7 @@ type Held =
   | Mutable<CommandEntry>
   | Mutable<TasksEntry>
   | Mutable<PromptEntry>
+  | ForkedEntry
   | Fold
   | OpaqueEntry;
 
@@ -353,6 +413,8 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   /** The rewinds standing (not undone), the snapshot's and those heard, oldest first, each its fold: undoable until a run starts. */
   let folds: Fold[] = everyFold(items).sort(bySequence);
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
+  const policies: Record<string, RunPolicy> = {};
+  let containment: ContainmentLevel | null = null;
   /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
   const rewound = (): RewoundAt | null => {
     const latest = folds.at(-1);
@@ -430,6 +492,19 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         }
         // What the run left open streams no more: its partial text stays, as ADR 0022 keeps it.
         for (const entry of assistant.values()) if (entry.runId === payload.runId) entry.streaming = false;
+        return;
+      }
+      case "run.policy.resolved": {
+        const { runId, ...policy } = event.payload as RunPolicyResolvedPayload;
+        if (typeof runId !== "string" || typeof policy.containment !== "object") throw new TypeError("run.policy.resolved names no run or no containment.");
+        policies[runId] = policy;
+        if (policy.containment.requested !== null) containment = policy.containment.requested;
+        return;
+      }
+      case "session.containment.set": {
+        const { containment: set } = event.payload as SessionContainmentSetPayload;
+        if (typeof set?.effective !== "string") throw new TypeError("session.containment.set names no level.");
+        containment = set.effective;
         return;
       }
       case "usage.reported": {
@@ -563,6 +638,12 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         else ledgers.set(payload.runId, push<Mutable<TasksEntry>>({ kind: "tasks", sequence, runId: payload.runId, tasks: payload.tasks }));
         return;
       }
+      case "session.forked": {
+        const { fromSessionId, atMessageId } = event.payload as SessionForkedPayload;
+        if (typeof fromSessionId !== "string") throw new TypeError("session.forked names no source.");
+        push<ForkedEntry>({ kind: "forked", sequence, fromSessionId, atMessageId: atMessageId ?? null });
+        return;
+      }
       case "session.rewound": {
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
@@ -618,7 +699,15 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     }
   }
 
-  return { runs: [...runs.values()], items: gatherSubagents(items, ledgersOf(items)), parkedPrompts: [...parked.values()], queued: queuedOf(messages), rewound: rewound() };
+  return {
+    runs: [...runs.values()],
+    items: gatherSubagents(items, ledgersOf(items)),
+    parkedPrompts: [...parked.values()],
+    queued: queuedOf(messages),
+    rewound: rewound(),
+    policies,
+    containment,
+  };
 };
 
 /**
@@ -700,7 +789,7 @@ export interface SessionProjectionInput {
   readonly waitingDraft: string | null | undefined;
 }
 
-const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null };
+const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, containment: null };
 
 /** The view of one session: its stream's reduction beside its freshness, its overlaid summary and its draft. `transcript` reuses a reduction of the same data. */
 export const projectSession = (input: SessionProjectionInput, transcript?: SessionTranscript): SessionProjection => {

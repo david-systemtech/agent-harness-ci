@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { derived, dynamic, writable } from "./observable.js";
-import { hasShellMember, type Shell, type ShellDeepLinks, type ShellNotification, type ShellNotifications } from "./shell.js";
+import {
+  hasShellMember,
+  type Shell,
+  type ShellDeepLinks,
+  type ShellInstaller,
+  type ShellNotification,
+  type ShellNotifications,
+  type ShellStagedBuild,
+  type ShellUpdate,
+} from "./shell.js";
 import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
 describe("the package", () => {
@@ -201,9 +210,18 @@ describe("the shell interface", () => {
       | "http"
       | "network"
       | "system"
+      | "gh"
     >();
     expect(hasShellMember({}, "shell.dialogs")).toBe(false);
     expect(hasShellMember(undefined, "shell.dialogs")).toBe(false);
+  });
+
+  it("has the desktop's updater answer what it runs and apply a staged build, and its installer the server it carries: no check or install of its own (#354)", () => {
+    expectTypeOf<keyof ShellUpdate>().toEqualTypeOf<"current" | "apply">();
+    expectTypeOf<Parameters<ShellUpdate["apply"]>>().toEqualTypeOf<[staged: ShellStagedBuild, when: "now" | "quit"]>();
+    expectTypeOf<Awaited<ReturnType<ShellUpdate["current"]>>["format"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<keyof ShellInstaller>().toEqualTypeOf<"bundledServer">();
+    expectTypeOf<Awaited<ReturnType<ShellInstaller["bundledServer"]>>>().toEqualTypeOf<{ readonly version: string; readonly path: string } | null>();
   });
 
   it("carries strings where a session might have passed: a notification's tag, handed back on a click, and a deep link", () => {

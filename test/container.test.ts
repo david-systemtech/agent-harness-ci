@@ -1,11 +1,13 @@
 /**
- * The container image (`Dockerfile`) and the install script's compose file
+ * The container image (`Dockerfile`) and the published compose file
  * (`scripts/compose.yaml`), read as text (#141; permissions spec, "Never
- * root"): no image is built or run here. The image runs the environment as a
+ * root"; launcher-update spec, "Containers: the host-side updater", #349):
+ * no image is built or run here. The image runs the environment as a
  * non-root user that owns the volumes' mount points, the compose file runs
- * that user on named volumes, and neither sets `IS_SANDBOX` or
- * `CLAUDE_CODE_BUBBLEWRAP`. What only a real build and run can show is the
- * Container section of `docs/agents/service-install-checklist.md`.
+ * that user on named volumes with the drain's stop grace and the release's
+ * image, and neither sets `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. What only
+ * a real build and run can show is the Container section of
+ * `docs/agents/service-install-checklist.md`.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,6 +42,21 @@ const composeLines = (): string[] =>
     .split("\n")
     .map((line) => line.replace(/\s+#.*$/, "").replace(/^\s*#.*$/, ""))
     .filter((line) => line.trim() !== "");
+
+/** The compose file's header: its comment lines before the first line that is not one. */
+const composeHeader = (): string => {
+  const lines = compose.split("\n");
+  return lines.slice(0, lines.findIndex((line) => !line.startsWith("#"))).join("\n");
+};
+
+/**
+ * The image the compose file names in the repository: the registry path the
+ * release's image takes (its manifest's reference,
+ * git.systemtech.dev:5526/david/agent-harness:<version>), tagged with a
+ * placeholder no release version is. The release workflow writes the
+ * release's reference in its place (#358).
+ */
+const UNRELEASED_IMAGE = "git.systemtech.dev:5526/david/agent-harness:unreleased";
 
 /** The uid and gid the image gives its user. */
 const imageUser = (): { name: string; uid: string; gid: string } => {
@@ -81,7 +98,7 @@ describe("the container image", () => {
   });
 });
 
-describe("the install script's compose file", () => {
+describe("the published compose file", () => {
   it("runs the image's user, by the uid and gid the image gives it", () => {
     const { uid, gid } = imageUser();
     const user = composeLines().filter((line) => /^\s+user:/.test(line));
@@ -95,6 +112,34 @@ describe("the install script's compose file", () => {
     expect(lines).toContain("      - work:/work");
     const top = lines.slice(lines.indexOf("volumes:"));
     expect(top).toEqual(["volumes:", "  data:", "  work:"]);
+  });
+
+  it("keeps #141's 31-minute stop grace, so a stop waits out the drain's 30 minutes rather than Docker's ten seconds", () => {
+    expect(composeLines().filter((line) => /^\s+stop_grace_period:/.test(line))).toEqual(["    stop_grace_period: 31m"]);
+  });
+
+  it("defaults its image to the release's reference, which the release workflow writes in, and takes AGENT_HARNESS_IMAGE, the host-side updater's, over it", () => {
+    expect(composeLines().filter((line) => /^\s+image:/.test(line))).toEqual([`    image: \${AGENT_HARNESS_IMAGE:-${UNRELEASED_IMAGE}}`]);
+    // The placeholder is written once, so the workflow's substitution changes the image and nothing else.
+    expect(compose.split(UNRELEASED_IMAGE)).toHaveLength(2);
+  });
+
+  it("names, in its header, the registry's docker login with a read-package token and the host-side updater's documentation", () => {
+    const header = composeHeader();
+    expect(header).toContain("#   docker login git.systemtech.dev:5526");
+    expect(header).toContain("read:package");
+    expect(header).toContain("https://git.systemtech.dev:5526/david/agent-harness/src/branch/main/docs/host-updater.md");
+    expect(header).toContain("host-updater.sh");
+  });
+
+  it("names, in its header, the data directory the image's serve runs on for every verb it shows in the container", () => {
+    const serveDir = /"--data-dir", "([^"]+)"/.exec(finalStage().at(-1) ?? "")?.[1];
+    expect(serveDir).toBe("/data");
+    const verbs = composeHeader()
+      .split("\n")
+      .filter((line) => /exec environment agent-harness /.test(line));
+    expect(verbs.length).toBeGreaterThan(0);
+    for (const line of verbs) expect(line, line).toMatch(new RegExp(`--data-dir ${serveDir}( |$)`));
   });
 
   it("declares the container to the environment and asks for no privilege", () => {

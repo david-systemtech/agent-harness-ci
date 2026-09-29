@@ -7,9 +7,10 @@ import { REGISTERED_STEP_IDS } from "./steps.js";
  * being checked through `setup.check`, it gives a state, one line naming
  * what failed, the named actions a client offers beside it, and when it
  * ran; a check that timed out or could not check carries the step's last
- * good result beneath it (#308). The `setup` subscription that carries every
- * step's latest result, and the result cache, are the Set up
- * specification's (#88).
+ * good result beneath it (#308). The environment keeps each step's latest
+ * result in its result cache, which `environment.subscribe`'s snapshot
+ * carries as `setup` and each change of which is the notice
+ * `setup.result-changed`: ADR 0031's `setup` subscription (#569).
  */
 
 /**
@@ -53,7 +54,8 @@ const SETUP_ACTION_MEANINGS: { readonly [Action in (typeof SETUP_ACTIONS)[number
   update: "updates the tool it targets, or this machine",
   reload: "shows how to reload the extension in the Chrome it targets",
   "set-up-this-machine": "switches the checklist to the environment it targets",
-  restore: "runs the step's restore method: the Permissions step's puts the denylist's missing presets back",
+  restore:
+    "runs the step's restore method: the Permissions step's puts the denylist's missing presets back, and the Appearance step's writes the preset theme back through settings.update",
   move: "opens the Move card, which moves stored tokens into a key manager",
   "start-service": "starts the local environment's service when it is down",
   "import-again": "runs the step's import again, for real rather than as a dry run, after one that failed part way",

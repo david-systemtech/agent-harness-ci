@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
+import { StepResult } from "../setup.js";
 
 /** Readiness, idle or busy with the reason or draining, and whether updates are managed outside. */
 export const environmentStatus = defineMethod({
@@ -14,15 +15,23 @@ export const environmentStatus = defineMethod({
 });
 
 /**
- * The environment's notices (`EnvironmentNotice`, the `environment` stream):
- * started, updated-to and draining now, account status from a later ticket.
- * Its snapshot, sent when replay from the cursor is out of bounds, is the status.
+ * The environment's notices (`EnvironmentNotice`, the `environment` stream).
+ * Its snapshot, sent when replay from the cursor is out of bounds, is the
+ * status and every Set up step's cached result (#569: ADR 0031's `setup`
+ * subscription, whose changes are the `setup.result-changed` notices), which
+ * an environment without the `setup` flag leaves out.
  */
 export const environmentSubscribe = defineMethod({
   name: "environment.subscribe",
   scope: "read",
   params: subscriptionParams({}),
-  result: z.object({ status: EnvironmentStatus }),
+  result: z.object({
+    status: EnvironmentStatus,
+    setup: z.array(StepResult).optional().meta({
+      description:
+        "Every registered Set up step's latest result, as the environment's result cache holds it, in the step registry's order, each with when it was checked; a step never checked is absent. Absent from an environment without the setup flag.",
+    }),
+  }),
   errors: [],
   kind: "stream",
 });

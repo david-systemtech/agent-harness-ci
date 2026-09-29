@@ -110,6 +110,19 @@ export const recordedChrome = (): RecordedChrome => {
 /** The frame size every test renders at: `ink-testing-library` draws 100 columns. */
 export const SIZE = { columns: 100, rows: 30 } as const;
 
+/**
+ * How long a smoke test through the real spine may take (`smoke.test.ts`,
+ * `rail-smoke.test.ts`). Each of its waits has the wire's `WAIT_MS` for its
+ * own frame; this covers the whole walk, the environment's start and the keys
+ * typed one at a time included. With the test's processes frozen two thirds
+ * of the time, on the agent box at a load of 45 to 75 on 16 cores, the rail's
+ * took up to 38 s and the others up to 28 s, at or past the 30 s every test
+ * gets (#634). About three times the slowest seen: a frame that never comes
+ * fails at its wait, naming the frame, so only a test that hangs outside its
+ * waits uses this up.
+ */
+export const SMOKE_TEST_MS = 120_000;
+
 /** The local service the terminal UI drives, scripted: what it was asked to do, in order, and a start that brings discovery up. */
 export interface ScriptedService extends LocalService {
   readonly calls: readonly string[];

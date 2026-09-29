@@ -8,7 +8,20 @@ import { badgesOf } from "./badge.js";
 import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
 import { groupHeading, headingOver, isFolded, isSelectable, railLines, rowKey, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
-import { cwdPicker, groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, startPicker, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";
+import {
+  cwdPicker,
+  groupPicker,
+  restorePicker,
+  searchPicker,
+  setWorkspacePicker,
+  snoozePicker,
+  snoozeTyped,
+  startPicker,
+  tagPicker,
+  titleOf,
+  whenBack,
+  type RailActs,
+} from "./pickers.js";
 import { movesFor } from "./reorder.js";
 
 /**
@@ -296,6 +309,10 @@ export const useRail = (options: RailOptions): Rail => {
     if (name === "search") return options.open(searchPicker(acts, text));
     if (name === "restore") return options.open(restorePicker(acts, text));
     if (name === "cwd") {
+      // The open session's workspace is missing: the step gives it another (#328).
+      const open = options.inHand && list.rows.find((row) => row.environmentId === options.inHand?.environmentId && row.summary.id === options.inHand.sessionId);
+      const openView = open && views.find((v) => v.environmentId === open.environmentId);
+      if (open && openView && open.summary.workspaceMissingSince !== null) return options.open(setWorkspacePicker(acts, openView, open, text));
       const view = options.current;
       if (!view || view.name === null) return say("There is no environment to start a session on: /pair one first.");
       return options.open(cwdPicker(acts, view, text));

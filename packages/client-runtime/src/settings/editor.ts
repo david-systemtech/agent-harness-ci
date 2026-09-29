@@ -6,14 +6,13 @@ import {
   isGenericSettingsKey,
   settingForm,
   settingsRow,
-  type CommandReceipt,
   type Confirmation,
   type ParamsOf,
   type SettingsKey,
   type SettingsRowId,
 } from "@agent-harness/contracts";
-import type { RequestAnswer } from "../requests.js";
 import type { Runtime } from "../runtime.js";
+import { adminCall, type AdminOutcome } from "../status/actions.js";
 
 /**
  * The generic settings editor both renderers draw (docs/specs/tui.md,
@@ -123,14 +122,9 @@ export interface SaveOptions {
   readonly acknowledgeBypass?: boolean;
 }
 
-/** The result a command answered, or the line that says why there is none: the request's failure or the receipt's rejection. */
-const outcome = (answer: RequestAnswer<SettingsWriter>, written: Readonly<Record<string, unknown>>): SettingSaved => {
-  if (!answer.ok) return { ok: false, line: answer.error.message };
-  const { receipt, result } = answer.result as { readonly receipt: CommandReceipt; readonly result?: { readonly values: Readonly<Record<string, unknown>> } };
-  if (receipt.status === "rejected") return { ok: false, line: receipt.error.message };
-  // A retry answered by its stored receipt carries no result: the value sent is what the environment holds.
-  return { ok: true, values: result?.values ?? written };
-};
+/** A write's outcome: the values the environment answered with, or, from a retry answered by its stored receipt, the value sent. */
+const savedFrom = (answer: AdminOutcome<SettingsWriter>, written: Readonly<Record<string, unknown>>): SettingSaved =>
+  answer.ok ? { ok: true, values: answer.result?.values ?? written } : { ok: false, line: answer.line };
 
 /**
  * Writes `value` to `key` on the environment through the method that writes
@@ -147,16 +141,18 @@ export const saveSetting = async (runtime: Pick<Runtime, "requests">, environmen
   const { commandId } = options;
   switch (writer) {
     case "settings.update":
-      return outcome(await runtime.requests.call(environmentId, writer, { commandId, values: values as ParamsOf<typeof writer>["values"] }), values);
+      return savedFrom(await adminCall(() => runtime.requests.call(environmentId, writer, { commandId, values: values as ParamsOf<typeof writer>["values"] })), values);
     case "updates.settings.set":
-      return outcome(await runtime.requests.call(environmentId, writer, { commandId, values: values as ParamsOf<typeof writer>["values"] }), values);
+      return savedFrom(await adminCall(() => runtime.requests.call(environmentId, writer, { commandId, values: values as ParamsOf<typeof writer>["values"] })), values);
     case "permissions.settings.set":
-      return outcome(
-        await runtime.requests.call(environmentId, writer, {
-          commandId,
-          values: values as ParamsOf<typeof writer>["values"],
-          ...(options.acknowledgeBypass === true && { acknowledgeBypass: true as const }),
-        }),
+      return savedFrom(
+        await adminCall(() =>
+          runtime.requests.call(environmentId, writer, {
+            commandId,
+            values: values as ParamsOf<typeof writer>["values"],
+            ...(options.acknowledgeBypass === true && { acknowledgeBypass: true as const }),
+          }),
+        ),
         values,
       );
   }

@@ -7,8 +7,9 @@ import { RegisteredStepId, StepResult } from "../setup.js";
  * now, or every registered step's at once, and answers the results once
  * each has answered or its step's budget has run out (#308). A check reads
  * and never writes the state it checks, so this is a query under `read`.
- * The `setup` subscription that carries the latest results, and the result
- * cache it reads, are the Set up specification's (#88).
+ * Each result is kept in the environment's result cache before the answer
+ * goes out, and one that changed is the notice `setup.result-changed` on
+ * the environment stream, which Set up appends (#569).
  */
 export const setupCheck = defineMethod({
   name: "setup.check",

@@ -206,7 +206,7 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * `account.updated` (the account store, #134), `signin.updated` and
  * `signin.executable-chosen` (the sign-in director, #135), `prompt.parked`
  * and `prompt.resolved` (the permission broker, #130), `usage.updated` (plan
- * usage, #136), and
+ * usage, #136), `settings.changed` (#391), `setup.result-changed` (#569), and
  * the status is readiness, activity and `updatesManagedOutside`; so the name
  * comes from discovery and `hello`, and icon and colour stay null until the
  * workspace-picker workstream adds the notice this `apply` then reads.
@@ -248,7 +248,8 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "prompt.parked":
       case "prompt.resolved":
         return data;
-      // The forge's events (#310) change no status: the forge accounts' cache and notices are #320's.
+      // The forge's events (#310) change no status: the request cache refreshes `forge.accounts.list` on them, and the
+      // notices queue raises the forge's rows (#320).
       case "forge.account.added":
       case "forge.account.updated":
       case "forge.account.primary-set":
@@ -275,6 +276,14 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "routine.delivery-failed":
       case "routine.endpoint-set":
       case "routine.endpoint-removed":
+        return data;
+      // Settings changed (#391): the status holds none of them; the request cache fetches settings.get and
+      // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
+      case "settings.changed":
+        return data;
+      // A Set up step's result changed (#569): the status holds none of them; `projections.setup` reads the snapshot's
+      // setup and these (#570).
+      case "setup.result-changed":
         return data;
     }
   },

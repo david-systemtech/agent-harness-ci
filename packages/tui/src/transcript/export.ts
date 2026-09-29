@@ -8,6 +8,7 @@ import {
   summarizeToolInput,
   transcriptRows,
   turnFacts,
+  type ForkedFrom,
   type SessionProjection,
   type ToolCallEntry,
   type TranscriptRow as Row,
@@ -30,8 +31,8 @@ const callHead = (call: ToolCallEntry): string => {
 
 const callState = (call: ToolCallEntry): string => (call.decision?.decision === "denied" ? "denied" : call.status);
 
-/** One row as markdown. */
-const rowMarkdown = (row: Row): string => {
+/** One row as markdown; a fork's first row names what `forked` says of its source. */
+const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
   switch (row.kind) {
     case "user": {
       const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${a.name}_`);
@@ -64,18 +65,25 @@ const rowMarkdown = (row: Row): string => {
       return `_${row.entry.type}: an event this version does not show_`;
     case "rewound": {
       // What a rewind cut is kept, quoted under a line saying so, as the screen keeps it under its fold.
-      const cut = row.rows.map(rowMarkdown).filter((text) => text.length > 0).join("\n\n");
+      const cut = row.rows.map((inner) => rowMarkdown(inner, forked)).filter((text) => text.length > 0).join("\n\n");
       const quoted = cut.split("\n").map((line) => (line.length > 0 ? `> ${line}` : ">")).join("\n");
       // A cut with nothing to show is the line alone: an empty text split is one empty line, which would quote as a bare `>`.
       return [`_Rewound to ${oneLine(row.entry.text, 200)}: what the rewind cut follows._`, ...(cut.length > 0 ? [quoted] : [])].join("\n\n");
     }
+    case "forked":
+      return `_Forked from ${forked?.title ?? "another session"}${forked?.anchor != null ? ` at ${oneLine(forked.anchor, 200)}` : ""}._`;
   }
 };
 
-/** The session as a markdown document: its title, then every row. */
-export const exportMarkdown = (view: Pick<SessionProjection, "items" | "runs" | "summary">, header: { readonly environment: string; readonly at: Date }): string => {
+/** The session as a markdown document: its title, then every row; a fork's first row names what `forked` says of its source. */
+export const exportMarkdown = (
+  view: Pick<SessionProjection, "items" | "runs" | "summary">,
+  header: { readonly environment: string; readonly at: Date; readonly forked?: ForkedFrom },
+): string => {
   const title = view.summary?.title ?? "Session";
-  const rows = transcriptRows(view).map(rowMarkdown).filter((text) => text.length > 0);
+  const rows = transcriptRows(view)
+    .map((row) => rowMarkdown(row, header.forked))
+    .filter((text) => text.length > 0);
   return `# ${title}\n\n_Exported from ${header.environment} at ${header.at.toISOString()}_\n\n${rows.join("\n\n")}\n`;
 };
 

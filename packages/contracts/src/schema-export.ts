@@ -41,7 +41,7 @@ import {
   WireError,
 } from "./errors.js";
 import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
-import { ForgeKind, ForgeOrigin, ForgeSlug, GhLogin } from "./forge.js";
+import { ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage, ForgeTokenPermission, GhLogin } from "./forge.js";
 import { GhProbe, GhSignedInAccount } from "./forge-gh.js";
 import {
   FORGE_EVENT_PAYLOADS,
@@ -100,6 +100,7 @@ import {
   IdleSpan,
   IdleSpanUnit,
   SETTINGS_EVENT_TYPES,
+  SettingsChangedNoticePayload,
   SettingsEventType,
   SettingsKeyName,
   SettingsPatch,
@@ -186,6 +187,7 @@ import {
   ProviderTranscriptOutcome,
   PullRequest,
   PullRequestState,
+  RepositoryIdentifiedReason,
   SESSION_EVENT_TYPES,
   SessionActivity,
   SessionId,
@@ -203,7 +205,10 @@ import {
   WorkspaceProblem,
   WorkspaceRequest,
   WorkspaceStatus,
+  AbsolutePath,
+  RequestedDirectory,
 } from "./sessions.js";
+import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection } from "./workspaces.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
   AccountIdentity,
@@ -289,8 +294,30 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
-import { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
-import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
+import {
+  AliasIdentityMismatchError,
+  ForgeAccountMissingError,
+  ForgeOwner,
+  ForgeUnreachableError,
+  IdentityMismatchError,
+  KindUnsupportedError,
+  NotAForgeError,
+  NotAPullRequestError,
+  VerificationFailedError,
+} from "./methods/forge.js";
+import {
+  BitwardenReference,
+  CredentialSourceUnavailableError,
+  DopplerReference,
+  KeyManagerConnectionId,
+  KeyManagerProvider,
+  KeyManagerReference,
+  KeyManagerReferenceProblem,
+  OnePasswordReference,
+  OpenBaoReference,
+  ReferenceDeniedError,
+  ReferenceNotFoundError,
+} from "./key-managers.js";
 import {
   KEY_MANAGER_EVENT_PAYLOADS,
   KeyManagerAddress,
@@ -307,6 +334,8 @@ import {
   KeyManagerMount,
   KeyManagerPolicy,
   KeyManagerPolicyWrites,
+  KeyManagerReferenceDisplay,
+  KeyManagerReferenceHolder,
   KeyManagerStatus,
   KeyManagerStatusKind,
   KeyManagerTokenInformation,
@@ -316,6 +345,17 @@ import {
 } from "./key-manager-connections.js";
 import { AddressUnreachableError, CertificateRejectedError, KeyManagerVerificationFailedError, ProviderUnavailableError, SealedError, UnreachableError } from "./methods/key-managers.js";
 import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
+import {
+  INSTRUCTION_SESSION_EVENT_TYPES,
+  InstructionAlwaysOnSkill,
+  InstructionLayer,
+  InstructionLeftOut,
+  InstructionLeftOutReason,
+  InstructionManifest,
+  InstructionManifestLayer,
+  InstructionManifestPart,
+  InstructionPreviewPart,
+} from "./instructions.js";
 import {
   ClampReason,
   ContainmentAvailability,
@@ -445,12 +485,19 @@ const pascal = (words: string): string =>
 
 /**
  * The session and group event types whose payloads are fixed, each with its
- * payload, the prompt types, the transcript vocabulary and the permission
- * types among them; a type reserved by name for a workstream that has not
- * fixed its payload yet would be left out.
+ * payload, the prompt types, the transcript vocabulary, the permission
+ * types and the composed instructions among them; a type reserved by name
+ * for a workstream that has not fixed its payload yet would be left out.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
-  Object.entries({ ...SESSION_EVENT_TYPES, ...PROMPT_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...PERMISSION_SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
+  Object.entries({
+    ...SESSION_EVENT_TYPES,
+    ...PROMPT_EVENT_TYPES,
+    ...TRANSCRIPT_EVENT_TYPES,
+    ...PERMISSION_SESSION_EVENT_TYPES,
+    ...INSTRUCTION_SESSION_EVENT_TYPES,
+    ...GROUP_EVENT_TYPES,
+  } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
   );
 
@@ -537,6 +584,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/workspace-request.json", title: "WorkspaceRequest", schema: WorkspaceRequest },
   { path: "sessions/workspace-problem.json", title: "WorkspaceProblem", schema: WorkspaceProblem },
   { path: "sessions/workspace-status.json", title: "WorkspaceStatus", schema: WorkspaceStatus },
+  { path: "sessions/repository-identified-reason.json", title: "RepositoryIdentifiedReason", schema: RepositoryIdentifiedReason },
+  { path: "sessions/absolute-path.json", title: "AbsolutePath", schema: AbsolutePath },
+  { path: "sessions/requested-directory.json", title: "RequestedDirectory", schema: RequestedDirectory },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },
@@ -626,6 +676,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "forge/copied-from.json", title: "ForgeCopiedFrom", schema: ForgeCopiedFrom },
   { path: "forge/variables.json", title: "ForgeVariables", schema: ForgeVariables },
   { path: "forge/account-record.json", title: "ForgeAccountRecord", schema: ForgeAccountRecord },
+  { path: "forge/token-permission.json", title: "ForgeTokenPermission", schema: ForgeTokenPermission },
+  { path: "forge/token-page.json", title: "ForgeTokenPage", schema: ForgeTokenPage },
+  { path: "forge/owner.json", title: "ForgeOwner", schema: ForgeOwner },
   ...Object.entries(FORGE_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `forge/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -658,6 +711,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/label.json", title: "KeyManagerLabel", schema: KeyManagerLabel },
   { path: "key-managers/connection-record.json", title: "KeyManagerConnectionRecord", schema: KeyManagerConnectionRecord },
   { path: "key-managers/certificate.json", title: "KeyManagerCertificate", schema: KeyManagerCertificate },
+  { path: "key-managers/reference-display.json", title: "KeyManagerReferenceDisplay", schema: KeyManagerReferenceDisplay },
+  { path: "key-managers/reference-holder.json", title: "KeyManagerReferenceHolder", schema: KeyManagerReferenceHolder },
+  { path: "key-managers/reference-problem.json", title: "KeyManagerReferenceProblem", schema: KeyManagerReferenceProblem },
   ...Object.entries(KEY_MANAGER_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `key-managers/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -779,6 +835,14 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },
   { path: "permissions/review-denial.json", title: "ReviewDenial", schema: ReviewDenial },
   { path: "permissions/review-run.json", title: "ReviewRun", schema: ReviewRun },
+  { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
+  { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
+  { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
+  { path: "instructions/always-on-skill.json", title: "InstructionAlwaysOnSkill", schema: InstructionAlwaysOnSkill },
+  { path: "instructions/left-out-reason.json", title: "InstructionLeftOutReason", schema: InstructionLeftOutReason },
+  { path: "instructions/left-out.json", title: "InstructionLeftOut", schema: InstructionLeftOut },
+  { path: "instructions/manifest.json", title: "InstructionManifest", schema: InstructionManifest },
+  { path: "instructions/preview-part.json", title: "InstructionPreviewPart", schema: InstructionPreviewPart },
   { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
   { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
   { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },
@@ -792,6 +856,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "files/files-list-source.json", title: "FilesListSource", schema: FilesListSource },
   { path: "diffs/session-diff-change.json", title: "SessionDiffChange", schema: SessionDiffChange },
   { path: "diffs/session-diff-file.json", title: "SessionDiffFile", schema: SessionDiffFile },
+  { path: "workspaces/browsed-directory.json", title: "BrowsedDirectory", schema: BrowsedDirectory },
+  { path: "workspaces/inspected-commit.json", title: "InspectedCommit", schema: InspectedCommit },
+  { path: "workspaces/inspected-branch.json", title: "InspectedBranch", schema: InspectedBranch },
+  { path: "workspaces/inspected-repository.json", title: "InspectedRepository", schema: InspectedRepository },
+  { path: "workspaces/workspace-inspection.json", title: "WorkspaceInspection", schema: WorkspaceInspection },
   { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
   { path: "actions/action-condition.json", title: "ActionCondition", schema: ActionCondition },
   { path: "actions/action.json", title: "Action", schema: Action },
@@ -821,6 +890,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "settings/notices/settings.changed.json", title: "SettingsChangedNoticePayload", schema: SettingsChangedNoticePayload },
   { path: "settings/band-id.json", title: "SettingsBandId", schema: SettingsBandId },
   { path: "settings/band.json", title: "SettingsBand", schema: SettingsBand },
   { path: "settings/row-scope.json", title: "SettingsRowScope", schema: SettingsRowScope },
@@ -945,7 +1015,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/identity_mismatch.json", title: "IdentityMismatchError", schema: IdentityMismatchError },
   { path: "errors/alias_identity_mismatch.json", title: "AliasIdentityMismatchError", schema: AliasIdentityMismatchError },
   { path: "errors/credential_source_unavailable.json", title: "CredentialSourceUnavailableError", schema: CredentialSourceUnavailableError },
+  { path: "errors/reference_not_found.json", title: "ReferenceNotFoundError", schema: ReferenceNotFoundError },
+  { path: "errors/reference_denied.json", title: "ReferenceDeniedError", schema: ReferenceDeniedError },
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
+  { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
+  { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
+  { path: "errors/not_a_pull_request.json", title: "NotAPullRequestError", schema: NotAPullRequestError },
+  { path: "forge/errors/unreachable.json", title: "ForgeUnreachableError", schema: ForgeUnreachableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },

@@ -4,6 +4,7 @@ import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { MENU_ROWS } from "./composer/menus.js";
 
 /**
  * The composer (docs/specs/gui.md, "A session pane"; #400): the session's
@@ -297,26 +298,41 @@ const PROVIDER_COMMANDS = [
   { name: "model", description: "The provider's own model picker" },
 ];
 
-/** The slash commands the window wires (the composer's and the side column's, #408), in the shared list's order, as the menu and the palette list them. */
+/**
+ * The slash commands the window wires (the composer's, the side column's, #408, and the status line's pickers, #402), in
+ * the shared list's order, as the menu and the palette list them; the menu offers the first `MENU_ROWS` at once.
+ */
 const WINDOW_COMMANDS = [
+  "/modelChoose the model, and its effort where it has one",
+  "/modeSet the permission mode for the next turn",
   "/attachSend an image or file with the next message",
   "/diffWhat this conversation changed, and the working tree's diff",
   "/tasksBackground work: what is running, and what a delegated agent did",
+  "/handoffMove this conversation to another account, or start it fresh there",
+  "/accountSwitch the account this session's next run uses, or add one",
+  "/containmentSet how contained this session's runs are",
+  "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
 ];
+
+/** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[8]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {
     const { app } = await opened({ commands: PROVIDER_COMMANDS });
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toEqual([...WINDOW_COMMANDS, "/compactCompact the conversation · the agent's"]));
+    await waitFor(() => expect(rows("Commands")).toEqual(WINDOW_COMMANDS.slice(0, MENU_ROWS)));
+    // The provider's /model is shadowed by the window's; its /compact is listed after the window's own.
+    await write(app, "m");
+    await waitFor(() => expect(rows("Commands")).toEqual([...WINDOW_M, "/compactCompact the conversation · the agent's"]));
   });
 
   it("list the provider's commands only while its adapter lists them", async () => {
     const { app, env } = await opened({ commands: PROVIDER_COMMANDS, provider: { commands: false } });
     await waitFor(() => expect(env.requests("providers.list").length).toBeGreaterThan(0));
-    await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toEqual(WINDOW_COMMANDS));
+    await write(app, "/m");
+    await waitFor(() => expect(rows("Commands")).toEqual(WINDOW_M));
     expect(env.requests("commands.list")).toEqual([]);
   });
 
@@ -339,15 +355,17 @@ describe("slash commands", () => {
   it("move the highlight with ↑ and ↓, fill the command in on Tab, and put the menu away on Esc", async () => {
     const { app } = await opened({ commands: PROVIDER_COMMANDS });
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toHaveLength(WINDOW_COMMANDS.length + 1));
-    expect(highlightedRow()).toMatch(/^\/attach/);
+    await waitFor(() => expect(rows("Commands")).toHaveLength(MENU_ROWS));
+    expect(highlightedRow()).toMatch(/^\/model/);
     await write(app, "{ArrowDown}");
-    expect(highlightedRow()).toMatch(/^\/diff/);
+    expect(highlightedRow()).toMatch(/^\/mode[A-Z]/);
     await write(app, "{ArrowDown}{ArrowUp}");
-    expect(highlightedRow()).toMatch(/^\/diff/);
+    expect(highlightedRow()).toMatch(/^\/mode[A-Z]/);
     await write(app, "{ArrowUp}");
-    expect(highlightedRow()).toMatch(/^\/attach/);
+    expect(highlightedRow()).toMatch(/^\/model/);
 
+    await write(app, "{ArrowDown}{ArrowDown}");
+    expect(highlightedRow()).toMatch(/^\/attach/);
     await write(app, "{Tab}");
     // /attach takes words after it in the shared list's usage, so a space follows.
     expect(box().value).toBe("/attach ");
@@ -436,7 +454,7 @@ describe("the composer's keys", () => {
   it("open the command menu on / only from an empty box, and leave Tab to the window when there is nothing to fill in", async () => {
     const { app } = await opened();
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toHaveLength(WINDOW_COMMANDS.length));
+    await waitFor(() => expect(rows("Commands")).toHaveLength(MENU_ROWS));
     await write(app, "{Backspace}and/or");
     expect(box().value).toBe("and/or");
     expect(rows("Commands")).toEqual([]);

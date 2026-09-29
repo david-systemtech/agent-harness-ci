@@ -28,7 +28,7 @@ const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
 const approle = { method: "approle", roleId: "role-id-for-tests", secretId: "secret-id-for-tests" } as const;
 
 describe("the key-manager connection methods", () => {
-  it("have one scope each: the list at read; add, signIn, update, setPolicies, signOut and remove as admin commands; verify and the certificate preview as admin queries", () => {
+  it("have one scope each: the list at read; add, signIn, update, setPolicies, signOut and remove as admin commands; verify, the certificate preview and the references' check and browse as admin queries", () => {
     const owned = methods.filter((m) => m.name.startsWith("keyManagers."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "keyManagers.list": ["query", "read"],
@@ -40,6 +40,8 @@ describe("the key-manager connection methods", () => {
       "keyManagers.connections.remove": ["command", "admin"],
       "keyManagers.connections.verify": ["query", "admin"],
       "keyManagers.certificate.preview": ["query", "admin"],
+      "keyManagers.references.check": ["query", "admin"],
+      "keyManagers.references.browse": ["query", "admin"],
     });
   });
 

@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
+import { PRESENTATION_KEYS } from "../../../eslint-rules/no-client-organisation-state.js";
+import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
+import { PREFERENCE_KEYS } from "./connections/records.js";
 
 // The repository's own lint configuration, run on this package: ADR 0003's
 // organisation-state rule, ADR 0004's shell rule, and the dependency rule.
@@ -20,7 +23,7 @@ describe("the client runtime under the repository's lint", () => {
     const problems = results.flatMap((r) => r.messages.map((m) => `${r.filePath}:${m.line} ${m.ruleId}: ${m.message}`));
     expect(problems).toEqual([]);
     expect(results.length).toBeGreaterThan(10);
-  });
+  }, WHOLE_PACKAGE_LINT_MS);
 
   it("reads the preference key schema: a key named after a session field fails it", async () => {
     const file = "packages/client-runtime/src/connections/records.ts";
@@ -28,6 +31,12 @@ describe("the client runtime under the repository's lint", () => {
     expect(source).toContain('"environments.sequence"');
     expect(await ruleIds(file, source)).not.toContain(HOLDS[0]);
     expect(await ruleIds(file, source.replaceAll('"environments.sequence"', '"environments.order"'))).toContain(HOLDS[0]);
+  });
+
+  it("enumerates the runtime's one presentation preference, hiddenDirectories, among the lint's presentation keys: every key but an environment's connection settings", () => {
+    const presentation = PREFERENCE_KEYS.filter((key) => !key.startsWith("environments."));
+    expect(presentation).toEqual(["hiddenDirectories"]);
+    for (const key of presentation) expect(PRESENTATION_KEYS).toContain(key);
   });
 
   it("holds the testing exports to contracts alone, so a renderer's tests run them in a DOM: the scripted environment importing a Node built-in fails it", async () => {

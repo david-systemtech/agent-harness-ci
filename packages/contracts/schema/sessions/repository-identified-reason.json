@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RepositoryIdentifiedReason",
+  "type": "string",
+  "enum": [
+    "resolved",
+    "alias"
+  ],
+  "description": "Why the session's repository identity changed after creation: resolved (the pass after a start found one for a session that had none) or alias (a forge account's verified alias moved the identity's host to the account's canonical host)."
+}

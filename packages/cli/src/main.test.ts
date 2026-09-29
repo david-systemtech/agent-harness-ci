@@ -19,6 +19,17 @@ const run = (script: string, args: string[], env: NodeJS.ProcessEnv = process.en
   spawnCli(process.execPath, ["--conditions=@agent-harness/source", "--import", tsx, script, ...args], { env });
 const cli = (...args: string[]) => run(entry, args);
 
+/**
+ * How long a test here may take: each runs the CLI through tsx in processes
+ * of its own, one or two, and tsx loads and transforms the CLI's modules
+ * before the CLI starts. On the agent box at a load of 60 to 70 on 16 cores, one process
+ * took up to 20 s (the tui verb, which loads the terminal UI too), and with
+ * the test's processes frozen two thirds of the time up to 76 s, past the
+ * 30 s every test gets (#634). A CLI that answers wrongly fails once it
+ * exits, so only one that hangs uses this up.
+ */
+const CLI_PROCESS_MS = 120_000;
+
 let cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.reverse()) cleanup();
@@ -31,7 +42,7 @@ const tempDir = (): string => {
   return dir;
 };
 
-describe("agent-harness", () => {
+describe("agent-harness", { timeout: CLI_PROCESS_MS }, () => {
   it("prints the placeholder name and the harness version the environment reports, for --version", async () => {
     const { stdout } = await cli("--version");
     expect(stdout).toBe(`agent-harness ${HARNESS_VERSION}\n`);
@@ -53,7 +64,7 @@ describe("agent-harness", () => {
   });
 });
 
-describe("agent-harness serve, as a privileged user", () => {
+describe("agent-harness serve, as a privileged user", { timeout: CLI_PROCESS_MS }, () => {
   it("prints one sentence and exits 1 before creating its data directory, whatever the environment says", async () => {
     const dataDir = join(tempDir(), "data");
     const env = { ...process.env, IS_SANDBOX: "1", CLAUDE_CODE_BUBBLEWRAP: "1", container: "docker" };
@@ -62,15 +73,17 @@ describe("agent-harness serve, as a privileged user", () => {
     expect(existsSync(dataDir)).toBe(false);
   });
 
-  it("refuses before reading its arguments, so no flag lifts the refusal or gets past it", async () => {
-    for (const flag of ["--allow-root", "--no-root-check", "--unsafe", "--container", "--port=http"]) {
-      await expect(run(privilegedEntry, ["serve", flag]), flag).rejects.toMatchObject({
+  // A test per flag, each one process as the tests around it and as CLI_PROCESS_MS is sized: five in one test outlasted its 30 s on a loaded runner (#634).
+  it.each(["--allow-root", "--no-root-check", "--unsafe", "--container", "--port=http"])(
+    "refuses before reading its arguments, so %s neither lifts the refusal nor gets past it",
+    async (flag) => {
+      await expect(run(privilegedEntry, ["serve", flag])).rejects.toMatchObject({
         code: 1,
         stdout: "",
         stderr: `${ROOT_REFUSAL}\n`,
       });
-    }
-  });
+    },
+  );
 
   it.runIf(runningAsRoot)("refuses through the shipped entry when this test runs as root", async () => {
     const dataDir = join(tempDir(), "data");
@@ -84,7 +97,7 @@ describe("agent-harness serve, as a privileged user", () => {
 });
 
 // Windows has no SIGTERM handling: kill() terminates the child outright, so the exit code proves nothing there.
-describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness serve, as the ordinary user running this test", () => {
+describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness serve, as the ordinary user running this test", { timeout: CLI_PROCESS_MS }, () => {
   it("tells the launcher it is prepared with its version over IPC, serves once committed, prints the discovery address, and exits 0 on SIGTERM", async () => {
     const dataDir = join(tempDir(), "data");
     const child = fork(entry, ["serve", "--data-dir", dataDir, "--port", "0"], {

@@ -40,6 +40,9 @@ const state = (activeVersion: string, launcherVersion = activeVersion) => ({
   launcherVersion,
   pendingUpdate: null,
   watchDeadline: null,
+  watchedUpdateId: null,
+  stagedVersion: null,
+  failedHandover: null,
 });
 
 describe("the shim", () => {

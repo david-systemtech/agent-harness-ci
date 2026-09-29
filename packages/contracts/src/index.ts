@@ -19,6 +19,7 @@ export * from "./forge-accounts.js";
 export * from "./forge-gh.js";
 export * from "./frames.js";
 export * from "./git-credential.js";
+export * from "./instructions.js";
 export * from "./key-managers.js";
 export * from "./key-manager-connections.js";
 export * from "./launcher.js";
@@ -65,7 +66,18 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
-export { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, MAX_FORGE_ALIASES, VerificationFailedError } from "./methods/forge.js";
+export {
+  AliasIdentityMismatchError,
+  ForgeAccountMissingError,
+  ForgeOwner,
+  ForgeUnreachableError,
+  IdentityMismatchError,
+  KindUnsupportedError,
+  MAX_FORGE_ALIASES,
+  NotAForgeError,
+  NotAPullRequestError,
+  VerificationFailedError,
+} from "./methods/forge.js";
 export {
   AddressUnreachableError,
   CertificateRejectedError,
@@ -110,4 +122,5 @@ export * from "./update-route.js";
 export * from "./update-settings.js";
 export * from "./updates.js";
 export * from "./usage.js";
+export * from "./workspaces.js";
 export * from "./write-commands.js";

@@ -74,6 +74,13 @@ const copy = {
 };
 const doppler = { ...copy, provider: "doppler", address: "https://api.doppler.com", method: null, mount: null, username: null, importedFrom: "secret-manager-1", copiedFrom: null };
 
+const display = { provider: "openbao", label: "OpenBao", locator: "personal/harness/forge-github (key token)" };
+const holder = { kind: "forge-account", id: otherId, name: "https://git.systemtech.dev:5526" };
+const notSignedIn = { code: "credential_source_unavailable", message: "The key-manager connection OpenBao is awaiting a sign-in.", data: { connectionId } };
+const notFound = { code: "reference_not_found", message: "OpenBao holds nothing at personal/harness/forge-github.", data: { connectionId } };
+const denied = { code: "reference_denied", message: "OpenBao did not let the login read personal/harness/forge-github: check the mount first.", data: { connectionId } };
+const reference = { provider: "openbao", connectionId, mount: "personal", path: "harness/forge-github", key: "token" };
+
 const added = {
   connectionId,
   provider: "openbao",
@@ -213,6 +220,26 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ code: "unreachable", message: "https://bao.systemtech.dev:8200 could not be reached: connect ECONNREFUSED.", data: { address } }],
     invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { address: "bao.systemtech.dev" } }],
   },
+  "key-managers/reference-display.json": {
+    valid: [display, { provider: "doppler", label: null, locator: "FORGE_TOKEN (project harness, config prd)" }],
+    invalid: [{ ...display, provider: "vault" }, { ...display, label: "" }, { ...display, locator: "" }, { provider: "openbao", locator: "personal/harness/forge-github (key token)" }],
+  },
+  "key-managers/reference-holder.json": {
+    valid: [holder],
+    invalid: [{ ...holder, kind: "session" }, { ...holder, id: "" }, { kind: "forge-account", id: otherId }],
+  },
+  "key-managers/reference-problem.json": {
+    valid: [notSignedIn, notFound, denied],
+    invalid: [{ ...denied, data: {} }, { code: "unreachable", message: "m", data: { connectionId } }, { ...notFound, message: undefined }],
+  },
+  "errors/reference_not_found.json": {
+    valid: [notFound],
+    invalid: [{ ...notFound, data: {} }, { ...notFound, code: "not_found" }],
+  },
+  "errors/reference_denied.json": {
+    valid: [denied],
+    invalid: [{ ...denied, data: { connectionId: "openbao" } }, { ...denied, code: "denied" }],
+  },
   "errors/provider_unavailable.json": {
     valid: [{ code: "provider_unavailable", message: "This environment cannot sign in to Doppler.", data: { provider: "doppler" } }],
     invalid: [{ code: "provider_unavailable", message: "m", data: { provider: "vault" } }, { code: "provider_unavailable", message: "m", data: {} }],
@@ -284,7 +311,21 @@ export const keyManagerMethodFixtures: Record<string, { params: Fixtures; result
     result: { valid: [{ connection: copy }], invalid: [{}, { connection: { id: connectionId } }] },
   },
   "keyManagers.connections.remove": {
-    params: { valid: [{ commandId, connectionId }], invalid: [{ commandId }, { commandId, connectionId: null }] },
+    params: { valid: [{ commandId, connectionId }, { commandId, connectionId, force: true }], invalid: [{ commandId }, { commandId, connectionId: null }, { commandId, connectionId, force: "yes" }] },
     result: { valid: [{ connectionId }], invalid: [{}, { connectionId: "" }] },
+  },
+  "keyManagers.references.check": {
+    params: { valid: [{ reference }], invalid: [{}, { reference: { ...reference, key: "" } }, { reference: { ...reference, provider: "vault" } }] },
+    result: {
+      valid: [{ display, problem: null }, { display, problem: denied }, { display: { ...display, label: null }, problem: notSignedIn }],
+      invalid: [{ display }, { display, problem: { code: "unreachable", message: "m", data: { connectionId } } }],
+    },
+  },
+  "keyManagers.references.browse": {
+    params: {
+      valid: [{ connectionId }, { connectionId, mount: "personal" }, { connectionId, mount: "secret/team", path: "harness" }],
+      invalid: [{}, { connectionId, mount: "personal/" }, { connectionId, mount: "personal", path: "/harness" }, { connectionId: "openbao" }],
+    },
+    result: { valid: [{ names: [] }, { names: ["personal/", "secret/"] }, { names: ["harness/", "forge-github"] }], invalid: [{}, { names: [""] }, { names: "harness/" }] },
   },
 };
