@@ -249,7 +249,7 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348)", () => {
+  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348), and that it is named (#323)", () => {
     const machines = stepOf("your-machines");
     expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
     expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
@@ -265,6 +265,19 @@ describe("the step registry", () => {
         actions: ["update"],
       },
       { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["check-again"] },
+      { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
+    ]);
+  });
+
+  it("gives the Your machines entry the environment's name, icon and colour as state it writes, each through its own command (#323)", () => {
+    const machines = stepOf("your-machines");
+    expect(machines.writesState).toEqual([
+      { method: "environment.rename", parts: ["name"] },
+      { method: "environment.setIcon", parts: ["icon"] },
+      { method: "environment.setColour", parts: ["colour"] },
+    ]);
+    expect(stepShapeProblems([{ ...machines, writesState: [{ method: "environment.setName", parts: ["name"] }] }])).toEqual([
+      "your-machines: writes state through environment.setName, which is not a method",
     ]);
   });
 

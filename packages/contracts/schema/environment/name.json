@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentName",
+  "type": "string",
+  "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+  "description": "An environment's name as environment.rename takes it: 1 to 40 characters once trimmed, counted as code points, no control or format (zero-width) characters other than white space; kept trimmed with white space collapsed."
+}

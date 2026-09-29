@@ -11,6 +11,7 @@ export * from "./denylist.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
 export * from "./environment-colours.js";
+export * from "./environment-look.js";
 export * from "./event-types.js";
 export * from "./errors.js";
 export * from "./flags.js";

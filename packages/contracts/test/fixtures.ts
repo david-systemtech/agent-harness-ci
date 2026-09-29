@@ -11,6 +11,7 @@ import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
+import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
@@ -205,6 +206,19 @@ export const validFrames: Record<FrameType, readonly object[]> = {
       ceiling: "bypassPermissions",
       serverTime: at,
     },
+    {
+      type: "hello",
+      protocolVersion: 1,
+      capabilities: [],
+      environmentId: uuid,
+      environmentName: "MNL",
+      environmentIcon: "server",
+      environmentColour: "teal",
+      clientSessionId: "cs-1",
+      scopes: ["read"],
+      ceiling: "plan",
+      serverTime: at,
+    },
   ],
   request: [
     { type: "request", id: "1", method: "environment.status", params: {} },
@@ -269,6 +283,8 @@ export const malformedFrames: Record<FrameType, readonly string[]> = {
     json({ ...validFrames.hello[0], scopes: [] }),
     json({ ...validFrames.hello[0], capabilities: "terminal" }),
     json({ ...validFrames.hello[0], serverTime: "yesterday" }),
+    json({ ...validFrames.hello[0], environmentIcon: "phone" }),
+    json({ ...validFrames.hello[0], environmentColour: "#008080" }),
   ],
   request: [
     json({ type: "request", method: "environment.status", params: {} }),
@@ -389,8 +405,13 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.subscribe": {
     params: { valid: [{ afterSequence: 0 }, { afterSequence: 1200 }], invalid: [{}, { afterSequence: -1 }] },
     result: {
-      valid: validStatuses.map((status) => ({ status })),
-      invalid: [{}, ...invalidStatuses.map((status) => ({ status }))],
+      valid: [...validStatuses.map((status) => ({ status })), { status: validStatuses[0], environment: validLook }],
+      invalid: [
+        {},
+        ...invalidStatuses.map((status) => ({ status })),
+        { status: validStatuses[0], environment: { ...validLook, colour: "#008080" } },
+        { status: validStatuses[0], environment: { name: "MNL" } },
+      ],
     },
   },
   "environment.drain": {
@@ -496,6 +517,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
     },
     result: { valid: [{ events: [] }, { events: [validEnvelope] }], invalid: [{ events: [{}] }, {}] },
   },
+  ...lookMethodFixtures,
   ...sessionMethodFixtures,
   ...runMethodFixtures,
   ...providerMethodFixtures,
@@ -678,9 +700,12 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: [
       validDiscovery,
       { ...validDiscovery, capabilities: ["terminal"], authPolicy: "tailnet", readiness: "ready" },
+      { ...validDiscovery, environmentIcon: "nas", environmentColour: "amber" },
     ],
     invalid: [
       without(validDiscovery, "environmentId"),
+      { ...validDiscovery, environmentIcon: "phone" },
+      { ...validDiscovery, environmentColour: "#ffbf00" },
       { ...validDiscovery, environmentId: "not-a-uuid" },
       { ...validDiscovery, readiness: "idle" },
       { ...validDiscovery, authPolicy: "unsafe-no-auth" },
@@ -722,8 +747,11 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "environment.renamed",
+      "environment.icon-set",
+      "environment.colour-set",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "environment.named", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -756,6 +784,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
+      { type: "environment.renamed", payload: { name: "MNL" } },
+      { type: "environment.icon-set", payload: { icon: "nas" } },
+      { type: "environment.colour-set", payload: { colour: "amber" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -776,6 +807,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       { type: "usage.updated", payload: { accountId: "claude-max" } },
+      { type: "environment.renamed", payload: { name: "" } },
+      { type: "environment.icon-set", payload: { icon: "phone" } },
+      { type: "environment.colour-set", payload: { colour: "#ffbf00" } },
       validEnvelope,
     ],
   },
@@ -881,6 +915,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...keyManagerSchemaFixtures,
   ...skillSchemaFixtures,
   ...themeSchemaFixtures,
+  ...lookSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...completionsSchemaFixtures,

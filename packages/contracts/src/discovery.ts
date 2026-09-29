@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { EnvironmentColour } from "./environment-colours.js";
+import { EnvironmentIcon } from "./environment-look.js";
 import { CapabilityFlags, ProtocolVersion } from "./flags.js";
 import { EnvironmentId } from "./primitives.js";
 import { PRODUCT_NAME } from "./product.js";
@@ -52,6 +54,16 @@ export const DISCOVERY_PATH = `/.well-known/${PRODUCT_NAME}/environment`;
 export const HEALTH_PATH = "/health";
 
 /**
+ * An environment's icon and colour where discovery and `hello` carry them
+ * beside its name (#323): optional, so a client reads an environment from
+ * before them, and they came with no protocol bump.
+ */
+export const environmentLookFields = {
+  environmentIcon: EnvironmentIcon.optional().meta({ description: "The environment's icon; absent from an environment that predates it." }),
+  environmentColour: EnvironmentColour.optional().meta({ description: "The environment's colour; absent from an environment that predates it." }),
+};
+
+/**
  * What `GET` on the discovery path answers, with no credential: enough for a
  * client or the setup checklist to tell which environment this is, whether it
  * speaks the client's protocol, and whether it is ready.
@@ -60,6 +72,7 @@ export const DiscoveryDocument = z
   .object({
     environmentId: EnvironmentId,
     environmentName: z.string().min(1),
+    ...environmentLookFields,
     harnessVersion: z.string().min(1).meta({ description: "The version of the harness the environment runs." }),
     protocolVersion: ProtocolVersion,
     capabilities: CapabilityFlags,
@@ -68,7 +81,7 @@ export const DiscoveryDocument = z
   })
   .meta({
     description:
-      "The unauthenticated discovery document: who the environment is, what it speaks and offers, how it is reached and whether it is ready.",
+      "The unauthenticated discovery document: who the environment is (its id, name, icon and colour), what it speaks and offers, how it is reached and whether it is ready.",
   });
 export type DiscoveryDocument = z.infer<typeof DiscoveryDocument>;
 

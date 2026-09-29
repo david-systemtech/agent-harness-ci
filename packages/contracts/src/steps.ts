@@ -204,11 +204,17 @@ export const STEP_REGISTRY = [
     // writtenBy), and a preference step's checks pass on any valid value; its health line reports not-root, read
     // from what permissions.settings.get answers as isRoot (#141), whether the release channel is read (#346), whether
     // this machine is behind (#347) and, in a container whose updates are managed outside, whether the host-side
-    // updater polled in the last hour (#348). The rest of its check (the discovery URL reachable and ready, the name) is
-    // Set up's (#88).
+    // updater polled in the last hour (#348). The environment's name, icon and colour are state it writes through their
+    // three commands, and its line says the environment is named (ADR 0025's "named"), which holds from the first start
+    // since each has its default (#323). The rest of its check (the discovery URL reachable and ready) is Set up's (#88).
     id: "your-machines",
     home: "environments.machines",
     writes: ["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"],
+    writesState: [
+      { method: "environment.rename", parts: ["name"] },
+      { method: "environment.setIcon", parts: ["icon"] },
+      { method: "environment.setColour", parts: ["colour"] },
+    ],
     checks: [
       { key: "updates.autoUpdate", check: anyValidValue("updates.autoUpdate") },
       { key: "updates.channel", check: anyValidValue("updates.channel") },
@@ -233,6 +239,7 @@ export const STEP_REGISTRY = [
         holds: "No host-side updater manages this environment's updates, or it polled in the last hour.",
         actions: ["check-again"],
       },
+      { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
     ],
     links: [],
     skippable: false,

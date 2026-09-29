@@ -13,6 +13,40 @@
       "type": "string",
       "minLength": 1
     },
+    "environmentIcon": {
+      "description": "The environment's icon; absent from an environment that predates it.",
+      "type": "string",
+      "enum": [
+        "laptop",
+        "desktop",
+        "server",
+        "nas",
+        "cloud",
+        "container",
+        "board",
+        "home",
+        "office",
+        "lab"
+      ]
+    },
+    "environmentColour": {
+      "description": "The environment's colour; absent from an environment that predates it.",
+      "type": "string",
+      "enum": [
+        "red",
+        "orange",
+        "amber",
+        "yellow",
+        "lime",
+        "green",
+        "teal",
+        "cyan",
+        "blue",
+        "indigo",
+        "violet",
+        "pink"
+      ]
+    },
     "harnessVersion": {
       "type": "string",
       "minLength": 1,
@@ -61,5 +95,5 @@
     "authPolicy",
     "readiness"
   ],
-  "description": "The unauthenticated discovery document: who the environment is, what it speaks and offers, how it is reached and whether it is ready."
+  "description": "The unauthenticated discovery document: who the environment is (its id, name, icon and colour), what it speaks and offers, how it is reached and whether it is ready."
 }

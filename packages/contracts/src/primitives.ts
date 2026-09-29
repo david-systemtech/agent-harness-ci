@@ -10,6 +10,20 @@ export const setOf = <T extends z.ZodType>(item: T) =>
     .refine((items) => new Set(items).size === items.length, { message: "Items must be unique" })
     .meta({ uniqueItems: true });
 
+/**
+ * A name as a person types it, held to 1 to `max` characters once trimmed,
+ * counted as code points (the `u` flag), with no control or format
+ * (zero-width) character but the control characters that are white space
+ * (tab, line feeds, form feed, return), which a holder collapses to one
+ * space. That white space is spelled out: `\s` would re-admit the byte-order
+ * mark, which is `Cf`. A group's name and an environment's are held to it.
+ */
+export const trimmedNamePattern = (max: number): RegExp =>
+  new RegExp(`^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,${max - 2}}[^\\s\\p{Cc}\\p{Cf}])?\\s*$`, "u");
+
+/** A name as a holder of `trimmedNamePattern` keeps it: trimmed, every run of white space one space. */
+export const normaliseTrimmedName = (name: string): string => name.trim().replace(/\s+/g, " ");
+
 /** An instant, as an ISO 8601 UTC timestamp: `2026-09-24T01:02:03.456Z`. */
 export const Timestamp = z.iso.datetime().meta({ description: "An instant as an ISO 8601 UTC timestamp." });
 export type Timestamp = z.infer<typeof Timestamp>;

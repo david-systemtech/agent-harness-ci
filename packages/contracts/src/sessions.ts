@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
-import { Sequence, Timestamp } from "./primitives.js";
+import { Sequence, Timestamp, normaliseTrimmedName, trimmedNamePattern } from "./primitives.js";
 
 /**
  * Session organisation state (session-state spec; ADR 0003): the session
@@ -96,8 +96,7 @@ export type StoredDraft = z.infer<typeof StoredDraft>;
  */
 export const GroupName = z
   .string()
-  // Inside the name: any character that is neither control nor format, plus the control characters that are white space (tab, line feeds, form feed, return); `\s` would re-admit the byte-order mark, which is `Cf`. With the `u` flag the cap counts code points, as `Tag` does.
-  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:(?:[^\p{Cc}\p{Cf}]|[\t\n\v\f\r]){0,78}[^\s\p{Cc}\p{Cf}])?\s*$/u)
+  .regex(trimmedNamePattern(80))
   .meta({
     description:
       "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case.",
@@ -108,7 +107,7 @@ export type GroupName = z.infer<typeof GroupName>;
  * A group's name as an environment keeps it: trimmed, every run of white
  * space one space.
  */
-export const normaliseGroupName = (name: string): string => name.trim().replace(/\s+/g, " ");
+export const normaliseGroupName = normaliseTrimmedName;
 
 /**
  * What a group's name is compared on: the kept name, lowercased. An

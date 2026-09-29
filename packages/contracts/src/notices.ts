@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
+import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
 import {
   ForgeAccountAddedPayload,
@@ -53,8 +54,10 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * account (#310: the ForgeService's own events, which its store is kept
  * from); a key-manager connection was added, signed in, signed out,
  * updated, had its policies ticked, was verified with something changed, or
- * was removed (#365, #366: the key-manager connections' own events); so
- * every connected client learns of it whatever else it is subscribed to.
+ * was removed (#365, #366: the key-manager connections' own events); the
+ * environment was renamed, or took an icon or a colour (#323, whose three
+ * commands append them); so every connected client learns of it whatever
+ * else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.started",
@@ -85,10 +88,13 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "key-manager.connection.policies-set",
   "key-manager.connection.verified",
   "key-manager.connection.removed",
+  "environment.renamed",
+  "environment.icon-set",
+  "environment.colour-set",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), and environment.renamed, environment.icon-set and environment.colour-set (the environment's name, icon or colour changed; a client redraws its badge).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -184,7 +190,7 @@ const UsageUpdated = z
   })
   .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
 
-/** A forge or key-manager event as a notice: its type and its payload, described. */
+/** A forge, key-manager or look event as a notice: its type and its payload, described. */
 const describedNotice = <const T extends string, P extends z.ZodObject>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
@@ -219,6 +225,9 @@ const KeyManagerConnectionVerified = describedNotice(
   "A verification of a key-manager connection found its status, token information, policies or whether it can mint changed.",
 );
 const KeyManagerConnectionRemoved = describedNotice("key-manager.connection.removed", KeyManagerConnectionRemovedPayload, "A key-manager connection was removed.");
+const EnvironmentRenamed = describedNotice("environment.renamed", EnvironmentRenamedPayload, "The environment was renamed: its new name.");
+const EnvironmentIconSet = describedNotice("environment.icon-set", EnvironmentIconSetPayload, "The environment took another icon.");
+const EnvironmentColourSet = describedNotice("environment.colour-set", EnvironmentColourSetPayload, "The environment took another colour.");
 
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
@@ -255,6 +264,9 @@ export const EnvironmentNotice = z
     KeyManagerConnectionPoliciesSet,
     KeyManagerConnectionVerified,
     KeyManagerConnectionRemoved,
+    EnvironmentRenamed,
+    EnvironmentIconSet,
+    EnvironmentColourSet,
   ])
   .meta({
     description:

@@ -1207,6 +1207,30 @@
       "title": "EnvironmentColour"
     },
     {
+      "path": "environment/icon.json",
+      "title": "EnvironmentIcon"
+    },
+    {
+      "path": "environment/name.json",
+      "title": "EnvironmentName"
+    },
+    {
+      "path": "environment/look.json",
+      "title": "EnvironmentLook"
+    },
+    {
+      "path": "environment/renamed.json",
+      "title": "EnvironmentRenamedPayload"
+    },
+    {
+      "path": "environment/icon-set.json",
+      "title": "EnvironmentIconSetPayload"
+    },
+    {
+      "path": "environment/colour-set.json",
+      "title": "EnvironmentColourSetPayload"
+    },
+    {
       "path": "usage/verdict.json",
       "title": "UsageVerdict"
     },
@@ -2077,6 +2101,54 @@
     {
       "path": "methods/environment.rebuildProjections/error.json",
       "title": "environment.rebuildProjections error"
+    },
+    {
+      "path": "methods/environment.rename/params.json",
+      "title": "environment.rename params"
+    },
+    {
+      "path": "methods/environment.rename/result.json",
+      "title": "environment.rename result"
+    },
+    {
+      "path": "methods/environment.rename/response.json",
+      "title": "environment.rename response"
+    },
+    {
+      "path": "methods/environment.rename/error.json",
+      "title": "environment.rename error"
+    },
+    {
+      "path": "methods/environment.setIcon/params.json",
+      "title": "environment.setIcon params"
+    },
+    {
+      "path": "methods/environment.setIcon/result.json",
+      "title": "environment.setIcon result"
+    },
+    {
+      "path": "methods/environment.setIcon/response.json",
+      "title": "environment.setIcon response"
+    },
+    {
+      "path": "methods/environment.setIcon/error.json",
+      "title": "environment.setIcon error"
+    },
+    {
+      "path": "methods/environment.setColour/params.json",
+      "title": "environment.setColour params"
+    },
+    {
+      "path": "methods/environment.setColour/result.json",
+      "title": "environment.setColour result"
+    },
+    {
+      "path": "methods/environment.setColour/response.json",
+      "title": "environment.setColour response"
+    },
+    {
+      "path": "methods/environment.setColour/error.json",
+      "title": "environment.setColour error"
     },
     {
       "path": "methods/access.pairings.create/params.json",
@@ -3768,6 +3840,36 @@
       "result": "methods/environment.rebuildProjections/result.json",
       "response": "methods/environment.rebuildProjections/response.json",
       "error": "methods/environment.rebuildProjections/error.json"
+    },
+    {
+      "name": "environment.rename",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/environment.rename/params.json",
+      "result": "methods/environment.rename/result.json",
+      "response": "methods/environment.rename/response.json",
+      "error": "methods/environment.rename/error.json"
+    },
+    {
+      "name": "environment.setIcon",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/environment.setIcon/params.json",
+      "result": "methods/environment.setIcon/result.json",
+      "response": "methods/environment.setIcon/response.json",
+      "error": "methods/environment.setIcon/error.json"
+    },
+    {
+      "name": "environment.setColour",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/environment.setColour/params.json",
+      "result": "methods/environment.setColour/result.json",
+      "response": "methods/environment.setColour/response.json",
+      "error": "methods/environment.setColour/error.json"
     },
     {
       "name": "access.pairings.create",
