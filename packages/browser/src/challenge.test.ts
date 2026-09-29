@@ -48,9 +48,12 @@ describe("captcha frames", () => {
     expect(detectChallenge(signIn(`<div class="h-captcha" data-sitekey="site-key-for-tests" data-size="invisible"></div>`))).toBeNull();
   });
 
-  it("names a Turnstile widget, as its frame or its markup", () => {
+  it("names a Turnstile widget, as its frame or its markup, and passes over one that appears only when it needs the person", () => {
     expect(detectChallenge(signIn(`<iframe src="https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/id-for-tests/site-key-for-tests/light/fbE/new/normal/auto/"></iframe>`))).toBe("turnstile");
     expect(detectChallenge(signIn(`<div class="cf-turnstile" data-sitekey="site-key-for-tests"></div>`))).toBe("turnstile");
+    expect(detectChallenge(signIn(`<div class="cf-turnstile" data-sitekey="site-key-for-tests" data-appearance="always"></div>`))).toBe("turnstile");
+    expect(detectChallenge(signIn(`<div class="cf-turnstile" data-sitekey="site-key-for-tests" data-appearance="interaction-only"></div>`))).toBeNull();
+    expect(detectChallenge(signIn(`<div class="cf-turnstile" data-sitekey="site-key-for-tests" data-appearance="execute"></div>`))).toBeNull();
   });
 
   it("names the vendor's check before a captcha frame it shows", () => {

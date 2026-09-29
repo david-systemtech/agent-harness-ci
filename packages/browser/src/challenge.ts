@@ -30,7 +30,9 @@ export interface ChallengeMarkers {
  * person meets; then the captcha frames; then the JavaScript challenges.
  * A captcha is marked by its frame or by the markup its script renders into,
  * an invisible one (reCAPTCHA v3, a button bound to one, `data-size`
- * `invisible`) passed over, since it shows the person nothing.
+ * `invisible`, a Turnstile widget whose `data-appearance` shows it only when
+ * it needs the person or once it runs) passed over, since it shows the
+ * person nothing up front.
  */
 export const CHALLENGE_MARKERS: readonly ChallengeMarkers[] = [
   {
@@ -63,8 +65,12 @@ export const CHALLENGE_MARKERS: readonly ChallengeMarkers[] = [
     scripts: [],
   },
   {
+    // Turnstile has no invisible size in markup: a widget that appears only once it needs the person, or once it runs, says so by its appearance.
     kind: "turnstile",
-    selectors: ['iframe[src*="challenges.cloudflare.com"]:not([src*="/invisible/"])', "div.cf-turnstile"],
+    selectors: [
+      'iframe[src*="challenges.cloudflare.com"]:not([src*="/invisible/"])',
+      'div.cf-turnstile:not([data-appearance="interaction-only"]):not([data-appearance="execute"])',
+    ],
     scripts: [],
   },
   {

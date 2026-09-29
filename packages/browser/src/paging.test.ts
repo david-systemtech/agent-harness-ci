@@ -41,6 +41,12 @@ describe("paging a long text", () => {
     expect(pageText("", 1)).toEqual({ ok: false, reason: "Offset 1 is past the end of the text, which is empty: ask for offset 0." });
   });
 
+  it("answers an offset that is not a whole number from 0 with a sentence", () => {
+    for (const offset of [-5, 1.5, Number.NaN]) {
+      expect(pageText(text, offset)).toEqual({ ok: false, reason: `Offset ${offset} is no place in the text: an offset is a whole number of characters from 0.` });
+    }
+  });
+
   it("never cuts a character written as two code units in half, and its pages read back as the whole text", () => {
     const astral = `${numbered(23_999)}\u{1F986}${numbered(30_000)}\u{1F986}`;
     const first = page(astral);

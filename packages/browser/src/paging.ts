@@ -28,10 +28,12 @@ const opensPair = (text: string, at: number): boolean => {
  * The page of `text` that starts at `offset` (preset 0): 24,000 characters,
  * one fewer where the last would open a character written as two code
  * units, so no page ends or starts inside one. An offset past the end is a
- * refusal sentence saying how long the text is.
+ * refusal sentence saying how long the text is, and so is one that is no
+ * whole number from 0.
  */
 export const pageText = (text: string, offset = 0): { readonly ok: true; readonly value: TextPage } | PageRefusal => {
   const totalChars = text.length;
+  if (!Number.isInteger(offset) || offset < 0) return { ok: false, reason: `Offset ${offset} is no place in the text: an offset is a whole number of characters from 0.` };
   if (offset > 0 && offset >= totalChars) {
     const reason =
       totalChars === 0
