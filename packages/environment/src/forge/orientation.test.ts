@@ -9,8 +9,7 @@ import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create, workspace } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { undecidedTrust, type InstructionScope } from "../adapter/seams.js";
-import { composeInstructions } from "../instructions/composer.js";
-import { soleSection } from "../instructions/orientation.js";
+import type { OrientationContent } from "../instructions/orientation.js";
 
 /**
  * The orientation block's forges section (forge spec, "Orientation";
@@ -270,13 +269,14 @@ describe("the forges section", () => {
     await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
     const one = await runTo(t, client, session.id, "One forge");
 
-    expect(none).toBe(
-      [
-        "# Orientation",
-        "## Forges",
-        "No forge is connected here: git over https has no credential here, and ssh uses the user's own keys. Ask the user to connect a forge in Set up, Forges rather than searching for a token.",
-      ].join("\n\n"),
-    );
+    expect(
+      none.endsWith(
+        [
+          "## Forges",
+          "No forge is connected here: git over https has no credential here, and ssh uses the user's own keys. Ask the user to connect a forge in Set up, Forges rather than searching for a token.",
+        ].join("\n\n"),
+      ),
+    ).toBe(true);
     expect(one).toContain(`- home: ${hostOf(forge)} (Forgejo), login david: verified, unchanged since 2026-09-24 00:00 UTC.`);
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([none, one]);
   });
@@ -330,12 +330,12 @@ describe("the forges section", () => {
   });
 });
 
-describe("the orientation seam, until the OrientationRenderer registers the forges section third", () => {
+describe("the forges section in the orientation block", () => {
   /** The manifest of the session's latest composition. */
   const manifestOf = (t: TestEnvironment, sessionId: string) =>
     (t.env.log.readStream({ kind: "session", id: sessionId }).findLast((event) => event.type === "run.instructions.composed")?.payload as RunInstructionsComposedPayload | undefined)?.manifest;
 
-  it("is filled by the forges section alone, under the block's heading, as the user layer's orientation part", async () => {
+  it("is registered third, after this environment's section, in the user layer's orientation part", async () => {
     const forge = await fakeForge();
     const t = await start(forge);
     const client = await t.client();
@@ -345,18 +345,19 @@ describe("the orientation seam, until the OrientationRenderer registers the forg
 
     const text = await runTo(t, client, session.id);
 
-    expect(text.startsWith(`# Orientation\n\n## Forges\n\n- home: ${hostOf(forge)} (Forgejo)`)).toBe(true);
+    expect(text.startsWith("# Orientation\n\n## This environment\n\n")).toBe(true);
+    expect(text.match(/^## .+$/gm)).toEqual(["## This environment", "## Forges"]);
+    expect(text).toContain(`## Forges\n\n- home: ${hostOf(forge)} (Forgejo)`);
     expect(manifestOf(t, session.id)).toMatchObject({ layers: [{ layer: "user", parts: [{ id: "orientation", characters: text.length }] }], unreadRegistries: [] });
   });
 
-  it("has the forges section in the renderer's provider shape: its name and title, and its text from state at once", async () => {
+  it("has the renderer's provider shape: its name and title, and its paragraphs from state at once", async () => {
     const forge = await fakeForge();
     const t = await start(forge);
     const client = await t.client();
     forge.user(TOKEN, DAVID);
     await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
     const session = await create(client);
-    const text = await runTo(t, client, session.id);
     const section = t.env.forge.orientation;
     if (section === undefined) throw new Error("The ForgeService gave no forges section.");
     const scope: InstructionScope = {
@@ -365,6 +366,7 @@ describe("the orientation seam, until the OrientationRenderer registers the forg
       workspace,
       trust: undecidedTrust(workspace, null),
       origin: "client",
+      containment: "off",
       bot: null,
       alwaysOn: [],
       channel: { kind: "system-prompt-append", maxCharacters: null },
@@ -373,31 +375,8 @@ describe("the orientation seam, until the OrientationRenderer registers the forg
     const rendered = section.render(scope);
 
     expect({ name: section.name, title: section.title }).toEqual({ name: "forges", title: "Forges" });
-    // A string, not a promise: read from the read model with nothing awaited, well within the renderer's one second.
-    expect(typeof rendered).toBe("string");
-    expect(text).toBe(`# Orientation\n\n## Forges\n\n${rendered as string}`);
-  });
-
-  it("renders a section whose provider throws as could not be read, names it in the manifest, and the run goes on", async () => {
-    const forge = await fakeForge();
-    const failing = soleSection({
-      name: "forges",
-      title: "Forges",
-      render: () => {
-        throw new Error("The forge accounts' read model could not be read.");
-      },
-    });
-    const t = await start(forge, { adapterSeams: { instructions: composeInstructions({ orientation: failing }) } });
-    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    onCleanup(() => errors.mockRestore());
-    const client = await t.client();
-    const session = await create(client);
-
-    const text = await runTo(t, client, session.id);
-
-    expect(text).toBe("# Orientation\n\n## Forges\n\nCould not be read.");
-    expect(manifestOf(t, session.id)).toMatchObject({ unreadRegistries: ["forges"] });
-    expect(ended(t, session.id).at(-1)?.payload).not.toMatchObject({ reason: "error" });
-    expect(errors.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("The orientation block's forges section could not be read"));
+    // Paragraphs, not a promise: read from the read model with nothing awaited, well within the renderer's one second.
+    expect(Array.isArray(rendered)).toBe(true);
+    expect((rendered as OrientationContent)[0]).toEqual({ items: [`home: ${hostOf(forge)} (Forgejo), login david: verified, unchanged since 2026-09-24 00:00 UTC.`] });
   });
 });

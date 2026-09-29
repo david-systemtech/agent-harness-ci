@@ -98,8 +98,9 @@ export const undecidedTrust = (workspace: Workspace, repositoryIdentity: string 
  * What a run's standing instructions are composed for (skills spec, "The
  * seam grows"): its session (null for a preview of a session not yet
  * made), account and workspace, its trust key and decision, who started it,
- * the bot it is for, the always-on names it asks for beside its account's,
- * and the instruction channel of its account's adapter.
+ * its effective containment level (#380), the bot it is for, the always-on
+ * names it asks for beside its account's, and the instruction channel of
+ * its account's adapter.
  */
 export interface InstructionScope {
   readonly sessionId: string | null;
@@ -108,6 +109,8 @@ export interface InstructionScope {
   readonly trust: RunTrust;
   /** Who started the run: a client, a routine, a bot or the completions surface. */
   readonly origin: RunActorKind;
+  /** The run's effective containment level, its policy's: what the orientation block's environment section states. */
+  readonly containment: ContainmentLevel;
   /** The bot the run is for: null in milestone 1, the Bot object being milestone 2's (#92). */
   readonly bot: null;
   /** The run's extra always-on names, after its account's: empty until the always-on layer is built (#507). */

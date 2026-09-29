@@ -5,6 +5,7 @@ import {
   SESSION_STREAM_KIND,
   lowerMode,
   type AdapterCapabilityFlag,
+  type ContainmentLevel,
   type IssueInput,
   type JsonObject,
   type MessageDeliveredPayload,
@@ -41,7 +42,7 @@ import {
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
-import { actorOfPolicy, type RunActor } from "../permissions/resolver.js";
+import { EVERY_MODE, actorOfPolicy, type RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import {
   environmentQueue,
@@ -1337,13 +1338,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, its containment level, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
     readonly repositoryIdentity: string | null;
     readonly origin: RunActorKind;
+    readonly containment: ContainmentLevel;
   }): InstructionScope => ({
     sessionId: run.sessionId,
     accountId: run.account.id,
@@ -1351,11 +1353,25 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // The trust gate (#500) records decisions: until then every repository is undecided.
     trust: undecidedTrust(run.workspace, run.repositoryIdentity),
     origin: run.origin,
+    containment: run.containment,
     bot: null,
     // The always-on layer (#507) fills a run's extra names.
     alwaysOn: [],
     channel: run.account.descriptor.instructionChannel,
   });
+
+  /**
+   * The containment level a run a client starts would have now
+   * (`instructions.preview`): the session's own level, else the default,
+   * lowered to what can be enforced. Containment is resolved apart from the
+   * mode (ADR 0006), so it is asked with every mode available under the
+   * highest ceiling, which no account's modes can refuse.
+   */
+  const containmentNow = (level: ContainmentLevel | null): ContainmentLevel => {
+    const policy = resolvePolicy({ actor: { kind: "client", ceiling: "bypassPermissions", clientSessionId: null }, requested: null, accountModes: EVERY_MODE, containment: level });
+    if ("refused" in policy) throw new Error(`The containment level could not be resolved: ${policy.refused}`);
+    return policy.containment.effective;
+  };
 
   /**
    * Composes a live run's instructions and records them
@@ -1421,7 +1437,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }),
     ];
     const entry = register(plan, prompt, true);
-    const scope = instructionScope({ ...plan, origin: plan.actor.kind });
+    const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective });
     const start = (composed: ComposedInstructions): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1959,17 +1975,29 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
     async previewInstructions(target) {
-      let run: { readonly sessionId: string | null; readonly accountId: string | null; readonly workspace: Workspace; readonly repositoryIdentity: string | null };
+      let run: {
+        readonly sessionId: string | null;
+        readonly accountId: string | null;
+        readonly workspace: Workspace;
+        readonly repositoryIdentity: string | null;
+        readonly containment: ContainmentLevel | null;
+      };
       if ("sessionId" in target) {
         const sessionId = target.sessionId.toLowerCase();
         const session = readSessionFacts(log, reader, sessionId);
         if (session === null || session.deleted) {
           throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
         }
-        run = { sessionId, accountId: session.account ?? accounts.defaultId(), workspace: session.workspace, repositoryIdentity: session.repositoryIdentity };
+        run = {
+          sessionId,
+          accountId: session.account ?? accounts.defaultId(),
+          workspace: session.workspace,
+          repositoryIdentity: session.repositoryIdentity,
+          containment: session.containment,
+        };
       } else {
-        // A new session's repository identity is read when it is made; until then it has none.
-        run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null };
+        // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
+        run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
       }
       const { accountId } = run;
       const facts = accountId === null ? null : accounts.facts(accountId);
@@ -1978,7 +2006,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
       }
       // As a run a client starts would be composed: with no extra always-on names.
-      return instructions(instructionScope({ ...run, account: facts, origin: "client" }));
+      return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment) }));
     },
     continueSession(sessionId) {
       if (closing || changingMode.has(sessionId)) return;

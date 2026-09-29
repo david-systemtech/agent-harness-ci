@@ -1,5 +1,5 @@
 import { GITHUB_ORIGIN, forgeApiBase, type ForgeAccountRecord, type ForgeCapabilityName, type ForgeKind, type ForgeProblemKind } from "@agent-harness/contracts";
-import type { OrientationSection } from "../instructions/orientation.js";
+import type { OrientationContent, OrientationList, OrientationSection } from "../instructions/orientation.js";
 import { isInjected } from "./forge-store.js";
 import { servedOrigins } from "./git-helper.js";
 import { readableMinute } from "./verification.js";
@@ -51,13 +51,10 @@ const statusOf = (account: ForgeAccountRecord): string => {
 
 /** One forge account's line: its slug, the forge and its kind, its login and its status. */
 const accountLine = (account: ForgeAccountRecord): string =>
-  `- ${account.slug}: ${forgeName(account)}, ${account.identity === null ? "login not known yet" : `login ${account.identity.login}`}: ${statusOf(account)}`;
+  `${account.slug}: ${forgeName(account)}, ${account.identity === null ? "login not known yet" : `login ${account.identity.login}`}: ${statusOf(account)}`;
 
 /** `A`, `A and B`, `A, B and C`. */
 const listed = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
-
-/** A list under its heading; null, leaving it out, when it has no line. */
-const headedList = (heading: string, lines: readonly string[]): string | null => (lines.length === 0 ? null : [heading, ...lines].join("\n"));
 
 /** Which forge is primary, the rest also connected, and where repositories go. */
 const primaryParagraph = (accounts: readonly ForgeAccountRecord[]): string => {
@@ -70,11 +67,10 @@ const primaryParagraph = (accounts: readonly ForgeAccountRecord[]): string => {
 };
 
 /** Each injected forge account's variables, by slug, with its forge's API base. */
-const variablesList = (injected: readonly ForgeAccountRecord[]): string | null =>
-  headedList(
-    "Variables each run is given, by slug (the origin in *_URL, the token in *_TOKEN, the kind in *_KIND), with each forge's API base:",
-    injected.map(({ slug, kind, origin, variables }) => `- ${slug}: ${listed([...variables.url, ...variables.token, ...variables.kind])}; API base ${forgeApiBase(kind, origin)}.`),
-  );
+const variablesList = (injected: readonly ForgeAccountRecord[]): OrientationList => ({
+  heading: "Variables each run is given, by slug (the origin in *_URL, the token in *_TOKEN, the kind in *_KIND), with each forge's API base:",
+  items: injected.map(({ slug, kind, origin, variables }) => `${slug}: ${listed([...variables.url, ...variables.token, ...variables.kind])}; API base ${forgeApiBase(kind, origin)}.`),
+});
 
 /** The writes a forge account has been refused, with the status, then those it has not made yet; null when every one is verified. */
 const writesLine = ({ slug, capabilities }: ForgeAccountRecord): string | null => {
@@ -84,15 +80,14 @@ const writesLine = ({ slug, capabilities }: ForgeAccountRecord): string | null =
   });
   const unknown = WRITES.filter(([name]) => capabilities[name].state === "unknown").map(([, words]) => words);
   const parts = [...failed, ...(unknown.length === 0 ? [] : [`${listed(unknown)} not known yet`])];
-  return parts.length === 0 ? null : `- ${slug}: ${parts.join("; ")}.`;
+  return parts.length === 0 ? null : `${slug}: ${parts.join("; ")}.`;
 };
 
 /** Each injected forge account's writes not known to work. */
-const writesList = (injected: readonly ForgeAccountRecord[]): string | null =>
-  headedList(
-    "Writes not known to work, by slug:",
-    injected.flatMap((account) => writesLine(account) ?? []),
-  );
+const writesList = (injected: readonly ForgeAccountRecord[]): OrientationList => ({
+  heading: "Writes not known to work, by slug:",
+  items: injected.flatMap((account) => writesLine(account) ?? []),
+});
 
 /** Why a forge account is left out of runs, or its token may be: the problems that keep it out, and a credential that could not be read. */
 const LEFT_OUT: Partial<Readonly<Record<ForgeProblemKind, string>>> = {
@@ -102,14 +97,13 @@ const LEFT_OUT: Partial<Readonly<Record<ForgeProblemKind, string>>> = {
 };
 
 /** Each forge account left out of runs, or whose token may be, with the reason. */
-const leftOutList = (accounts: readonly ForgeAccountRecord[]): string | null =>
-  headedList(
-    "Left out of runs, by slug:",
-    accounts.flatMap(({ slug, problem }) => {
-      const reason = problem === null ? undefined : LEFT_OUT[problem.kind];
-      return reason === undefined ? [] : [`- ${slug}: ${reason}.`];
-    }),
-  );
+const leftOutList = (accounts: readonly ForgeAccountRecord[]): OrientationList => ({
+  heading: "Left out of runs, by slug:",
+  items: accounts.flatMap(({ slug, problem }) => {
+    const reason = problem === null ? undefined : LEFT_OUT[problem.kind];
+    return reason === undefined ? [] : [`${slug}: ${reason}.`];
+  }),
+});
 
 /** The standing lines: git over https to the origins git's helper is given just works, ssh is the user's own, and no other origin has a credential. */
 const standingLines = (injected: readonly ForgeAccountRecord[]): string => {
@@ -122,20 +116,19 @@ const standingLines = (injected: readonly ForgeAccountRecord[]): string => {
 const NONE_CONNECTED =
   "No forge is connected here: git over https has no credential here, and ssh uses the user's own keys. Ask the user to connect a forge in Set up, Forges rather than searching for a token.";
 
-/** The section's lines for the forge accounts the environment holds, in the order they were added. */
-const renderForges = (accounts: readonly ForgeAccountRecord[]): string => {
-  if (accounts.length === 0) return NONE_CONNECTED;
+/** The section's paragraphs for the forge accounts the environment holds, in the order they were added; a list with no line is left out. */
+const renderForges = (accounts: readonly ForgeAccountRecord[]): OrientationContent => {
+  if (accounts.length === 0) return [NONE_CONNECTED];
   // What runs are given (forge spec, "The injected set"): the variables, the helper's origins and the writes they may try.
   const injected = accounts.filter(isInjected);
-  const paragraphs = [
-    accounts.map(accountLine).join("\n"),
+  return [
+    { items: accounts.map(accountLine) },
     primaryParagraph(accounts),
     variablesList(injected),
     writesList(injected),
     leftOutList(accounts),
     standingLines(injected),
   ];
-  return paragraphs.filter((paragraph) => paragraph !== null).join("\n\n");
 };
 
 /** The forges section's provider, over the forge accounts as the read model holds them now. */
