@@ -1,5 +1,7 @@
 import {
   FORGE_EVENT_PAYLOADS,
+  KEY_MANAGER_EVENT_PAYLOADS,
+  KEY_MANAGER_MOVE_EVENT_PAYLOADS,
   isCommand,
   isMethodName,
   registry,
@@ -153,6 +155,9 @@ export const REQUEST_CACHE_TTL_MS = 5 * 60_000;
  */
 export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", "environment.updated"];
 
+/** Every key-manager event: a connection's (`key-manager.connection.*`) and Move's. */
+const KEY_MANAGER_EVENTS: readonly string[] = [...Object.keys(KEY_MANAGER_EVENT_PAYLOADS), ...Object.keys(KEY_MANAGER_MOVE_EVENT_PAYLOADS)];
+
 /**
  * The notices after which one query's cached answer is fetched again: its
  * matching notices (#142). An account changing (`account.updated`: its
@@ -172,7 +177,11 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
  * for the permission keys and the containment the status line shows,
  * `permissions.settings.get`; and the skill set changing
  * (`skills.updated`, a command or a read of the own directory, #494)
- * `skills.get`.
+ * `skills.get`; every key-manager event, a connection's and Move's, the
+ * key-manager connections and the items Move lists (#384), and a forge
+ * account's added, updated or removed those items too, since a forge
+ * account holding a stored token is one; and a probe changing managed-tool
+ * rows (`tools.updated`) the managed tools (#384).
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -186,6 +195,9 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated"],
+  "keyManagers.list": KEY_MANAGER_EVENTS,
+  "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
+  "tools.list": ["tools.updated"],
 };
 
 export interface RequestCache {

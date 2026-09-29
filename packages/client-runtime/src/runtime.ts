@@ -9,6 +9,7 @@ import type { Commands } from "./outbox/outbox.js";
 import type { Drafts } from "./outbox/drafts.js";
 import type { CopyTarget } from "./copies.js";
 import type { Forges } from "./forges.js";
+import type { KeyManagers } from "./key-managers.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
@@ -178,6 +179,8 @@ export interface Runtime {
   };
   /** Forge accounts beyond their cached list: this computer's `gh` handed over once, and copies to other environments, direct and never queued (#320). */
   readonly forges: Forges;
+  /** Key-manager connections beyond their cached list: copies to other environments without the credential, direct and never queued (#384). */
+  readonly keyManagers: KeyManagers;
   /**
    * The desktop's own update through its local environment, on a shell with
    * `update` (checked at launch and hourly, a newer build staged, "Restart

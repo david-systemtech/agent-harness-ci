@@ -323,8 +323,8 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "forge.account.removed":
       case "forge.origin-missing":
         return data;
-      // The key-manager connections' events (#365, #366) and Move's (#371, #372) change no status: the connections' cache and
-      // notices are the key-managers workstream's client-runtime part (#384).
+      // The key-manager connections' events (#365, #366) and Move's (#371, #372) change no status: the request cache refreshes
+      // keyManagers.list and keyManagers.move.list on them, and the notices queue raises a connection's status rows (#384).
       case "key-manager.connection.added":
       case "key-manager.connection.signed-in":
       case "key-manager.connection.signed-out":
@@ -345,8 +345,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "routine.endpoint-set":
       case "routine.endpoint-removed":
         return data;
-      // A probe changing managed-tool rows (#373) changes no status: tools.list's cache is the key-managers workstream's
-      // client-runtime part (#384).
+      // A probe changing managed-tool rows (#373) changes no status: the request cache refreshes tools.list on it (#384).
       case "tools.updated":
         return data;
       // Settings changed (#391): the status holds none of them; the request cache fetches settings.get and

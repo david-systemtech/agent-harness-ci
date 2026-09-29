@@ -28,7 +28,9 @@ export const NOTICE_LIMIT = 100;
  * waits for a person's answer) and `prompt-resolved` (a prompt this client
  * was told of was settled with nobody answering it), `forge` (a forge
  * account needs attention: a capability failed, a new problem, git refused
- * its credential, or an origin had none, #320); and the outbox's (#128):
+ * its credential, or an origin had none, #320), `key-manager` (a
+ * key-manager connection came to stand in a status that needs David, #384);
+ * and the outbox's (#128):
  * `command-rejected` (the environment refused a command, by its receipt or
  * an error) and `command-dropped` (a command left the outbox unsent,
  * whatever dropped it: seven days without reaching its environment, a run
@@ -44,12 +46,14 @@ export type NoticeKind =
   | "prompt-parked"
   | "prompt-resolved"
   | "forge"
+  | "key-manager"
   | "command-rejected"
   | "command-dropped";
 
 /**
  * A Set up step on the notice's environment, for a notice that step answers:
- * `setup.forges` on a forge notice (#320). The renderer opens the step there.
+ * `setup.forges` on a forge notice (#320), `setup.key-manager` on a
+ * key-manager notice (#384). The renderer opens the step there.
  */
 export type StepAction = `setup.${StepId}`;
 export type NoticeAction = ConnectionAction | StepAction;
