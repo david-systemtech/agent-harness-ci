@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeliveryAttemptResult",
+  "type": "string",
+  "enum": [
+    "delivered",
+    "retrying",
+    "failed"
+  ],
+  "description": "What a delivery attempt came to: delivered, retrying (it failed and is retried at retryAt: a network error, a timeout, 408, 429 or 5xx) or failed (finally)."
+}

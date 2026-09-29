@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineEventType",
+  "type": "string",
+  "enum": [
+    "routine.created",
+    "routine.edited",
+    "routine.enabled",
+    "routine.disabled",
+    "routine.deleted",
+    "routine.skipped",
+    "routine.firing-started",
+    "routine.firing-continued",
+    "routine.firing-ended",
+    "routine.delivery-attempted"
+  ],
+  "description": "The event types of a routine's stream: routine.created, routine.edited, routine.enabled, routine.disabled, routine.deleted, routine.skipped, routine.firing-started, routine.firing-continued, routine.firing-ended and routine.delivery-attempted."
+}

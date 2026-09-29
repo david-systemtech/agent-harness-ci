@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DenylistedError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "denylisted"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The host on the denylist."
+        }
+      },
+      "required": [
+        "host"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "A URL names a host on the denylist's hosts, a pre-check's or an endpoint's, or a pre-check's redirect reached one: nothing was saved or fetched. data names the host."
+}

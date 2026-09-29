@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineDeliveredPayload",
+  "type": "object",
+  "properties": {
+    "routineId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+      "description": "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case."
+    },
+    "entryId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The firing or skip delivered."
+    },
+    "entryKind": {
+      "type": "string",
+      "enum": [
+        "firing",
+        "skip"
+      ],
+      "description": "Whether the entry is a firing or a skip."
+    },
+    "sessionId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The firing's session, which opening the notice opens; null for a skip."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed"
+      ],
+      "description": "How a delivered entry ended: succeeded (a firing), or failed (a failed firing, or a failing skip: pre-check-failed or cannot-start)."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "The result in one line, at most 200 characters: the text's first non-blank line, or the failure's reason."
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "The result, at most 4,000 characters: the final text, \"The firing finished without a final message.\" when it had none, or the failure's detail."
+    }
+  },
+  "required": [
+    "routineId",
+    "name",
+    "entryId",
+    "entryKind",
+    "sessionId",
+    "outcome",
+    "summary",
+    "body"
+  ],
+  "description": "routine.delivered: a routine's result for a client-notice target, once its entry's end committed; every connected client raises it."
+}

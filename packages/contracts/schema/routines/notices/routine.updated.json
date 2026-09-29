@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "routineId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+    },
+    "change": {
+      "type": "string",
+      "enum": [
+        "created",
+        "edited",
+        "enabled",
+        "disabled",
+        "deleted",
+        "skipped",
+        "firing-started",
+        "firing-continued",
+        "firing-ended",
+        "delivery-attempted"
+      ],
+      "description": "What changed on a routine: the record appended to its stream, routine.<change>: created, edited, enabled, disabled, deleted, skipped (not no-change), firing-started, firing-continued, firing-ended or delivery-attempted (a final result, not a retry)."
+    }
+  },
+  "required": [
+    "routineId",
+    "change"
+  ],
+  "description": "routine.updated: a routine changed; the client runtime refreshes routines.list, and nobody sees the notice itself."
+}

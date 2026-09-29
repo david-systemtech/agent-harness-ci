@@ -51,11 +51,11 @@ export const RunEndReason = z.enum(RUN_END_REASONS).meta({
 });
 export type RunEndReason = z.infer<typeof RunEndReason>;
 
-/** What interrupted a run: a person, read-now, a restart, or a process parked past the idle time. */
-export const INTERRUPT_CAUSES = ["user", "read-now", "restart", "parked"] as const;
+/** What interrupted a run: a person, read-now, a restart, a process parked past the idle time, or a routine's firing past its maximum duration. */
+export const INTERRUPT_CAUSES = ["user", "read-now", "restart", "parked", "timeout"] as const;
 export const InterruptCause = z.enum(INTERRUPT_CAUSES).meta({
   description:
-    "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt).",
+    "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt), timeout (a routine's firing ran past its maximum duration).",
 });
 export type InterruptCause = z.infer<typeof InterruptCause>;
 
