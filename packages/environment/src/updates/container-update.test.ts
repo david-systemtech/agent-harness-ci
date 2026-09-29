@@ -148,6 +148,17 @@ describe("the ready update", () => {
     expect(await pendingOf(client)).toMatchObject({ state: "waiting", waitsOn: { reason: "run-running", until: null } });
   });
 
+  it("left by the host-side updater past its cap and the drain's, needs attention on the Your machines step", async () => {
+    const { t, client } = await pendingUpdate();
+    const updatesCheck = async () => (await client.request("setup.check", { step: "your-machines" })).results[0];
+    t.clock.advance(24 * HOUR + 30 * MINUTE);
+    expect((await updatesCheck())?.failing).not.toContain("your-machines.updates");
+    t.clock.advance(1);
+    const result = await updatesCheck();
+    expect(result?.failing).toContain("your-machines.updates");
+    expect(result?.reason).toContain(`The update to ${TARGET} was due at ${at(24 * HOUR)} and the host-side updater has not begun it.`);
+  });
+
   it("is still pending with its image after a restart on the same data directory", async () => {
     const dataDir = join(tempDir(), "data");
     const { fake, t, updateId } = await pendingUpdate({ dataDir });

@@ -346,9 +346,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     return activity.state === "busy" && clock.now() >= deferUntil(update) ? "cap" : undefined;
   };
 
-  /** Managed outside, what makes the waiting update ready for the host-side updater: asked for now, else what would drain it natively; none during another drain. */
-  const readyCause = (waiting: Extract<Held, { readonly state: "waiting" }>): UpdateCause | undefined => {
-    const activity = options.activity();
+  /** Managed outside, what makes the waiting update ready for the host-side updater under `activity`: asked for now, else what would drain it natively; none during another drain. */
+  const readyCause = (waiting: Extract<Held, { readonly state: "waiting" }>, activity: EnvironmentActivity): UpdateCause | undefined => {
     if (activity.state === "draining") return undefined;
     return waiting.now === true ? "requested" : dueCause(waiting.update, activity);
   };
@@ -453,7 +452,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     if (held.state !== "waiting") return conflict("not_ready", `No update is pending, so ${updateId} is not ready.`);
     const { update } = held;
     if (update.updateId !== updateId) return conflict("not_ready", `${updateId} is not the pending update: the update to ${update.toVersion} is, as ${update.updateId}.`);
-    const cause = readyCause(held);
+    const cause = readyCause(held, options.activity());
     if (cause === undefined) return conflict("not_ready", `The update to ${update.toVersion} is not ready: it waits for idle, or its deferral cap at ${deferUntil(update).toISOString()}.`);
     return { update, cause };
   };
@@ -643,6 +642,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     if (held.state !== "waiting" && held.state !== "draining") return undefined;
     const due = deferUntil(held.update);
     if (clock.now().getTime() <= due.getTime() + DRAIN_CAP_MS) return undefined;
+    if (options.managedOutside && held.state === "waiting") return `The update to ${held.update.toVersion} was due at ${due.toISOString()} and the host-side updater has not begun it.`;
     return `The update to ${held.update.toVersion} was due at ${due.toISOString()} and has not gone through its drain: it is ${held.state}.`;
   };
 
@@ -686,7 +686,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
           return blocked ? { state: "blocked", ...blocked } : { state: "current" };
         case "waiting": {
           const activity = options.activity();
-          if (options.managedOutside && readyCause(held) !== undefined) return { state: "ready", ...pendingParts(held.update) };
+          if (options.managedOutside && readyCause(held, activity) !== undefined) return { state: "ready", ...pendingParts(held.update) };
           const waitsOn = activity.state === "busy" ? { reason: activity.reason, until: activity.busyUntil ?? null } : null;
           return { state: "waiting", ...pendingParts(held.update), waitsOn };
         }
