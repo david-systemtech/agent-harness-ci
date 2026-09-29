@@ -1,5 +1,18 @@
-import { liveRunIdOf, oneLine, stopFirstOffer, type RewindAnswer, type RewoundAt, type VerbAvailability } from "@agent-harness/client-runtime";
+import {
+  forkAsked,
+  liveRunIdOf,
+  messageBack,
+  oneLine,
+  rewindAsked,
+  stopFirstOffer,
+  tooFarBack,
+  userMessagesOf,
+  type RewindAnswer,
+  type RewoundAt,
+  type VerbAvailability,
+} from "@agent-harness/client-runtime";
 import { createContext, use, useMemo, useRef, type ReactNode } from "react";
+import { useSlashCommand } from "../composer/slash-commands.js";
 import { useOpenInPane, usePaneLine, useSayUnder } from "../session/pane-line.js";
 import { useHandoffPicker, type MessageAnchor } from "../status/pane-dialogs.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -29,6 +42,16 @@ import { useObservable, useRuntime } from "../window-context.js";
  * reason in one line; what the environment refuses is one line too: under
  * the message for a fork or a rewind, on the pane's line for an undo. One of
  * each is on its way from the pane at a time.
+ *
+ * It wires `/fork [n]` and `/rewind [n | undo]` too (#665), counting back
+ * and read as the terminal UI reads them (the runtime's `forkAsked`,
+ * `rewindAsked` and `messageBack`): `/rewind` one prompt back, `/rewind n`,
+ * `/rewind undo`; bare `/fork` the whole session, the fork opening on its
+ * forked row, and `/fork n`. Typed at the composer, they say their lines on
+ * the pane's line, where they were asked. A typed rewind never stops a run:
+ * nothing it shows said it would, so while a run is live it is refused with
+ * the runtime's reason, and "Stop and rewind here" under the message is the
+ * stop.
  */
 export interface SessionForkRewind {
   readonly environmentId: string;
@@ -56,6 +79,9 @@ const ForkRewindContext = createContext<SessionForkRewind | null>(null);
 
 /** A user message as a line names it: its first line, cut. */
 export const messageWords = (text: string): string => oneLine(text, 80);
+
+/** Says a line where what it is about was asked, or clears it (undefined). */
+type Tell = (line: string | undefined) => void;
 
 /** What was not done and why, in one line: "Not forked: <the reason>". */
 const refused = (what: string, verb: Extract<VerbAvailability, { status: "absent" }>): string => `${what}: ${verb.message}`;
@@ -92,27 +118,96 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
   const offer = stopFirstOffer(runs, liveRunIdOf(projection, runs));
   const stops = offer.stops !== null;
 
-  /** What a rewind to `message` answered: nothing to say once it is done, else one line under it, or the session it started opened. */
-  const answered = (message: MessageAnchor, workspace: string | undefined, done: RewindAnswer): void => {
-    const under = (line: string | undefined) => sayUnder(message.messageId, line);
+  /** Says a line under `message`: where a press about it says what came of it. */
+  const underMessage =
+    (message: MessageAnchor): Tell =>
+    (line) =>
+      sayUnder(message.messageId, line);
+
+  /** What a rewind to `message` answered: nothing to say once it is done, else one line (`tell`), or the session it started opened. */
+  const answered = (message: MessageAnchor, workspace: string | undefined, tell: Tell, done: RewindAnswer): void => {
     switch (done.kind) {
       case "new-session":
-        if (!done.answer.ok) return under(`No session was started: ${done.answer.error.message}`);
+        if (!done.answer.ok) return tell(`No session was started: ${done.answer.error.message}`);
         return openInPane(
           environmentId,
           done.sessionId,
           `${messageWords(message.text)} was the first prompt, with nothing before it: a new session${workspace !== undefined ? ` in ${workspace}` : ""} starts with it as its draft.`,
         );
       case "rewind":
-        return under(done.answer.ok ? undefined : `Not rewound: ${done.answer.error.message}`);
+        return tell(done.answer.ok ? undefined : `Not rewound: ${done.answer.error.message}`);
       case "refused":
-        return under(`Not rewound: ${done.message}`);
+        return tell(`Not rewound: ${done.message}`);
       case "interrupt":
-        return under(`Not interrupted: ${done.answer.error.message} Nothing was rewound.`);
+        return tell(`Not interrupted: ${done.answer.error.message} Nothing was rewound.`);
       case "gave-up":
-        return under("The run has not ended since the stop: not rewound. Rewind again once it has.");
+        return tell("The run has not ended since the stop: not rewound. Rewind again once it has.");
     }
   };
+
+  /** Forks the session before `message`, or (null) the whole of it, and opens the fork; `tell` says why not. */
+  const fork = (message: MessageAnchor | null, tell: Tell) => {
+    const verb = runs.verbs.fork;
+    if (verb.status === "absent") return tell(refused("Not forked", verb));
+    once("fork", async () => {
+      const { sessionId: forked, answer } = await runtime.commands.fork(environmentId, sessionId, message === null ? {} : { anchor: message.messageId });
+      if (!answer.ok) return tell(`Not forked: ${answer.error.message}`);
+      openInPane(environmentId, forked);
+    });
+  };
+
+  /** Rewinds the session to `message`, stopping the live run first when `stopFirst`, else refused with `verb`'s reason while it is absent; `tell` says what came of it. */
+  const rewind = (message: MessageAnchor, tell: Tell, stopFirst: boolean, verb: VerbAvailability) => {
+    if (!stopFirst && verb.status === "absent") return tell(refused("Not rewound", verb));
+    const workspace = projection.summary?.workspace.path;
+    once("rewind", async () => {
+      const options = stopFirst ? { stopFirst: true, onStopping: () => tell(`Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`) } : {};
+      answered(message, workspace, tell, await runtime.commands.rewind(environmentId, sessionId, message.messageId, options));
+    });
+  };
+
+  const undo = () => {
+    const verb = runs.verbs.undoRewind;
+    if (verb.status === "absent") return say(verb.reason === "no_rewind" ? verb.message : refused("Not undone", verb));
+    once("undo", async () => {
+      // What this window typed goes first: the environment puts back the draft from before the rewind only while the draft is the rewind's.
+      runtime.drafts.flush();
+      const answer = await runtime.commands.dispatch(environmentId, "sessions.undoRewind", { sessionId });
+      if (!answer.ok) say(`Not undone: ${answer.error.message}`);
+    });
+  };
+
+  /** The user message `back` prompts from the end, as `/rewind n` and `/fork n` count; undefined, said on the pane's line, when there are fewer. */
+  const promptBack = (back: number, verb: "rewind" | "fork from"): MessageAnchor | undefined => {
+    const messages = userMessagesOf(projection.items);
+    const message = messageBack(messages, back);
+    if (message === undefined) say(tooFarBack(messages.length, verb));
+    return message;
+  };
+
+  // A typed rewind is the runtime's verb, never a stop: offered, it is drawn from `verbs.rewind`, which is absent while a run is live.
+  useSlashCommand(
+    "rewind",
+    (argument) => {
+      const asked = rewindAsked(argument);
+      if (asked.kind === "usage") return say(asked.line);
+      if (asked.kind === "rewind-undo") return undo();
+      const message = promptBack(asked.back, "rewind");
+      if (message !== undefined) rewind(message, say, false, runs.verbs.rewind);
+    },
+    runs.verbs.rewind,
+  );
+  useSlashCommand(
+    "fork",
+    (argument) => {
+      const asked = forkAsked(argument);
+      if (asked.kind === "usage") return say(asked.line);
+      if (asked.back === null) return fork(null, say);
+      const message = promptBack(asked.back, "fork from");
+      if (message !== undefined) fork(message, say);
+    },
+    runs.verbs.fork,
+  );
 
   const forkRewind: SessionForkRewind = {
     environmentId,
@@ -122,13 +217,7 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
     undoRewind: runs.verbs.undoRewind,
     rewound: runs.rewound,
     forkAt(message) {
-      const verb = runs.verbs.fork;
-      if (verb.status === "absent") return sayUnder(message.messageId, refused("Not forked", verb));
-      once("fork", async () => {
-        const { sessionId: forked, answer } = await runtime.commands.fork(environmentId, sessionId, { anchor: message.messageId });
-        if (!answer.ok) return sayUnder(message.messageId, `Not forked: ${answer.error.message}`);
-        openInPane(environmentId, forked);
-      });
+      fork(message, underMessage(message));
     },
     forkOntoAccount(message) {
       const verb = runs.verbs.fork;
@@ -137,26 +226,10 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
       openHandoff(message);
     },
     rewindTo(message) {
-      if (!stops && offer.rewind.status === "absent") return sayUnder(message.messageId, refused("Not rewound", offer.rewind));
-      const workspace = projection.summary?.workspace.path;
-      once("rewind", async () => {
-        // The stop only when the rewind was offered as one: a run gone live since the offer was drawn is not stopped unasked.
-        const options = stops
-          ? { stopFirst: true, onStopping: () => sayUnder(message.messageId, `Stopping the run; the rewind to ${messageWords(message.text)} follows once it has ended.`) }
-          : {};
-        answered(message, workspace, await runtime.commands.rewind(environmentId, sessionId, message.messageId, options));
-      });
+      // The stop only when the rewind was offered as one: a run gone live since the offer was drawn is not stopped unasked.
+      rewind(message, underMessage(message), stops, offer.rewind);
     },
-    undo() {
-      const verb = runs.verbs.undoRewind;
-      if (verb.status === "absent") return say(verb.reason === "no_rewind" ? verb.message : refused("Not undone", verb));
-      once("undo", async () => {
-        // What this window typed goes first: the environment puts back the draft from before the rewind only while the draft is the rewind's.
-        runtime.drafts.flush();
-        const answer = await runtime.commands.dispatch(environmentId, "sessions.undoRewind", { sessionId });
-        if (!answer.ok) say(`Not undone: ${answer.error.message}`);
-      });
-    },
+    undo,
   };
   return <ForkRewindContext value={forkRewind}>{children}</ForkRewindContext>;
 };
