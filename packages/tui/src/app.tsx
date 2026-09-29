@@ -6,19 +6,25 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   attachmentRefusal,
   attachmentRefused,
+  browse,
+  directoryOf,
   followDraft,
+  inWorkspace,
   interruptRun,
   isLive,
   lastReply,
   liveTasks,
+  outsideWorkspace,
   quietFor,
   readQueueNow,
   sendMessage,
   stopCall,
   transcriptRows,
   ttlWords,
+  typedPath,
   undoableFold,
   withdrawQueued,
+  type BrowseRow,
   type Clock,
   type EnvironmentView,
   type GrantReader,
@@ -62,7 +68,6 @@ import { EXAMPLE_SNIPPETS, SNIPPETS_FILE, Snippets, toSnippetName, type SnippetT
 import { composerOf, expandedSnippet, replaced, type CommandRow } from "./composer/state.js";
 import { composerNote, highlighted, useComposer, type ComposerClipboard } from "./composer/use-composer.js";
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
-import { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Paged } from "./files/views.js";
 import type { Panel } from "./pickers/panel.js";
 import { usePickers } from "./pickers/use-pickers.js";
@@ -105,7 +110,7 @@ import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
 import { useStatus } from "./status/use-status.js";
-import { editCalls, inWorkspace, rowFile } from "./transcript/targets.js";
+import { editCalls, rowFile } from "./transcript/targets.js";
 import { heldApart, keyBytes } from "./terminal/keys.js";
 import { oneOffMessage, runOneOff } from "./terminal/one-off.js";
 import { useRawInput } from "./terminal/raw-input.js";
@@ -1083,7 +1088,7 @@ export const App = (props: AppProps) => {
     if (capability.status === "absent") return say(`No files: ${capability.message}`);
     if (path === null) return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
     const wanted = typedPath(path, projection?.summary?.workspace.path ?? "");
-    if (wanted === null) return say(`${path.trim()} is outside the session's workspace, which the environment reads files from.`);
+    if (wanted === null) return say(outsideWorkspace(path));
     if (wanted === "") return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
     const target = opened;
     showPage(`Reading ${wanted}…`, () => readFile(runtime, target, wanted, mainWidth), { kind: "files", dir: directoryOf(wanted), cursor: 0, filter: "" }, {

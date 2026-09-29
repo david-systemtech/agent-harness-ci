@@ -84,6 +84,8 @@ export interface TestEnvironmentOptions {
   /** The harness version the environment runs as; preset: the package's. */
   readonly harnessVersion?: string;
   readonly name?: string;
+  /** The environment's own IANA time zone; preset: the process's. */
+  readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
   /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
@@ -299,6 +301,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
+    ...(options.timeZone !== undefined && { timeZone: options.timeZone }),
     ...(options.harnessVersion !== undefined && { harnessVersion: options.harnessVersion }),
     ...(options.hooks !== undefined && { hooks: options.hooks }),
     ...(options.bindTailnet !== undefined && { bindTailnet: options.bindTailnet }),

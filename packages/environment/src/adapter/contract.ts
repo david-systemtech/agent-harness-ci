@@ -149,7 +149,8 @@ export interface ConfiguredToolServer {
 
 /**
  * Tools the environment serves in its own process (#139): the adapter shows
- * each to the model under the server's name and hands each call to `call`.
+ * each to the model under the server's name, hands the tool gate what each
+ * call reaches as its tool declares (#540), and hands each call to `call`.
  * An adapter reports a call to one in its transcript under the name
  * `inProcessToolName` gives (`mcp__<server>__<tool>`, the name Claude's own
  * MCP servers go by), with the provider's id for the call, which it passes
@@ -169,14 +170,35 @@ export interface InProcessToolServer {
   readonly external: boolean;
 }
 
-/** One tool of an in-process server: its name, what it does, the JSON Schema of its input as the model sees it, and what runs a call. */
+/**
+ * One tool of an in-process server: its name, what it does, the JSON Schema
+ * of its input as the model sees it, what a call reaches, and what runs a
+ * call.
+ */
 export interface HostTool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: JsonObject;
+  /**
+   * What a call reaches, read from the call's input (browser spec, "The
+   * tools"): the adapter hands the tool gate this in place of `other`, so
+   * containment and the denylist rule on a browser verb's addresses and a
+   * fetch reader's URLs as they rule on the provider's own. Absent, every
+   * call is `other`, whose input the denylist reads string by string. It is
+   * code, not something the model sees, so it is no part of the server's
+   * key (`inProcessToolKey`).
+   */
+  readonly access?: (input: JsonObject) => HostToolAccess;
   /** Runs a call, resolving with what the model reads; it may take as long as the tool needs (a caller's tool is parked until the caller answers). */
   call(input: JsonObject, call: HostToolCall): Promise<HostToolResult>;
 }
+
+/**
+ * What a call to an in-process tool may declare it reaches: `browse` with
+ * the addresses a browser verb opens, `fetch` with the URLs a fetch reader
+ * reads, or `other`.
+ */
+export type HostToolAccess = Extract<ToolAccess, { readonly kind: "browse" | "fetch" | "other" }>;
 
 /** A call as the adapter hands it over: the provider's id for it (as the transcript's `tool.started` names it), and a signal aborted when the provider gives up on it. */
 export interface HostToolCall {
@@ -184,17 +206,53 @@ export interface HostToolCall {
   readonly signal?: AbortSignal;
 }
 
-/** What a tool call answers the model: text, and whether it failed. */
+/** What a tool call answers the model: text, any images beside it (a screenshot), and whether it failed. */
 export interface HostToolResult {
   readonly text: string;
   readonly isError: boolean;
+  /** Images the model reads after the text, in order; absent or empty for a result of text alone. */
+  readonly images?: readonly HostToolImage[];
 }
+
+/** An image a tool answers: its bytes and their media type (`image/jpeg`). */
+export interface HostToolImage {
+  readonly mediaType: string;
+  readonly data: Uint8Array;
+}
+
+/**
+ * How the transcript records an image in a tool's result (claude-adapter
+ * spec, #540's notes): its media type and its size in bytes, never the
+ * bytes, which the model read and the log never holds, as an attachment's.
+ */
+export interface RecordedImage {
+  readonly type: "image";
+  readonly mediaType: string;
+  readonly size: number;
+}
+
+export const recordedImage = (mediaType: string, size: number): RecordedImage => ({ type: "image", mediaType, size });
 
 /** Whether a tool server is served in the environment's own process. */
 export const isInProcess = (server: ToolServer): server is InProcessToolServer => "tools" in server;
 
 /** The name an adapter reports a call to an in-process server's tool under in its transcript. */
 export const inProcessToolName = (server: string, tool: string): string => `mcp__${server}__${tool}`;
+
+/**
+ * What a call named `toolName` reaches when it is one of `servers`'
+ * in-process tools, as that tool declares it from the call's input (`other`
+ * when it declares nothing); null when no in-process tool of `servers` goes
+ * by that name, which leaves the call to the adapter's own reading.
+ */
+export const inProcessToolAccess = (servers: readonly ToolServer[], toolName: string, input: JsonObject): HostToolAccess | null => {
+  for (const server of servers) {
+    if (!isInProcess(server)) continue;
+    const tool = server.tools.find((candidate) => inProcessToolName(server.name, candidate.name) === toolName);
+    if (tool !== undefined) return tool.access?.(input) ?? { kind: "other" };
+  }
+  return null;
+};
 
 /**
  * What an in-process server shows the model, as one string: two servers with
@@ -409,9 +467,10 @@ export interface PermissionBroker {
  * (their paths, absolute or relative to the workspace, `~` for the home
  * directory), a shell command, fetching URLs, a web search (its query, and
  * the domains it is limited to when it names any), a browser verb opening
- * addresses, or anything else (a tool server's call, a question). The gate
- * rules on this, never on the provider's tool names; for `other` the
- * denylist reads the call's input.
+ * addresses, or anything else (a question, a tool server's call its tool
+ * declares nothing of). The gate rules on this, never on the provider's
+ * tool names; for `other` the denylist reads the call's input. A call to
+ * an in-process tool is what that tool declares (`HostTool.access`, #540).
  */
 export type ToolAccess =
   | { readonly kind: "read"; readonly paths: readonly string[] }
@@ -436,6 +495,42 @@ export interface GatedToolCall {
   readonly access: ToolAccess;
   readonly input?: JsonObject;
 }
+
+/** Longest summary the gate records, in characters: longer is cut, with an ellipsis. */
+const SUMMARY_MAX = 200;
+
+/** `text`'s first line, cut to `SUMMARY_MAX`. */
+const oneLine = (text: string): string => {
+  const line = (text.split("\n")[0] ?? "").trim();
+  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line;
+};
+
+/** What a call names, as its summary gives it: its paths, its command, its URLs or addresses, or its query. */
+const namedBy = (access: ToolAccess): string => {
+  switch (access.kind) {
+    case "read":
+    case "write":
+      return access.paths.join(", ");
+    case "shell":
+      return access.command;
+    case "fetch":
+    case "browse":
+      return access.urls.join(", ");
+    case "search":
+      return access.query;
+    case "other":
+      return "";
+  }
+};
+
+/**
+ * A gated call's one-line summary for people: the call's title when the
+ * provider gives one, else the tool and what the call names (a declared
+ * browser verb's or fetch's address among them), cut to a line of at most
+ * 200 characters.
+ */
+export const toolCallSummary = (tool: string, access: ToolAccess, title?: string): string =>
+  title !== undefined && title.trim() !== "" ? oneLine(title.trim()) : oneLine(`${tool} ${namedBy(access)}`);
 
 /**
  * The gate's ruling. `allow` hands the call on to the provider's own

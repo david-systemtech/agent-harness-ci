@@ -104,6 +104,8 @@ import { keyManagerMethods } from "../key-managers/methods.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { routineMethods } from "../routines/methods.js";
+import { routinesProjector } from "../routines/routine-store.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -213,6 +215,8 @@ export interface EnvironmentOptions {
   readonly name?: string;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
+  /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
+  readonly timeZone?: string;
   /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
   readonly interfaces?: InterfaceDetector;
   /** The tailnet setting: bind the Tailscale address. Preset: on when an address is found. The settings store (#117) will hold it. */
@@ -582,6 +586,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       keyManagerConnectionsProjector,
+      routinesProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -1002,6 +1007,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools),
+    // The routine store's commands and list (#521), on each routine's own stream.
+    ...routineMethods({
+      log,
+      clock: now,
+      environmentId: record.id,
+      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      accounts,
+      ceilingOf: (id) => clientSessions.ceiling(id),
+    }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),

@@ -117,6 +117,9 @@ export interface PolicyInput {
 /** What the resolver answers: the policy, or, only when no mode at or below the ceiling is available, why none could be given. */
 export type PolicyOutcome = RunPolicy | { readonly refused: string };
 
+/** Every mode, available: what a mode is clamped against when no account on this environment says otherwise, its ceiling alone. */
+export const EVERY_MODE: readonly ModeAvailability[] = MODES.map((mode) => ({ mode, available: true, reason: null }));
+
 /** Whether the account can use `mode`. */
 const isAvailable = (modes: readonly ModeAvailability[], mode: Mode): boolean => modes.some((entry) => entry.mode === mode && entry.available);
 
@@ -146,6 +149,14 @@ export const noModeAvailable = (ceiling: Mode): string =>
   `No mode at or below the ceiling ${ceiling} is available to the account, so no run can start in one.`;
 
 /**
+ * The mode a run's clamp starts from: the mode asked for, else the default
+ * that stands in for it, `ATTENDED_DEFAULT_MODE` for an attended run and the
+ * unattended default for an unattended one.
+ */
+export const startingMode = (requested: Mode | null, attended: boolean, unattendedMode: UnattendedMode): Mode =>
+  requested ?? (attended ? ATTENDED_DEFAULT_MODE : unattendedMode);
+
+/**
  * A run's policy. An unattended run that names no mode gets the unattended
  * default; an attended one, `ATTENDED_DEFAULT_MODE`. Either is then clamped
  * to the ceiling and the account's modes, like any request.
@@ -153,7 +164,7 @@ export const noModeAvailable = (ceiling: Mode): string =>
 export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
   const attended = isAttended(input.actor);
   const unattendedDefaultApplied = !attended && input.requested === null;
-  const start = input.requested ?? (attended ? ATTENDED_DEFAULT_MODE : input.settings.unattendedMode);
+  const start = startingMode(input.requested, attended, input.settings.unattendedMode);
   const mode = clampMode(input.requested, start, input.ceiling, input.accountModes);
   if (mode === null) return { refused: noModeAvailable(input.ceiling) };
   return {
