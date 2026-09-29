@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, readFileSync, statSync } from "node:fs";
+import { chmodSync, readFileSync, readSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 /**
  * The pseudo-terminal port: what the terminals module needs of a pty, so
@@ -10,6 +11,16 @@ import { dirname, join } from "node:path";
  * lazily, on the first terminal: an environment whose `node-pty` failed to
  * build still starts and serves everything else, and `terminals.open`
  * answers that it cannot (`PtyUnavailableError`).
+ *
+ * What a process printed before it exited is heard before its exit, all of
+ * it (#648). On Linux a pseudo-terminal signals its hang-up as soon as its
+ * process has gone, while the kernel may still hold output for it, in its
+ * line discipline and the buffer behind it, when the environment was too
+ * busy to read it as it came. libuv, under Node's stream, reads that
+ * hang-up after a short read as the end of the output and closes the
+ * terminal, dropping the rest; node-pty's own wait for the stream to close
+ * does not help. So as node-pty's stream ends, the port reads what the kernel
+ * still holds, before the terminal is closed and the exit heard.
  */
 
 /** A running pseudo-terminal and the process in it. */
@@ -61,16 +72,73 @@ interface NodePty {
   spawn(
     file: string,
     args: string[],
-    options: { name: string; cwd: string; cols: number; rows: number; env: Record<string, string> },
+    options: { name: string; cwd: string; cols: number; rows: number; env: Record<string, string>; encoding: null },
   ): {
     readonly pid: number;
     write(data: string): void;
     resize(cols: number, rows: number): void;
     kill(signal?: string): void;
-    onData(listener: (data: string) => void): unknown;
+    /** Bytes, as `encoding: null` asks; text on Windows, which ignores it. */
+    onData(listener: (data: Buffer | string) => void): unknown;
     onExit(listener: (exit: { exitCode: number; signal?: number }) => void): unknown;
   };
 }
+
+/**
+ * The most read from a pseudo-terminal as its output ends (a chosen bound):
+ * several times what Linux holds unread for its reader (an 8 KiB buffer
+ * behind a 4 KiB line discipline), so a terminal whose process has gone is
+ * read to its end. Only something still writing to it after that exited
+ * could give more, and it is cut there.
+ */
+export const DRAIN_BYTES = 64 * 1024;
+
+/**
+ * What the drain reaches for past node-pty's typings on Unix: the
+ * terminal's descriptor and the stream reading it. Windows has neither.
+ */
+interface UnixTerminalInternals {
+  readonly fd?: unknown;
+  readonly _socket?: { destroy?: unknown };
+}
+
+/** Reads what `fd` still holds, up to `DRAIN_BYTES`, into `take`: until it is empty (EAGAIN), its other side has gone (EIO), or it is closed. */
+const drain = (fd: number, take: (bytes: Buffer) => void): void => {
+  const buffer = Buffer.alloc(64 * 1024);
+  for (let total = 0; total < DRAIN_BYTES; ) {
+    let read: number;
+    try {
+      read = readSync(fd, buffer, 0, Math.min(buffer.length, DRAIN_BYTES - total), null);
+    } catch {
+      return;
+    }
+    if (read === 0) return;
+    total += read;
+    take(buffer.subarray(0, read));
+  }
+};
+
+/**
+ * Has `terminal`'s output read to its end, into `take`, whenever node-pty's
+ * stream ends: however it does (the end of the output, a read error, or
+ * node-pty's own wait running out), it is destroyed before the descriptor is
+ * closed and before node-pty says the process exited. Nothing on Windows, or
+ * where node-pty's internals are not the ones this was written against.
+ */
+const drainAtEnd = (terminal: object, take: (bytes: Buffer) => void): void => {
+  if (process.platform === "win32") return;
+  const { fd, _socket: socket } = terminal as UnixTerminalInternals;
+  if (typeof fd !== "number" || socket === undefined || typeof socket.destroy !== "function") return;
+  const destroy = socket.destroy as (...args: unknown[]) => unknown;
+  let drained = false;
+  socket.destroy = function (this: unknown, ...args: unknown[]) {
+    if (!drained) {
+      drained = true;
+      drain(fd, take);
+    }
+    return destroy.apply(this, args);
+  };
+};
 
 /**
  * Sets the execute bit on node-pty's `spawn-helper` when it lacks it. On
@@ -160,7 +228,11 @@ export const runsCommand = (pid: number, read: ForegroundReader = readForeground
   return group !== undefined && group !== pid;
 };
 
-/** Pseudo-terminals through `node-pty`, as `xterm-256color`. */
+/**
+ * Pseudo-terminals through `node-pty`, as `xterm-256color`. The output is
+ * taken as bytes and decoded here, one decoder for what the stream read and
+ * what the drain reads after it, so a character cut between the two is whole.
+ */
 export const nodePty: Pty = {
   check: () => void loadNodePty(),
   spawn(file, args, options) {
@@ -170,15 +242,29 @@ export const nodePty: Pty = {
       cols: options.cols,
       rows: options.rows,
       env: { ...options.env },
+      encoding: null,
     });
+    const listeners: ((data: string) => void)[] = [];
+    const decoder = new StringDecoder("utf8");
+    const hear = (data: string): void => {
+      if (data !== "") for (const listener of listeners) listener(data);
+    };
+    const take = (data: Buffer | string): void => hear(typeof data === "string" ? data : decoder.write(data));
+    pty.onData(take);
+    drainAtEnd(pty, take);
     return {
       pid: pty.pid,
       write: (data) => pty.write(data),
       resize: (cols, rows) => pty.resize(cols, rows),
       // node-pty on Windows takes no signal: its kill ends the process tree.
       kill: (signal) => (process.platform === "win32" ? pty.kill() : pty.kill(signal ?? "SIGHUP")),
-      onData: (listener) => void pty.onData(listener),
-      onExit: (listener) => void pty.onExit(listener),
+      onData: (listener) => void listeners.push(listener),
+      // A character the output ended partway through is heard, as a replacement character, before the exit.
+      onExit: (listener) =>
+        void pty.onExit((exit) => {
+          hear(decoder.end());
+          listener(exit);
+        }),
       commandRunning: () => runsCommand(pty.pid),
     };
   },
