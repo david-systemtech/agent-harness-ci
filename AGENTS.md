@@ -117,3 +117,12 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
 directly. CI and the AI pre-review run on the shared Forgejo runners from
 `david/ci` (see its `README.md`). The review is a lead to check, not an
 approval: prove a finding before acting on it.
+
+Push a pull request once per round, not once per fix. Every push runs the
+whole suite on the shared runners, which the other repositories wait behind,
+and a review covers only the head it read, so a new head needs the
+`ai-review` label again. Before pushing, run `pnpm typecheck`, `pnpm lint`
+and the test files you touched, and push everything that round's work (or
+that review's answers) needs together. Between 2026-09-28 and 2026-09-29, 69
+pull requests took 189 CI runs, one of them 12, and each run occupies a slot
+for 3 to 14 minutes.
