@@ -15,11 +15,11 @@ import {
   type Reading,
   type StatusFacts,
 } from "@agent-harness/client-runtime";
-import { EnvironmentColour } from "@agent-harness/contracts";
 import { useEffect, useMemo, useReducer } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
+import { environmentColour } from "../theme/paint.js";
 import { classes } from "../ui/classes.js";
 import { Button } from "../ui/index.js";
 import { useClock, useFollowed, useObservable, useRuntime } from "../window-context.js";
@@ -132,10 +132,10 @@ const useSecondTicks = (clock: Clock, elapsed: number | undefined): void => {
  * then its name.
  */
 const EnvironmentBadge = ({ view }: { readonly view: EnvironmentView | undefined }) => {
-  const colour = EnvironmentColour.safeParse(view?.colour);
+  const colour = environmentColour(view?.colour ?? null);
   return (
     <span className="flex shrink-0 items-center gap-1 pr-1 font-medium text-ink">
-      <span aria-hidden="true" style={colour.success ? { color: `var(--environment-${colour.data})` } : undefined} className={colour.success ? undefined : "text-cyan"}>
+      <span aria-hidden="true" style={colour === undefined ? undefined : { color: colour }} className={colour === undefined ? "text-cyan" : undefined}>
         {view?.icon ?? "●"}
       </span>
       <span>{view?.name ?? THIS_MACHINE}</span>
