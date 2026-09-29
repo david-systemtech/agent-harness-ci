@@ -277,4 +277,24 @@ describe("the result cache", () => {
     expect((await snapshot(t, client)).setup).toEqual([latest]);
     expect(noticed(client, subscription)).toEqual([latest]);
   });
+
+  it("counts a row this build cannot read, as another version's shape, as never checked: absent from the snapshot, and the next result noticed as a first", async () => {
+    const { setupSteps } = scriptedRegistry();
+    const t = await start({ setupSteps });
+    const client = await t.client();
+    const account = await check(client, "account");
+    // The lower seam: a row whose action this build's vocabulary does not hold, and one that is not JSON.
+    const unreadable = { ...account, step: "permissions", actions: ["reboot"] };
+    t.env.log.atomically((tx) => {
+      t.env.log.setupResults.write(tx, "permissions", JSON.stringify(unreadable));
+      t.env.log.setupResults.write(tx, "appearance", "{");
+    });
+    expect((await snapshot(t, client)).setup).toEqual([account]);
+
+    const subscription = await watch(client, t.env.log.head());
+    const permissions = await check(client, "permissions");
+    await client.next(isSetupNotice(subscription));
+    expect(noticed(client, subscription)).toEqual([permissions]);
+    expect((await snapshot(t, client)).setup).toEqual([account, permissions]);
+  });
 });
