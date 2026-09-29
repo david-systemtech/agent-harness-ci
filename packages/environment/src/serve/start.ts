@@ -802,12 +802,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
-  // now its every call is gated), the worktrees and any root a later workstream declares (#325).
+  // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
+  // configuration, which an injected CLI reads (#368, David's decision on it).
   const user = passwdName();
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
-    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all],
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all, join(dataDir, KEY_MANAGER_CLI_DIRECTORY)],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
