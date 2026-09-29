@@ -538,6 +538,12 @@ export const ACTION_GROUPS = [
     key("picker.pin", ["Ctrl+P"], "Pin it", CONTEXT_MENU),
     key("picker.leave", ["Esc"], "Clear the query; then close the list", inGui(["Esc"])),
     key("picker.branch", ["b"], "Branch a new session here, in the prompt picker", FORK_REWIND),
+    key(
+      "picker.hide",
+      ["Ctrl+D"],
+      "Hide the directory under the cursor from the workspace step, until a session works there again",
+      notInGui("The GUI's workspace picker hides a directory from its row, with the pointer."),
+    ),
     guiOnly("picker.back", "Back out of a page of the list", inGui(["Backspace"], { when: "picker.queryEmpty" })),
   ]),
   group("A permission card", "permission", [
