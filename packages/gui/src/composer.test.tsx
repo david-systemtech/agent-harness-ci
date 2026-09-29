@@ -3,7 +3,7 @@ import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
 import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
  * The composer (docs/specs/gui.md, "A session pane"; #400): the session's
@@ -36,7 +36,7 @@ const write = async (app: RenderedApp, keys: string) => {
 };
 
 /** What `method` was sent with, each time. */
-const sent = (env: ReturnType<Awaited<ReturnType<typeof opened>>["app"]["environment"]>, method: string) => env.requests(method).map((request) => request.params);
+const sent = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
 
 describe("sending", () => {
   it("starts a run with runs.start when none is live, and the message is drawn in the transcript", async () => {
@@ -188,7 +188,10 @@ const PNG = Uint8Array.of(0x89, 0x50, 0x4e, 0x47);
 const PNG_DATA = "iVBORw==";
 
 /** The names on the composer's attachment chips. */
-const chips = () => within(screen.queryByRole("list", { name: "Attachments" }) ?? document.createElement("ul")).queryAllByRole("listitem").map((chip) => chip.firstChild?.textContent);
+const chips = () => {
+  const list = screen.queryByRole("list", { name: "Attachments" });
+  return list === null ? [] : within(list).getAllByRole("listitem").map((chip) => chip.firstChild?.textContent);
+};
 
 describe("attachments", () => {
   it("come by the shell's file dialog, show as chips, and go with the message", async () => {
@@ -209,12 +212,11 @@ describe("attachments", () => {
     expect(chips()).toEqual([]);
   });
 
-  it("come by a drop on the composer", async () => {
-    const { env, session } = await opened();
+  it("come by a drop on the composer, and wait there for the message", async () => {
+    const { env } = await opened();
     fireEvent.drop(box(), { dataTransfer: { types: ["Files"], files: [new File([PNG], "dropped.png", { type: "image/png" })] } });
     await waitFor(() => expect(chips()).toEqual(["dropped.png"]));
     expect(env.requests("runs.start")).toEqual([]);
-    expect(session).toBeDefined();
   });
 
   it("come by a paste: an image off the shell's clipboard on Mod+V, else the text there", async () => {
