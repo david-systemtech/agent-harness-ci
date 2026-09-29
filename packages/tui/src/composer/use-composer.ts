@@ -1,8 +1,8 @@
 import { useReducer, useRef } from "react";
+import { attachmentFromBytes } from "@agent-harness/client-runtime";
 import type { AttachmentInput } from "@agent-harness/contracts";
 import type { KeyActionId } from "@agent-harness/contracts";
 import { direction, type Handler, type Keymap } from "../keys.js";
-import { attachmentFromBytes } from "./attachments.js";
 import type { ClipboardImage } from "./clipboard.js";
 import {
   bufferEnd,

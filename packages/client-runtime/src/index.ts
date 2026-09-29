@@ -114,6 +114,7 @@ export type {
 } from "./projections/session.js";
 export {
   COUNTDOWN_TICK_MS,
+  adapterOf,
   type Countdown,
   type ParkedAsk,
   type RunState,
@@ -156,4 +157,22 @@ export {
   type ToolCategory,
 } from "./transcript/format.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
+export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
+export { matchCommands } from "./composer/commands.js";
+export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
+export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";
+export {
+  attachmentRefusal,
+  attachmentRefused,
+  interruptRun,
+  isLive,
+  lockOf,
+  readQueueNow,
+  sendMessage,
+  stopCall,
+  withdrawQueued,
+  type Lock,
+  type OutgoingMessage,
+  type SendOutcome,
+} from "./composer/send.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";

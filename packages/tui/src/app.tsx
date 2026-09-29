@@ -4,14 +4,24 @@ import { isAbsolute, join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import {
+  attachmentRefusal,
+  attachmentRefused,
+  followDraft,
+  interruptRun,
+  isLive,
   lastReply,
   liveTasks,
   quietFor,
+  readQueueNow,
+  sendMessage,
+  stopCall,
   transcriptRows,
   undoableFold,
+  withdrawQueued,
   type Clock,
   type EnvironmentView,
   type GrantReader,
+  type InStep,
   type Notice,
   type Observable,
   type PairingInput,
@@ -88,7 +98,6 @@ import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./scree
 import { PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
-import { attachmentRefusal, interruptRun, isLive, readQueueNow, sendMessage, stopCall, withdrawQueued } from "./session/send.js";
 import { useForkRewind, userMessagesOf } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
@@ -732,10 +741,11 @@ export const App = (props: AppProps) => {
   const listing = files?.read().result ?? null;
   const fileRows = (card: { readonly dir: string; readonly filter: string }): readonly BrowseRow[] | null => (listing ? browse(listing.files, card.dir, card.filter) : null);
 
-  // The draft is the session's field (session-state spec): what is typed is saved through the runtime, which waits a
-  // second after the last key; a session opened takes its draft; a draft another client saved replaces this one's only
-  // while nothing has been typed over what this client last held, so a keystroke is never lost to a late echo.
-  const synced = useRef<{ readonly key: string; readonly text: string } | undefined>(undefined);
+  // The draft is the session's field (session-state spec), kept in step by the runtime's rule (`followDraft`): what is
+  // typed is saved through the runtime, which waits a second after the last key; a session opened takes its draft; a
+  // draft another client saved replaces this one's only while nothing has been typed over what this client last held,
+  // so a keystroke is never lost to a late echo.
+  const synced = useRef<InStep | undefined>(undefined);
   const openKey = opened ? `${opened.environmentId} ${opened.sessionId}` : undefined;
   // Switching sessions starts the next one's text from nothing (its own comes when it is known); what the last one held is already on its way.
   const shownKey = useRef(openKey);
@@ -749,26 +759,17 @@ export const App = (props: AppProps) => {
       synced.current = undefined;
       return;
     }
-    const held = projection?.summary ? (projection.draft ?? "") : undefined;
     const text = composer.current();
-    if (synced.current?.key !== openKey) {
-      // A session just opened: what it holds, once it is known; what was typed before that is kept, and saved over it.
-      if (held === undefined) return;
-      synced.current = { key: openKey, text: held };
-      if (text.length === 0 && held.length > 0) composer.set(composerOf(held));
-      return;
-    }
-    if (held !== undefined && held !== synced.current.text && text === synced.current.text) {
-      synced.current = { key: openKey, text: held };
-      composer.set(composerOf(held));
-      return;
-    }
-    // A command for the terminal UI being typed (a slash command it answers, a shell line) is not the session's draft: it
-    // is sent nowhere, and saving it would only be undone.
-    if (text !== synced.current.text && !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null) {
-      synced.current = { key: openKey, text };
-      runtime.drafts.set(opened.environmentId, opened.sessionId, text.length > 0 ? text : null);
-    }
+    const step = followDraft(synced.current, {
+      session: openKey,
+      held: projection?.summary ? (projection.draft ?? "") : undefined,
+      text,
+      // A command for the terminal UI being typed (a slash command it answers, a shell line) is not the session's draft.
+      saves: !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null,
+    });
+    synced.current = step.inStep;
+    if (step.take !== undefined) composer.set(composerOf(step.take));
+    if (step.save !== undefined) runtime.drafts.set(opened.environmentId, opened.sessionId, step.save.length > 0 ? step.save : null);
   });
 
   // Fork and rewind (ADR 0022; #232): the prompt picker's two actions, `/rewind`, `/fork` and the row verbs dispatch through it.
@@ -946,8 +947,8 @@ export const App = (props: AppProps) => {
     void readAttachment(path, cwd).then((read) => {
       if (!read.ok) return say(`Not attached: ${read.reason}`);
       // What the session's provider cannot take is refused now, not at the send.
-      const refused = attachmentRefusal({ text: "", attachments: [read.attachment] }, session.provider);
-      if (refused !== undefined) return say(refused.replace("nothing was sent", `${read.attachment.name} was not attached`));
+      const refused = attachmentRefused(read.attachment, session.provider);
+      if (refused !== undefined) return say(refused);
       composer.attach(read.attachment);
       say(`Attached ${read.attachment.name}; it goes with the next message.`);
     });

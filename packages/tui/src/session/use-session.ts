@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   hear,
+  lockOf,
   nextQuietChange,
   runningCalls,
   type Clock,
+  type Lock,
   type QuietCalls,
   type RunState,
   type Runtime,
@@ -12,7 +14,6 @@ import {
 } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities, CommandEntry } from "@agent-harness/contracts";
 import { gaugeOf, markOf, planDelta, type PlanMark } from "../transcript/plan.js";
-import { lockOf, type Lock } from "./send.js";
 
 /**
  * The session on screen (docs/specs/tui.md, "The transcript" and "The

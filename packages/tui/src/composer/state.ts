@@ -13,7 +13,7 @@ import {
   type EditorState,
 } from "./editor.js";
 import type { HistoryMatch } from "./history.js";
-import { fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type Mention } from "./mentions.js";
+import { fuzzyMatch, matchCommands, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type Mention } from "@agent-harness/client-runtime";
 import { classifyPaste, expandChip, pasteMarker, type PasteClassification } from "./paste-kind.js";
 import { expand, expandInText, snippetAt, type Expansion, type SlotRange, type SnippetTemplate, type SnippetToken } from "./snippets.js";
 
@@ -237,15 +237,6 @@ const subsequence = (query: string, name: string): boolean => {
   let at = 0;
   for (const char of name) if (char === query[at]) at++;
   return at === query.length;
-};
-
-/** Commands matching the typed word: the one it names exactly first, then those it begins, then those holding its letters in order. */
-export const matchCommands = (word: string, commands: readonly CommandRow[]): CommandRow[] => {
-  const query = word.toLowerCase();
-  const exact = commands.filter((c) => c.name === query);
-  const starts = commands.filter((c) => c.name !== query && c.name.startsWith(query));
-  const rest = commands.filter((c) => !c.name.startsWith(query) && subsequence(query, c.name));
-  return [...exact, ...starts, ...rest];
 };
 
 /**
