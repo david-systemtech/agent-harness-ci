@@ -1386,6 +1386,32 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
+  /**
+   * A run's process environment (#307), built as every run's is when its
+   * adapter is asked for the run, which is once per run: each spawn's
+   * release is reported to the pool against the session's process as it is
+   * now, so the pool's letting it go releases it, and it runs once, whoever
+   * calls it first.
+   */
+  const processEnvironmentOf = (plan: PlannedRun): ProcessEnvironment => {
+    const built = processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind });
+    const report = pool.supplied(plan.sessionId);
+    return {
+      key: built.key,
+      supply: async () => {
+        const supplied = await built.supply();
+        let released = false;
+        const release = (): void => {
+          if (released) return;
+          released = true;
+          supplied.release();
+        };
+        report(release);
+        return { variables: supplied.variables, release };
+      },
+    };
+  };
+
   const launch = (plan: PlannedRun): void => {
     const prompt: PromptMessage[] = [
       ...keptAnswers(plan.runId),
@@ -1421,7 +1447,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             trusted: false,
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
-            processEnvironment: processEnvironment({ sessionId: plan.sessionId, accountId: plan.account.id, origin: plan.actor.kind }),
+            processEnvironment: processEnvironmentOf(plan),
             prompt,
           },
           contextFor(entry),

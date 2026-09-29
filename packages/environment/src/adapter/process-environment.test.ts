@@ -6,6 +6,7 @@ import { end, fakeAdapter, runCommand, say, type FakeAdapter, type FakeAdapterOp
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
+import type { AdapterEvent } from "./contract.js";
 import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "./process-environment.js";
 
 /**
@@ -19,6 +20,12 @@ import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "./proc
  */
 
 const { onCleanup } = useCleanups();
+
+/** A provider process's idle time, the setting's preset. */
+const IDLE = 30 * 60_000;
+
+/** What a run reports as a Claude run's first init does, so a later rewind has a provider session to rewind. */
+const linked: AdapterEvent = { type: "session.provider-linked", payload: { providerSessionId: "provider-1" } };
 
 const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({ ...options, adapter: "descriptor" in adapter ? adapter : fakeAdapter(adapter) });
@@ -101,5 +108,123 @@ describe("a run's process environment", () => {
     expect(await t.adapter.processesOf(session.id)[0]?.supplied).toEqual({ HARNESS_TEST_TOKEN: "token-for-tests" });
     expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client" }]);
     expect(texts(t, session.id)).toContain("The command said matched");
+  });
+
+  it("is built the same way for every run, whatever started it: a client, the completions surface, a routine", async () => {
+    const t = await start();
+    const { supplier, asked } = testSupplier({ HARNESS_TEST_VARIABLE: "for every run" });
+    t.env.processEnvironments.register(supplier);
+    const client = await t.client();
+    const attended = await create(client);
+    await runTo(t, client, attended.id);
+    const { token } = await t.pair({ kind: "program", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "bypassPermissions", label: "hermes" });
+    const completion = await fetch(`http://${t.address.host}:${t.address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ model: "claude-max/opus", messages: [{ role: "user", content: "Summarise the receipts" }] }),
+    });
+    expect(completion.status).toBe(200);
+    await completion.text();
+    const routine = await create(client);
+    t.env.startRun({ sessionId: routine.id, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
+    await vi.waitFor(() => expect(ended(t, routine.id)).toHaveLength(1));
+
+    const keys = t.adapter.runs.map((run) => run.input.processEnvironment.key);
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(1);
+    expect(asked.keys.map((scope) => scope.origin)).toEqual(["client", "completions", "routine"]);
+    expect(asked.supplies.map((scope) => scope.origin)).toEqual(["client", "completions", "routine"]);
+    const given = await Promise.all(t.adapter.processes.map((process) => process.supplied));
+    expect(given).toEqual([{ HARNESS_TEST_VARIABLE: "for every run" }, { HARNESS_TEST_VARIABLE: "for every run" }, { HARNESS_TEST_VARIABLE: "for every run" }]);
+  });
+});
+
+describe("the release of what a process was supplied", () => {
+  /** An environment with a test supplier registered, a client, and a session that has run once. */
+  const ranOnce = async (adapter: FakeAdapterOptions = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}) => {
+    const t = await start(adapter, options);
+    const supplied = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    t.env.processEnvironments.register(supplied.supplier);
+    const client = await t.client();
+    const session = await create(client);
+    const first = await runTo(t, client, session.id);
+    expect(supplied.asked.releases).toEqual([0]);
+    return { t, client, session, first, ...supplied };
+  };
+
+  it("is called once as the process stops for its idle time, and a cold spawn after is supplied afresh", async () => {
+    const { t, client, session, asked } = await ranOnce();
+
+    t.clock.advance(IDLE);
+    await vi.waitFor(() => expect(asked.releases).toEqual([1]));
+    await runTo(t, client, session.id, "Back again");
+
+    expect(asked.releases).toEqual([1, 0]);
+    expect(t.adapter.processesOf(session.id)).toHaveLength(2);
+  });
+
+  it("is called once when the process exits on its own", async () => {
+    const { t, session, asked } = await ranOnce();
+
+    t.adapter.exit(session.id);
+
+    expect(asked.releases).toEqual([1]);
+  });
+
+  it("is called once when a rewind stops the process", async () => {
+    const { t, client, session, asked } = await ranOnce({ capabilities: { rewind: true }, script: ({ input }) => [linked, say(`Done: ${input.prompt[0]?.text}`), end()] });
+    const second = await runTo(t, client, session.id, "And the refunds");
+
+    const answer = registry["sessions.rewind"].response.parse(await client.request("sessions.rewind", { commandId: randomUUID(), sessionId: session.id, messageId: second.messageId }));
+
+    expect(answer.receipt.status).toBe("accepted");
+    await vi.waitFor(() => expect(asked.releases).toEqual([1]));
+  });
+
+  it("is called once when a drain stops the process, and not again as the environment closes", async () => {
+    const { t, asked } = await ranOnce();
+
+    const drained = t.env.drain("command");
+    t.clock.advance(0);
+    await drained;
+
+    expect(asked.releases).toEqual([1]);
+  });
+
+  it("is called once as the environment closes", async () => {
+    const { t, asked } = await ranOnce();
+
+    await t.close();
+
+    expect(asked.releases).toEqual([1]);
+  });
+
+  it("is called once when a run whose key differs lets the process go, and the fresh process is supplied its own", async () => {
+    const { t, client, session, asked, next } = await ranOnce();
+    next();
+
+    await runTo(t, client, session.id, "After the change");
+
+    expect(asked.releases).toEqual([1, 0]);
+    const [before, after] = t.adapter.processesOf(session.id);
+    expect(before).toMatchObject({ stopped: true });
+    expect(after).toMatchObject({ stopped: false, runs: 1 });
+    expect(after?.key).not.toBe(before?.key);
+  });
+
+  it("is never called for a run that ended before its adapter was asked for it: nothing was supplied", async () => {
+    const t = await start({}, { adapterSeams: { instructions: () => new Promise(() => undefined) } });
+    const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    t.env.processEnvironments.register(supplier);
+    const client = await t.client();
+    const session = await create(client);
+    const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: session.id, text: "Fix the receipts" }));
+
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: answer.result?.runId as string });
+
+    await vi.waitFor(() => expect(ended(t, session.id)).toHaveLength(1));
+    await t.close();
+    expect(t.adapter.processes).toEqual([]);
+    expect(asked).toEqual({ keys: [], supplies: [], releases: [] });
   });
 });

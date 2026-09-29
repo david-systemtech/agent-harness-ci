@@ -665,9 +665,19 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     return process;
   };
 
-  /** The session's process for a new run: the live one, or one started cold. */
+  /**
+   * The session's process for a new run: the live one, or one started cold.
+   * A live one spawned with another process environment is let go for a
+   * fresh one, as Claude lets its process go for a run it cannot serve.
+   */
   const processFor = (input: RunInput): FakeProcessRecord => {
-    const process = liveProcess(input.sessionId) ?? spawn(input);
+    let process = liveProcess(input.sessionId);
+    if (process !== undefined && process.key !== input.processEnvironment.key) {
+      process.stopping = true;
+      process.stopped = true;
+      process = undefined;
+    }
+    process ??= spawn(input);
     process.runs += 1;
     return process;
   };
