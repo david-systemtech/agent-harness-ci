@@ -374,6 +374,16 @@ describe("skills.own.remove", () => {
     expect((await get(client)).members).toEqual([]);
   });
 
+  it("refuses conflict, reason root_skill, to remove skills/ itself while it holds a SKILL.md, moving nothing, since that would trash every folder in it", async () => {
+    const { t, client } = await start();
+    const own = (await get(client)).ownDirectory;
+    write(join(own, "skills", "tdd", "SKILL.md"), skill("name: tdd\ndescription: Test-driven development."));
+    write(join(own, "skills", "SKILL.md"), skill("description: A folder that is itself one skill."));
+    expect((await removeSkill(client, "skills")).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "root_skill", name: "skills" } } });
+    expect(readdirSync(join(own, "skills")).sort()).toEqual(["SKILL.md", "tdd"]);
+    expect(trashed(t)).toEqual([]);
+  });
+
   it("refuses a name the own directory does not hold not_found, kind skill, and moves nothing", async () => {
     const { t, client } = await start();
     const answer = await removeSkill(client, "tdd");

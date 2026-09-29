@@ -64,7 +64,9 @@ export const skillsOwnCreate = defineMethod({
  * folder over a command file), else the member whose folder or command
  * file is named `name`, to the data directory's trash, which deletes it
  * once thirty days old, and answers the member as it was. A name the own
- * directory does not hold is `not_found` (data `kind: skill`).
+ * directory does not hold is `not_found` (data `kind: skill`); `skills/`
+ * itself, while a `SKILL.md` of its own makes it one skill, is `conflict`
+ * (reason `root_skill`), since trashing it would take every folder in it.
  */
 export const skillsOwnRemove = defineMethod({
   name: "skills.own.remove",

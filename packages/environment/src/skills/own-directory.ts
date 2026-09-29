@@ -69,6 +69,16 @@ export interface OwnDirectoryOptions {
 const minimalSkill = (name: string, description: string): string =>
   `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n`;
 
+/** Whether a member is `skills/` itself: a SKILL.md of its own makes the folder one skill, and no folder in it is read. */
+const isRootSkill = (member: SkillMember): boolean => member.path === SKILLS;
+
+/** The refusal while `skills/` is one skill: neither a create, whose folder would not be read, nor a remove, which would trash every folder in it. */
+const rootSkill = (name: string): CommandRejection<"conflict"> => ({
+  code: "conflict",
+  message: "The own directory's skills/ holds a SKILL.md of its own, so it is one skill and no folder in it is read: move that SKILL.md into a folder first.",
+  data: { reason: "root_skill", name },
+});
+
 /** Whether anything, a link included, is at `path`. */
 const occupied = async (path: string): Promise<boolean> => {
   try {
@@ -144,13 +154,7 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
           message: `The own directory already holds ${JSON.stringify(name)}: pick another name, or remove it first.`,
           data: { reason: "exists", name },
         });
-        if (members.some((member) => member.path === SKILLS)) {
-          return refusing({
-            code: "conflict",
-            message: "The own directory's skills/ holds a SKILL.md of its own, so it is one skill and no folder in it is read: move that SKILL.md into a folder first.",
-            data: { reason: "root_skill", name },
-          });
-        }
+        if (members.some(isRootSkill)) return refusing(rootSkill(name));
         const folder = join(skillsFolder, name);
         if (members.some((member) => member.name === name) || (await occupied(folder)) || (await occupied(join(path, COMMANDS, `${name}.md`)))) return exists;
         await mkdir(skillsFolder, { recursive: true });
@@ -178,6 +182,8 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
         if (member === undefined) {
           return refusing({ code: "not_found", message: `The own directory holds no skill named ${JSON.stringify(name)}.`, data: { kind: "skill", name } });
         }
+        // Trashing skills/ itself would take every folder in it, which the root-skill rule leaves unread.
+        if (isRootSkill(member)) return refusing(rootSkill(name));
         const location = join(path, ...member.path.split("/"));
         const trashed = await trash.put(location);
         context.onUndo(() => trash.restore(trashed, location));

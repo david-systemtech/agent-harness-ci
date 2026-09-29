@@ -309,7 +309,7 @@ The environment's own folder of skills under its data directory, holding `skills
 _Avoid_: local skills, user skills, personal plugin
 
 **Member**:
-One skill in a skill set: a folder holding `SKILL.md`, or a command file in the own directory's `commands/`, with its name, description, invocation, layer and origin; an invalid one is listed with its problem and left out, and one another layer's member of the same name wins over is listed as shadowed.
+One skill in a skill set: a folder holding `SKILL.md`, or a command file in the own directory's `commands/`, with its name, description, invocation, layer and origin; an invalid one is listed with its problem and left out, and one that another member of the same name wins over by precedence is listed as shadowed by it.
 _Avoid_: plugin skill, entry
 
 **Readiness**:
