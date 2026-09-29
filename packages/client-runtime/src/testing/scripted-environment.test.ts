@@ -120,6 +120,28 @@ describe("the scripted environment in a DOM", () => {
     expect(desk.summary(desk.sessionId(0)).archivedAt).toBeNull();
   });
 
+  it("says settings.changed with the keys each write changed, as the environment does, and when another client changes them, which a cached settings.get follows (#391)", async () => {
+    const { world, runtime, until } = await launch({ environments: [{ name: "desk", reach: "local" }] });
+    const desk = world.environment("desk");
+    await until(() => runtime.projections.environments.read()[0]?.phase === "ready", "desk ready");
+    const settings = runtime.requests.cached(desk.environmentId, "settings.get", { keys: ["sessions.autoSettleOnMerge", "permissions.defaultCeiling"] });
+    onTestFinished(settings.subscribe(() => undefined));
+    await until(() => settings.read().result !== null, "the settings read");
+    const asked = () => desk.requests("settings.get").length;
+    const before = asked();
+
+    await runtime.requests.call(desk.environmentId, "settings.update", { commandId: "0199cc00-0000-4000-8000-000000000001", values: { "sessions.autoSettleOnMerge": true } });
+    await until(() => settings.read().result?.values["sessions.autoSettleOnMerge"] === true, "the write read again");
+    expect(asked()).toBe(before + 1);
+
+    desk.setSettings({ "permissions.defaultCeiling": "auto" });
+    await until(() => settings.read().result?.values["permissions.defaultCeiling"] === "auto", "another client's change read again");
+    // A value it holds already changes nothing, and says nothing.
+    desk.setSettings({ "permissions.defaultCeiling": "auto" });
+    for (let i = 0; i < 10; i++) await flush();
+    expect(asked()).toBe(before + 2);
+  });
+
   it("has discovery answer starting or nothing, and says bye with a reason", async () => {
     const { clock, world, runtime, until } = await launch({
       environments: [
