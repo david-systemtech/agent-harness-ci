@@ -208,7 +208,7 @@ describe("the environment's gh as a credential source", () => {
     const swapped = await update(client, { forgeAccountId: account.id, credential: ghCredential("david") });
     expect(swapped.result?.account).toMatchObject({ credential: { kind: "gh", login: "david" }, identity: { login: "david", userId: "42" }, problem: null });
     expect(gh.calls().at(-1)?.argv).toEqual(["auth", "token", "--hostname", host, "--user", "david"]);
-    await vi.waitFor(async () => expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]));
+    expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
 
     gh.set({ version: "2.63.2", accounts: [] });
     const unavailable = await update(client, { forgeAccountId: account.id, credential: ghCredential("david") });
@@ -266,7 +266,7 @@ describe("an imported token", () => {
 
     const [account] = await list(client);
     expect(account).toMatchObject({ id: request.forgeAccountId, origin: forge.origin, identity: { login: "david", userId: "42" }, credential: { kind: "stored", provenance: "imported" } });
-    await vi.waitFor(async () => expect(await saidBack(t, [TOKEN])).toEqual(["[redacted]"]));
+    expect(await saidBack(t, [TOKEN])).toEqual(["[redacted]"]);
   });
 });
 
@@ -362,7 +362,7 @@ describe("a key-manager reference", () => {
     expect(moved.result?.account).toMatchObject({ credential: referenced, identity: { login: "david", userId: "42" }, problem: null });
     expect((await forgeEvents(client, from)).map((event) => event.payload)).toEqual([{ forgeAccountId: account.id, credential: referenced, identity: { login: "david", userId: "42" }, problem: null }]);
     // The stored token is let go and its entry deleted: after a restart the vault no longer holds it.
-    await vi.waitFor(async () => expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]));
+    expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
     await t.close();
     const again = await start({ dataDir, keyManagers: keyManagers.registry });
     expect(await saidBack(again, [TOKEN])).toEqual([TOKEN]);

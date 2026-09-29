@@ -71,6 +71,10 @@ export const forgeEvents = async (client: WireClient, afterSequence: number): Pr
  * Each of `values` as a run's provider says it back and a subscribed client
  * reads it (the fake's preset reply is `Done: <the prompt>`): `[redacted]`
  * for one the environment holds as a secret, itself for one it does not.
+ * A command that takes a token on or lets one go does so in its
+ * `afterCommit`, before its answer is sent, so a test asks once the answer is
+ * in, never inside `vi.waitFor`: each attempt is a whole run, which on a
+ * loaded runner outlasts the poll's one-second budget (#595).
  */
 export const saidBack = async (t: TestEnvironment, values: readonly string[]): Promise<string[]> => {
   const client = await t.client();
