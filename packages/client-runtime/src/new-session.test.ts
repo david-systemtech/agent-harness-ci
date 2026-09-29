@@ -352,3 +352,43 @@ describe("projections.newSession: the workspace chip", () => {
     });
   });
 });
+
+describe("commands.startSession", () => {
+  it("creates the group a focused merged heading lacks on the environment first, then the session in it, then notes the environment last used", async () => {
+    const { desk, laptop, runtime } = await twoEnvironments();
+    const first = await create(runtime, desk, { kind: "scratch" });
+    expect(await runtime.commands.moveToGroup(desk.env.id, first, "Receipts")).toMatchObject({ ok: true });
+    await runtime.connections.setLastUsed(desk.env.id);
+    const clone = repository(FORGE);
+
+    const started = await runtime.commands.startSession(laptop.env.id, { workspace: { kind: "directory", path: clone }, account: "claude-max", model: "haiku", groupName: "Receipts" });
+
+    expect(started.answer).toMatchObject({ ok: true, result: { summary: { id: started.sessionId, workspace: { kind: "directory", path: clone }, repositoryIdentity: IDENTITY } } });
+    const list = await holds(runtime.projections.sessionList, (view) => view.rows.some((row) => row.summary.id === started.sessionId));
+    // Laptop gained its own group of the heading's name, and the session is in it: one heading across both environments.
+    expect(list.rows.find((row) => row.summary.id === started.sessionId)).toMatchObject({ environmentId: laptop.env.id, groupName: "Receipts" });
+    expect(list.groups.map((heading) => [heading.name, heading.groups.map((member) => member.environmentId)])).toEqual([["Receipts", [desk.env.id, laptop.env.id]]]);
+    expect(runtime.preferences.read()["environments.lastUsed"]).toBe(laptop.env.id);
+
+    // A heading the environment has, however its name is cased: no second group.
+    const again = await runtime.commands.startSession(desk.env.id, { workspace: { kind: "session", sessionId: first }, groupName: "receipts" });
+    expect(again.answer).toMatchObject({ ok: true });
+    const after = await holds(runtime.projections.sessionList, (view) => view.rows.some((row) => row.summary.id === again.sessionId));
+    expect(after.rows.find((row) => row.summary.id === again.sessionId)).toMatchObject({ environmentId: desk.env.id, groupName: "Receipts" });
+    expect(after.groups.map((heading) => heading.groups.length)).toEqual([2]);
+    expect(runtime.preferences.read()["environments.lastUsed"]).toBe(desk.env.id);
+  });
+
+  it("answers a refused create with its problem, and leaves the last used as it was", async () => {
+    const { desk, laptop, runtime } = await twoEnvironments();
+    await runtime.connections.setLastUsed(desk.env.id);
+    const gone = directory();
+    rmSync(gone, { recursive: true, force: true });
+
+    const refused = await runtime.commands.startSession(laptop.env.id, { workspace: { kind: "directory", path: gone } });
+
+    expect(refused.answer).toMatchObject({ ok: false, error: { code: "conflict", data: { reason: "workspace_unusable", problem: "does_not_exist", path: gone } } });
+    expect(runtime.projections.sessionList.read().rows.some((row) => row.summary.id === refused.sessionId)).toBe(false);
+    expect(runtime.preferences.read()["environments.lastUsed"]).toBe(desk.env.id);
+  });
+});

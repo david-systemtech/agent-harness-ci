@@ -119,6 +119,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
     sessionRuns: (environmentId, sessionId) => sessionRuns(`${environmentId} ${sessionId.toLowerCase()}`),
     flushDrafts: () => drafts.flush(),
+    setLastUsed: (environmentId) => registry.setLastUsed(environmentId),
   });
   const drafts = createDrafts({
     clock: platform.clock,
@@ -314,6 +315,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
       rewind: (environmentId, sessionId, messageId, options) => outbox.rewind(environmentId, sessionId, messageId, options),
       fork: (environmentId, sessionId, options) => outbox.fork(environmentId, sessionId, options),
+      startSession: (environmentId, choice) => outbox.startSession(environmentId, choice),
     },
     drafts: {
       set: (environmentId, sessionId, draft) => drafts.set(environmentId, sessionId, draft),

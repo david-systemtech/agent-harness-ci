@@ -121,6 +121,8 @@ export {
   type RejectedReceipt,
   type RewindAnswer,
   type RewindOptions,
+  type StartSessionAnswer,
+  type StartSessionChoice,
 } from "./outbox/outbox.js";
 export { DRAFT_DEBOUNCE_MS, type Drafts } from "./outbox/drafts.js";
 export {

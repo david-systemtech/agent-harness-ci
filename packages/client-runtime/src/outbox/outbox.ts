@@ -13,6 +13,7 @@ import {
   type ResponseFrame,
   type ResultOf,
   type SessionWriteMethodName,
+  type WorkspaceRequest,
 } from "@agent-harness/contracts";
 import { answerCapability, answerQueuedCommand, type AbsentReason } from "../capabilities.js";
 import { SocketClosedError } from "../connections/connection.js";
@@ -186,6 +187,37 @@ export interface Commands {
    * draft for a fork of it (#273).
    */
   fork(environmentId: string, sessionId: string, options?: ForkOptions): Promise<ForkAnswer>;
+  /**
+   * Starts a session on the environment from the new-session card's choice
+   * (workspace-picker spec, "The picker in the client runtime"): with a
+   * `groupName` (the focused merged heading's), `groups.create` first with a
+   * client-minted id when the environment has no group of that name, as
+   * `moveToGroup` does; then `sessions.create` with a client-minted id, in
+   * that group; then, once the environment has accepted it,
+   * `connections.setLastUsed`. Answers the new session's id with the
+   * create's answer, a refusal with its reason and data (a workspace's
+   * `problem`, a worktree's branch reason); a group create refused leaves its
+   * notice and the create its own. The renderer sends the first message once
+   * the answer is ok.
+   */
+  startSession(environmentId: string, choice: StartSessionChoice): Promise<StartSessionAnswer>;
+}
+
+/** What the new-session card chose: the workspace request, and each other part only when set. */
+export interface StartSessionChoice {
+  readonly workspace: WorkspaceRequest;
+  /** The account the session's runs use; the environment's default at each run without one. */
+  readonly account?: string;
+  /** The model the session's runs use; the account's default without one. */
+  readonly model?: string;
+  /** The name of the merged heading in focus: the session goes into the environment's group of that name (names equal ignoring case and white space), made first when it has none. */
+  readonly groupName?: string;
+}
+
+/** What `commands.startSession` did: the id minted for the session, with the create's answer. The session stands only when that answer is ok. */
+export interface StartSessionAnswer {
+  readonly sessionId: string;
+  readonly answer: DispatchAnswer<"sessions.create">;
 }
 
 /** How `commands.rewind` goes about it. */
@@ -248,6 +280,8 @@ export interface OutboxHost {
   sessionRuns(environmentId: string, sessionId: string): Observable<SessionRunsView>;
   /** Sends every draft still waiting its second (`drafts.flush`). */
   flushDrafts(): void;
+  /** Notes the environment last used (`connections.setLastUsed`): a session was started there. */
+  setLastUsed(environmentId: string): Promise<void>;
 }
 
 export interface Outbox extends Commands {
@@ -871,22 +905,51 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     await documents.delete(outboxDocument(environmentId)).catch(report);
   });
 
+  /**
+   * The environment's group named `groupName` (names equal ignoring case and
+   * white space, as merged headings are), or a `groups.create` for one with
+   * a client-minted id, checked and not yet kept: the caller keeps it just
+   * before the command that names the group, so it is sent first.
+   */
+  const groupNamed = (environmentId: string, groupName: string): { readonly groupId: string; readonly create: Prepared | null } => {
+    const name = normaliseGroupName(groupName);
+    const held = [...(host.shown(environmentId)?.groups.values() ?? [])].find((group) => groupNameKey(group.name) === groupNameKey(name));
+    if (held) return { groupId: held.id, create: null };
+    const groupId = uuidv4();
+    return { groupId, create: prepare(environmentId, "groups.create", { id: groupId, name }) };
+  };
+
   return {
     view,
     dispatch,
     moveToGroup(environmentId, sessionId, groupName) {
       if (groupName === null) return dispatch(environmentId, "sessions.setGroup", { sessionId, groupId: null });
-      const name = normaliseGroupName(groupName);
-      const held = [...(host.shown(environmentId)?.groups.values() ?? [])].find((group) => groupNameKey(group.name) === groupNameKey(name));
-      if (held) return dispatch(environmentId, "sessions.setGroup", { sessionId, groupId: held.id });
-      const groupId = uuidv4();
-      const create = prepare(environmentId, "groups.create", { id: groupId, name });
-      if ("refused" in create) return Promise.resolve(create.refused as DispatchAnswer<"sessions.setGroup">);
+      const { groupId, create } = groupNamed(environmentId, groupName);
+      if (create !== null && "refused" in create) return Promise.resolve(create.refused as DispatchAnswer<"sessions.setGroup">);
       const move = prepare(environmentId, "sessions.setGroup", { sessionId, groupId });
       if ("refused" in move) return Promise.resolve(move.refused as DispatchAnswer<"sessions.setGroup">);
       // In this order, so the create is sent first; the move is answered, the create's answer is its notice if refused.
-      void create.enqueue();
+      void create?.enqueue();
       return move.enqueue() as Promise<DispatchAnswer<"sessions.setGroup">>;
+    },
+    async startSession(environmentId, choice) {
+      const { workspace, account, model, groupName } = choice;
+      const sessionId = uuidv4();
+      const group = groupName === undefined ? null : groupNamed(environmentId, groupName);
+      if (group?.create != null && "refused" in group.create) return { sessionId, answer: group.create.refused as DispatchAnswer<"sessions.create"> };
+      const create = prepare(environmentId, "sessions.create", {
+        id: sessionId,
+        workspace,
+        ...(account !== undefined && { account }),
+        ...(model !== undefined && { model }),
+        ...(group !== null && { groupId: group.groupId }),
+      });
+      if ("refused" in create) return { sessionId, answer: create.refused as DispatchAnswer<"sessions.create"> };
+      // In this order, so the group is made first; the create is answered, the group's answer is its notice if refused.
+      void group?.create?.enqueue();
+      const answer = (await create.enqueue()) as DispatchAnswer<"sessions.create">;
+      if (answer.ok) await host.setLastUsed(environmentId).catch(report);
+      return { sessionId, answer };
     },
     rewind(environmentId, sessionId, messageId, options = {}) {
       return options.stopFirst === true ? stopFirst.rewind(environmentId, sessionId, messageId, options.onStopping) : rewind(environmentId, sessionId, messageId);
