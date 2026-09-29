@@ -1,22 +1,32 @@
-import type { AccountsAnswer, EnvironmentView, ModePicker, UsageView } from "@agent-harness/client-runtime";
+import {
+  ACCOUNT_STATUS_WORDS,
+  BETWEEN_ENVIRONMENTS,
+  aboveCeilingWords,
+  gaugeOf,
+  identityWords,
+  modelName,
+  percent,
+  readingWords,
+  windowWords,
+  type AccountsAnswer,
+  type EnvironmentView,
+  type ModePicker,
+  type UsageView,
+} from "@agent-harness/client-runtime";
 import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
-  type AccountCatalogue,
   type AccountRecord,
-  type AccountStatusState,
   type ContainmentLevel,
   type ContainmentReport,
   type Mode,
   type ModelEntry,
   type ResultOf,
   type SettingsRowId,
-  type SignIn,
 } from "@agent-harness/contracts";
-import { gaugeOf } from "../transcript/plan.js";
 import type { Span } from "../transcript/lines.js";
 import { clockTime, nameOf } from "../view.js";
-import { meterBar, meterTone, percent, readingWords, windowWords } from "../status/line.js";
+import { meterBar, meterTone } from "../status/line.js";
 
 /**
  * The pickers and cards of `/account`, `/handoff`, `/model`, `/mode`,
@@ -88,13 +98,6 @@ export interface PanelRow {
   readonly heading?: Span;
 }
 
-const STATUS_WORDS: Readonly<Record<AccountStatusState, string>> = {
-  "signed-in": "signed in",
-  "signed-out": "signed out",
-  expired: "sign-in expired",
-  unreadable: "status unreadable",
-};
-
 /** The width a column needs for its longest text, and two spaces. */
 const columnOf = (texts: readonly string[]): number => Math.max(0, ...texts.map((t) => [...t].length)) + 2;
 const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - [...text].length));
@@ -103,7 +106,6 @@ const pad = (text: string, width: number): string => text + " ".repeat(Math.max(
 export const ADD_ACCOUNT = "+ Add an account";
 /** The row that answers hand-off between environments absent: last in `/handoff`. */
 export const OTHER_ENVIRONMENT = "On another environment";
-export const BETWEEN_ENVIRONMENTS = "hand-off between environments comes in milestone 2 (ADR 0005)";
 
 /**
  * The accounts as rows: label, identity, sign-in status, the session's
@@ -117,8 +119,8 @@ export const accountRows = (
   context: { readonly environmentId: string; readonly usage: UsageView; readonly sessionAccount: string | null },
 ): readonly PanelRow[] => {
   const labels = columnOf(accounts.map((a) => a.label));
-  const identities = columnOf(accounts.map((a) => a.identity?.email ?? "not read yet"));
-  const statuses = columnOf(accounts.map((a) => STATUS_WORDS[a.status.state]));
+  const identities = columnOf(accounts.map(identityWords));
+  const statuses = columnOf(accounts.map((a) => ACCOUNT_STATUS_WORDS[a.status.state]));
   const rows = accounts.map((account): PanelRow => {
     const gauge = gaugeOf(context.usage.gauges, context.environmentId, account.id);
     const reading = readingWords(gauge);
@@ -126,8 +128,8 @@ export const accountRows = (
       key: account.id,
       cells: [
         { text: pad(account.label, labels), bold: true },
-        { text: pad(account.identity?.email ?? "not read yet", identities), dim: account.identity === null },
-        { text: pad(STATUS_WORDS[account.status.state], statuses), ...(account.status.state !== "signed-in" && { color: "yellow" }) },
+        { text: pad(identityWords(account), identities), dim: account.identity === null },
+        { text: pad(ACCOUNT_STATUS_WORDS[account.status.state], statuses), ...(account.status.state !== "signed-in" && { color: "yellow" }) },
       ],
       dim: false,
       ...(account.id === context.sessionAccount && { note: { text: "this session", dim: true } }),
@@ -137,23 +139,6 @@ export const accountRows = (
   return purpose === "account"
     ? [...rows, { key: "add", cells: [{ text: ADD_ACCOUNT }], dim: false }]
     : [...rows, { key: "elsewhere", cells: [{ text: OTHER_ENVIRONMENT }], dim: true, note: { text: "absent", dim: true }, under: { text: `    ${BETWEEN_ENVIRONMENTS}`, dim: true } }];
-};
-
-/** The account a list starts on: the one recommended, else the session's, else the first. */
-export const startingAccount = (accounts: readonly AccountRecord[], recommended: string | null | undefined, sessionAccount: string | null): number => {
-  const at = accounts.findIndex((a) => a.id === (recommended ?? sessionAccount));
-  if (at !== -1) return at;
-  return Math.max(0, accounts.findIndex((a) => a.id === sessionAccount));
-};
-
-/** A model's name as a list says it: its label with its id, or its id. */
-export const modelName = (model: ModelEntry): string => (model.label !== null ? `${model.label} (${model.id})` : model.id);
-
-/** The catalogue a picker lists: the account's; with no account, every account's models once each. */
-export const modelsOf = (catalogues: readonly AccountCatalogue[], accountId: string | null): readonly ModelEntry[] => {
-  const chosen = accountId === null ? catalogues : catalogues.filter((c) => c.accountId === accountId);
-  const seen = new Set<string>();
-  return chosen.flatMap((c) => c.models).filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)));
 };
 
 export const modelRows = (models: readonly ModelEntry[], current: string | null): readonly PanelRow[] => {
@@ -180,7 +165,7 @@ export const modeRows = (picker: ModePicker, current: Mode | null): readonly Pan
     cells: [{ text: pad(mode, names) }],
     dim: !allowed,
     ...(!allowed
-      ? { note: { text: picker.ceiling === null ? "the ceiling is not known yet" : `above this connection's ceiling (${picker.ceiling})`, dim: true } }
+      ? { note: { text: aboveCeilingWords(picker.ceiling), dim: true } }
       : mode === current && { note: { text: "this session", dim: true } }),
   }));
 };
@@ -267,27 +252,3 @@ export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) =
     ];
   });
 };
-
-/** A sign-in's end in one line: done, failed, expired or cancelled. */
-export const signInEnd = (signIn: SignIn, label: string, environment: string): string | undefined => {
-  switch (signIn.state) {
-    case "done":
-      return `${label} is signed in on ${environment}.`;
-    case "failed":
-      return `The sign-in of ${label} failed: ${signIn.error ?? "the provider's CLI gave up"}.`;
-    case "expired":
-      return `The sign-in of ${label} expired: ${signIn.error ?? "no code came within ten minutes"}.`;
-    case "cancelled":
-      return `The sign-in of ${label} was cancelled.`;
-    default:
-      return undefined;
-  }
-};
-
-/**
- * The fallback command for a terminal on the environment's machine
- * (ADR 0018): PowerShell where the account's directory is a Windows path (a
- * drive letter or a backslash), the POSIX shell's otherwise.
- */
-export const fallbackOf = (signIn: SignIn, directory: string | undefined): string =>
-  directory !== undefined && (/^[a-z]:/i.test(directory) || directory.includes("\\")) ? signIn.fallback.powershell : signIn.fallback.posix;

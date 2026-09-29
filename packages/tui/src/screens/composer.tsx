@@ -8,7 +8,9 @@ import type { Popup } from "../composer/state.js";
  * as an inverse cell while it has the keys, the popup under it (commands,
  * `@` paths, snippets), the reverse search's row, and a dim note (a history
  * walk's place, the snippet stops left, what goes attached). Locked, it says
- * why in one line and takes nothing (`capability`, ADR 0004).
+ * why in one line and takes nothing (`capability`, ADR 0004). On a session
+ * whose workspace is missing (#328) the empty box is replaced by the gone
+ * path and a Choose a workspace line, which stays under what is typed.
  */
 
 /** Lines drawn before the box scrolls. */
@@ -19,6 +21,8 @@ export interface ComposerViewProps {
   readonly focused: boolean;
   /** Why nothing can be sent now; undefined when it can. */
   readonly locked: string | undefined;
+  /** The open session's workspace, when the environment has found it gone; undefined while it is there. */
+  readonly gone?: string | undefined;
   /** What the empty box says. */
   readonly placeholder: string;
   readonly popup: Popup | null;
@@ -100,8 +104,9 @@ export const ComposerView = (props: ComposerViewProps) => {
   const window = editorWindow(row, all.length, COMPOSER_ROWS);
   const shown = all.slice(window.top, window.top + window.size);
   const empty = editor.text.length === 0;
-  const glyph = props.locked !== undefined ? "✕ " : "› ";
-  const glyphColor = props.locked !== undefined ? "yellow" : focused ? "cyan" : undefined;
+  const barred = props.locked !== undefined || props.gone !== undefined;
+  const glyph = barred ? "✕ " : "› ";
+  const glyphColor = barred ? "yellow" : focused ? "cyan" : undefined;
   return (
     <Box flexDirection="column" flexShrink={0}>
       {window.top > 0 && (
@@ -109,7 +114,14 @@ export const ComposerView = (props: ComposerViewProps) => {
           {"  "}↑ {window.top} more line{window.top === 1 ? "" : "s"}
         </Text>
       )}
-      {empty ? (
+      {empty && props.gone !== undefined ? (
+        <Box flexShrink={0}>
+          <Text wrap="truncate-end">
+            <Text color="yellow">{glyph}</Text>
+            {props.gone} is gone
+          </Text>
+        </Box>
+      ) : empty ? (
         <Box flexShrink={0}>
           <Text wrap="truncate-end" dimColor={!focused}>
             <Text {...(glyphColor !== undefined && { color: glyphColor })}>{glyph}</Text>
@@ -137,6 +149,11 @@ export const ComposerView = (props: ComposerViewProps) => {
       {props.locked !== undefined && (
         <Text color="yellow" wrap="truncate-end">
           {"  "}Locked: {props.locked}
+        </Text>
+      )}
+      {props.gone !== undefined && (
+        <Text color="yellow" wrap="truncate-end">
+          {"  "}Choose a workspace: /cwd
         </Text>
       )}
       {props.search && (

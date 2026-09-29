@@ -188,6 +188,8 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
     });
     if (decision.rejected !== undefined) {
       if (decision.rejected.data.reason === "mode_unavailable") return waitsForNextMessage("mode");
+      // Marked missing before the stop (#328), though the directory is there now: the availability pass clears the mark.
+      if (decision.rejected.data.reason === "workspace_missing") return waitsForNextMessage("workspace");
       throw new Error(`The continuation of run ${cut.runId} was refused: ${decision.rejected.message}`);
     }
     if (decision.run.policy.mode.effective !== policy.mode.effective) return waitsForNextMessage("mode");

@@ -690,7 +690,7 @@ describe("environment.subscribe", () => {
     expect(EnvironmentNotice.parse(live.event).type).toBe("environment.draining");
   });
 
-  it("snapshots the environment's status and look when its notices after the cursor are out of bounds", async () => {
+  it("snapshots the environment's status and look, and Set up's cached results, none on a fresh environment, when its notices after the cursor are out of bounds", async () => {
     const t = await start({ name: "desk", platform: "linux" });
     const notices: EventInput[] = Array.from({ length: REPLAY_BOUND.events }, () => ({
       type: "environment.started",
@@ -706,6 +706,7 @@ describe("environment.subscribe", () => {
       payload: {
         status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
         environment: { name: "desk", icon: "server", colour: presetColour(t.env.id) },
+        setup: [],
       },
     });
     await frame(client, subscription, "synchronized");

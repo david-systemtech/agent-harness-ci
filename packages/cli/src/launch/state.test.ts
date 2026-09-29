@@ -7,9 +7,10 @@ import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceSt
 
 /**
  * The service state (launcher-update spec, "Versions and the launcher"): the
- * active, previous and launcher versions, the pending-update record and the
- * watch deadline, in one file in the data directory that the launcher reads
- * before it starts anything and writes durably.
+ * active, previous and launcher versions, the pending-update record, the
+ * watch deadline and the update it watches, the staged version and a failed
+ * handover, in one file in the data directory that the launcher reads before
+ * it starts anything and writes durably.
  */
 
 let dirs: string[] = [];
@@ -30,6 +31,9 @@ const state: ServiceState = {
   launcherVersion: "0.4.2",
   pendingUpdate: null,
   watchDeadline: "2026-09-28T12:10:00.000Z",
+  watchedUpdateId: "5b1f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f",
+  stagedVersion: "0.6.0",
+  failedHandover: { toVersion: "0.4.9", at: "2026-09-27T09:30:00.000Z" },
 };
 
 /** The node file calls a write makes, each recorded with the file it was about, named `temp`, `state` or `directory`. */
@@ -77,12 +81,14 @@ const recordingFs = (dataDir: string): { readonly fs: DurableFs; readonly calls:
 };
 
 describe("the service state", () => {
-  it("holds the active, previous and launcher versions, the pending-update record and the watch deadline, and reads back as written", () => {
+  it("holds the active, previous and launcher versions, the pending-update record, the watch deadline and its update, the staged version and a failed handover, and reads back as written", () => {
     const dataDir = dataDirectory();
     const pending: ServiceState = {
       ...state,
       pendingUpdate: { updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", fromVersion: "0.5.0", toVersion: "0.6.0" },
       watchDeadline: null,
+      watchedUpdateId: null,
+      stagedVersion: null,
     };
     writeServiceState(dataDir, pending);
     expect(JSON.parse(readFileSync(join(dataDir, SERVICE_STATE_FILE), "utf8"))).toEqual({
@@ -91,8 +97,18 @@ describe("the service state", () => {
       launcherVersion: "0.4.2",
       pendingUpdate: { updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", fromVersion: "0.5.0", toVersion: "0.6.0" },
       watchDeadline: null,
+      watchedUpdateId: null,
+      stagedVersion: null,
+      failedHandover: { toVersion: "0.4.9", at: "2026-09-27T09:30:00.000Z" },
     });
     expect(readServiceState(dataDir)).toEqual({ state: pending });
+  });
+
+  it("reads a state written before the watched update, the staged version and a failed handover were kept as holding none of them", () => {
+    const dataDir = dataDirectory();
+    const before = { activeVersion: "0.5.0", previousVersion: "0.4.2", launcherVersion: "0.4.2", pendingUpdate: null, watchDeadline: null };
+    writeFileSync(join(dataDir, SERVICE_STATE_FILE), JSON.stringify(before));
+    expect(readServiceState(dataDir)).toEqual({ state: { ...before, watchedUpdateId: null, stagedVersion: null, failedHandover: null } });
   });
 
   it("is written to a temporary file, fsynced, renamed over the state, and the directory fsynced, in that order", () => {
@@ -184,6 +200,11 @@ describe("the service state", () => {
       [{ ...state, pendingUpdate: { updateId: "u", fromVersion: "0.5.0" } }, "pendingUpdate is neither a pending-update record nor null"],
       [{ ...state, watchDeadline: "soon" }, "watchDeadline is neither a time nor null"],
       [{ ...state, watchDeadline: undefined }, "watchDeadline is neither a time nor null"],
+      // The watched update names the snapshot a crash loop restores, so nothing but an update id is one.
+      [{ ...state, watchedUpdateId: "../versions" }, "watchedUpdateId is neither an update id nor null"],
+      [{ ...state, stagedVersion: "latest" }, "stagedVersion is neither a version nor null"],
+      [{ ...state, failedHandover: { toVersion: "0.4.9" } }, "failedHandover is neither a failed handover nor null"],
+      [{ ...state, failedHandover: "0.4.9" }, "failedHandover is neither a failed handover nor null"],
     ];
     for (const [contents, why] of invalid) {
       writeFileSync(join(dataDir, SERVICE_STATE_FILE), JSON.stringify(contents));

@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.orgs.list error",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unauthorized"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session's token is missing, invalid, foreign or expired."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "forbidden"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "read",
+                "sessions:write",
+                "runs:drive",
+                "terminal",
+                "admin"
+              ],
+              "description": "The scope the method requires."
+            },
+            "reason": {
+              "description": "Present when the scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session) or local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage).",
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "local"
+              ]
+            },
+            "ceiling": {
+              "description": "With reason ceiling: the caller's own ceiling, the highest it may grant.",
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ]
+            }
+          },
+          "required": [
+            "scope"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason local, only a local client session may ask it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "readiness": {
+              "type": "string",
+              "enum": [
+                "starting",
+                "draining"
+              ],
+              "description": "Why the environment cannot answer: it is not ready yet, or it is draining."
+            }
+          },
+          "required": [
+            "readiness"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment is starting or draining; data.readiness says which."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "invalid_params"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "path",
+                  "message"
+                ],
+                "additionalProperties": {},
+                "description": "One schema issue: a code, the path to the offending value and a message."
+              }
+            }
+          },
+          "required": [
+            "issues"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The params or the frame did not match the schema; data.issues lists the schema's issues."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "not_found"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The method's target does not exist."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "conflict"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The target's state does not allow the method now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "internal"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment failed; nothing the client sent is at fault."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "credential_unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The origin git asked about."
+            }
+          },
+          "required": [
+            "origin"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The forge account serving the origin has no credential to give now (gh or the key manager signed out, the vault entry missing, a copy awaiting one, its login not known yet); the message says which and what to do."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "verification_failed"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash."
+            },
+            "status": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991,
+              "description": "The HTTP status the forge answered."
+            }
+          },
+          "required": [
+            "origin",
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list; linking a pull request, no pull request): an add or update stored nothing, a link linked nothing. data names the origin and the HTTP status."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unreachable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The origin that did not answer."
+            }
+          },
+          "required": [
+            "origin"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says which; data names the origin."
+    }
+  ]
+}

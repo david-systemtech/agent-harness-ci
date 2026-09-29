@@ -158,8 +158,9 @@ describe("auth and hello", () => {
     expect(client.hello).toEqual({
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
-      // The forge accounts (#310) and the key-manager connections (#365); the containment flags only where the probe found a level enforceable.
-      capabilities: ["forge", "keyManagers"],
+      // The forge accounts (#310), the key-manager connections (#365) and Set up's results (#569); the containment flags only
+      // where the probe found a level enforceable.
+      capabilities: ["forge", "keyManagers", "setup"],
       environmentId: t.env.id,
       environmentName: "desk",
       // Its icon and colour (#323), which until set are the platform's and a hash of its id's.

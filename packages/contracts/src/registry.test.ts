@@ -72,6 +72,8 @@ describe("the method registry", () => {
     const sessionMethods = methods.filter((m) => m.name.startsWith("sessions.") || m.name.startsWith("groups."));
     expect(Object.fromEntries(sessionMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "sessions.create": ["command", "sessions:write"],
+      // Giving a missing session a new workspace (workspace-picker spec, "Missing workspaces"; #328).
+      "sessions.setWorkspace": ["command", "sessions:write"],
       "sessions.rename": ["command", "sessions:write"],
       "sessions.archive": ["command", "sessions:write"],
       "sessions.unarchive": ["command", "sessions:write"],
@@ -140,6 +142,14 @@ describe("the method registry", () => {
     });
   });
 
+  it("gives browsing and inspecting an environment's directories the scope of files.*, terminal, each a query (workspace-picker spec)", () => {
+    const workspaceMethods = methods.filter((m) => m.name.startsWith("workspaces."));
+    expect(Object.fromEntries(workspaceMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "workspaces.browse": ["query", "terminal"],
+      "workspaces.inspect": ["query", "terminal"],
+    });
+  });
+
   it("gives the providers methods the claude-adapter spec's scopes: the list at read, the processes at admin", () => {
     const providerMethods = methods.filter((m) => m.name.startsWith("providers."));
     expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
@@ -162,10 +172,8 @@ describe("the method registry", () => {
     });
   });
 
-  it("owes each updates method's handler not yet served to the launcher ticket that builds it (#335 registered them with none; #342, #343, #346 and #348 serve theirs)", () => {
-    expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("updates.")))).toEqual({
-      "updates.desktop.stage": "#354",
-    });
+  it("owes no updates method's handler: #335 registered them with none, and #342, #343, #346, #348 and #354 serve them all", () => {
+    expect(Object.keys(OWED_HANDLERS).filter((name) => name.startsWith("updates."))).toEqual([]);
   });
 
   it("owes a handler only for a registered method, each to a named ticket", () => {
@@ -223,6 +231,8 @@ describe("the method registry", () => {
       "forge.accounts.update",
       "forge.accounts.remove",
       "forge.accounts.setPrimary",
+      "forge.pullRequests.link",
+      "forge.pullRequests.unlink",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
@@ -342,6 +352,7 @@ describe("the method registry", () => {
       | "access.sessions.setCeiling"
       | "access.log.list"
       | "sessions.create"
+      | "sessions.setWorkspace"
       | "sessions.rename"
       | "sessions.archive"
       | "sessions.unarchive"
@@ -398,6 +409,7 @@ describe("the method registry", () => {
       | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
+      | "instructions.preview"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"
@@ -405,6 +417,11 @@ describe("the method registry", () => {
       | "forge.accounts.setPrimary"
       | "forge.accounts.verify"
       | "forge.gh.probe"
+      | "forge.detect"
+      | "forge.orgs.list"
+      | "forge.pullRequests.link"
+      | "forge.pullRequests.unlink"
+      | "forge.pullRequests.refresh"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"
@@ -414,6 +431,8 @@ describe("the method registry", () => {
       | "keyManagers.connections.remove"
       | "keyManagers.connections.verify"
       | "keyManagers.certificate.preview"
+      | "keyManagers.references.check"
+      | "keyManagers.references.browse"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"
@@ -439,6 +458,8 @@ describe("the method registry", () => {
       | "files.read"
       | "diffs.workingTree"
       | "diffs.session"
+      | "workspaces.browse"
+      | "workspaces.inspect"
       | "updates.status"
       | "updates.check"
       | "updates.apply"

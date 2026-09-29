@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
+import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
 
 /**
  * The repository's own lint configuration, run on this package from its
@@ -31,7 +32,7 @@ describe("the GUI under the repository's lint", () => {
     expect(problems).toEqual([]);
     expect(results.some((r) => r.filePath.endsWith("styles.css"))).toBe(true);
     expect(results.length).toBeGreaterThan(20);
-  });
+  }, WHOLE_PACKAGE_LINT_MS);
 
   it("refuses a store named after session state in a component, and one the presentation module does not list", async () => {
     expect(await ruleIds("packages/gui/src/frame/sidebar-region.tsx", "export const SidebarRegion = () => { const [groups, setGroups] = useState([]); return null; };\n")).toContain(ORGANISATION);
@@ -39,6 +40,14 @@ describe("the GUI under the repository's lint", () => {
     const source = readFileSync(join(root, file), "utf8");
     expect(await ruleIds(file, source)).not.toContain(ORGANISATION);
     expect(await ruleIds(file, `${source}\nexport const pinnedSessions = writable([]);\n`)).toContain(ORGANISATION);
+  });
+
+  it("allows the terminal pane's fallback theme its literal colours, and refuses the same theme in any other module", async () => {
+    const file = "packages/gui/src/terminal/xterm-fallback-theme.ts";
+    const source = readFileSync(join(root, file), "utf8");
+    expect(source).toContain(hex.replace("fff", ""));
+    expect(await ruleIds(file, source)).not.toContain(COLOUR);
+    expect(await ruleIds("packages/gui/src/terminal/terminal-theme.ts", source)).toContain(COLOUR);
   });
 
   it("refuses a literal colour in a primitive and in the stylesheet", async () => {

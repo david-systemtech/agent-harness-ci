@@ -122,7 +122,7 @@ export const keepSince = (before: ForgeProblem | null, found: ForgeProblem | nul
 const describeIdentity = (identity: ForgeIdentity): string => `${identity.login} (user ${identity.userId})`;
 
 /** `2026-10-15 12:00 UTC`: an instant to the minute, for a line a person reads. */
-const minute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
+export const readableMinute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
 
 /** How a problem's line ends: what a person does about it, for a forge account; nothing more for a credential no forge account holds yet. */
 export interface ReconcileOptions {
@@ -169,7 +169,7 @@ export const reconcile = (known: Known, found: Found, now: Date, options: Reconc
   };
   const expiresAt = tokenInformation.expiresAt;
   const expiring = expiresAt !== null && Date.parse(expiresAt) - now.getTime() <= EXPIRING_WITHIN_MS;
-  const problem = keepSince(known.problem, expiring ? problemNow("expiring", advised(`The token expires at ${minute(expiresAt)}`, "replace it in Set up, Forges before then")) : null);
+  const problem = keepSince(known.problem, expiring ? problemNow("expiring", advised(`The token expires at ${readableMinute(expiresAt)}`, "replace it in Set up, Forges before then")) : null);
   const aliases = known.aliases.map((alias): ForgeAlias => {
     const answer = found.aliases.get(alias.origin);
     if (answer === undefined || answer.outcome === "unreachable") return alias;

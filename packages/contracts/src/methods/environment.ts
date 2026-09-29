@@ -4,6 +4,7 @@ import { EnvironmentIcon, EnvironmentLook, EnvironmentName } from "../environmen
 import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
+import { StepResult } from "../setup.js";
 
 /** Readiness, idle or busy with the reason or draining, and whether updates are managed outside. */
 export const environmentStatus = defineMethod({
@@ -18,8 +19,10 @@ export const environmentStatus = defineMethod({
 /**
  * The environment's notices (`EnvironmentNotice`, the `environment` stream).
  * Its snapshot, sent when replay from the cursor is out of bounds, is the
- * status and the environment's name, icon and colour, which an environment
- * from before them (#323) leaves out.
+ * status, the environment's name, icon and colour (#323), and every Set up
+ * step's cached result (#569: ADR 0031's `setup` subscription, whose changes
+ * are the `setup.result-changed` notices); an environment from before the
+ * look leaves the look out, and one without the `setup` flag the results.
  */
 export const environmentSubscribe = defineMethod({
   name: "environment.subscribe",
@@ -29,6 +32,10 @@ export const environmentSubscribe = defineMethod({
     status: EnvironmentStatus,
     environment: EnvironmentLook.optional().meta({
       description: "The environment's name, icon and colour as of the snapshot; absent from an environment that predates them.",
+    }),
+    setup: z.array(StepResult).optional().meta({
+      description:
+        "Every registered Set up step's latest result, as the environment's result cache holds it, in the step registry's order, each with when it was checked; a step never checked is absent. Absent from an environment without the setup flag.",
     }),
   }),
   errors: [],

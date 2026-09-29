@@ -269,14 +269,53 @@ describe("agent-harness service status", () => {
     await cli.run("service", "install");
     const dataDir = join(cli.home, ".local", "state", "agent-harness");
     const pendingUpdate = { updateId: "5b1f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f", fromVersion: "0.5.0", toVersion: "0.6.0" };
-    writeServiceState(dataDir, { activeVersion: "0.5.0", previousVersion: "0.4.0", launcherVersion: "0.4.0", pendingUpdate, watchDeadline: null });
+    writeServiceState(dataDir, {
+      activeVersion: "0.5.0",
+      previousVersion: "0.4.0",
+      launcherVersion: "0.4.0",
+      pendingUpdate,
+      watchDeadline: null,
+      watchedUpdateId: null,
+      stagedVersion: null,
+      failedHandover: null,
+    });
     expect(await cli.run("service", "status")).toBe(0);
     expect(cli.out()).toContain(
       ["Active version: 0.5.0", "Launcher version: 0.4.0", "Pending update: 0.5.0 to 0.6.0 (update 5b1f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f)", ""].join("\n"),
     );
     expect(await cli.run("service", "status", "--json")).toBe(0);
     const json = cli.out().slice(cli.out().lastIndexOf("\n{\n") + 1);
-    expect(JSON.parse(json)).toMatchObject({ activeVersion: "0.5.0", launcherVersion: "0.4.0", pendingUpdate, serviceStateProblem: null });
+    expect(JSON.parse(json)).toMatchObject({ activeVersion: "0.5.0", launcherVersion: "0.4.0", pendingUpdate, failedHandover: null, serviceStateProblem: null });
+  });
+
+  it("names the running launcher's version and a handover that failed, which the launcher recorded in the service state", async () => {
+    const cli = harness("linux", { answer: active, fetch: answering("ready") });
+    await cli.run("service", "install");
+    const dataDir = join(cli.home, ".local", "state", "agent-harness");
+    const failedHandover = { toVersion: "0.6.0", at: "2026-09-28T12:30:00.000Z" };
+    writeServiceState(dataDir, {
+      activeVersion: "0.6.0",
+      previousVersion: "0.5.0",
+      launcherVersion: "0.5.0",
+      pendingUpdate: null,
+      watchDeadline: null,
+      watchedUpdateId: null,
+      stagedVersion: null,
+      failedHandover,
+    });
+    expect(await cli.run("service", "status")).toBe(0);
+    expect(cli.out()).toContain(
+      [
+        "Active version: 0.6.0",
+        "Launcher version: 0.5.0",
+        "Failed handover: to the launcher of 0.6.0 at 2026-09-28T12:30:00.000Z, so the launcher of 0.5.0 runs on",
+        "Pending update: none",
+        "",
+      ].join("\n"),
+    );
+    expect(await cli.run("service", "status", "--json")).toBe(0);
+    const json = cli.out().slice(cli.out().lastIndexOf("\n{\n") + 1);
+    expect(JSON.parse(json)).toMatchObject({ activeVersion: "0.6.0", launcherVersion: "0.5.0", failedHandover });
   });
 
   it("says why the versions are unknown when the service is installed with no service state it can use", async () => {

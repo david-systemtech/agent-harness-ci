@@ -10,6 +10,7 @@ import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, 
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
+import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
@@ -19,12 +20,13 @@ import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
-import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
+import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
+import { workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -406,12 +408,20 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.subscribe": {
     params: { valid: [{ afterSequence: 0 }, { afterSequence: 1200 }], invalid: [{}, { afterSequence: -1 }] },
     result: {
-      valid: [...validStatuses.map((status) => ({ status })), { status: validStatuses[0], environment: validLook }],
+      valid: [
+        ...validStatuses.map((status) => ({ status })),
+        { status: validStatuses[0], environment: validLook },
+        { status: validStatuses[0], setup: [] },
+        { status: validStatuses[0], setup: [forgeRejected] },
+        { status: validStatuses[0], environment: validLook, setup: [forgeRejected] },
+      ],
       invalid: [
         {},
         ...invalidStatuses.map((status) => ({ status })),
         { status: validStatuses[0], environment: { ...validLook, colour: "#008080" } },
         { status: validStatuses[0], environment: { name: "MNL" } },
+        { status: validStatuses[0], setup: [{ ...forgeRejected, state: "pending" }] },
+        { status: validStatuses[0], setup: forgeRejected },
       ],
     },
   },
@@ -526,10 +536,12 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...setupMethodFixtures,
   ...permissionMethodFixtures,
   ...accountMethodFixtures,
+  ...instructionMethodFixtures,
   ...forgeMethodFixtures,
   ...keyManagerMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
+  ...workspaceMethodFixtures,
   ...updateMethodFixtures,
   ...routineMethodFixtures,
 };
@@ -749,11 +761,13 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "settings.changed",
+      "setup.result-changed",
       "environment.renamed",
       "environment.icon-set",
       "environment.colour-set",
     ],
-    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "environment.named", ""],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "environment.named", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -786,6 +800,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
+      { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
+      { type: "setup.result-changed", payload: forgeRejected },
       { type: "environment.renamed", payload: { name: "MNL" } },
       { type: "environment.icon-set", payload: { icon: "nas" } },
       { type: "environment.colour-set", payload: { colour: "amber" } },
@@ -809,6 +825,10 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       { type: "usage.updated", payload: { accountId: "claude-max" } },
+      { type: "settings.changed", payload: { keys: [] } },
+      { type: "settings.changed", payload: { values: { "appearance.theme": null } } },
+      { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
+      { type: "setup.result-changed", payload: { step: "forges" } },
       { type: "environment.renamed", payload: { name: "" } },
       { type: "environment.icon-set", payload: { icon: "phone" } },
       { type: "environment.colour-set", payload: { colour: "#ffbf00" } },
@@ -913,6 +933,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...setupSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
+  ...instructionSchemaFixtures,
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
   ...skillSchemaFixtures,
@@ -920,6 +941,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...lookSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
+  ...workspaceSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
   ...routineSchemaFixtures,

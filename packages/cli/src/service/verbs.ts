@@ -4,6 +4,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { DEFAULT_PORT, defaultDataDirectory, refusePrivilegedUser, RootRefusedError, type UserCheck } from "@agent-harness/environment";
 import { parseName, parseOptions, parsePort, UsageError } from "../args.js";
 import { discoverEnvironment, environmentAddress } from "../discover.js";
+import { listed } from "../listed.js";
 import { readServiceState } from "../launch/state.js";
 import { VERSIONS_DIRECTORY } from "../launch/versions.js";
 import { NOT_READY } from "../status.js";
@@ -63,10 +64,6 @@ const runningCliEntry = (): string | undefined => {
 
 /** The shim is run by name from a PATH, so it is written executable. */
 const writeExecutable = (path: string, content: string): void => writeFileSync(path, content, { mode: 0o755 });
-
-/** `items` as a sentence lists them: `a`, `a and b`, `a, b and c`. */
-const listed = (items: readonly string[]): string =>
-  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 
 /** Runs each put-back, newest first, past any that fails: the error that started them is the one reported. */
 const putBack = (steps: readonly (() => void)[]): void => {
@@ -221,9 +218,10 @@ const start = async (args: readonly string[], context: ServiceContext): Promise<
  * `service status`: installed and running from the service manager, ready
  * from the discovery URL on the port the service was installed on (from the
  * record; `--port` overrides, `DEFAULT_PORT` when there is no record), and
- * the active and launcher versions and a pending update from the service
- * state. Exits 0 only when installed, running and ready all hold, else
- * `NOT_READY`.
+ * from the service state the active version, the running launcher's version
+ * (which the launcher records at each handover), a handover that failed, and
+ * a pending update. Exits 0 only when installed, running and ready all hold,
+ * else `NOT_READY`.
  */
 const serviceStatus = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, json: { type: "boolean" } });
@@ -265,6 +263,7 @@ const serviceStatus = async (args: readonly string[], context: ServiceContext): 
       activeVersion: state?.activeVersion ?? null,
       launcherVersion: state?.launcherVersion ?? null,
       pendingUpdate: state?.pendingUpdate ?? null,
+      failedHandover: state?.failedHandover ?? null,
       serviceStateProblem: "problem" in read ? read.problem : null,
       summary: verdict.summary,
       notes,
@@ -272,11 +271,13 @@ const serviceStatus = async (args: readonly string[], context: ServiceContext): 
     context.stdout(`${JSON.stringify(report, null, 2)}\n`);
   } else {
     const pending = state?.pendingUpdate;
+    const failed = state?.failedHandover;
     const versions =
       state !== undefined
         ? [
             `Active version: ${state.activeVersion}`,
             `Launcher version: ${state.launcherVersion}`,
+            ...(failed ? [`Failed handover: to the launcher of ${failed.toVersion} at ${failed.at}, so the launcher of ${state.launcherVersion} runs on`] : []),
             `Pending update: ${pending ? `${pending.fromVersion} to ${pending.toVersion} (update ${pending.updateId})` : "none"}`,
           ]
         : installed && "problem" in read

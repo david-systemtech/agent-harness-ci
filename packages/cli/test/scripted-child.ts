@@ -11,6 +11,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { dirname, join } from "node:path";
 import { parseLauncherMessage, type EnvironmentMessage } from "@agent-harness/contracts/launcher";
 import { SERVICE_STATE_FILE } from "../src/launch/state.js";
+import { VERSION_SENTINEL, versionDirectory } from "../src/launch/versions.js";
 import { CHILD_REPORT_FILE, CHILD_SCRIPT_FILE, writeDatabase, type ChildEvent, type ChildStart, type ScriptedStart } from "./launcher-fixtures.js";
 
 const args = process.argv.slice(2);
@@ -23,7 +24,8 @@ const start = readLines(reportPath).filter((line) => (JSON.parse(line) as ChildE
 const scriptPath = join(dataDir, CHILD_SCRIPT_FILE);
 const script = existsSync(scriptPath) ? (JSON.parse(readFileSync(scriptPath, "utf8")) as ChildStart[]) : [];
 const scripted = script[start] ?? "serve";
-const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo }: ScriptedStart = typeof scripted === "string" ? { behaviour: scripted } : scripted;
+const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install, busyFor = 0 }: ScriptedStart =
+  typeof scripted === "string" ? { behaviour: scripted } : scripted;
 
 const report = (event: string, detail: Record<string, unknown> = {}) =>
   appendFileSync(reportPath, `${JSON.stringify({ start, pid: process.pid, version, event, ...detail })}\n`);
@@ -48,8 +50,11 @@ if (behaviour === "exit-0") process.exit(0);
 
 /** The id of the `switch?` it asks. */
 const SWITCH_ID = 2;
+/** The id of the `install?` it asks. */
+const INSTALL_ID = 3;
 let committed = false;
 let drainsPassedOver = 0;
+let idleAsked = 0;
 process.on("message", (raw) => {
   const message = parseLauncherMessage(raw);
   report("heard", { message: message ?? raw });
@@ -71,15 +76,29 @@ process.on("message", (raw) => {
       // Something the launcher does not know goes first: it must pass it over and still answer.
       process.send?.({ type: "no-such-message" });
       if (switchTo !== undefined) return send({ type: "switch?", id: SWITCH_ID, updateId: switchTo.updateId, version: switchTo.version });
+      if (install !== undefined) return send({ type: "install?", id: INSTALL_ID, ...install });
       return send({ type: "versions?", id: 1 });
-    case "switching":
+    case "installed":
     case "refused":
-      if (message.id !== SWITCH_ID) return;
+    case "switching":
+      if (install !== undefined && message.id === INSTALL_ID) {
+        return report("install-answered", {
+          answer: message,
+          complete: existsSync(join(versionDirectory(dataDir, install.version), VERSION_SENTINEL)),
+          staged: existsSync(install.staged),
+        });
+      }
+      if (message.type === "installed" || message.id !== SWITCH_ID) return;
       if (message.type === "switching") report("switching", { pendingUpdate: serviceState()["pendingUpdate"] });
       if (message.type === "switching" && switchTo?.lingers) return;
       return leave(0);
     case "idle?":
-      return send({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+      return send({
+        type: "idle",
+        readiness: "ready",
+        activity: idleAsked++ < busyFor ? { state: "busy", reason: "run-running" } : { state: "idle" },
+        updatesManagedOutside: false,
+      });
     case "drain?":
       if (behaviour === "deaf-once" && drainsPassedOver++ === 0) return;
       report("drained", { trigger: "launcher" });

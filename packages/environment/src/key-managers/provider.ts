@@ -1,16 +1,23 @@
-import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy, KeyManagerTokenInformation } from "@agent-harness/contracts";
+import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy, KeyManagerProvider, KeyManagerReference, KeyManagerTokenInformation } from "@agent-harness/contracts";
 
 /**
  * The provider interface (key-managers spec, "Providers"; ADR 0011): one
  * provider per kind of key manager behind it, which the connections sign in
  * and verify through. OpenBao is the first (`openbao.ts`), as far as
- * logging in, looking a login's token up, verifying it and revoking it;
- * renewal, run tokens, references and the other kinds join the interface
- * with the tickets that use them (#368 to #379). A provider never disables
- * TLS verification: a pinned CA is the only trust it adds.
+ * logging in, looking a login's token up, verifying it and revoking it,
+ * and reading a reference and listing names under a path (#370); renewal,
+ * run tokens and the other kinds join the interface with the tickets that
+ * use them (#368 to #379). A provider never disables TLS verification: a
+ * pinned CA is the only trust it adds.
  */
 
-/** How long one exchange with a key manager may take, a verification or a certificate preview (ADR 0031's budget), past which it is `unreachable`. */
+/** How a provider is named to people. */
+export const PROVIDER_NAMES: Record<KeyManagerProvider, string> = { openbao: "OpenBao", doppler: "Doppler", onepassword: "1Password", bitwarden: "Bitwarden Secrets Manager" };
+
+/**
+ * How long one exchange with a key manager may take (ADR 0031's budget): a verification or a certificate preview, past
+ * which it is `unreachable`, or a reference's read or a path's list (#370), past which the key manager has not answered.
+ */
 export const KEY_MANAGER_BUDGET_MS = 10_000;
 
 /** Where a provider signs in: the connection's address, its pinned CA, and its auth method at its mount. */
@@ -78,6 +85,18 @@ export interface VerifyOptions {
   readonly signal?: AbortSignal;
 }
 
+/** What a read of a reference answered: its value, or why there is none. */
+export type ReadAnswer = { readonly outcome: "read"; readonly value: string } | ProviderFailure;
+
+/** Where a list looks: a KV mount and a path under it, null for the mount's top; no mount lists the mounts. */
+export interface ListLocation {
+  readonly mount: string | null;
+  readonly path: string | null;
+}
+
+/** What a list answered: the names under the location, a folder's or a mount's ending in `/`; never a value. */
+export type ListAnswer = { readonly outcome: "listed"; readonly names: readonly string[] } | ProviderFailure;
+
 export interface ConnectionProvider {
   /** Logs in at the target's mount with `credential`, whose method is the target's: a token is its own login. */
   logIn(target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<LogInAnswer>;
@@ -93,4 +112,8 @@ export interface ConnectionProvider {
   readPolicy(target: SignInTarget, token: string, name: string, signal?: AbortSignal): Promise<PolicyTextAnswer>;
   /** Revokes the login's token with itself. */
   revoke(target: SignInTarget, token: string): Promise<RevokeAnswer>;
+  /** Reads the value `reference` names with the login's token, now: a value is never kept, whatever the provider keeps of the key manager's shape. */
+  read(target: SignInTarget, token: string, reference: KeyManagerReference, signal?: AbortSignal): Promise<ReadAnswer>;
+  /** Lists the names under `location` with the login's token: never a value. */
+  list(target: SignInTarget, token: string, location: ListLocation, signal?: AbortSignal): Promise<ListAnswer>;
 }

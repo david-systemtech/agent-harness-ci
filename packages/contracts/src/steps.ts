@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DENYLIST_SECTIONS } from "./denylist.js";
+import { GH_MINIMUM_VERSION } from "./forge-gh.js";
 import { BYPASS_SENTENCE } from "./permissions.js";
 import { SETTINGS, type SettingsKey } from "./settings.js";
 import type { SettingsRowId } from "./settings-rows.js";
@@ -137,11 +138,11 @@ export const DEFAULT_CADENCE_MINUTES = 60;
  * How often the environment checks a step with nobody asking (ADR 0031):
  * every hour, or another whole number of minutes with the reason why. ADR
  * 0031 gives the Key manager and Account steps fifteen, because the
- * orientation block reports token and sign-in freshness; each entry takes
- * it with the checks that report it (#574 for Account), and until then
- * every registered entry declares the hour. The runs on start, on the
- * cadence and on a step's triggers are the Set up specification's
- * scheduler (#88).
+ * orientation block reports token and sign-in freshness, and the forge spec
+ * gives Forges the same for its forge accounts' status (#319); each entry
+ * takes it with the checks that report it (#574 for Account). The runs on
+ * start, on the cadence and on a step's triggers are the Set up
+ * specification's scheduler (#88).
  */
 export interface Cadence {
   readonly minutes: number;
@@ -209,9 +210,10 @@ export const anyValidValue =
  * (#120); Your machines, for the update settings (#335), whose not-root line
  * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
  * rules and settings") and the transcript compaction window beside them
- * (#123), which sit on `environments.service`; Permissions (#129's keys,
- * #141's entry); and Appearance, which writes nothing until its theme
- * (ADR 0023, #391). The other steps arrive as their features are built,
+ * (#123), which sit on `environments.service`; Forges, whose forge
+ * accounts go through the forge account commands (#319); Permissions
+ * (#129's keys, #141's entry); and Appearance, for the theme (ADR 0023,
+ * #391), whose contrast it checks. The other steps arrive as their features are built,
  * each with its budget class, cadence, triggers and skip check as the Set
  * up specification tables them (#88).
  */
@@ -302,6 +304,48 @@ export const STEP_REGISTRY = [
     triggers: ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"],
   },
   {
+    // The Forges step (forge spec, "The Forges step"; ADR 0020, ADR 0032, ADR 0033; #319), at home on the Access band's
+    // Forges row (ADR 0027), linking the Key manager step, whose Move card takes stored tokens (ADR 0028). It writes no
+    // settings key: its forge accounts go through the four forge account commands. Skippable: with no forge account it
+    // answers skipped, the first step that does (ADR 0020). Its checks await a verification of every forge account
+    // (a network call); every forge.account.* event re-runs it.
+    id: "forges",
+    home: "access.forges",
+    writes: [],
+    writesState: [
+      { method: "forge.accounts.add", parts: ["forgeAccounts"] },
+      { method: "forge.accounts.update", parts: ["forgeAccounts"] },
+      { method: "forge.accounts.remove", parts: ["forgeAccounts"] },
+      { method: "forge.accounts.setPrimary", parts: ["forgeAccounts"] },
+    ],
+    checks: [],
+    stateChecks: [
+      { id: "forges.present", holds: "At least one forge account is on this environment.", actions: [] },
+      // sign-in-again is the vocabulary's word for giving a forge account a new credential (forge spec).
+      { id: "forges.identity", holds: "Each forge account answers as the identity it was added with.", actions: ["sign-in-again", "check-again"] },
+      { id: "forges.reads", holds: "Every read of each forge account passes.", actions: ["check-again"] },
+      // Make primary is the card's own control, no verb of the vocabulary.
+      { id: "forges.primary", holds: "Exactly one forge account is primary.", actions: [] },
+      {
+        id: "forges.gh",
+        holds: `Every forge account whose credential is gh finds gh installed, at ${GH_MINIMUM_VERSION} or later, and signed in as its login.`,
+        actions: ["install", "update", "sign-in-again"],
+      },
+      // ADR 0033's thirty days, for every kind that reports an expiry.
+      { id: "forges.expiry", holds: "No forge account's token expires within thirty days.", actions: ["sign-in-again"] },
+      { id: "forges.coverage", holds: "No origin a harness operation was refused on for want of a forge account counts as missing.", actions: [] },
+    ],
+    links: [{ step: "key-manager" }],
+    skippable: true,
+    skip: "forges.present",
+    budget: "network",
+    cadence: {
+      minutes: 15,
+      reason: "The orientation block reports each forge account's status (ADR 0012), so the step is checked as often as a forge account is verified.",
+    },
+    triggers: ["forge.account.*"],
+  },
+  {
     // The Permissions step (permissions spec, "The Permissions step"; #129's keys, #141's entry): at home on the Access
     // band's Permissions row, `access.permissions` (ADR 0027), linking the Your machines step for another environment's
     // containment availability. A preference step: done once set or preset (ADR 0031), so its keys' checks pass on
@@ -345,13 +389,22 @@ export const STEP_REGISTRY = [
     triggers: ["settings.updated", "denylist.changed"],
   },
   {
-    // The Appearance step (ADR 0023), at home on appearance.theme. It writes nothing since its session keys moved to
-    // Your machines (#568), until #391 adds appearance.theme; a settings change re-runs it.
+    // The Appearance step (ADR 0023), at home on appearance.theme, where the theme it writes sits (#391; its session
+    // keys moved to Your machines, #568). The theme is a preference: done once set or preset (ADR 0031), unless a seed
+    // of it could not hold the theme package's rules where its role puts it, which the environment's contrast check
+    // derives both ladders to find; Restore writes the preset theme back through settings.update. Never skipped; a
+    // settings change re-runs it.
     id: "appearance",
     home: "appearance.theme",
-    writes: [],
-    checks: [],
-    stateChecks: [],
+    writes: ["appearance.theme"],
+    checks: [{ key: "appearance.theme", check: anyValidValue("appearance.theme") }],
+    stateChecks: [
+      {
+        id: "appearance.contrast",
+        holds: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.",
+        actions: ["restore"],
+      },
+    ],
     links: [],
     skippable: false,
     budget: "local",

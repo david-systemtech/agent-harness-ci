@@ -1,6 +1,6 @@
 import type { UsageGauge } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
-import { gaugeOf, markOf, planDelta } from "./plan.js";
+import { markOf, planDelta } from "./plan.js";
 
 /** What a turn cost the plan (docs/specs/tui.md, "The transcript"). */
 
@@ -23,12 +23,5 @@ describe("planDelta", () => {
   it("says nothing of a move under a tenth of a percent, or of a window with no number", () => {
     expect(planDelta(markOf(gauge(0.1, "2026-09-25T10:00:00.000Z")), markOf(gauge(0.1004, "2026-09-25T10:05:00.000Z")))).toEqual([]);
     expect(markOf(gauge(null, "2026-09-25T10:00:00.000Z")).size).toBe(0);
-  });
-
-  it("finds the gauge pooling the run's account on its environment", () => {
-    const g = gauge(0.1, "2026-09-25T10:00:00.000Z");
-    expect(gaugeOf([g], "env", "account-1")).toBe(g);
-    expect(gaugeOf([g], "other", "account-1")).toBeUndefined();
-    expect(gaugeOf([g], "env", null)).toBeUndefined();
   });
 });

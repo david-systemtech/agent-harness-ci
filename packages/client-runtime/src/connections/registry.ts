@@ -175,6 +175,8 @@ export interface Registry extends Connections {
   readonly seams: ConnectionSeams;
   /** One connection's record. */
   record(environmentId: string): ConnectionRecord | undefined;
+  /** Notes in `hiddenDirectories` that the environment's directory at `path` is hidden as of its last use `lastUsedAt`. */
+  hideDirectory(environmentId: string, path: string, lastUsedAt: string): Promise<void>;
   /** Reads the saved connections and preferences, exchanges the local grant, and starts every connection's machine; settles once each first attempt has. */
   start(): Promise<void>;
   close(): void;
@@ -1031,6 +1033,15 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       await setPreferences((p) => ({ ...p, "environments.lastUsed": environmentId }));
     },
 
+    async hideDirectory(environmentId, path, lastUsedAt) {
+      if (!loaded) await ensureLoaded();
+      entryOf(environmentId);
+      await setPreferences((p) => ({
+        ...p,
+        hiddenDirectories: { ...p.hiddenDirectories, [environmentId]: { ...p.hiddenDirectories[environmentId], [path]: lastUsedAt } },
+      }));
+    },
+
     async remove(environmentId) {
       if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
@@ -1050,6 +1061,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         "environments.sequence": p["environments.sequence"].filter((id) => id !== environmentId),
         "environments.enabled": Object.fromEntries(Object.entries(p["environments.enabled"]).filter(([id]) => id !== environmentId)),
         "environments.lastUsed": p["environments.lastUsed"] === environmentId ? null : p["environments.lastUsed"],
+        hiddenDirectories: Object.fromEntries(Object.entries(p.hiddenDirectories).filter(([id]) => id !== environmentId)),
       }));
       // Every listener runs even when one fails; what failed is thrown after.
       const failures: unknown[] = [];

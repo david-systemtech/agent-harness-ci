@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARTEFACT_CLI_ENTRY, artefactNode, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
 
@@ -55,3 +55,33 @@ export const versionCommand = (versionDir: string, platform: NodeJS.Platform = p
   join(versionDir, ...versionNode(platform)),
   join(versionDir, ...VERSION_CLI_ENTRY),
 ];
+
+/**
+ * Where a version's folder declares what it is: its CLI package's
+ * `package.json`, whose `version` each release stamps and whose
+ * `launcherProtocol` is the launcher protocol its environment needs (the
+ * contracts' `LAUNCHER_PROTOCOL` of its build). The launcher reads them
+ * there without running anything of the version.
+ */
+export const VERSION_PACKAGE: readonly string[] = ["packages", "cli", "package.json"];
+
+/** What a version's folder declares of itself (`VERSION_PACKAGE`). */
+export interface DeclaredVersion {
+  readonly version: string;
+  readonly launcherProtocol: number;
+}
+
+/** What the version in `versionDir` declares, or why it declares nothing usable: its package is missing, not JSON, or lacks either part. */
+export const declaredVersion = (versionDir: string): DeclaredVersion | { readonly problem: string } => {
+  const path = join(versionDir, ...VERSION_PACKAGE);
+  let declared: unknown;
+  try {
+    declared = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    return { problem: `${path} could not be read as JSON: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const { version, launcherProtocol } = (typeof declared === "object" && declared !== null ? declared : {}) as Record<string, unknown>;
+  if (typeof version !== "string" || !RELEASE_VERSION_PATTERN.test(version)) return { problem: `${path} names no release version` };
+  if (!Number.isSafeInteger(launcherProtocol) || (launcherProtocol as number) < 1) return { problem: `${path} declares no launcher protocol` };
+  return { version, launcherProtocol: launcherProtocol as number };
+};
