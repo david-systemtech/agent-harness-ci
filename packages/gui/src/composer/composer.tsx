@@ -1,4 +1,4 @@
-import { followDraft, isLive, liveRun, lockOf, sendMessage, type InStep } from "@agent-harness/client-runtime";
+import { followDraft, interruptRun, isLive, liveRun, lockOf, sendMessage, type CapabilityAnswer, type InStep } from "@agent-harness/client-runtime";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { KeyContext, useKeyAction } from "../keys/key-dispatch.js";
 import { Button } from "../ui/index.js";
@@ -22,7 +22,11 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const box = useBox();
   const [line, say] = useState<string | undefined>(undefined);
-  const live = isLive(runs.state) || liveRun(projection) !== undefined;
+  // The run a send joins and Stop interrupts: the live run the transcript or the run state names.
+  const liveRunId = liveRun(projection)?.runId ?? (runs.state === "running" || runs.state === "parked" ? (runs.runId ?? undefined) : undefined);
+  const live = isLive(runs.state) || liveRunId !== undefined;
+  // The run this composer asked to stop: Stopping… while it is still the live one.
+  const [interruptAsked, askInterrupt] = useState<string | undefined>(undefined);
   const lock = lockOf(runtime.capability(environmentId, "runs.send"));
 
   // The text is the session's draft (docs/specs/gui.md, "A session pane"), kept in step by the runtime's rule: saved a
@@ -58,6 +62,16 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     });
   };
 
+  const stop = () => {
+    if (liveRunId === undefined) return;
+    askInterrupt(liveRunId);
+    void interruptRun(runtime, environmentId, liveRunId).then((refused) => {
+      if (refused === undefined) return;
+      say(refused);
+      askInterrupt(undefined);
+    });
+  };
+
   return (
     <KeyContext context="composer">
       <ComposerKeys submit={submit} newline={() => box.insert("\n")} />
@@ -72,9 +86,14 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
             rows={3}
             className="min-w-0 flex-1 resize-none rounded-md border border-line bg-inset px-3 py-2 text-sm text-ink outline-none focus-visible:border-beam"
           />
-          <Button tone="primary" disabled={lock.locked || box.text.trim().length === 0} onClick={submit}>
-            Send
-          </Button>
+          <SendOrStop
+            stops={live && box.text.trim().length === 0}
+            sends={!lock.locked && box.text.trim().length > 0}
+            stopping={liveRunId !== undefined && interruptAsked === liveRunId}
+            interrupt={liveRunId === undefined ? undefined : runtime.capability(environmentId, "runs.interrupt")}
+            send={submit}
+            stop={stop}
+          />
         </div>
         {line !== undefined && (
           <p role="status" className="text-xs text-ink-muted">
@@ -83,6 +102,46 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
         )}
       </div>
     </KeyContext>
+  );
+};
+
+interface SendOrStopProps {
+  /** A run is live and the box is empty: the button stops the run. */
+  readonly stops: boolean;
+  /** There is something to send, and a run can start. */
+  readonly sends: boolean;
+  /** The live run was asked to stop and has not ended. */
+  readonly stopping: boolean;
+  /** Whether the live run can be interrupted from here; undefined while its id is not known yet. */
+  readonly interrupt: CapabilityAnswer | undefined;
+  readonly send: () => void;
+  readonly stop: () => void;
+}
+
+/**
+ * Send and Stop share one button (docs/specs/gui.md, "A session pane"; story
+ * 9): Stop while a run is live and the box is empty (`runs.interrupt`), then
+ * Stopping… until the run ends; Send otherwise. A Stop the connection cannot
+ * send says why on hover.
+ */
+const SendOrStop = ({ stops, sends, stopping, interrupt, send, stop }: SendOrStopProps) => {
+  if (!stops)
+    return (
+      <Button tone="primary" disabled={!sends} onClick={send}>
+        Send
+      </Button>
+    );
+  if (stopping)
+    return (
+      <Button tone="danger" disabled>
+        Stopping…
+      </Button>
+    );
+  const absent = interrupt?.status === "absent" ? interrupt.message : interrupt === undefined ? "The run has not started yet." : undefined;
+  return (
+    <Button tone="danger" disabled={absent !== undefined} title={absent} onClick={stop}>
+      Stop
+    </Button>
   );
 };
 

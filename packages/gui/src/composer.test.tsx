@@ -147,3 +147,37 @@ describe("the draft", () => {
   });
 });
 
+describe("the Send and Stop button", () => {
+  it("is Send while no run is live, Stop while one is and the box is empty, and Stopping… from the interrupt until the run ends", async () => {
+    const { app, env, transcript, session } = await opened({ interruptHolds: true });
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+
+    const { runId } = env.startRun(session, "Fix the receipts");
+    await within(transcript).findByRole("article", { name: "Your message" });
+    const stop = await screen.findByRole("button", { name: "Stop" });
+
+    // Something to say mid-run: the button sends it.
+    await write(app, "and the tests");
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", false);
+    await write(app, "{Control>}a{/Control}{Backspace}");
+    expect(screen.getByRole("button", { name: "Stop" })).toBe(stop);
+
+    await app.user.click(stop);
+    await waitFor(() => expect(sent(env, "runs.interrupt")).toEqual([expect.objectContaining({ runId })]));
+    expect(screen.getByRole("button", { name: "Stopping…" })).toHaveProperty("disabled", true);
+
+    env.endRun(session, runId, { reason: "interrupted" });
+    await screen.findByRole("button", { name: "Send" });
+  });
+
+  it("says a refused interrupt in one line, and offers Stop again", async () => {
+    const { app, env, transcript, session } = await opened({ receipts: { "runs.interrupt": { rejected: "conflict", message: "The run has already ended." } } });
+    env.startRun(session, "Fix the receipts");
+    await within(transcript).findByRole("article", { name: "Your message" });
+
+    await app.user.click(await screen.findByRole("button", { name: "Stop" }));
+    await screen.findByText("Not interrupted: The run has already ended.");
+    expect(screen.getByRole("button", { name: "Stop" })).toHaveProperty("disabled", false);
+  });
+});
+
