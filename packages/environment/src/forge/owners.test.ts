@@ -82,7 +82,7 @@ describe("forge.orgs.list", () => {
     expect(await refusal(owners(reader, missing))).toEqual({ code: "not_found", data: { kind: "forge_account", forgeAccountId: missing } });
   });
 
-  it("answers credential_unavailable for a copy with no credential, verification_failed when the forge refuses the list or the token, and unreachable when it does not answer", async () => {
+  it("answers credential_unavailable for a copy with no credential or a credential answering as another user, verification_failed when the forge refuses the list or the token, and unreachable when it does not answer", async () => {
     const t = await start();
     const forge = await fakeForge();
     forge.user(TOKEN, DAVID);
@@ -96,6 +96,11 @@ describe("forge.orgs.list", () => {
 
     forge.answer(TOKEN, "GET /api/v1/user/orgs", { status: 403, body: { message: "token does not have at least one of required scope(s): [read:organization]" } });
     expect(await refusal(owners(client, account.id))).toEqual({ code: "verification_failed", data: { origin: forge.origin, status: 403 } });
+
+    // A credential answering as another user than the forge account's lists nobody's owners, verified or not.
+    forge.user(TOKEN, { login: "someone", id: 7 });
+    expect(await refusal(owners(client, account.id))).toEqual({ code: "credential_unavailable", data: { origin: forge.origin } });
+    expect(forge.requests.at(-1)).toMatchObject({ path: "/api/v1/user" });
 
     forge.answer(TOKEN, "GET /api/v1/user", { status: 401, body: { message: "token is required" } });
     expect(await refusal(owners(client, account.id))).toEqual({ code: "verification_failed", data: { origin: forge.origin, status: 401 } });

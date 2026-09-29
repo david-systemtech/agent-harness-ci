@@ -362,10 +362,16 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
       },
 
       owners: async (request) =>
-        withAccount(request, async ({ provider: forge, origin, token, call }) => {
+        withAccount(request, async ({ provider: forge, origin, token, call, account }) => {
           const user = await forge.identity(origin, token, call);
           if (user.outcome === "unreachable") return user;
           if (user.outcome === "refused") return { outcome: "failed", status: user.status, message: user.message };
+          // Another user's owners are not the forge account's: refused as a credential answering as another user is everywhere.
+          const held = account.identity;
+          if (held !== null && user.identity.userId !== held.userId) {
+            const message = `The credential of the forge account on ${origin} answers as ${user.identity.login}, not ${held.login}: give it a credential of its own in Set up, Forges.`;
+            return refused({ code: "credential_unavailable", message, data: { origin } });
+          }
           const organisations = await forge.organisations(origin, token, MAX_OWNER_ORGANISATIONS, call);
           if (organisations.outcome !== "done") return organisations;
           const owners: ForgeOwner[] = [{ login: user.identity.login, kind: "user" }, ...organisations.value.map((login): ForgeOwner => ({ login, kind: "organisation" }))];
