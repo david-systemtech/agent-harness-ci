@@ -297,12 +297,12 @@ const PROVIDER_COMMANDS = [
   { name: "model", description: "The provider's own model picker" },
 ];
 
-/** The slash commands the window wires, in the order its menu lists them: the composer's, then the side column's (#408). */
+/** The slash commands the window wires (the composer's and the side column's, #408), in the shared list's order, as the menu and the palette list them. */
 const WINDOW_COMMANDS = [
   "/attachSend an image or file with the next message",
-  "/filesBrowse the workspace's files, and read one in the pager",
   "/diffWhat this conversation changed, and the working tree's diff",
   "/tasksBackground work: what is running, and what a delegated agent did",
+  "/filesBrowse the workspace's files, and read one in the pager",
 ];
 
 describe("slash commands", () => {
@@ -342,9 +342,9 @@ describe("slash commands", () => {
     await waitFor(() => expect(rows("Commands")).toHaveLength(WINDOW_COMMANDS.length + 1));
     expect(highlightedRow()).toMatch(/^\/attach/);
     await write(app, "{ArrowDown}");
-    expect(highlightedRow()).toMatch(/^\/files/);
+    expect(highlightedRow()).toMatch(/^\/diff/);
     await write(app, "{ArrowDown}{ArrowUp}");
-    expect(highlightedRow()).toMatch(/^\/files/);
+    expect(highlightedRow()).toMatch(/^\/diff/);
     await write(app, "{ArrowUp}");
     expect(highlightedRow()).toMatch(/^\/attach/);
 
