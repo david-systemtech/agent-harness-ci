@@ -2,6 +2,8 @@ import { z } from "zod";
 import { InstructionChannelKind, RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Sha256 } from "./release.js";
+import { SkillName } from "./skill-rules.js";
+import { GitCommit, SkillOrigin } from "./skills.js";
 
 /**
  * The composition of a run's standing instructions (skills-instructions
@@ -49,7 +51,7 @@ export type InstructionManifestPart = z.infer<typeof InstructionManifestPart>;
 export const InstructionManifestLayer = z
   .object({
     layer: InstructionLayer,
-    characters: z.int().positive().meta({ description: "The characters the layer holds in the text: its parts, each two apart." }),
+    characters: z.int().positive().meta({ description: "The characters the layer holds in the text: its parts, with the two line breaks between each two of them." }),
     parts: z.array(InstructionManifestPart).min(1).meta({ description: "The layer's parts, in the order the text holds them." }),
   })
   .meta({ description: "A layer of the composed text: which, the characters it holds there, and its parts." });
@@ -57,14 +59,16 @@ export type InstructionManifestLayer = z.infer<typeof InstructionManifestLayer>;
 
 /**
  * An always-on skill the composition appended: its name, where it comes
- * from, and the commit of the snapshot it was read from. None until the
- * always-on layer is built (#507).
+ * from (the member's origin, `skills.ts`), and the commit of the source
+ * snapshot it was read from. None until the always-on layer is built (#507).
  */
 export const InstructionAlwaysOnSkill = z
   .object({
-    name: z.string().min(1).meta({ description: "The skill's name." }),
-    origin: z.string().min(1).nullable().meta({ description: "Where the skill comes from: its repository identity and folder; null for one with no known origin." }),
-    commit: z.string().min(1).nullable().meta({ description: "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)." }),
+    name: SkillName,
+    origin: SkillOrigin.nullable().meta({
+      description: "Where the skill comes from, as its member's origin: null for one of the own directory with no provenance manifest, or of a repository with no identity.",
+    }),
+    commit: GitCommit.nullable().meta({ description: "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)." }),
   })
   .meta({ description: "An always-on skill the composition appended: its name, its origin and the commit it was read at." });
 export type InstructionAlwaysOnSkill = z.infer<typeof InstructionAlwaysOnSkill>;

@@ -20,7 +20,11 @@ const orientationPart = { id: "orientation", version: null, characters: 40 };
 const sessionPart = { id: sessionId, version: null, characters: 17 };
 const userLayer = { layer: "user", characters: 40, parts: [orientationPart] };
 const sessionLayer = { layer: "session", characters: 17, parts: [sessionPart] };
-const alwaysOnSkill = { name: "grilling", origin: "https://github.com/mattpocock/skills skills/grilling", commit: "0123456789abcdef0123456789abcdef01234567" };
+const alwaysOnSkill = {
+  name: "grilling",
+  origin: { kind: "repository", repository: "https://github.com/mattpocock/skills", path: "skills/grilling" },
+  commit: "0123456789abcdef0123456789abcdef01234567",
+};
 
 /** A composition with two layers, an unread registry and nothing left out. */
 export const composedManifest = {
@@ -59,7 +63,13 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
   },
   "instructions/always-on-skill.json": {
     valid: [alwaysOnSkill, { name: "unslop", origin: null, commit: null }],
-    invalid: [{ name: "", origin: null, commit: null }, { name: "grilling", origin: null }, { name: "grilling", origin: "", commit: null }],
+    invalid: [
+      { name: "", origin: null, commit: null },
+      { name: "grilling", origin: null },
+      { ...alwaysOnSkill, name: "Grilling" },
+      { ...alwaysOnSkill, origin: "https://github.com/mattpocock/skills" },
+      { ...alwaysOnSkill, commit: "0123abc" },
+    ],
   },
   "instructions/left-out-reason.json": { valid: ["channel-none"], invalid: ["cap", ""] },
   "instructions/left-out.json": {

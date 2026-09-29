@@ -19,7 +19,7 @@
       "type": "integer",
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,
-      "description": "The characters the layer holds in the text: its parts, each two apart."
+      "description": "The characters the layer holds in the text: its parts, with the two line breaks between each two of them."
     },
     "parts": {
       "minItems": 1,
