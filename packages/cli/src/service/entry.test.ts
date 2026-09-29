@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { installVersion } from "../../test/launcher-fixtures.js";
 import { makeTempDir } from "../../test/service-helpers.js";
 import { HANDOVER_FILE, HANDOVER_STARTS_FILE } from "../launch/handover.js";
+import { RELAUNCH_EXIT_CODE } from "../launch/launcher.js";
 import { LAUNCHER_VERSION_FILE } from "../launch/launcher-version.js";
 import { VERSION_SENTINEL, versionDirectory } from "../launch/versions.js";
 import { LAUNCHER_ENTRY_FILES, renderLauncherEntry } from "./entry.js";
@@ -116,13 +117,13 @@ describe.runIf(posix)("the launcher entry, run by sh", () => {
     });
   });
 
-  it("exits with the launcher's code, which the service manager restarts on when it is not 0", () => {
+  it("exits with the launcher's code, which the service manager restarts on when it is not 0, as the relaunch code of a handover is", () => {
     const dataDir = tempDataDir();
     installVersion(dataDir, "0.5.0", ECHO_CHILD);
     writeFileSync(join(dataDir, LAUNCHER_VERSION_FILE), "0.5.0");
     const path = join(dataDir, LAUNCHER_ENTRY_FILES.sh);
     writeFileSync(path, renderLauncherEntry("sh", { dataDir, port: 7433 }));
-    expect(spawnSync("/bin/sh", [path], { env: { ...process.env, ECHO_EXIT: "75" } }).status).toBe(75);
+    expect(spawnSync("/bin/sh", [path], { env: { ...process.env, ECHO_EXIT: String(RELAUNCH_EXIT_CODE) } }).status).toBe(RELAUNCH_EXIT_CODE);
   });
 
   it("starts nothing and exits 0, saying why on standard error, when the launcher version file is missing or names no version", () => {
