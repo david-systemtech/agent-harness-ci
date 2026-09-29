@@ -97,7 +97,7 @@ describe("the desktop's added shell members as capabilities", () => {
     return { ...kept, [top]: Object.fromEntries(Object.entries(shell[top] as object).filter(([key]) => key !== inner)) };
   };
 
-  it.each(["shell.http", "shell.network", "shell.system", "shell.preview", "shell.notifications.onActivate"] as const)(
+  it.each(["shell.http", "shell.network", "shell.system", "shell.preview", "shell.notifications.onActivate", "shell.update", "shell.installer.bundledServer"] as const)(
     "answers %s present when the shell has it, and absent with reason no-shell when it lacks it or there is no shell",
     (name) => {
       const shell = fakeShell();

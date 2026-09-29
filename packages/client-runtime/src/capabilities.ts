@@ -48,7 +48,7 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.deepLinks.onOpen": `open ${PRODUCT_NAME} links`,
   "shell.webView": "embed a browser",
   "shell.preview": "show a preview",
-  "shell.installer": "run the desktop installer",
+  "shell.installer.bundledServer": "hand its local environment the server it carries",
   "shell.update": "update itself",
   "shell.service": "install, start or check the local environment's service",
   "shell.clipboard": "use the clipboard",

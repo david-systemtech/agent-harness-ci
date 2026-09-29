@@ -54,7 +54,7 @@ export const SHELL_MEMBERS = [
   "shell.deepLinks.onOpen",
   "shell.webView",
   "shell.preview",
-  "shell.installer",
+  "shell.installer.bundledServer",
   "shell.update",
   "shell.service",
   "shell.clipboard",
@@ -172,18 +172,69 @@ export interface ShellPreview {
 }
 
 /**
- * The desktop installer (ADR 0004's "installer launches"). Its members are
- * the launcher workstream's (#86) to define; installing the local
- * environment's service is `service.install`, not this.
+ * What the desktop installed with it (launcher-update spec, "The desktop
+ * moves with its local environment"): the server artefact it carries, which
+ * the runtime hands its local environment so that nothing downloads twice.
+ * Installing the local environment's service is `service.install`, not this.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- #86 defines the members
-export interface ShellInstaller {}
-
-/** The desktop's own updater (the launcher workstream). */
-export interface ShellUpdate {
-  check(): Promise<{ readonly available: boolean; readonly version?: string }>;
-  install(): Promise<void>;
+export interface ShellInstaller {
+  /** The server artefact the desktop carries, its version and path; null for a desktop that carries none, as one run from a checkout. */
+  bundledServer(): Promise<ShellBundledServer | null>;
 }
+
+/** The server artefact the desktop carries: the version it holds, and where it is on this machine. */
+export interface ShellBundledServer {
+  readonly version: string;
+  readonly path: string;
+}
+
+/**
+ * The desktop's own updater (launcher-update spec, "The desktop moves with
+ * its local environment"; #354): what it runs, and the application of a
+ * build its local environment staged. How each platform applies one is the
+ * desktop's own (#355); where the build comes from is the runtime's.
+ */
+export interface ShellUpdate {
+  /** The build the desktop runs. */
+  current(): Promise<ShellDesktopBuild>;
+  /**
+   * Applies `staged`: `now` quits, installs it and starts the desktop again
+   * (Restart to update); `quit` installs it as the desktop next quits, and
+   * each such call replaces the build the one before handed over. Answers
+   * once it is applied or handed over, else why not.
+   */
+  apply(staged: ShellStagedBuild, when: ShellApplyWhen): Promise<ShellApplyOutcome>;
+}
+
+/** The build the desktop runs: its version, platform and architecture, and the format it updates itself in. */
+export interface ShellDesktopBuild {
+  readonly version: string;
+  readonly platform: ShellPlatform;
+  /** As Node names it: `x64`, `arm64`. */
+  readonly arch: string;
+  /** The format a release's build of this install is (`zip`, `nsis`, `pacman`); null when the install cannot update itself: an AppImage, a `.deb`, a read-only bundle. */
+  readonly format: string | null;
+}
+
+/** A desktop build the local environment staged (`updates.desktop.stage`): where it is, its version and its SHA-256. */
+export interface ShellStagedBuild {
+  readonly path: string;
+  readonly version: string;
+  readonly sha256: string;
+}
+
+/** When a staged build is applied: now, restarting the desktop, or as it next quits. */
+export type ShellApplyWhen = "now" | "quit";
+
+/**
+ * What applying a staged build came to: applied (or, at `quit`, handed over
+ * for the next quit), or failed, the installed version left in place
+ * (`install`), or a temporary folder not removed (`cleanup`), which is
+ * never an unreachable release.
+ */
+export type ShellApplyOutcome =
+  | { readonly outcome: "applied" }
+  | { readonly outcome: "failed"; readonly failure: "install" | "cleanup"; readonly message: string };
 
 /** The local environment's service (ADR 0001). */
 export interface ShellService {
