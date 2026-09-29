@@ -213,6 +213,7 @@ export const createSetup = (host: SetupHost): Setup => {
   const views = new Map<string, Observable<SetupView>>();
   /** Each view's timer for its next change of age. */
   const wakes = new Map<string, Timer>();
+  let closed = false;
   const compute = (environmentId: string, records: readonly ConnectionRecord[], environments: ReadonlyMap<string, StreamState<EnvironmentData>>): SetupView => {
     const reach = reachOf(records.find((record) => record.environmentId === environmentId));
     const stream = environments.get(environmentId);
@@ -244,15 +245,15 @@ export const createSetup = (host: SetupHost): Setup => {
    * followed. One with the flag is never asked: its stream carries its
    * results (the Set up specification, "Capability flags").
    */
-  const followed = (environmentId: string): Observable<SetupView> => {
+  const viewOf = (environmentId: string): Observable<SetupView> => {
     // Moved when an age is due to change: a result passing its cadence, or the tick past it.
     const ages = writable(0);
     const inner = derived([host.records, host.environments, version, ages] as const, (records, environments) => {
       const view = compute(environmentId, records, environments);
       wakes.get(environmentId)?.cancel();
-      const due = nextAgeChange(view);
-      if (due === null) wakes.delete(environmentId);
-      else wakes.set(environmentId, host.clock.setTimeout(() => ages.update((n) => n + 1), due));
+      wakes.delete(environmentId);
+      const due = closed ? null : nextAgeChange(view);
+      if (due !== null) wakes.set(environmentId, host.clock.setTimeout(() => ages.update((n) => n + 1), due));
       return view;
     });
     let followers = 0;
@@ -288,7 +289,7 @@ export const createSetup = (host: SetupHost): Setup => {
   const setup: Setup = {
     view(environmentId) {
       let view = views.get(environmentId);
-      if (view === undefined) views.set(environmentId, (view = followed(environmentId)));
+      if (view === undefined) views.set(environmentId, (view = viewOf(environmentId)));
       return view;
     },
     async check(environmentId, step) {
@@ -328,6 +329,7 @@ export const createSetup = (host: SetupHost): Setup => {
       changed();
     },
     close() {
+      closed = true;
       for (const ask of asks) ask.timer?.cancel();
       asks.clear();
       for (const wake of wakes.values()) wake.cancel();

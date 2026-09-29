@@ -105,9 +105,13 @@ export interface Runtime {
     /**
      * The environment's Set up checklist (#570): the eleven steps in the
      * milestone-1 order, each with its label, its home row, whether the
-     * environment registers it and its latest result, from the environment
-     * stream's snapshot and its `setup.result-changed` notices, with no
-     * call of its own; and the counts over the registered steps.
+     * environment registers it, its latest result with its age and whether
+     * it is stale, and whether this client's own check of it is pending;
+     * the counts over the registered steps; and whether the environment can
+     * be reached. Filled from the environment stream's snapshot and its
+     * `setup.result-changed` notices, cached with the stream's cursor, with
+     * no call of its own; an environment without the `setup` flag is asked
+     * `setup.check` of every step each time the view comes to be followed.
      */
     setup(environmentId: string): Observable<SetupView>;
   };

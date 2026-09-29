@@ -93,6 +93,16 @@ export {
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
+  SETUP_AGE_TICK_MS,
+  SETUP_CHECK_TIMEOUT_MS,
+  SETUP_PENDING_MS,
+  type SetupCounts,
+  type SetupReach,
+  type SetupResultView,
+  type SetupStepView,
+  type SetupView,
+} from "./projections/setup.js";
+export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
   type AcceptedReceipt,
