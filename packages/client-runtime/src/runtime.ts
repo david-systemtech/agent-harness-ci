@@ -21,6 +21,7 @@ import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
 import type { SessionDocument } from "./projections/documents.js";
 import type { KnownDirectory } from "./projections/known-directories.js";
+import type { NewSessionContext, NewSessionView } from "./projections/new-session.js";
 import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
@@ -100,6 +101,14 @@ export interface Runtime {
      * offline with it, and stored nowhere.
      */
     knownDirectories(environmentId: string): Observable<readonly KnownDirectory[]>;
+    /**
+     * The new-session card's chips for what is in focus and the chips already
+     * set (ADR 0005): each chip's preset, the reason for it and its options,
+     * in the card's order, environment, account, model, workspace. A new
+     * observable on every call: a renderer keeps the one it follows while
+     * its context holds.
+     */
+    newSession(context: NewSessionContext): Observable<NewSessionView>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;

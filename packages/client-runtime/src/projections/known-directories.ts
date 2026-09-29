@@ -39,7 +39,7 @@ export interface KnownDirectory {
 const lastUse = (summary: SessionSummary): string => summary.lastActivityAt ?? summary.createdAt;
 
 /** The directory a session's workspace uses, and whether the workspace is that directory itself; none for scratch. */
-const usedBy = (summary: SessionSummary): { readonly path: string; readonly itself: boolean } | null => {
+export const directoryUsedBy = (summary: SessionSummary): { readonly path: string; readonly itself: boolean } | null => {
   const { workspace } = summary;
   if (workspace.kind === "scratch") return null;
   if (workspace.kind === "worktree") return { path: workspace.repository, itself: false };
@@ -56,7 +56,7 @@ const directoriesUsed = (sessions: Iterable<SessionSummary>): KnownDirectory[] =
   // The most recent session first: the first to name a directory gives its identity and last use, the first whose workspace
   // it is its mark.
   for (const summary of [...sessions].sort(byRecency(lastUse, (s) => s.id))) {
-    const used = usedBy(summary);
+    const used = directoryUsedBy(summary);
     if (used === null) continue;
     const held = known.get(used.path);
     const missingSince = used.itself ? summary.workspaceMissingSince : null;

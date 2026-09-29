@@ -16,6 +16,7 @@ import { documentsProjection, type SessionDocument } from "./projections/documen
 import { environmentsProjection } from "./projections/environments.js";
 import { hideKnownDirectory, knownDirectoriesProjection, type KnownDirectoriesHost, type KnownDirectory } from "./projections/known-directories.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
+import { ACCOUNT_DEFAULT_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
@@ -251,6 +252,17 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     // The request cache gives the same observable for the same environment and query.
     source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
+  const newSessionHost: NewSessionHost = {
+    records: registry.list,
+    environments,
+    sessionList: sessionList.view,
+    preferences: registry.preferences,
+    usage,
+    accounts: accountsProjections,
+    models: modelsProjections,
+    knownDirectories,
+    defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...ACCOUNT_DEFAULT_KEYS] }),
+  };
 
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.
@@ -289,6 +301,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       modes: (environmentId) => modesProjections(environmentId),
       copyTargets: (environmentId) => copyTargets(environmentId),
       knownDirectories: (environmentId) => knownDirectories(environmentId),
+      newSession: (context) => newSessionProjection(newSessionHost, context),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },

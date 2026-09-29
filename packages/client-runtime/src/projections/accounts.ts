@@ -63,7 +63,7 @@ export interface UsageView {
 }
 
 /** One login, as deep equality reads an identity: #136 makes one login read as one deep-equal identity on every environment. */
-const identityKey = (identity: AccountIdentity): string => JSON.stringify([identity.provider, identity.email, identity.organisation]);
+export const identityKey = (identity: AccountIdentity): string => JSON.stringify([identity.provider, identity.email, identity.organisation]);
 
 const later = (a: string, b: string): boolean => Date.parse(a) > Date.parse(b);
 
