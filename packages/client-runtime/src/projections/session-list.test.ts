@@ -214,17 +214,46 @@ describe("merged groups", () => {
 });
 
 describe("by repository identity", () => {
-  it("heads the sessions of one repository together across environments, leaving out those outside any repository", () => {
+  /** Each heading's label, or the environment of a heading with no identity, with its active sessions' titles. */
+  const headings = (view: ReturnType<typeof sessionListView>) =>
+    view.repositories.map((h) => [h.kind === "repository" ? h.label : h.environmentId, named(h.shelves.active)]);
+
+  it("heads the sessions of one repository together across environments, then each enabled environment's sessions outside any repository", () => {
     const url = "https://git.systemtech.dev/david/agent-harness";
     const view = sessionListView(
+      input(
+        {
+          [DESK]: list([summaryOf(randomUUID(), { title: "desk", repositoryIdentity: url }), summaryOf(randomUUID(), { title: "scratch" })]),
+          [LAPTOP]: list([summaryOf(randomUUID(), { title: "laptop", repositoryIdentity: url, lastActivityAt: at(3) }), summaryOf(randomUUID(), { title: "cool", repositoryIdentity: "https://github.com/x/cool-jams" })]),
+          [TOWER]: list([summaryOf(randomUUID(), { title: "on a disabled environment" })]),
+        },
+        [record(DESK), record(LAPTOP), record(TOWER, false)],
+      ),
+    );
+    expect(view.repositories.map((h) => (h.kind === "repository" ? h.repositoryIdentity : h.environmentId))).toEqual([url, "https://github.com/x/cool-jams", DESK, LAPTOP]);
+    expect(headings(view)).toEqual([
+      ["david/agent-harness", ["laptop", "desk"]],
+      ["x/cool-jams", ["cool"]],
+      [DESK, ["scratch"]],
+      [LAPTOP, []],
+    ]);
+  });
+
+  it("labels a heading by its path, its host too when another shares the path, and by the whole identity when it is of no form it knows", () => {
+    const view = sessionListView(
       input({
-        [DESK]: list([summaryOf(randomUUID(), { title: "desk", repositoryIdentity: url }), summaryOf(randomUUID(), { title: "scratch" })]),
-        [LAPTOP]: list([summaryOf(randomUUID(), { title: "laptop", repositoryIdentity: url, lastActivityAt: at(3) }), summaryOf(randomUUID(), { title: "cool", repositoryIdentity: "https://github.com/x/cool-jams" })]),
+        [DESK]: list([
+          summaryOf(randomUUID(), { title: "mirror", repositoryIdentity: "https://github.com/david/agent-harness" }),
+          summaryOf(randomUUID(), { title: "forge", repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" }),
+          summaryOf(randomUUID(), { title: "later", repositoryIdentity: "forge:david/agent-harness" }),
+        ]),
       }),
     );
-    expect(view.repositories.map((h) => [h.repositoryIdentity, named(h.shelves.active)])).toEqual([
-      [url, ["laptop", "desk"]],
-      ["https://github.com/x/cool-jams", ["cool"]],
+    expect(headings(view)).toEqual([
+      ["forge:david/agent-harness", ["later"]],
+      ["git.systemtech.dev/david/agent-harness", ["forge"]],
+      ["github.com/david/agent-harness", ["mirror"]],
+      [DESK, []],
     ]);
   });
 });

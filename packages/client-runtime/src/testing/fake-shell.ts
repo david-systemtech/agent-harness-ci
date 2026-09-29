@@ -5,6 +5,7 @@ import type {
   ShellClipboard,
   ShellDeepLinks,
   ShellDialogs,
+  ShellGh,
   ShellInstaller,
   ShellNetwork,
   ShellNotifications,
@@ -63,6 +64,7 @@ export interface ShellFunctions {
   http: HttpFetch;
   "network.allow": ShellNetwork["allow"];
   system: NonNullable<Shell["system"]>;
+  "gh.token": ShellGh["token"];
 }
 
 export type ShellFunctionName = keyof ShellFunctions;
@@ -139,6 +141,8 @@ export const fakeShell = (): FakeShell => {
     },
     "network.allow": async () => undefined,
     system: async () => ({ platform: "linux", architecture: "x64", hostname: "desk", user: "seth" }),
+    // A computer whose gh is signed in nowhere until the test scripts a token.
+    "gh.token": async () => undefined,
   };
   /** `member` as the shell carries it: recorded, then answered by its responder as it stands at the call. */
   const recorded = <M extends ShellFunctionName>(member: M): ShellFunctions[M] =>
@@ -180,6 +184,7 @@ export const fakeShell = (): FakeShell => {
     http: recorded("http"),
     network: { allow: recorded("network.allow") },
     system: recorded("system"),
+    gh: { token: recorded("gh.token") },
     calls,
     answer(member, responder) {
       responders[member] = responder;

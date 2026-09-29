@@ -115,6 +115,13 @@ export interface ClientPreferences {
   readonly "environments.enabled": Readonly<Record<string, boolean>>;
   /** The environment last used, for the default-environment rule (ADR 0005). */
   readonly "environments.lastUsed": string | null;
+  /**
+   * The directories hidden from an environment's known directories on this
+   * client (workspace-picker spec): by environment id, each path with its
+   * last use when it was hidden, so a session using it after that brings it
+   * back. Client-local presentation, one of the lint's presentation keys.
+   */
+  readonly hiddenDirectories: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /** Each preference as it is before David sets it. Its keys are the documents the preferences are stored under. */
@@ -122,6 +129,7 @@ export const NO_PREFERENCES: ClientPreferences = {
   "environments.sequence": [],
   "environments.enabled": {},
   "environments.lastUsed": null,
+  hiddenDirectories: {},
 };
 
 export const PREFERENCE_KEYS = Object.keys(NO_PREFERENCES) as readonly (keyof ClientPreferences)[];
@@ -152,6 +160,12 @@ export const readPreferences = (stored: Readonly<Record<keyof ClientPreferences,
     "environments.sequence": Array.isArray(sequence) ? [...new Set(sequence.filter(isString))] : [],
     "environments.enabled": Object.fromEntries(Object.entries(enabled).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")),
     "environments.lastUsed": stringOrNull(stored["environments.lastUsed"]),
+    hiddenDirectories: Object.fromEntries(
+      Object.entries(objectOf(stored.hiddenDirectories) ?? {}).map(([environmentId, hidden]) => [
+        environmentId,
+        Object.fromEntries(Object.entries(objectOf(hidden) ?? {}).filter((entry): entry is [string, string] => Timestamp.safeParse(entry[1]).success)),
+      ]),
+    ),
   };
 };
 

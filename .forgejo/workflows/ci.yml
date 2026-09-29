@@ -24,11 +24,16 @@ on:
     types: [opened, synchronize, reopened]
 
 # A push to a pull request that supersedes an earlier one cancels the old run.
-# Pushes to main queue instead: cancelling one because another merge landed
-# seconds later would leave that commit with no verdict.
+# So does a push to main, in this repository only (David, 2026-09-29): with
+# several build bots landing, main's queue held a run for every merge (40 in
+# 16 hours, about a fifth of CI), each re-testing a tree the next merge was
+# about to replace. The newest main is always tested; a merge whose run was
+# cancelled shares the verdict of the next one, and a red main is bisected
+# across the merges since the last green. The david/ci template still queues
+# main pushes, so copy a template fix over this block by hand.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   ci:

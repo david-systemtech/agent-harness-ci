@@ -210,6 +210,7 @@ describe("the shell interface", () => {
       | "http"
       | "network"
       | "system"
+      | "gh"
     >();
     expect(hasShellMember({}, "shell.dialogs")).toBe(false);
     expect(hasShellMember(undefined, "shell.dialogs")).toBe(false);
