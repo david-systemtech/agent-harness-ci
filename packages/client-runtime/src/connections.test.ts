@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Ceiling, PROTOCOL_VERSION, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { presetColour } from "../../environment/src/look/look.js";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { failingFetch, originOf, recordingWebSocket, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
@@ -20,8 +21,8 @@ const only = (runtime: Runtime) => {
 };
 
 describe("hello", () => {
-  it("fills the scopes, ceiling, flags and name, and the discovery document the harness version", async () => {
-    const t = await harness.environment({ name: "desk" });
+  it("fills the scopes, ceiling, flags, name, icon and colour, and the discovery document the harness version", async () => {
+    const t = await harness.environment({ name: "desk", platform: "linux" });
     const platform = inMemoryPlatform();
     const runtime = harness.runtime(platform);
     await runtime.start();
@@ -35,8 +36,9 @@ describe("hello", () => {
       ceiling: "plan",
       descriptor: {
         name: "desk",
-        icon: null,
-        colour: null,
+        // The environment's own (#323): until set, the platform's icon and a colour by its id's hash.
+        icon: "server",
+        colour: presetColour(t.env.id),
         harnessVersion: HARNESS_VERSION,
         protocolVersion: 1,
         capabilities: ["forge", "keyManagers"],

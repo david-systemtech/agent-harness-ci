@@ -1,4 +1,4 @@
-import type { CapabilityFlags, Ceiling, Scope } from "@agent-harness/contracts";
+import type { CapabilityFlags, Ceiling, EnvironmentColour, EnvironmentIcon, Scope } from "@agent-harness/contracts";
 import { derived, type Observable } from "../observable.js";
 import { LOCAL_PLACEHOLDER_ID, type BlockedReason, type ConnectionKind, type ConnectionPhase, type ConnectionRecord } from "../connections/records.js";
 import type { ConnectionAction } from "../connections/state-machine.js";
@@ -17,8 +17,10 @@ export interface EnvironmentView {
   readonly primary: boolean;
   /** Null for the local environment before it has ever answered (`LOCAL_PLACEHOLDER_ID`): a renderer calls it "this machine". */
   readonly name: string | null;
-  readonly icon: string | null;
-  readonly colour: string | null;
+  /** The environment's own (#323); null for one from before icons, which sends none. */
+  readonly icon: EnvironmentIcon | null;
+  /** A name, never a literal: the GUI paints it with the theme's token, the terminal UI with one of its colours. Null for an environment from before colours. */
+  readonly colour: EnvironmentColour | null;
   /** The harness version the environment runs. */
   readonly version: string | null;
   readonly flags: CapabilityFlags;
