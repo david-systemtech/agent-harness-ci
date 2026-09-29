@@ -16,6 +16,7 @@ import {
   sendMessage,
   stopCall,
   transcriptRows,
+  ttlWords,
   undoableFold,
   withdrawQueued,
   type Clock,
@@ -46,7 +47,7 @@ import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
 import { RECAP_FLASH_MS } from "./attention/policy.js";
 import { useAttention } from "./attention/use-attention.js";
 import { useAnswers } from "./cards/answers.js";
-import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey, ttlWords } from "./cards/asks.js";
+import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
 import { parseCommand, shellLine } from "./commands/parse.js";

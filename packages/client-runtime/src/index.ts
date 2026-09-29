@@ -178,3 +178,5 @@ export {
   type SendOutcome,
 } from "./composer/send.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
+export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
+export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";

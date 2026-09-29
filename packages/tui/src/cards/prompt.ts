@@ -1,11 +1,14 @@
-import { MODES, compareModes, type Mode, type PromptAnswerInput, type PromptOpenedPayload, type PromptQuestion } from "@agent-harness/contracts";
+import { choiceRows, joinAnswers, noteOf, rowAnswer, type RowOutcome } from "@agent-harness/client-runtime";
+import type { PromptAnswerInput, PromptOpenedPayload, PromptQuestion } from "@agent-harness/contracts";
 
 /**
  * The permission and question card as pure state (docs/specs/tui.md,
  * "Cards: permissions, questions, parked asks"; permissions spec, "Prompts,
- * parked prompts and the TTL"): the rows a prompt of each kind offers, where
- * the cursor starts, and what a key makes of them, down to the answer
- * `permissions.prompts.answer` takes, mapped onto the permissions names (conflict X1):
+ * parked prompts and the TTL"): where the cursor starts on the rows a prompt
+ * of each kind offers, and what a key makes of them, down to the answer
+ * `permissions.prompts.answer` takes, mapped onto the permissions names
+ * (conflict X1). The rows and what each answers are the client runtime's
+ * (`choiceRows`, `rowAnswer`), which the window's card offers too:
  *
  * - **An approval** (`permission`, `denylist`): Deny, Allow once, and on a
  *   `permission` prompt only "Allow for this session", which answers
@@ -30,13 +33,6 @@ import { MODES, compareModes, type Mode, type PromptAnswerInput, type PromptOpen
  *   typing, Backspace, and Ctrl+U or Ctrl+W to rub out all or a word.
  */
 
-/** One row of an approval or a plan: what choosing it answers. */
-export type ChoiceRow =
-  | { readonly kind: "deny"; readonly label: string; readonly detail: string }
-  | { readonly kind: "allow"; readonly label: string; readonly detail: string }
-  | { readonly kind: "session"; readonly label: string; readonly detail: string }
-  | { readonly kind: "approve"; readonly label: string; readonly detail: string; readonly mode: Mode | null; readonly above: boolean };
-
 /** The card as it stands for one prompt. */
 export interface CardState {
   readonly promptId: string;
@@ -52,44 +48,12 @@ export interface CardState {
 }
 
 /** What a key made of the card: its next state, an answer to send, or one line to say. */
-export type CardStep =
-  | { readonly kind: "state"; readonly state: CardState }
-  | { readonly kind: "answer"; readonly answer: PromptAnswerInput }
-  | { readonly kind: "say"; readonly line: string };
+export type CardStep = { readonly kind: "state"; readonly state: CardState } | RowOutcome;
 
 export const cardFor = (promptId: string): CardState => ({ promptId, cursor: 0, note: "", line: null, question: 0, ticked: new Set(), answers: {} });
 
 /** Whether the prompt is a question, whose rows are its options. */
 export const isQuestion = (prompt: PromptOpenedPayload): boolean => prompt.kind === "question";
-
-/** The modes a plan may continue in, past the default: acceptEdits first, then each higher one. */
-const CONTINUE_MODES: readonly Mode[] = MODES.filter((mode) => compareModes(mode, "acceptEdits") > 0);
-
-/** The rows of an approval or a plan; a question has its options instead. */
-export const choiceRows = (prompt: PromptOpenedPayload): readonly ChoiceRow[] => {
-  if (prompt.kind === "plan") {
-    return [
-      { kind: "deny", label: "Keep planning", detail: "send it back to planning" },
-      { kind: "approve", label: "Approve · continue in acceptEdits", detail: "leave plan mode for the default", mode: null, above: false },
-      ...CONTINUE_MODES.map(
-        (mode): ChoiceRow => ({
-          kind: "approve",
-          label: `Approve · continue in ${mode}`,
-          detail: compareModes(mode, prompt.ceiling) > 0 ? `above the ceiling ${prompt.ceiling}` : "",
-          mode,
-          above: compareModes(mode, prompt.ceiling) > 0,
-        }),
-      ),
-    ];
-  }
-  const tool = prompt.toolName ?? "this tool";
-  const rows: ChoiceRow[] = [
-    { kind: "deny", label: "Deny", detail: "tell the agent no and let it continue" },
-    { kind: "allow", label: "Allow once", detail: "" },
-  ];
-  if (prompt.kind === "permission") rows.push({ kind: "session", label: "Allow for this session", detail: `no more prompts for ${tool} in this session` });
-  return rows;
-};
 
 /** The question under way, when the prompt is a question. */
 export const currentQuestion = (prompt: PromptOpenedPayload, state: CardState): PromptQuestion | undefined => prompt.questions?.[state.question];
@@ -114,8 +78,6 @@ export const ticked = (prompt: PromptOpenedPayload, state: CardState): CardState
   return { ...state, ticked: next };
 };
 
-const withNote = (state: CardState): { readonly message?: string } => (state.note.trim().length > 0 ? { message: state.note.trim() } : {});
-
 /** A question answered with `given`: the next question, or every answer given once it was the last. */
 const answered = (prompt: PromptOpenedPayload, state: CardState, question: PromptQuestion, given: string): CardStep => {
   const answers = { ...state.answers, [question.question]: given };
@@ -132,26 +94,14 @@ export const chosen = (prompt: PromptOpenedPayload, state: CardState): CardStep 
     if (!question || question.options.length === 0) return { kind: "say", line: "This question has no options: Tab answers it in your own words, Esc skips it." };
     const picks = state.ticked.size > 0 ? [...state.ticked].sort((a, b) => a - b) : [state.cursor];
     const labels = picks.map((i) => question.options[i]?.label).filter((label): label is string => label !== undefined);
-    return answered(prompt, state, question, labels.join(", "));
+    return answered(prompt, state, question, joinAnswers(labels));
   }
-  const row = choiceRows(prompt)[state.cursor];
-  switch (row?.kind) {
-    case undefined:
-    case "deny":
-      return { kind: "answer", answer: { decision: "deny", ...withNote(state) } };
-    case "allow":
-      return { kind: "answer", answer: { decision: "allow", ...withNote(state) } };
-    case "session":
-      return { kind: "answer", answer: { decision: "allow", remember: "session", ...withNote(state) } };
-    case "approve":
-      if (row.mode !== null && row.above) return { kind: "say", line: `${row.mode} is above the ceiling ${prompt.ceiling} this run was resolved under.` };
-      return { kind: "answer", answer: { decision: "allow", ...(row.mode !== null && { mode: row.mode }), ...withNote(state) } };
-  }
+  return rowAnswer(prompt, choiceRows(prompt)[state.cursor], state.note);
 };
 
 /** Esc: an approval or a plan denied, with the note; a question skipped, which is a deny. */
 export const denied = (prompt: PromptOpenedPayload, state: CardState): PromptAnswerInput =>
-  isQuestion(prompt) ? { decision: "deny" } : { decision: "deny", ...withNote(state) };
+  isQuestion(prompt) ? { decision: "deny" } : { decision: "deny", ...noteOf(state.note) };
 
 /** Tab: the line opens on what it held. */
 export const lineOpened = (state: CardState): CardState => ({ ...state, line: state.line ?? state.note });

@@ -2,7 +2,7 @@ import type { EnvironmentView, ParkedAsk } from "@agent-harness/client-runtime";
 import { PromptOpenedPayload } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { abbreviationOf } from "../rail/badge.js";
-import { askRows, asksHeading, decidable, inBulk, parkedSessions, ttlWords } from "./asks.js";
+import { askRows, asksHeading, decidable, inBulk, parkedSessions } from "./asks.js";
 
 /** The asks card's rows as pure functions: the badge, the countdown's words, and which rows answer in place. */
 
@@ -40,16 +40,6 @@ const ask = (fields: Partial<ParkedAsk> & Pick<ParkedAsk, "environmentId" | "ses
     ...fields,
   };
 };
-
-describe("the countdown's words", () => {
-  it("says hours and minutes, then minutes and seconds, then seconds, and expiring at zero", () => {
-    expect(ttlWords(2 * 3600_000)).toBe("2h 0m left");
-    expect(ttlWords(2 * 3600_000 - 1)).toBe("1h 59m left");
-    expect(ttlWords(61_000)).toBe("1m 1s left");
-    expect(ttlWords(59_999)).toBe("59s left");
-    expect(ttlWords(0)).toBe("expiring");
-  });
-});
 
 describe("the badge", () => {
   it("takes the first letters of two words, else the first two letters, in capitals", () => {
