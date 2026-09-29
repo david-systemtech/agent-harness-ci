@@ -227,18 +227,24 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     const revoked = revocationsOf(record.id);
     // Counted from before the mint, so a login replaced while it is under way is not revoked under it.
     const use = login.use();
-    const answer = await login.provider.mint(
-      login.target,
-      login.token,
-      {
-        policies: [...new Set([...(record.ticks ?? []), "default"])],
-        ttlSeconds,
-        displayName: RUN_TOKEN_DISPLAY_NAME,
-        metadata: { session: scope.sessionId, holder: scope.holder },
-        tokenRole: record.tokenRole,
-      },
-      AbortSignal.timeout(budgetMs),
-    );
+    const answer = await login.provider
+      .mint(
+        login.target,
+        login.token,
+        {
+          policies: [...new Set([...(record.ticks ?? []), "default"])],
+          ttlSeconds,
+          displayName: RUN_TOKEN_DISPLAY_NAME,
+          metadata: { session: scope.sessionId, holder: scope.holder },
+          tokenRole: record.tokenRole,
+        },
+        AbortSignal.timeout(budgetMs),
+      )
+      .catch((error: unknown) => {
+        // A mint that throws lets go of the login's count as one refused does.
+        use();
+        throw error;
+      });
     if (answer.outcome !== "minted") {
       use();
       console.error(`Minting a run token from the key-manager connection ${record.id} for session ${scope.sessionId}'s ${scope.holder} failed; it is given no run token: ${scrub.scrubOutput(answer.message)}`);

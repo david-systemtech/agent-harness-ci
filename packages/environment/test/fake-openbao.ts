@@ -65,7 +65,7 @@ export interface FakeLogin {
   readonly renewable?: boolean;
   /** Preset: OpenBao's for the method (`approle`, `userpass-<name>`, `token`). */
   readonly displayName?: string;
-  /** Its role's `token_max_ttl` (#369): no renewal takes it past this from its issue, and its lookup does not say so. Preset: none. */
+  /** Its role's `token_max_ttl` (#369): no renewal takes it past this from its issue unless it is periodic, and its lookup does not say so. Preset: none. */
   readonly maxTtlSeconds?: number;
   /** Its `explicit_max_ttl` (#369), which its lookup names: no renewal takes it past this from its issue, a periodic one's included. Preset: none. */
   readonly explicitMaxTtlSeconds?: number;
