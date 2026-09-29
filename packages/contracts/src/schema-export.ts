@@ -203,6 +203,7 @@ import {
   WorkspaceProblem,
   WorkspaceRequest,
   WorkspaceStatus,
+  RepositoryIdentifiedReason,
 } from "./sessions.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
@@ -537,6 +538,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/workspace-request.json", title: "WorkspaceRequest", schema: WorkspaceRequest },
   { path: "sessions/workspace-problem.json", title: "WorkspaceProblem", schema: WorkspaceProblem },
   { path: "sessions/workspace-status.json", title: "WorkspaceStatus", schema: WorkspaceStatus },
+  { path: "sessions/repository-identified-reason.json", title: "RepositoryIdentifiedReason", schema: RepositoryIdentifiedReason },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },

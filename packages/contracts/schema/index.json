@@ -343,6 +343,10 @@
       "title": "WorkspaceStatus"
     },
     {
+      "path": "sessions/repository-identified-reason.json",
+      "title": "RepositoryIdentifiedReason"
+    },
+    {
       "path": "sessions/activity-state.json",
       "title": "ActivityState"
     },
@@ -489,6 +493,10 @@
     {
       "path": "sessions/events/session.workspace-status-changed.json",
       "title": "SessionWorkspaceStatusChangedPayload"
+    },
+    {
+      "path": "sessions/events/session.repository-identified.json",
+      "title": "SessionRepositoryIdentifiedPayload"
     },
     {
       "path": "sessions/events/prompt.opened.json",
