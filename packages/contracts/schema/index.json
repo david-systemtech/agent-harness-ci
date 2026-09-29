@@ -923,6 +923,18 @@
       "title": "ForgeAccountRecord"
     },
     {
+      "path": "forge/token-permission.json",
+      "title": "ForgeTokenPermission"
+    },
+    {
+      "path": "forge/token-page.json",
+      "title": "ForgeTokenPage"
+    },
+    {
+      "path": "forge/owner.json",
+      "title": "ForgeOwner"
+    },
+    {
       "path": "forge/events/forge.account.added.json",
       "title": "ForgeAccountAddedPayload"
     },
@@ -2119,6 +2131,14 @@
       "title": "SetupAction"
     },
     {
+      "path": "setup/target-kind.json",
+      "title": "SetupTargetKind"
+    },
+    {
+      "path": "setup/target.json",
+      "title": "SetupTarget"
+    },
+    {
       "path": "setup/step-state.json",
       "title": "StepState"
     },
@@ -2221,6 +2241,18 @@
     {
       "path": "errors/forge_account_missing.json",
       "title": "ForgeAccountMissingError"
+    },
+    {
+      "path": "errors/kind_unsupported.json",
+      "title": "KindUnsupportedError"
+    },
+    {
+      "path": "errors/not_a_forge.json",
+      "title": "NotAForgeError"
+    },
+    {
+      "path": "forge/errors/unreachable.json",
+      "title": "ForgeUnreachableError"
     },
     {
       "path": "frames/frame.json",
@@ -3373,6 +3405,30 @@
     {
       "path": "methods/forge.gh.probe/error.json",
       "title": "forge.gh.probe error"
+    },
+    {
+      "path": "methods/forge.detect/params.json",
+      "title": "forge.detect params"
+    },
+    {
+      "path": "methods/forge.detect/result.json",
+      "title": "forge.detect result"
+    },
+    {
+      "path": "methods/forge.detect/error.json",
+      "title": "forge.detect error"
+    },
+    {
+      "path": "methods/forge.orgs.list/params.json",
+      "title": "forge.orgs.list params"
+    },
+    {
+      "path": "methods/forge.orgs.list/result.json",
+      "title": "forge.orgs.list result"
+    },
+    {
+      "path": "methods/forge.orgs.list/error.json",
+      "title": "forge.orgs.list error"
     },
     {
       "path": "methods/keyManagers.list/params.json",
@@ -4950,6 +5006,24 @@
       "params": "methods/forge.gh.probe/params.json",
       "result": "methods/forge.gh.probe/result.json",
       "error": "methods/forge.gh.probe/error.json"
+    },
+    {
+      "name": "forge.detect",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.detect/params.json",
+      "result": "methods/forge.detect/result.json",
+      "error": "methods/forge.detect/error.json"
+    },
+    {
+      "name": "forge.orgs.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.orgs.list/params.json",
+      "result": "methods/forge.orgs.list/result.json",
+      "error": "methods/forge.orgs.list/error.json"
     },
     {
       "name": "keyManagers.list",

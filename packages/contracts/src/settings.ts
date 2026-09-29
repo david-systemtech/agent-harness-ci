@@ -101,11 +101,11 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
 
 /**
  * Every settings key. The two auto-settle keys and the transcript compaction
- * window (#123) are the Appearance step's to write (session-state spec), and
+ * window (#123) are the Your machines step's to write, moved from Appearance
+ * as the session-state spec allowed (the Set up specification; #568), and
  * sit on `environments.service`: ADR 0027 closed the Appearance band at Theme
  * and Keyboard shortcuts, and they are the environment's policy on its log
- * (GUI spec); the Set up workstream (#88) may move them to Your machines'
- * entry. The Account step's own keys (ADR 0018: the default account, model
+ * (GUI spec). The Account step's own keys (ADR 0018: the default account, model
  * family and effort, #134) and `providers.processIdleMinutes` (#120) are the
  * Account step's, on `accounts.default-model` (which folds together what
  * were separate Models and Runs panes). The permission keys (#129) are the
@@ -116,7 +116,7 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * name and seven seeds, preset "Default") is the Appearance step's, on its
  * home row, `appearance.theme`, written by `settings.update` (#391).
  */
-const SESSIONS_PLACE = { id: "appearance", row: "environments.service" } as const;
+const SESSIONS_PLACE = { id: "your-machines", row: "environments.service" } as const;
 const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
 
 export const SETTINGS = {

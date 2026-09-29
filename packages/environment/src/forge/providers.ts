@@ -13,9 +13,9 @@ export type { CallOptions, ForgeFetch } from "./forge-http.js";
  * bearer token; Forgejo and Gitea share one provider over the Gitea API
  * under `/api/v1`, with the `token` scheme, their kind recorded apart. A
  * read may go with no token, anonymously. Every call goes through
- * `forge-http.ts`: rate limits, entity tags and paging. Detection and the
- * list of organisations join the interface with the ticket that uses them
- * (#313).
+ * `forge-http.ts`: rate limits, entity tags and paging. The organisations a
+ * token's user belongs to are listed for the owner picker (#313); which
+ * kind a forge is comes before any provider, from `detection.ts`.
  */
 
 /** How long one call to a forge may take (ADR 0031's budget), past which the forge counts as unreachable. */
@@ -173,6 +173,8 @@ export interface ForgeProvider {
   repository(origin: ForgeOrigin, token: string | null, fullName: string, call?: CallOptions): Promise<ForgeReply<ForgeRepository>>;
   /** Reads the organisation `name`: whether the token sees it. */
   organisation(origin: ForgeOrigin, token: string, name: string, call?: CallOptions): Promise<ForgeReply<null>>;
+  /** The names of up to `limit` organisations the token's user is a member of, page by page, in the order the forge lists them. */
+  organisations(origin: ForgeOrigin, token: string, limit: number, call?: CallOptions): Promise<ForgeReply<string[]>>;
   /** Creates a repository, under the user or an organisation. */
   createRepository(origin: ForgeOrigin, token: string, creation: RepositoryCreation, call?: CallOptions): Promise<ForgeReply<ForgeRepository>>;
   /** Reads the issue `number` of `fullName`; with no token, anonymously. */
@@ -217,6 +219,8 @@ interface ApiDialect {
   readonly byHead: (head: PullRequestHead) => { readonly query: string; readonly keep?: (item: unknown) => boolean; readonly maxPages?: number };
   /** Where an asset's bytes are asked for, on the forge's own origin or its API's; null when the forge gave it no address that can be read. */
   readonly assetUrl: (origin: ForgeOrigin, fullName: string, asset: ForgeReleaseAsset) => string | null;
+  /** Where the organisations the token's user is a member of are listed: the list's path and query, the items kept, and each one's name. */
+  readonly organisations: { readonly path: string; readonly query?: string; readonly keep?: (item: unknown) => boolean; readonly name: (item: unknown) => string | null };
 }
 
 /**
@@ -262,6 +266,8 @@ const GITHUB: ApiDialect = {
   byHead: ({ owner, branch }) => ({ query: `state=all&sort=updated&direction=desc&head=${encodeURIComponent(`${owner}:${branch}`)}` }),
   // The API's asset route answers the bytes, or a redirect to GitHub's storage, when asked for an octet stream.
   assetUrl: (origin, fullName, asset) => `${forgeApiBase("github", origin)}/repos/${repositoryPath(fullName)}/releases/assets/${asset.id}`,
+  // The organisation list answers a fine-grained token with none (forge research, 1.3); the memberships answer it, pending invitations among them.
+  organisations: { path: "/user/memberships/orgs", query: "state=active", keep: (item) => field(item, "state") === "active", name: (item) => nonEmpty(field(field(item, "organization"), "login")) },
 };
 
 /** The most pages of pull requests the Gitea API's list by head reads (a chosen default): 250 most recently updated, as it cannot filter by head. */
@@ -287,6 +293,8 @@ const GITEA_API: ApiDialect = {
     const url = URL.parse(asset.downloadUrl, origin);
     return url === null ? null : `${origin}${url.pathname}${url.search}`;
   },
+  // An organisation's `name` is its login; `username` is the older field for it.
+  organisations: { path: "/user/orgs", name: (item) => nonEmpty(field(item, "name")) ?? nonEmpty(field(item, "username")) },
 };
 
 const DIALECTS: Readonly<Record<Exclude<ForgeKind, "gitlab">, ApiDialect>> = { github: GITHUB, forgejo: GITEA_API, gitea: GITEA_API };
@@ -309,9 +317,12 @@ const fullNameOf = (item: unknown): string | null => {
 const repositoryPath = (fullName: string): string => fullName.split("/").map(encodeURIComponent).join("/");
 
 /** An object's field, if the value is an object. */
-const field = (value: unknown, name: string): unknown => (typeof value === "object" && value !== null ? (value as Record<string, unknown>)[name] : undefined);
+export const field = (value: unknown, name: string): unknown => (typeof value === "object" && value !== null ? (value as Record<string, unknown>)[name] : undefined);
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+/** A string the forge answered that is not empty: a name, a version. */
+export const nonEmpty = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
 /** A repository on `origin` as both APIs answer one; null for an answer that is none. */
 const repositoryOn =
@@ -492,7 +503,13 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
 
     repository: async (origin, token, fullName, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository", repositoryOn(origin)),
 
-    organisation: async (origin, token, name, call) => acknowledged(origin, await get(origin, `/orgs/${encodeURIComponent(name)}`, token, call)),
+    organisation: async (origin, token, organisation, call) => acknowledged(origin, await get(origin, `/orgs/${encodeURIComponent(organisation)}`, token, call)),
+
+    async organisations(origin, token, limit, call) {
+      const { path, query, keep, name } = dialect.organisations;
+      const paged = await pages(origin, path, token, { limit, ...(query !== undefined && { query }), ...(keep !== undefined && { keep }) }, call);
+      return listed(origin, paged, "organisations", name);
+    },
 
     async createRepository(origin, token, creation, call) {
       const path = creation.organisation === null ? "/user/repos" : `/orgs/${encodeURIComponent(creation.organisation)}/repos`;
