@@ -52,7 +52,7 @@ interface Entry {
   /** cmdk's value for it: unique on its page. */
   readonly value: string;
   readonly name: string;
-  /** What is said beside its name: a slash command's description, a session's environment. */
+  /** What is said beside its name: a slash command's description, a Settings row's old names, a session's environment. */
   readonly detail?: string;
   /** Its GUI keys in force, as this platform reads them. */
   readonly keys: readonly string[];
