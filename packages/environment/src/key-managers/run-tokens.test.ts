@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { registry } from "@agent-harness/contracts";
@@ -425,5 +425,92 @@ describe("a sign-out", () => {
 
     await vi.waitFor(() => expect(bao.live(child)).toBe(false));
     expect(bao.live(PERSON_TOKEN)).toBe(true);
+  });
+});
+
+describe("a token role", () => {
+  it("is what run tokens are created against when the connection names one, and each is still revoked at its holder's stop", async () => {
+    const { t, bao, client } = await withOpenBao();
+    bao.role("runs", { orphan: true });
+    const connection = await connected(client, bao);
+    await update(client, { connectionId: connection.id, tokenRole: "runs" });
+    await verify(client, connection.id);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    const run = (await spawnedWith(t, session.id))["BAO_TOKEN"] ?? "";
+    expect(bao.issued(run)).toMatchObject({ role: "runs", parent: null, meta: { session: session.id, holder: "provider-process" } });
+    expect(bao.requests).toContainEqual({ method: "POST", path: "auth/token/create/runs" });
+
+    await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: session.id });
+
+    // An orphan outlives the login it was minted from, so only its own revocation ends it.
+    await vi.waitFor(() => expect(bao.live(run)).toBe(false));
+    expect(bao.live(bao.minted.at(-1) ?? "")).toBe(true);
+  });
+});
+
+describe("a login that cannot mint", () => {
+  it("gives holders the address and the CA with an empty token, never the login's own", async () => {
+    const { t, bao, client } = await withOpenBao();
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "reader"], ttlSeconds: 7200 });
+    const connection = await connected(client, bao);
+    expect((await list(client)).find((each) => each.id === connection.id)?.canMint).toBe(false);
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+
+    const env = await spawnedWith(t, session.id);
+    expect(env).toEqual(block({ address: bao.address, token: "", ca: bao.ca, config: configOf(t) }));
+    expect(Object.values(env)).not.toContain(bao.minted.at(-1));
+    expect(bao.requests.filter((request) => request.path.startsWith("auth/token/create"))).toEqual([]);
+  });
+});
+
+describe("a spawn while a connection signs in", () => {
+  /** A connection added and verified on an environment that has stopped, and a fake OpenBao whose AppRole login is held until `answer` is called. */
+  const heldAtRestart = async () => {
+    const dataDir = join(tempDir(), "data");
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const { t, bao, client } = await withOpenBao({ dataDir });
+    await connected(client, bao);
+    await t.close();
+    let answer = (): void => undefined;
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 7200, after: new Promise<void>((resolve) => (answer = resolve)) });
+    const again = await start({ dataDir });
+    const client2 = await again.client();
+    expect((await list(client2))[0]?.status.kind).toBe("signing-in");
+    return { t: again, bao, client: client2, answer };
+  };
+
+  it("waits for the sign-in, and is given a run token from the login it makes", async () => {
+    const { t, bao, client, answer } = await heldAtRestart();
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    let given = false;
+    void t.adapter.processesOf(session.id)[0]?.supplied.then(() => (given = true));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(given).toBe(false);
+
+    answer();
+
+    const env = await spawnedWith(t, session.id);
+    expect(env["BAO_TOKEN"]).toBe(bao.created[0]);
+    expect(bao.issued(env["BAO_TOKEN"] ?? "")?.parent).toBe(bao.minted.at(-1));
+  });
+
+  it("goes on with an empty token once five seconds have passed on the environment's clock", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    const { t, bao, client, answer } = await heldAtRestart();
+    onCleanup(answer);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+
+    t.clock.advance(5_000);
+
+    const env = await spawnedWith(t, session.id);
+    expect(env).toEqual(block({ address: bao.address, token: "", ca: bao.ca, config: configOf(t) }));
+    expect(bao.created).toEqual([]);
+    expect(errors.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("was still signing in after 5 s"));
   });
 });

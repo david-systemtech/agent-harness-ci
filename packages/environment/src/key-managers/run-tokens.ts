@@ -240,9 +240,9 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     return run;
   };
 
-  /** The block of one injecting connection for the holder, with its run token and that token's release; null for a connection no longer held. */
-  const blockFor = async (connectionId: string, scope: ProcessEnvironmentScope, configPath: string): Promise<SuppliedVariables | null> => {
-    await waitForSignIn(connectionId, scope);
+  /** The block of one injecting connection for the holder, once its sign-in under way has ended or been waited for, with its run token and that token's release; null for a connection no longer held. */
+  const blockFor = async (connectionId: string, waited: Promise<void>, scope: ProcessEnvironmentScope, configPath: string): Promise<SuppliedVariables | null> => {
+    await waited;
     const now = source.readable(connectionId);
     if (now === null) return null;
     const run = await mintFor(now.record, now.login, scope);
@@ -265,8 +265,12 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     async supply(scope) {
       const injecting = served();
       if (injecting.length === 0) return NOTHING;
+      // The five seconds run from the spawn: each wait starts before anything is awaited.
+      const waits = injecting.map(({ record }) => waitForSignIn(record.id, scope));
       const configPath = await configuration();
-      const blocks = (await Promise.all(injecting.map(({ record }) => blockFor(record.id, scope, configPath)))).filter((given) => given !== null);
+      const blocks = (await Promise.all(injecting.map(({ record }, index) => blockFor(record.id, waits[index] ?? Promise.resolve(), scope, configPath)))).filter(
+        (given) => given !== null,
+      );
       return {
         variables: Object.assign({}, ...blocks.map((given) => given.variables)) as Record<string, string>,
         release: () => {
