@@ -126,7 +126,8 @@ export type StepState = z.infer<typeof StepState>;
 /**
  * The step's last good result (ADR 0031: a result that passes a re-run,
  * done or skipped), which a result that timed out or could not check
- * carries for the client to show beneath it, dated.
+ * carries for the client to show beneath it, dated. The environment reads it
+ * from its result cache (#571), so it survives a restart.
  */
 const LastGood = z
   .object({
@@ -136,7 +137,7 @@ const LastGood = z
   })
   .meta({
     description:
-      "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated; absent when there has been none since the environment started.",
+      "The step's last result that passed, done or skipped, which the client shows beneath a result that timed out or could not check, dated: the step's cached result when that passed, else the last good result the cached one carried, so it survives a restart; absent when there is neither.",
   });
 export type LastGood = z.infer<typeof LastGood>;
 

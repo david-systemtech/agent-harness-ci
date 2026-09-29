@@ -8,6 +8,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, forgeEvents, list, pasted, remove } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 
 /**
  * The harness's operations on a forge (#316; forge spec, "Providers"; ADR
@@ -21,8 +22,9 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** An environment with no Set up step, whose Forges check would verify forge accounts beside the verifications counted here (#571). */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  const t = await startTestEnvironment({ setupSteps: NO_SETUP_STEPS, ...options });
   onCleanup(() => t.close());
   return t;
 };
