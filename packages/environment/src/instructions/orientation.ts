@@ -8,9 +8,9 @@ import type { OrientationAnswer, OrientationSeam } from "./composer.js";
  * 0011; #380): what fills the composer's orientation seam. The block's
  * sections are rendered by providers the owning services register with it,
  * one per section, and it puts them in their fixed order (this environment,
- * key managers, forges, banks, other environments) under the block's
- * heading, each under its own; a section with no provider registered is
- * left out.
+ * accounts, key managers, forges, banks, other environments) under the
+ * block's heading, each under its own; a section with no provider
+ * registered is left out.
  *
  * A provider renders its section from state, never from a clock: for
  * unchanged state the text is byte-identical, since it is in a provider
@@ -21,7 +21,7 @@ import type { OrientationAnswer, OrientationSeam } from "./composer.js";
  */
 
 /** The block's sections, in the order it holds them. */
-export const ORIENTATION_SECTIONS = ["environment", "key-managers", "forges", "banks", "other-environments"] as const;
+export const ORIENTATION_SECTIONS = ["environment", "accounts", "key-managers", "forges", "banks", "other-environments"] as const;
 export type OrientationSectionName = (typeof ORIENTATION_SECTIONS)[number];
 
 /** A list in a section: its heading line, if it has one, over one line per item. A list with no item is left out, its heading with it. */
