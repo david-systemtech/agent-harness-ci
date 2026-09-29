@@ -33,7 +33,7 @@ import { checkStep, type CheckedStep, type StateChecker } from "./check.js";
  */
 
 /** Who appends `setup.result-changed`: Set up itself, whoever asked for the check. */
-export const SETUP_ACTOR = formatActor({ kind: "system", id: "setup" });
+const SETUP_ACTOR = formatActor({ kind: "system", id: "setup" });
 
 /** The steps the service checks, in order, and how the environment answers their state checks, by id. */
 export interface SetupSteps {
