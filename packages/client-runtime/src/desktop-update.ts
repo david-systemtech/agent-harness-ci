@@ -3,7 +3,7 @@ import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/recor
 import { uuidv4 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock, Timer } from "./platform.js";
-import type { RequestFailure, Requests } from "./requests.js";
+import type { Requests } from "./requests.js";
 import type { Shell, ShellStagedBuild } from "./shell.js";
 
 /**
@@ -112,9 +112,6 @@ const newer = (a: string, b: string): boolean => ReleaseVersion.safeParse(a).suc
 /** The page a release is downloaded from by hand, on the forge the local environment reads its releases from. */
 const releasePageOf = (source: ReleaseSource): string => `${source.origin}/${source.repository}/releases`;
 
-/** A request's failure, for people. */
-const said = (failure: RequestFailure): string => failure.message;
-
 /** The update states in which an environment has an update under way to a version. */
 const PENDING_STATES: ReadonlySet<UpdatesStatus["pending"]["state"]> = new Set(["staging", "waiting", "ready", "draining", "switching"]);
 
@@ -129,7 +126,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
    * it was handed over for the next quit, and a check that finds nothing
    * newer, or fails, changes nothing about it.
    */
-  const checked = (build: DesktopBuildView): void => {
+  const showCheck = (build: DesktopBuildView): void => {
     const held = view.read().build.state;
     if ((held === "ready" || held === "applying") && build.state !== "ready" && !(build.state === "failed" && (build.failure === "install" || build.failure === "cleanup"))) return;
     setBuild(build);
@@ -175,12 +172,12 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       return failed(null, "check", `The desktop could not tell which build it runs: ${error instanceof Error ? error.message : String(error)}`);
     }
     const { version } = running;
-    checked({ state: "checking", version });
+    showCheck({ state: "checking", version });
     const status = await host.call(environmentId, "updates.status", {});
-    if (!status.ok) return failed(version, "check", `Could not ask the local environment for updates: ${said(status.error)}`, stagedNow());
+    if (!status.ok) return failed(version, "check", `Could not ask the local environment for updates: ${status.error.message}`, stagedNow());
     if (running.format === null) return { state: "unsupported", version, releasePage: releasePageOf(status.result.releaseSource) };
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.pinnedVersion"] });
-    if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${said(settings.error)}`, stagedNow());
+    if (!settings.ok) return failed(version, "check", `Could not read the local environment's update settings: ${settings.error.message}`, stagedNow());
     const pinned = settings.result.values["updates.pinnedVersion"] ?? null;
     const followed = pinned ?? status.result.newest;
     if (followed === null) {
@@ -188,12 +185,12 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       return last?.result === "failed" ? failed(version, "check", last.message, stagedNow()) : { state: "current", version };
     }
     if (!newer(followed, version)) return { state: "current", version };
-    checked({ state: "staging", version, toVersion: followed });
+    showCheck({ state: "staging", version, toVersion: followed });
     const stage = await host.stageCall(environmentId, "updates.desktop.stage", { platform: `${running.platform}-${running.arch}`, format: running.format });
-    if (!stage.ok) return failed(version, "stage", `The local environment could not stage the desktop's ${followed} build: ${said(stage.error)}`, stagedNow());
+    if (!stage.ok) return failed(version, "stage", `The local environment could not stage the desktop's ${followed} build: ${stage.error.message}`, stagedNow());
     const staged: ShellStagedBuild = { path: stage.result.path, version: stage.result.version, sha256: stage.result.sha256 };
     if (!newer(staged.version, version)) return { state: "current", version };
-    checked({ state: "ready", version, staged });
+    showCheck({ state: "ready", version, staged });
     if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) return { state: "ready", version, staged };
     const outcome = await apply(staged, "quit");
     if (outcome !== null) return failed(version, outcome.failure, outcome.message, staged);
@@ -218,12 +215,12 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     const bundled = await installer.bundledServer();
     if (bundled === null) return { state: "none" };
     const status = await host.call(environmentId, "updates.status", {});
-    if (!status.ok) return { state: "failed", version: bundled.version, reason: status.error.code, message: said(status.error) };
+    if (!status.ok) return { state: "failed", version: bundled.version, reason: status.error.code, message: status.error.message };
     const { version: environmentVersion, pending, failedVersions } = status.result;
     const pendingVersion = PENDING_STATES.has(pending.state) && "toVersion" in pending ? pending.toVersion : null;
     if (!newer(bundled.version, environmentVersion) || (pendingVersion !== null && !newer(bundled.version, pendingVersion))) return { state: "none" };
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.autoUpdate", "updates.pinnedVersion"] });
-    if (!settings.ok) return { state: "failed", version: bundled.version, reason: settings.error.code, message: said(settings.error) };
+    if (!settings.ok) return { state: "failed", version: bundled.version, reason: settings.error.code, message: settings.error.message };
     const { "updates.autoUpdate": autoUpdate, "updates.pinnedVersion": pinned } = settings.result.values;
     // Auto-update effective, and not a version whose update failed there: that is never retaken automatically.
     if (autoUpdate !== true || (pinned ?? null) !== null || failedVersions.includes(bundled.version)) return { state: "offered", version: bundled.version, environmentVersion };
@@ -234,7 +231,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
   const handOver = async (environmentId: string, version: string, path: string): Promise<BundledServerView> => {
     setBundled({ state: "handing-over", version });
     const answer = await host.call(environmentId, "updates.apply", { commandId: uuidv4(), version, artefactPath: path, when: "idle" });
-    if (!answer.ok) return { state: "failed", version, reason: answer.error.code, message: said(answer.error) };
+    if (!answer.ok) return { state: "failed", version, reason: answer.error.code, message: answer.error.message };
     const { receipt, result } = answer.result;
     if (receipt.status === "rejected" || result === undefined) {
       const error = receipt.status === "rejected" ? receipt.error : undefined;
@@ -251,7 +248,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     due = false;
     checking = true;
     void checkBuild(environmentId)
-      .then(checked, (error: unknown) => host.report(error))
+      .then(showCheck, (error: unknown) => host.report(error))
       .finally(() => {
         checking = false;
         if (closed) return;
@@ -275,8 +272,8 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
 
     async restart() {
       const build = view.read().build;
-      const staged = build.state === "ready" || build.state === "failed" ? (build.staged ?? null) : null;
-      if (staged === null || build.state === "unchecked") return build;
+      if ((build.state !== "ready" && build.state !== "failed") || build.staged === null) return build;
+      const { staged } = build;
       const version = build.version ?? staged.version;
       setBuild({ state: "applying", version, staged });
       const outcome = await apply(staged, "now");
