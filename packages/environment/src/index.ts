@@ -37,6 +37,7 @@ export {
   type StreamRef,
   type StreamSelector,
 } from "./event-log/event-log.js";
+export { holdDatabase, type DatabaseHold } from "./event-log/database-hold.js";
 export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session-list.js";
 export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
 export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods.js";
