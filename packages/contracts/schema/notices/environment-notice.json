@@ -3768,6 +3768,25 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "skills.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "description": "skills.updated: the skill set changed, by a command that committed or a read that found the own directory changed; a client reads skills.get again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The skill set changed: a command changed it, or a read found the own directory changed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "environment.renamed"
         },
         "payload": {

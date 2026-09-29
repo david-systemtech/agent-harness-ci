@@ -4,16 +4,25 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import {
+  ENVIRONMENT_NOTICE_TYPES,
+  EnvironmentNotice,
   REPOSITORY_IDENTITY_CASES,
   RepositoryIdentity,
+  SkillChoice,
   SkillMember,
+  SkillsView,
   SkillOrigin,
   SkillSource,
   SkillSourceBranch,
   SkillSourceFollow,
+  approximateTokens,
+  eventTypeEntry,
+  methods,
   readSkillMember,
+  registry,
   type SkillMember as SkillMemberType,
   type SkillSource as SkillSourceType,
+  type SkillsView as SkillsViewType,
 } from "./index.js";
 
 /**
@@ -39,9 +48,12 @@ describe("a member", () => {
   /** A member of a tracked source, from the Pocock set, as the reader will put it together. */
   const fromSource = (frontmatter: Record<string, unknown>, folder: string): SkillMemberType => ({
     ...readSkillMember(frontmatter, { kind: "folder", name: folder }),
+    kind: "skill",
+    path: folder,
     origin: { kind: "repository", repository: "https://github.com/mattpocock/skills", path: `skills/engineering/${folder}` },
     layer: { kind: "source", sourceId: "0f8fad5b-d9cb-469f-a165-70867728950e" },
     size: 4210,
+    tokens: approximateTokens(4210),
   });
 
   it("takes what reading a member's frontmatter and folder answers, valid or invalid, and survives the wire and the published schema", () => {
@@ -63,6 +75,21 @@ describe("a member", () => {
       expect(validate(origin), JSON.stringify(origin)).toBe(true);
     }
     expect(SkillOrigin.safeParse({ ...manifest, path: "../tdd" }).success).toBe(false);
+  });
+
+  it("is a skill folder or a command file, lying at a path from its layer's folder that never leaves it", () => {
+    const member = fromSource({ name: "review", description: "Review a branch." }, "review");
+    const command: SkillMemberType = { ...member, kind: "command", path: "commands/review.md", layer: { kind: "own" }, origin: null };
+    expect(roundTrip(SkillMember, command)).toEqual(command);
+    expect(SkillMember.parse({ ...member, path: "skills\\review\\" }).path).toBe("skills/review");
+    for (const path of ["../review", "/srv/skills/review", "C:\\skills"]) expect(SkillMember.safeParse({ ...member, path }).success, path).toBe(false);
+  });
+
+  it("carries its body's size and a quarter of it, rounded up, as its approximate tokens, and flags the keys that act while it is active", () => {
+    expect([0, 1, 4, 5, 4210].map(approximateTokens)).toEqual([0, 1, 1, 2, 1053]);
+    const member = { ...fromSource({ name: "tdd", description: "Test-driven development.", hooks: { Stop: [{ hooks: [] }] }, "allowed-tools": "Read" }, "tdd") };
+    expect(member).toMatchObject({ size: 4210, tokens: 1053, whileActive: ["hooks", "allowed-tools"] });
+    expect(published("skills/member.json")(JSON.parse(JSON.stringify(member)))).toBe(true);
   });
 
   it("lies in a source, the own directory or a trusted repository's .claude/skills or .agents/skills", () => {
@@ -123,5 +150,95 @@ describe("a repository identity", () => {
     for (const text of ["git@github.com:mattpocock/skills.git", "https://github.com/skills", "https://GitHub.com/mattpocock/skills", "http://github.com/mattpocock/skills", "https://github.com/mattpocock/skills/", "https://github.com/mattpocock/skills?x"]) {
       expect(RepositoryIdentity.safeParse(text).success, text).toBe(false);
     }
+  });
+});
+
+describe("the skills methods and notice", () => {
+  const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const own = { kind: "own" } as const;
+  const tdd: SkillMemberType = {
+    ...readSkillMember({ name: "tdd", description: "Test-driven development." }, { kind: "folder", name: "tdd" }),
+    kind: "skill",
+    path: "skills/tdd",
+    origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" },
+    layer: own,
+    size: 4210,
+    tokens: 1053,
+  };
+  const view: SkillsViewType = {
+    ownDirectory: "/home/david/.local/state/agent-harness/skills/own",
+    sources: [],
+    choices: [],
+    accountId: "claude-max",
+    members: [
+      { ...tdd, shadowedBy: null },
+      { ...tdd, kind: "command", path: "commands/tdd.md", origin: null, whileActive: ["allowed-tools"], shadowedBy: { layer: own, path: "skills/tdd" } },
+      { ...readSkillMember({}, { kind: "folder", name: "Notes" }), kind: "skill", path: "skills/Notes", origin: null, layer: own, size: 0, tokens: 0, shadowedBy: null },
+    ],
+  };
+
+  it("are skills.get at read, and skills.own.create and .remove as admin commands", () => {
+    const owned = methods.filter((m) => m.name.startsWith("skills."));
+    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "skills.get": ["query", "read"],
+      "skills.own.create": ["command", "admin"],
+      "skills.own.remove": ["command", "admin"],
+    });
+  });
+
+  it("take a session to skills.get, or none, and answer the own directory, the sources, the choices, the account and every member with what shadows it, through the wire and the published schema", () => {
+    const get = registry["skills.get"];
+    expect(get.params.safeParse({}).success).toBe(true);
+    expect(get.params.safeParse({ sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" }).success).toBe(true);
+    expect(get.params.safeParse({ sessionId: "s-1" }).success).toBe(false);
+    expect(roundTrip(get.result, view)).toEqual(view);
+    const validate = published("methods/skills.get/result.json");
+    expect(validate(JSON.parse(JSON.stringify(view))), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...view, members: [{ ...view.members[0], shadowedBy: { layer: own } }] })).toBe(false);
+    expect(SkillsView.safeParse({ ...view, accountId: null }).success).toBe(true);
+  });
+
+  it("list a choice by name: enabled for an account or the whole environment, or always-on for an account", () => {
+    const validate = published("skills/choice.json");
+    for (const choice of [
+      { kind: "enabled", name: "tdd", accountId: null, enabled: false },
+      { kind: "enabled", name: "tdd", accountId: "claude-max", enabled: true },
+      { kind: "always-on", name: "unslop", accountId: "claude-max", on: true },
+    ] as const) {
+      expect(roundTrip(SkillChoice, choice)).toEqual(choice);
+      expect(validate(choice), JSON.stringify(choice)).toBe(true);
+    }
+    expect(SkillChoice.safeParse({ kind: "always-on", name: "unslop", accountId: null, on: true }).success).toBe(false);
+    expect(SkillChoice.safeParse({ kind: "enabled", name: "Unslop", accountId: null, enabled: true }).success).toBe(false);
+  });
+
+  it("refuse a name failing the skill-name rule, and a description that is empty, all white space or over 1,024 characters, as the params' issues", () => {
+    const create = registry["skills.own.create"].params;
+    expect(create.safeParse({ commandId, name: "tdd", description: "Test-driven development." }).success).toBe(true);
+    expect(create.safeParse({ commandId, name: "Test_Driven", description: "Test-driven development." }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["name"], params: { rule: "skill-name", reason: "character" } }),
+    ]);
+    for (const description of ["", "  \n", "x".repeat(1025)]) expect(create.safeParse({ commandId, name: "tdd", description }).success, JSON.stringify(description)).toBe(false);
+    expect(create.safeParse({ commandId, name: "tdd", description: "x".repeat(1024) }).success).toBe(true);
+    const remove = registry["skills.own.remove"].params;
+    expect(remove.safeParse({ commandId, name: "tdd" }).success).toBe(true);
+    expect(remove.safeParse({ commandId, name: "-tdd" }).error?.issues).toEqual([expect.objectContaining({ path: ["name"], params: { rule: "skill-name", reason: "leading_hyphen" } })]);
+  });
+
+  it("answer each command's member through the wire and the published response", () => {
+    for (const name of ["skills.own.create", "skills.own.remove"] as const) {
+      const response = { receipt: { status: "accepted", sequence: 7, changed: true }, result: { member: tdd } } as const;
+      expect(roundTrip(registry[name].response, response)).toEqual(response);
+      const validate = published(`methods/${name}/response.json`);
+      expect(validate(JSON.parse(JSON.stringify(response))), JSON.stringify(validate.errors)).toBe(true);
+    }
+  });
+
+  it("raise skills.updated on the environment stream, with nothing more, in the notice union and the published schema", () => {
+    expect(ENVIRONMENT_NOTICE_TYPES).toContain("skills.updated");
+    expect(EnvironmentNotice.parse({ type: "skills.updated", payload: {} })).toEqual({ type: "skills.updated", payload: {} });
+    expect(eventTypeEntry("environment", "skills.updated")).toMatchObject({ list: false });
+    expect(published("notices/environment-notice.json")({ type: "skills.updated", payload: {} })).toBe(true);
+    expect(published("skills/skills-updated.json")({})).toBe(true);
   });
 });

@@ -258,6 +258,7 @@ describe("a deleted session", () => {
     "permissions.prompts.list": { sessionId },
     "instructions.preview": { sessionId },
     "forge.pullRequests.refresh": { sessionId },
+    "skills.get": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */

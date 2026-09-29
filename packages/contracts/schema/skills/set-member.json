@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "SkillMember",
+  "title": "SkillSetMember",
   "type": "object",
   "properties": {
     "name": {
@@ -288,6 +288,95 @@
         "description": "A warning on a member, which stays in the skill set."
       },
       "description": "Warnings that leave it in the set."
+    },
+    "shadowedBy": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "layer": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "source"
+                    },
+                    "sourceId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "sourceId"
+                  ],
+                  "description": "A tracked source's current snapshot."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "own"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "The environment's own skills directory, or its commands directory."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "repository"
+                    },
+                    "root": {
+                      "type": "string",
+                      "enum": [
+                        ".claude/skills",
+                        ".agents/skills"
+                      ],
+                      "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+                    },
+                    "directory": {
+                      "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
+                      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "root",
+                    "directory"
+                  ],
+                  "description": "A trusted repository's own skills."
+                }
+              ],
+              "description": "The layer a member lies in: a source, the own directory, or a trusted repository's .claude/skills or .agents/skills."
+            },
+            "path": {
+              "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+              "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "layer",
+            "path"
+          ],
+          "description": "A member named by where it lies: its layer and its path from that layer's folder."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The member holding its name that wins over it by precedence, which leaves this one out of the set; null for a member in the set, and for an invalid one."
     }
   },
   "required": [
@@ -303,7 +392,8 @@
     "size",
     "tokens",
     "problems",
-    "warnings"
+    "warnings",
+    "shadowedBy"
   ],
-  "description": "A member of a skill set: its name, whether it is a skill folder or a command file and where it lies, its description, invocation, whether a person may invoke it, the keys it declares that act while it is active, its origin, its layer, its body's size and approximate tokens, and its problems (any leaves it invalid) and warnings."
+  "description": "A member as a resolved skill set lists it: the member, and the member that shadows it when one holding its name wins by precedence. In the set when it has no problem and nothing shadows it."
 }

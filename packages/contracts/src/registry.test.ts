@@ -264,6 +264,8 @@ describe("the method registry", () => {
       "routines.runNow",
       "routines.endpoints.set",
       "routines.endpoints.remove",
+      "skills.own.create",
+      "skills.own.remove",
     ]);
   });
 
@@ -484,6 +486,9 @@ describe("the method registry", () => {
       | "routines.endpoints.set"
       | "routines.endpoints.remove"
       | "routines.endpoints.test"
+      | "skills.get"
+      | "skills.own.create"
+      | "skills.own.remove"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });
