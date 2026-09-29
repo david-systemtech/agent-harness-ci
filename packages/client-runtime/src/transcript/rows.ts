@@ -87,6 +87,14 @@ export const rewoundRowId = (sequence: number): string => `rewound:${sequence}`;
 export const undoableFold = (row: TranscriptRow | undefined, latest: { readonly sequence: number } | null | undefined): boolean =>
   row?.kind === "rewound" && latest != null && latest.sequence === row.entry.sequence && row.entry.undoable;
 
+/**
+ * How many user messages `rows` hold, what a rewind's fold among them cut
+ * counted too: the "N prompts cut" a fold says, which both renderers count
+ * alike.
+ */
+export const promptsIn = (rows: readonly TranscriptRow[]): number =>
+  rows.reduce((count, row) => count + (row.kind === "user" ? 1 : row.kind === "rewound" ? promptsIn(row.rows) : 0), 0);
+
 /** The rows of a session's projection, in the order they are drawn. */
 export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly TranscriptRow[] => {
   const drawn: TranscriptRow[] = [];
