@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgePair",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "pair"
+    },
+    "code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The pairing code as the person typed it; the environment reads it in its canonical form."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "The name the Chrome pairs as (Work, Personal), as the person typed it; the environment trims and cleans it."
+    }
+  },
+  "required": [
+    "type",
+    "code",
+    "name"
+  ],
+  "description": "pair: the code the person typed, and the name, on the announced socket."
+}

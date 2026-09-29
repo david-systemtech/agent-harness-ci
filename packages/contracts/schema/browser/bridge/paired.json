@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgePaired",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "paired"
+    },
+    "chromeId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+    },
+    "secret": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "The Chrome's secret: 32 random bytes as 64 lowercase hex characters, kept by the extension and never sent again."
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "devSites": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "description": "browser.devSites: the hosts being developed, as host patterns, where cookie values, storage and evaluate are allowed; loopback and private addresses count without being listed."
+        },
+        "evaluateEverywhere": {
+          "type": "boolean",
+          "description": "browser.evaluateEverywhere: evaluate is allowed on every site, not only dev sites."
+        },
+        "deepReadEverywhere": {
+          "type": "boolean",
+          "description": "browser.deepReadEverywhere: cookie values and storage are read on every site, not only dev sites."
+        },
+        "browserDomains": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The pattern, in its section's grammar."
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Why the entry is there, for people; empty for none."
+              },
+              "preset": {
+                "type": "boolean",
+                "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether it matches: a disabled entry never does."
+              }
+            },
+            "required": [
+              "id",
+              "pattern",
+              "note",
+              "preset",
+              "enabled"
+            ],
+            "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+          },
+          "description": "The enabled entries of the denylist's browser section, in its order: where no verb goes unasked. A disabled entry never matches."
+        }
+      },
+      "required": [
+        "devSites",
+        "evaluateEverywhere",
+        "deepReadEverywhere",
+        "browserDomains"
+      ],
+      "description": "The page policy a paired Chrome enforces: the dev sites, the two everywhere switches and the enabled entries of the denylist's browser section. The Chrome Web Store is refused under every policy."
+    }
+  },
+  "required": [
+    "type",
+    "chromeId",
+    "secret",
+    "policy"
+  ],
+  "description": "paired: the code was good; the Chrome's id, its secret and the page policy."
+}

@@ -1427,6 +1427,10 @@
       "title": "DenylistSection"
     },
     {
+      "path": "permissions/host-pattern.json",
+      "title": "HostPattern"
+    },
+    {
       "path": "permissions/denylist-entry.json",
       "title": "DenylistEntry"
     },
@@ -1773,6 +1777,238 @@
     {
       "path": "setup/step-result.json",
       "title": "StepResult"
+    },
+    {
+      "path": "browser/page-driver-kind.json",
+      "title": "PageDriverKind"
+    },
+    {
+      "path": "browser/page-key.json",
+      "title": "PageKey"
+    },
+    {
+      "path": "browser/verbs/open/args.json",
+      "title": "OpenArgs"
+    },
+    {
+      "path": "browser/verbs/open/value.json",
+      "title": "OpenValue"
+    },
+    {
+      "path": "browser/verbs/navigate/args.json",
+      "title": "NavigateArgs"
+    },
+    {
+      "path": "browser/verbs/navigate/value.json",
+      "title": "NavigateValue"
+    },
+    {
+      "path": "browser/verbs/snapshot/args.json",
+      "title": "SnapshotArgs"
+    },
+    {
+      "path": "browser/verbs/snapshot/value.json",
+      "title": "SnapshotValue"
+    },
+    {
+      "path": "browser/verbs/click/args.json",
+      "title": "ClickArgs"
+    },
+    {
+      "path": "browser/verbs/click/value.json",
+      "title": "ClickValue"
+    },
+    {
+      "path": "browser/verbs/clickAt/args.json",
+      "title": "ClickAtArgs"
+    },
+    {
+      "path": "browser/verbs/clickAt/value.json",
+      "title": "ClickAtValue"
+    },
+    {
+      "path": "browser/verbs/type/args.json",
+      "title": "TypeArgs"
+    },
+    {
+      "path": "browser/verbs/type/value.json",
+      "title": "TypeValue"
+    },
+    {
+      "path": "browser/verbs/read/args.json",
+      "title": "ReadArgs"
+    },
+    {
+      "path": "browser/verbs/read/value.json",
+      "title": "ReadValue"
+    },
+    {
+      "path": "browser/verbs/screenshot/args.json",
+      "title": "ScreenshotArgs"
+    },
+    {
+      "path": "browser/verbs/screenshot/value.json",
+      "title": "ScreenshotValue"
+    },
+    {
+      "path": "browser/verbs/scroll/args.json",
+      "title": "ScrollArgs"
+    },
+    {
+      "path": "browser/verbs/scroll/value.json",
+      "title": "ScrollValue"
+    },
+    {
+      "path": "browser/verbs/waitFor/args.json",
+      "title": "WaitForArgs"
+    },
+    {
+      "path": "browser/verbs/waitFor/value.json",
+      "title": "WaitForValue"
+    },
+    {
+      "path": "browser/verbs/console/args.json",
+      "title": "ConsoleArgs"
+    },
+    {
+      "path": "browser/verbs/console/value.json",
+      "title": "ConsoleValue"
+    },
+    {
+      "path": "browser/verbs/network/args.json",
+      "title": "NetworkArgs"
+    },
+    {
+      "path": "browser/verbs/network/value.json",
+      "title": "NetworkValue"
+    },
+    {
+      "path": "browser/verbs/cookies/args.json",
+      "title": "CookiesArgs"
+    },
+    {
+      "path": "browser/verbs/cookies/value.json",
+      "title": "CookiesValue"
+    },
+    {
+      "path": "browser/verbs/storage/args.json",
+      "title": "StorageArgs"
+    },
+    {
+      "path": "browser/verbs/storage/value.json",
+      "title": "StorageValue"
+    },
+    {
+      "path": "browser/verbs/evaluate/args.json",
+      "title": "EvaluateArgs"
+    },
+    {
+      "path": "browser/verbs/evaluate/value.json",
+      "title": "EvaluateValue"
+    },
+    {
+      "path": "browser/verbs/close/args.json",
+      "title": "CloseArgs"
+    },
+    {
+      "path": "browser/verbs/close/value.json",
+      "title": "CloseValue"
+    },
+    {
+      "path": "browser/page-command.json",
+      "title": "PageCommand"
+    },
+    {
+      "path": "browser/one-time-allowance.json",
+      "title": "OneTimeAllowance"
+    },
+    {
+      "path": "browser/page-call.json",
+      "title": "PageCall"
+    },
+    {
+      "path": "browser/page-refusal.json",
+      "title": "PageRefusal"
+    },
+    {
+      "path": "browser/page-outcome.json",
+      "title": "PageOutcome"
+    },
+    {
+      "path": "browser/page-policy.json",
+      "title": "PagePolicy"
+    },
+    {
+      "path": "browser/chrome-id.json",
+      "title": "ChromeId"
+    },
+    {
+      "path": "browser/port-file.json",
+      "title": "PortFile"
+    },
+    {
+      "path": "browser/bridge/announce.json",
+      "title": "BridgeAnnounce"
+    },
+    {
+      "path": "browser/bridge/pair.json",
+      "title": "BridgePair"
+    },
+    {
+      "path": "browser/bridge/hello.json",
+      "title": "BridgeHello"
+    },
+    {
+      "path": "browser/bridge/proof.json",
+      "title": "BridgeProof"
+    },
+    {
+      "path": "browser/bridge/result.json",
+      "title": "BridgeResult"
+    },
+    {
+      "path": "browser/bridge/announced.json",
+      "title": "BridgeAnnounced"
+    },
+    {
+      "path": "browser/bridge/paired.json",
+      "title": "BridgePaired"
+    },
+    {
+      "path": "browser/bridge/challenge.json",
+      "title": "BridgeChallenge"
+    },
+    {
+      "path": "browser/bridge/ready.json",
+      "title": "BridgeReady"
+    },
+    {
+      "path": "browser/bridge/policy.json",
+      "title": "BridgePolicy"
+    },
+    {
+      "path": "browser/bridge/call.json",
+      "title": "BridgeCall"
+    },
+    {
+      "path": "browser/bridge/ping.json",
+      "title": "BridgePing"
+    },
+    {
+      "path": "browser/bridge/pong.json",
+      "title": "BridgePong"
+    },
+    {
+      "path": "browser/bridge/refused.json",
+      "title": "BridgeRefused"
+    },
+    {
+      "path": "browser/bridge/from-extension.json",
+      "title": "BridgeFromExtension"
+    },
+    {
+      "path": "browser/bridge/from-environment.json",
+      "title": "BridgeFromEnvironment"
     },
     {
       "path": "settings/events/settings.updated.json",
@@ -3567,6 +3803,10 @@
     {
       "path": "cases/repository-identity.json",
       "title": "Repository identity"
+    },
+    {
+      "path": "cases/bridge-proof.json",
+      "title": "Bridge proof"
     }
   ],
   "data": [

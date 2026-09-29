@@ -248,6 +248,10 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ containment: { requested: "workspace", effective: "workspace" } }, { containment: { requested: "jail", effective: "off", clamped: false } }, {}],
   },
   "permissions/prompt-kind.json": { valid: ["permission", "denylist", "question", "plan"], invalid: ["tool", ""] },
+  "permissions/host-pattern.json": {
+    valid: ["paypal.com", "*.paypal.com", "localhost", "192.168.1.10", "::1", "2001:db8::1", "under_score.example"],
+    invalid: ["", "*", "https://paypal.com", "paypal.com:443", "paypal.com/path", "*.*.paypal.com", "pay*.com", 7],
+  },
   "permissions/prompt-question-option.json": { valid: [{ label: "date-fns", description: "" }], invalid: [{ label: "", description: "" }, { label: "a" }] },
   "permissions/prompt-question.json": { valid: [question, { ...question, header: "", options: [] }], invalid: [{ ...question, question: "" }, { ...question, multiSelect: "yes" }] },
   "permissions/auto-decider.json": { valid: ["unattended", "bypass", "ttl", "run_ended", "reviewer", "cancelled"], invalid: ["person", "withdrawn", ""] },

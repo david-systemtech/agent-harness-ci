@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgePing",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "ping"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "description": "ping: either side, to keep the socket and the extension's worker alive."
+}

@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BridgeFromExtension",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "announce"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The bridge protocol version the extension speaks: served when it is the environment's or the one before."
+        },
+        "extensionVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The extension's version: the harness version it was built with."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The name the Chrome pairs as (Work, Personal), as the person typed it; the environment trims and cleans it."
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "extensionVersion",
+        "name"
+      ],
+      "description": "announce: an extension that holds no credential opens its socket with its versions and the name it would pair as."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pair"
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The pairing code as the person typed it; the environment reads it in its canonical form."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The name the Chrome pairs as (Work, Personal), as the person typed it; the environment trims and cleans it."
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "name"
+      ],
+      "description": "pair: the code the person typed, and the name, on the announced socket."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "hello"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The bridge protocol version the extension speaks: served when it is the environment's or the one before."
+        },
+        "extensionVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The extension's version: the harness version it was built with."
+        },
+        "environmentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "The environment the extension paired with."
+        },
+        "chromeId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The name the Chrome paired as; a later hello never renames it."
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "extensionVersion",
+        "environmentId",
+        "chromeId",
+        "name"
+      ],
+      "description": "hello: a paired extension opens its socket with its versions, the environment it paired with and its Chrome's id."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "proof"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "HMAC-SHA256 of the challenge's nonce as sent (its UTF-8 bytes), keyed by the secret's 32 bytes, in lowercase hex."
+        }
+      },
+      "required": [
+        "type",
+        "mac"
+      ],
+      "description": "proof: the answer to a challenge, which proves the secret without sending it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "result"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The call's id, chosen by the environment and echoed by its result."
+        },
+        "result": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "ok": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "value": {
+                  "description": "The verb's value, as PAGE_VERB_SCHEMAS gives it.",
+                  "$ref": "#/$defs/__schema0"
+                },
+                "notice": {
+                  "description": "Something true of the answer that is not part of it: a wait clamped, a buffer that dropped its oldest entries.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ok",
+                "value"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ok": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The sentence the model reads: what went wrong and what it can do instead."
+                },
+                "denylist": {
+                  "description": "The denylist entry that refused an address a frame reached, and which frame.",
+                  "type": "object",
+                  "properties": {
+                    "frame": {
+                      "type": "string",
+                      "enum": [
+                        "top-level",
+                        "sub-frame"
+                      ],
+                      "description": "top-level: a navigation of the page, held at about:blank and put to the person; sub-frame: a frame of the page, which refuses the page whole."
+                    },
+                    "match": {
+                      "type": "object",
+                      "properties": {
+                        "section": {
+                          "type": "string",
+                          "enum": [
+                            "browserDomains",
+                            "paths",
+                            "commandPatterns",
+                            "hosts"
+                          ],
+                          "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+                        },
+                        "entry": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200,
+                              "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                            },
+                            "pattern": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The pattern, in its section's grammar."
+                            },
+                            "note": {
+                              "type": "string",
+                              "maxLength": 500,
+                              "description": "Why the entry is there, for people; empty for none."
+                            },
+                            "preset": {
+                              "type": "boolean",
+                              "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                            },
+                            "enabled": {
+                              "type": "boolean",
+                              "description": "Whether it matches: a disabled entry never does."
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "pattern",
+                            "note",
+                            "preset",
+                            "enabled"
+                          ],
+                          "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+                        },
+                        "matched": {
+                          "type": "string",
+                          "description": "What the call gave that matched it: a path, a command line, an address."
+                        }
+                      },
+                      "required": [
+                        "section",
+                        "entry",
+                        "matched"
+                      ],
+                      "description": "One denylist entry a call matched: the section, the entry, and what matched it."
+                    }
+                  },
+                  "required": [
+                    "frame",
+                    "match"
+                  ]
+                }
+              },
+              "required": [
+                "ok",
+                "reason"
+              ],
+              "description": "A refusal: a sentence the model can act on, never an exception, with the denylist's match when the browser section refused an address."
+            }
+          ],
+          "description": "A verb's answer: its value, or a refusal."
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "result"
+      ],
+      "description": "result: a verb's answer, its value or a refusal, for the call with this id."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ping"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "ping: either side, to keep the socket and the extension's worker alive."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pong"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "pong: the answer to a ping."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "refused"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Why, as a sentence for a person."
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ],
+      "description": "refused: either side, the socket is refused or ending, and why."
+    }
+  ],
+  "description": "A message the extension sends, told apart by its type.",
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}

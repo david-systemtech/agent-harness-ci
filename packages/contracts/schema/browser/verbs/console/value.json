@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ConsoleValue",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "level": {
+        "type": "string",
+        "enum": [
+          "log",
+          "info",
+          "warn",
+          "error",
+          "debug",
+          "exception"
+        ],
+        "description": "The console method, or exception for an uncaught error."
+      },
+      "text": {
+        "type": "string"
+      },
+      "source": {
+        "description": "The script and line, when the browser knows them.",
+        "type": "string"
+      },
+      "at": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+        "description": "An instant as an ISO 8601 UTC timestamp."
+      }
+    },
+    "required": [
+      "level",
+      "text",
+      "at"
+    ],
+    "description": "A console line or an uncaught error."
+  },
+  "description": "The console lines and uncaught errors since the last console verb."
+}

@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { Ajv2020 } from "ajv/dist/2020.js";
@@ -54,7 +55,10 @@ describe("the JSON Schema export", () => {
       methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; response?: string; error: string }[];
     };
     expect(index.protocolVersion).toBe(contracts.PROTOCOL_VERSION);
-    expect(index.cases).toEqual([{ path: "cases/repository-identity.json", title: "Repository identity" }]);
+    expect(index.cases).toEqual([
+      { path: "cases/repository-identity.json", title: "Repository identity" },
+      { path: "cases/bridge-proof.json", title: "Bridge proof" },
+    ]);
     expect(index.data).toEqual([
       { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
@@ -98,6 +102,34 @@ describe("the JSON Schema export", () => {
       identity: "https://git.systemtech.dev/david/agent-harness",
     });
     for (const entry of published.cases) expect(contracts.repositoryIdentityOf(entry.remote, entry.forgeAccounts), entry.note).toBe(entry.identity);
+  });
+
+  it("publishes the bridge proof's case, which a client reading only the file can check its HMAC against", () => {
+    const published = readJson("cases/bridge-proof.json") as { title: string; description: string; cases: { note: string; secret: string; nonce: string; proof: string }[] };
+    expect(published.title).toBe("Bridge proof");
+    expect(published.cases).toEqual([{ note: expect.any(String), ...contracts.BRIDGE_PROOF_TEST_VECTOR }]);
+    for (const { secret, nonce, proof } of published.cases) expect(createHmac("sha256", Buffer.from(secret, "hex")).update(nonce, "utf8").digest("hex")).toBe(proof);
+  });
+
+  it("round-trips bridge protocol version 2's messages, the port file and the page policy: what the codec writes the published documents accept, and what they accept the codec reads", () => {
+    const ajv = validator();
+    for (const path of filesOnDisk().filter((p) => p !== "index.json" && !p.startsWith("data/") && !p.startsWith("cases/"))) ajv.addSchema(readJson(path), path);
+    const fromExtension = schemaFixtures["browser/bridge/from-extension.json"]?.valid ?? [];
+    const fromEnvironment = schemaFixtures["browser/bridge/from-environment.json"]?.valid ?? [];
+    expect(fromExtension.length + fromEnvironment.length).toBe(17);
+    for (const message of fromExtension) {
+      const text = contracts.encodeBridgeMessage(message as contracts.BridgeFromExtension);
+      expect(ajv.validate("browser/bridge/from-extension.json", JSON.parse(text)), ajv.errorsText(ajv.errors)).toBe(true);
+      expect(contracts.decodeFromExtension(text)).toEqual({ ok: true, message });
+    }
+    for (const message of fromEnvironment) {
+      const text = contracts.encodeBridgeMessage(message as contracts.BridgeFromEnvironment);
+      expect(ajv.validate("browser/bridge/from-environment.json", JSON.parse(text)), ajv.errorsText(ajv.errors)).toBe(true);
+      expect(contracts.decodeFromEnvironment(text)).toEqual({ ok: true, message });
+    }
+    for (const path of ["browser/port-file.json", "browser/page-policy.json"]) {
+      for (const instance of schemaFixtures[path]?.valid ?? []) expect(ajv.validate(path, JSON.parse(JSON.stringify(instance))), path).toBe(true);
+    }
   });
 
   it("publishes the bands, the row registry and the address table as data, each entry valid against the schema the file names", () => {
