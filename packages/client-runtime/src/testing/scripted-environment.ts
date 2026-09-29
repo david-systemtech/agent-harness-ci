@@ -18,6 +18,9 @@ import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
   ContainmentReport,
+  DENYLIST_SECTIONS,
+  denylistPresets,
+  type Denylist,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
   UPDATE_SETTINGS_KEYS,
@@ -67,6 +70,7 @@ import type { ManualClock } from "./in-memory-platform.js";
 import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
 import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
+import { scriptedSetup, type ScriptedSetup, type ScriptedSetupHandle } from "./scripted-setup.js";
 
 /**
  * The scripted fake environment every renderer's tests drive
@@ -150,6 +154,8 @@ export interface ScriptedEnvironment {
   readonly containment?: Partial<ContainmentReport>;
   /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
   readonly settings?: Partial<SettingsValues>;
+  /** The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back: preset none. */
+  readonly lostPresets?: readonly string[];
   /** What `permissions.review.list` lists: preset nothing. */
   readonly review?: readonly Partial<ReviewRun>[];
   /** What `accounts.handoff.recommend` answers, over no recommendation. */
@@ -190,6 +196,11 @@ export interface ScriptedEnvironment {
   readonly posixShell?: boolean;
   /** What the update methods answer (#354): preset a current environment of discovery's version under a launcher, before any check, with no desktop build published. */
   readonly updates?: ScriptedUpdates;
+  /**
+   * What `setup.check` answers for each step (`scripted-setup.ts`): preset each step this build registers done. With the
+   * `setup` flag, `environment.subscribe`'s snapshot carries the results last checked and a check that changed one is noticed.
+   */
+  readonly setup?: ScriptedSetup;
 }
 
 /**
@@ -240,7 +251,7 @@ export interface Script {
   readonly environments: readonly ScriptedEnvironment[];
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts {
+export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -537,6 +548,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   let environmentSubscription: string | undefined;
   wire.answer("environment.subscribe", (_params, request) => {
     environmentSubscription = subscribed(request);
+    // With the `setup` flag, a snapshot carrying every step's result as the environment last checked it (#569).
+    if (flagged) {
+      const payload = { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }, setup: setup.snapshot() };
+      wire.server.send({ type: "snapshot", subscription: environmentSubscription, sequence, payload });
+    }
     wire.server.send({ type: "synchronized", subscription: environmentSubscription, sequence });
     return undefined;
   });
@@ -562,6 +578,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     };
     if (environmentSubscription) wire.server.send({ type: "event", subscription: environmentSubscription, sequence: at, event });
   };
+  const flagged = spec.capabilities?.includes("setup") ?? false;
+  const setup = scriptedSetup({ clock, wire, flagged, script: spec.setup, notice });
   const setUsage = (readings: readonly AccountUsage[]) => {
     usage = readings;
     for (const reading of readings) notice("usage.updated", { accountId: reading.accountId, identity: reading.identity });
@@ -1461,6 +1479,23 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
   });
+  // The denylist: the presets, but those the script says it lost, which restorePresets puts back in their sections.
+  const presets = denylistPresets(`${SCRIPTED_HOME}/.agent-harness`);
+  let lost = new Set(spec.lostPresets ?? []);
+  const kept = (entry: { readonly id: string }) => !lost.has(entry.id);
+  const denylistNow = (): Denylist => ({
+    browserDomains: presets.browserDomains.filter(kept),
+    paths: presets.paths.filter(kept),
+    commandPatterns: presets.commandPatterns.filter(kept),
+    hosts: presets.hosts.filter(kept),
+  });
+  wire.answer("permissions.denylist.restorePresets", () => {
+    const refused = rejection("permissions.denylist.restorePresets");
+    if (refused) return refused;
+    const restored = DENYLIST_SECTIONS.flatMap((section) => presets[section].filter((entry) => lost.has(entry.id)).map((entry) => ({ section, entry })));
+    lost = new Set();
+    return acceptedWith({ restored, denylist: denylistNow() });
+  });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
     const refused = rejection("updates.settings.set");
@@ -1779,6 +1814,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     setSettings: changeSettings,
     notice,
     ...prompts,
+    setSetup: setup.setSetup,
+    holdSetupChecks: setup.holdSetupChecks,
     terminals: () => [...terminals.values()],
     terminal(id) {
       const found = terminals.get(id.toLowerCase());
@@ -1839,3 +1876,4 @@ export const scriptedWorld = (clock: ManualClock, script: Script): ScriptedWorld
 export { DISCOVERY_PATH };
 export { SCRIPTED_HOME, type ScriptedList } from "./scripted-list.js";
 export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scripted-prompts.js";
+export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js";
