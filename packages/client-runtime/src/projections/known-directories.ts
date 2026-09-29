@@ -1,4 +1,5 @@
 import type { SessionSummary } from "@agent-harness/contracts";
+import type { ClientPreferences } from "../connections/records.js";
 import { derived, type Observable } from "../observable.js";
 import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
@@ -10,6 +11,8 @@ import type { StreamState } from "../streams/stream.js";
  * and stored nowhere, so it reads offline from the list's cache as the list
  * does. A `directory` workspace uses its path, a `worktree` its `repository`
  * (the main checkout it was made from); a scratch workspace uses none.
+ * Hiding one is client-local presentation (`hiddenDirectories`, beside
+ * `environments.lastUsed`), undone when a session uses it again.
  */
 
 /** How many known directories an environment lists, the most recently used. A chosen default (workspace-picker spec). */
@@ -67,5 +70,39 @@ export const directoriesUsed = (sessions: Iterable<SessionSummary>): KnownDirect
   return [...known.values()].map(({ directory }) => directory).sort(byRecency((d) => d.lastUsedAt, (d) => d.path));
 };
 
-export const knownDirectoriesProjection = (lists: Observable<ReadonlyMap<string, StreamState<ListData>>>, environmentId: string): Observable<readonly KnownDirectory[]> =>
-  derived([lists] as const, (all) => directoriesUsed(all.get(environmentId)?.data?.sessions.values() ?? []).slice(0, KNOWN_DIRECTORY_LIMIT));
+/** Whether a directory hidden as of `hiddenAt` (its last use when hidden) stays hidden: no session has used it since. */
+const stillHidden = (directory: KnownDirectory, hiddenAt: string | undefined): boolean =>
+  hiddenAt !== undefined && Date.parse(directory.lastUsedAt) <= Date.parse(hiddenAt);
+
+/** The environment's known directories: those used, less those hidden on this client and not used since, at most the limit. */
+export const knownDirectories = (sessions: Iterable<SessionSummary>, hidden: Readonly<Record<string, string>>): readonly KnownDirectory[] =>
+  directoriesUsed(sessions)
+    .filter((directory) => !stillHidden(directory, hidden[directory.path]))
+    .slice(0, KNOWN_DIRECTORY_LIMIT);
+
+export interface KnownDirectoriesHost {
+  /** Each environment's list, with the outbox's overlay laid over it. */
+  readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
+  readonly preferences: Observable<ClientPreferences>;
+  /** Writes the hiding to the client-local preferences. */
+  readonly hide: (environmentId: string, path: string, lastUsedAt: string) => Promise<void>;
+}
+
+const sessionsOf = (lists: ReadonlyMap<string, StreamState<ListData>>, environmentId: string): Iterable<SessionSummary> =>
+  lists.get(environmentId)?.data?.sessions.values() ?? [];
+
+export const knownDirectoriesProjection = (host: KnownDirectoriesHost, environmentId: string): Observable<readonly KnownDirectory[]> =>
+  derived([host.lists, host.preferences] as const, (lists, preferences) =>
+    knownDirectories(sessionsOf(lists, environmentId), preferences.hiddenDirectories[environmentId] ?? {}),
+  );
+
+/**
+ * Hides the environment's directory at `path` on this client: as of its last
+ * use, so the first session to use it after that brings it back. Rejects
+ * with a `RangeError` when no session of the environment uses it.
+ */
+export const hideKnownDirectory = async (host: KnownDirectoriesHost, environmentId: string, path: string): Promise<void> => {
+  const used = directoriesUsed(sessionsOf(host.lists.read(), environmentId)).find((directory) => directory.path === path);
+  if (used === undefined) throw new RangeError(`No session of environment ${environmentId} uses ${path}.`);
+  await host.hide(environmentId, path, used.lastUsedAt);
+};

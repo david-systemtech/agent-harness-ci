@@ -111,6 +111,15 @@ export interface Runtime {
     /** Takes a notice off `projections.notices`, on this client only. */
     dismiss(noticeId: string): void;
   };
+  readonly knownDirectories: {
+    /**
+     * Takes a directory off `projections.knownDirectories(environmentId)`, on
+     * this client only (`hiddenDirectories`), until a session uses it after
+     * the hiding. Rejects with a `RangeError` when no session of the
+     * environment uses it.
+     */
+    hide(environmentId: string, path: string): Promise<void>;
+  };
   /** The `sessions:write` and `runs:drive` commands, through the outbox. */
   readonly commands: Commands;
   /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */

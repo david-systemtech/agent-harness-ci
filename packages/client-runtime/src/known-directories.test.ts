@@ -6,9 +6,9 @@ import type { WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { TestEnvironment } from "../../environment/test/helper.js";
 import { git } from "../../environment/test/workspaces.js";
-import { holds, useHarness } from "../test/harness.js";
+import { failingFetch, holds, useHarness } from "../test/harness.js";
 import type { Runtime } from "./runtime.js";
-import { MANUAL_CLOCK_START, inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { MANUAL_CLOCK_START, inMemoryDocuments, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 /**
  * `projections.knownDirectories` (workspace-picker spec, "The picker in the
@@ -52,6 +52,9 @@ const twoEnvironments = async (runtime?: Runtime) => {
   return { desk, laptop, runtime: client };
 };
 
+/** The paths of the environment's known directories, as the runtime lists them now. */
+const paths = (runtime: Runtime, t: TestEnvironment): string[] => runtime.projections.knownDirectories(t.env.id).read().map((directory) => directory.path);
+
 /** Creates a session on `t` in `workspace` through the runtime, and waits for its row. */
 const create = async (runtime: Runtime, t: TestEnvironment, workspace: WorkspaceRequest): Promise<string> => {
   const id = randomUUID();
@@ -87,5 +90,65 @@ describe("projections.knownDirectories", () => {
       { path: plain, repositoryIdentity: null, lastUsedAt: MANUAL_CLOCK_START, missingSince: null },
     ]);
     expect(runtime.projections.knownDirectories(desk.env.id)).toBe(runtime.projections.knownDirectories(desk.env.id));
+  });
+
+  it("hides a directory on this client and its environment only, until a session uses it after the hiding", async () => {
+    const { desk, laptop, runtime } = await twoEnvironments();
+    const mistake = directory();
+    const used = directory();
+    await create(runtime, desk, { kind: "directory", path: mistake });
+    await create(runtime, laptop, { kind: "directory", path: mistake });
+    desk.clock.advance(1000);
+    await create(runtime, desk, { kind: "directory", path: used });
+
+    await runtime.knownDirectories.hide(desk.env.id, mistake);
+
+    expect(paths(runtime, desk)).toEqual([used]);
+    // The laptop's directory of the same path is another directory.
+    expect(paths(runtime, laptop)).toEqual([mistake]);
+    // Client-local presentation beside environments.lastUsed: the directory as of its last use when hidden.
+    expect(runtime.preferences.read().hiddenDirectories).toEqual({ [desk.env.id]: { [mistake]: MANUAL_CLOCK_START } });
+    // Another client of the same environment lists it still.
+    const other = harness.runtime(inMemoryPlatform());
+    await other.start();
+    await other.connections.add({ link: (await desk.createPairing()).link });
+    expect((await holds(other.projections.knownDirectories(desk.env.id), (list) => list.length === 2)).map((d) => d.path)).toEqual([used, mistake]);
+
+    // A session there after the hiding brings it back, first as the most recently used.
+    desk.clock.advance(1000);
+    await create(runtime, desk, { kind: "directory", path: mistake });
+    expect(paths(runtime, desk)).toEqual([mistake, used]);
+    await expect(runtime.knownDirectories.hide(desk.env.id, "/nowhere/it/was/used")).rejects.toThrow(RangeError);
+  });
+
+  it("is derived from the session list and stored nowhere: offline it reads from the list's cache, less what this client hid", async () => {
+    const documents = inMemoryDocuments();
+    const platform = inMemoryPlatform({ documents });
+    const { desk, runtime } = await twoEnvironments(harness.runtime(platform));
+    const mistake = directory();
+    const used = directory();
+    await create(runtime, desk, { kind: "directory", path: mistake });
+    desk.clock.advance(1000);
+    await create(runtime, desk, { kind: "directory", path: used });
+    await runtime.knownDirectories.hide(desk.env.id, mistake);
+    expect(paths(runtime, desk)).toEqual([used]);
+    await runtime.close();
+
+    // The documents naming a directory: the session list's cache, and for the hidden one the preference.
+    const naming = (path: string) =>
+      Object.entries(documents.entries())
+        .filter(([, value]) => JSON.stringify(value).includes(JSON.stringify(path).slice(1, -1)))
+        .map(([key]) => key)
+        .sort();
+    expect(naming(used)).toEqual([`streams.${desk.env.id}.list`]);
+    expect(naming(mistake)).toEqual(["hiddenDirectories", `streams.${desk.env.id}.list`]);
+
+    // A runtime on the same documents that reaches no environment.
+    const offline = harness.runtime(inMemoryPlatform({ documents, secrets: platform.secrets, fetch: failingFetch(() => true) }));
+    await offline.start();
+    expect(offline.projections.sessionList.read().environments.find((e) => e.environmentId === desk.env.id)?.freshness).toBe("cached");
+    expect(offline.projections.knownDirectories(desk.env.id).read()).toEqual([
+      { path: used, repositoryIdentity: null, lastUsedAt: after(1000), missingSince: null },
+    ]);
   });
 });
