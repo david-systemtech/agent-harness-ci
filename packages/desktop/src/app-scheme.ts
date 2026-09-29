@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { SchemeRegistration } from "./electron.js";
-import { APP_HOST, APP_ORIGIN, APP_SCHEME } from "./schemes.js";
+import { APP_HOST, APP_ORIGIN, APP_SCHEME, PREVIEW_SCHEME } from "./schemes.js";
 
 /**
  * The app scheme (docs/specs/gui.md, "The desktop shell"): the `gui` build
@@ -20,15 +20,18 @@ export const APP_SCHEME_REGISTRATION: SchemeRegistration = {
  * script, `eval` or injected stylesheet runs (the terminal pane's xterm.js
  * puts its stylesheets through the CSSOM, which `style-src` does not cover:
  * `gui`'s `terminal/xterm-styles.ts`, #486); pictures from the app scheme
- * and the `data:` pictures a transcript draws; WebSockets, which the request
- * lockdown narrows to the addresses the renderer declared. HTTP to
- * environments goes through the shell, so no `http:` or `https:` connects.
+ * and the `data:` pictures a transcript draws; frames from the preview
+ * scheme only, where the Preview pane's document carries a policy of its
+ * own (`preview.ts`, #410); WebSockets, which the request lockdown narrows
+ * to the addresses the renderer declared. HTTP to environments goes through
+ * the shell, so no `http:` or `https:` connects.
  */
 export const CONTENT_POLICY = [
   "default-src 'none'",
   `script-src ${APP_ORIGIN}`,
   `style-src ${APP_ORIGIN}`,
   `img-src ${APP_ORIGIN} data:`,
+  `frame-src ${PREVIEW_SCHEME}:`,
   "connect-src ws: wss:",
   "base-uri 'none'",
   "form-action 'none'",

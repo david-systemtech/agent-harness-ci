@@ -9,6 +9,7 @@ import type { DesktopElectron, ElectronBrowserWindow, ElectronWindow } from "./e
 import { environmentHttp } from "./http.js";
 import type { NetworkLockdown } from "./lockdown.js";
 import type { DesktopPlatform } from "./platform.js";
+import type { Previews } from "./preview.js";
 import { isWebLink } from "./schemes.js";
 
 /**
@@ -63,9 +64,10 @@ export interface MemberParts {
   readonly canvas: CanvasStore;
   readonly network: NetworkLockdown;
   readonly links: DeepLinkInbox;
+  readonly preview: Previews;
 }
 
-export const shellMembers = ({ electron, secrets, localGrant, service, platform, window, canvas, network, links }: MemberParts): Members => {
+export const shellMembers = ({ electron, secrets, localGrant, service, platform, window, canvas, network, links, preview }: MemberParts): Members => {
   const { dialog, clipboard } = electron;
   const openFile = async (given: unknown): Promise<string[]> => {
     const chosen = options(given, "The open dialog's options");
@@ -137,5 +139,6 @@ export const shellMembers = ({ electron, secrets, localGrant, service, platform,
     "service.install": () => service.install(),
     "service.start": () => service.start(),
     "service.status": () => service.status(),
+    "preview.grant": (content) => preview.grant(content),
   };
 };

@@ -12,6 +12,7 @@ import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
 import { createAttention } from "./projections/attention.js";
 import { createClientCalls } from "./projections/client-calls.js";
+import { documentsProjection, type SessionDocument } from "./projections/documents.js";
 import { environmentsProjection } from "./projections/environments.js";
 import { hideKnownDirectory, knownDirectoriesProjection, type KnownDirectoriesHost, type KnownDirectory } from "./projections/known-directories.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
@@ -216,6 +217,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     const [environmentId, sessionId] = key.split(" ") as [string, string];
     return sessionProjection({ lease: made.lease, peek: made.peek, outbox: outbox.view, drafts: drafts.waiting }, environmentId, sessionId);
   });
+  const documentsOf = memo((key): Observable<readonly SessionDocument[]> => documentsProjection(sessionProjections(key)));
   const sessionRuns = memo((key) => {
     const [environmentId, sessionId] = key.split(" ") as [string, string];
     const host = {
@@ -279,6 +281,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       sessionList: sessionList.view,
       search: (query) => searchProjection(sessionList.view, query),
       session: (environmentId, sessionId): Observable<SessionProjection> => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`),
+      documents: (environmentId, sessionId) => documentsOf(`${environmentId} ${sessionId.toLowerCase()}`),
       runs: runsProjection,
       accounts: (environmentId) => accountsProjections(environmentId),
       models: (environmentId) => modelsProjections(environmentId),

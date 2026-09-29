@@ -14,8 +14,11 @@ import {
 import { useState } from "react";
 import { Fold } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
+import type { Revealed } from "../session/pane-documents.js";
+import { DocumentTiles } from "./document-tiles.js";
 import { Marked } from "./find.js";
 import { picturesIn, pictureUrl, withoutPictures } from "./images.js";
+import type { RowFacts } from "./rows.js";
 
 /**
  * A run's tool calls (docs/specs/gui.md, "A session pane"; the terminal UI's
@@ -24,7 +27,9 @@ import { picturesIn, pictureUrl, withoutPictures } from "./images.js";
  * in full under it. A running call that has said nothing for three minutes
  * (`TOOL_QUIET_MS`, measured by the transcript on the window's clock) turns
  * amber and says for how long: a cue, not a verdict. The pictures the run's
- * calls returned are drawn under them, folded or not.
+ * calls returned are drawn under them, folded or not, and so is a tile for
+ * each document they wrote, which opens it in the Preview. Asked to show one
+ * of its calls, the fold opens.
  */
 
 /** The counts of the calls folded into the count row, by category. */
@@ -44,15 +49,29 @@ const callName = (call: ToolCallEntry): string => {
   return gloss.length > 0 ? `${call.name}: ${oneLine(gloss, 140)}` : call.name;
 };
 
+/**
+ * A fold holding `calls`, and its setter: shut until opened, and opened afresh each time the transcript is asked to show
+ * one of them (`revealed`, a new asking each time), however it was left.
+ */
+export const useOpenedFor = (calls: readonly ToolCallEntry[], revealed: Revealed | null): readonly [boolean, (open: boolean) => void] => {
+  const [open, setOpen] = useState(false);
+  const [heard, hear] = useState(revealed);
+  if (heard !== revealed) {
+    hear(revealed);
+    if (revealed !== null && calls.some((call) => call.toolCallId === revealed.toolCallId)) setOpen(true);
+  }
+  return [open, setOpen] as const;
+};
+
 interface CallsRowProps {
   readonly calls: readonly ToolCallEntry[];
-  /** How long each running call has said nothing, in milliseconds. */
-  readonly quietMs: (toolCallId: string) => number;
+  readonly facts: RowFacts;
 }
 
-export const CallsRow = ({ calls, quietMs }: CallsRowProps) => {
-  const [open, setOpen] = useState(false);
+export const CallsRow = ({ calls, facts }: CallsRowProps) => {
+  const { quietMs } = facts;
   const done = calls.filter(folded);
+  const [open, setOpen] = useOpenedFor(done, facts.revealed);
   const standing = calls.filter((call) => !folded(call));
   const summary = describeActivity(countsOf(done));
   return (
@@ -79,6 +98,7 @@ export const CallsRow = ({ calls, quietMs }: CallsRowProps) => {
           />
         )),
       )}
+      <DocumentTiles calls={calls} workspace={facts.workspace} />
     </div>
   );
 };
@@ -94,8 +114,11 @@ export const CallCard = ({ call, quietMs }: { readonly call: ToolCallEntry; read
     <div
       role="group"
       aria-label={name}
+      // The transcript focuses it when asked to show this call (`transcript.tsx`), and marks it so.
+      data-tool-call={call.toolCallId}
+      tabIndex={-1}
       className={classes(
-        "flex min-w-0 flex-col gap-1 rounded-md border px-2.5 py-1.5 text-[0.85em]",
+        "flex min-w-0 flex-col gap-1 rounded-md border px-2.5 py-1.5 text-[0.85em] outline-none focus:outline-2 focus:outline-beam",
         quiet ? "border-amber text-amber" : call.status === "error" ? "border-signal" : "border-hairline",
       )}
     >

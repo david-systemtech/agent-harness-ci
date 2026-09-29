@@ -11,13 +11,14 @@ import {
   type SessionProjection,
 } from "@agent-harness/client-runtime";
 import type { DelegatedWorkRow } from "@agent-harness/contracts";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import type { ReadingWidth } from "../presentation.js";
 import { KeyContext } from "../keys/key-dispatch.js";
 import { withQueued } from "../queue/placement.js";
 import { QueuedRow } from "../queue/queued.js";
 import { useSessionQueue } from "../queue/session-queue.js";
+import { usePaneDocuments, type Revealed } from "../session/pane-documents.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { FindBar, FindKeys, FindQuery, useFindBar } from "./find.js";
@@ -121,6 +122,24 @@ const useFollow = () => {
 };
 
 /**
+ * Showing a call the transcript was asked to show (the Documents pane's "the transcript at the call that made it", #410):
+ * its row's fold opens for it as it draws (`useOpenedFor`), then the transcript stops following the end, scrolls to the
+ * call and focuses it. Run after the follower's own scroll to the end, which the same render may have asked for.
+ */
+const useReveal = (follow: { readonly column: RefObject<HTMLDivElement | null>; readonly stop: () => void }, revealed: Revealed | null) => {
+  const { column, stop } = follow;
+  useLayoutEffect(() => {
+    if (revealed === null) return;
+    const call = [...(column.current?.querySelectorAll<HTMLElement>("[data-tool-call]") ?? [])].find((element) => element.dataset["toolCall"] === revealed.toolCallId);
+    if (call === undefined) return;
+    stop();
+    // jsdom has no scrolling into view; a window does.
+    if (typeof call.scrollIntoView === "function") call.scrollIntoView({ block: "center" });
+    call.focus();
+  }, [column, stop, revealed]);
+};
+
+/**
  * A session's conversation (docs/specs/gui.md, "A session pane"; #399):
  * `projections.session` drawn as the runtime's transcript rows, which the
  * terminal UI draws too, so the two fold a session alike (ADR 0004), with
@@ -149,8 +168,10 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const [liveFrom, setLiveFrom] = useState<number | null>(null);
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
   const quietMs = useQuietCalls(projection);
-  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs };
+  const { revealed } = usePaneDocuments();
+  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.summary?.workspace.path ?? null, revealed };
   const follow = useFollow();
+  useReveal(follow, revealed);
   const find = useFindBar(follow.column, follow.stop);
   const name = environments.find((environment) => environment.environmentId === environmentId)?.name ?? THIS_MACHINE;
   return (
