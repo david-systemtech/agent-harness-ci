@@ -326,6 +326,42 @@ describe("the forge notices", () => {
   });
 });
 
+describe("a forge notice heard while catching up", () => {
+  it("waits for the connection to be ready before reading the forge accounts, and then names the origin", async () => {
+    const { runtime, wire, env, environment } = await paired();
+    const account = forgeRecord({ origin: "https://git.example.com", kind: "forgejo", slug: "git_example_com" });
+    let asked = 0;
+    wire.answer("forge.accounts.list", () => {
+      asked++;
+      return { result: { accounts: [account] } };
+    });
+    environment.event(noticeEvent(1, env, "forge.account.primary-set", forgeEventPayload("forge.account.primary-set", account)));
+    await flush();
+
+    // The link drops; back again, the environment stream catches up from its cursor while the session list is still syncing.
+    wire.server.drop();
+    await flush();
+    void runtime.connections.retryNow(env);
+    await wire.server.accept();
+    const list = await subscription(wire, "sessions.subscribe");
+    const caughtUp = await subscription(wire, "environment.subscribe");
+    expect(caughtUp.params).toMatchObject({ afterSequence: 1 });
+    caughtUp.event(noticeEvent(2, env, "forge.account.capability-learned", forgeEventPayload("forge.account.capability-learned", account)));
+    caughtUp.synchronized(2);
+    await flush();
+    expect(runtime.connections.list.read()[0]?.phase).toBe("syncing");
+    expect(runtime.projections.notices.read()).toEqual([]);
+    expect(asked).toBe(0);
+
+    list.synchronized(0);
+    await flush();
+    expect(asked).toBe(1);
+    expect(runtime.projections.notices.read().map((notice) => notice.message)).toEqual([
+      "https://git.example.com on desk refused to open an issue (403): its forge account cannot write issues; give it a credential that can in Set up, Forges.",
+    ]);
+  });
+});
+
 describe("handing this computer's gh over", () => {
   /** The forge requests the environment heard, as method and params. */
   const forgeRequests = (wire: FakeWire) =>

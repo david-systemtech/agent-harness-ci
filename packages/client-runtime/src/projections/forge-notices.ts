@@ -26,8 +26,9 @@ import type { NoticeInput, Notices, StepAction } from "../notices.js";
  * Only the add names a forge account's origin, so the origins heard are
  * kept per environment, and the request cache's `forge.accounts.list` is
  * read beside them; one known to neither (its add was before the stream's
- * cursor) is read from the environment with `forge.accounts.list`, and the
- * row is raised once it answers, rows behind it waiting their turn so they
+ * cursor) is read from the environment with `forge.accounts.list` once
+ * its connection is ready, and the row is raised once it answers, rows
+ * behind it waiting their turn so they
  * keep the order they were heard in. An origin never changes, so a list
  * read at any time names it.
  */
@@ -50,7 +51,7 @@ export interface ForgeNoticesHost {
   readonly name: (environmentId: string) => string;
   /** The forge accounts the request cache holds for the environment, if it holds them; never fetches. */
   readonly held: (environmentId: string) => readonly ForgeAccountRecord[] | null;
-  /** Reads the environment's forge accounts now; null when it could not. */
+  /** Reads the environment's forge accounts once its connection is ready; null when it could not. */
   readonly list: (environmentId: string) => Promise<readonly ForgeAccountRecord[] | null>;
   readonly report: (error: unknown) => void;
 }

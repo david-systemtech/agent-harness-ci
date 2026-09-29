@@ -51,7 +51,7 @@ describe("the bundle's platform", () => {
     await expect(platform.documents.set("x", { cut: BigInt(1) })).rejects.toThrow();
   });
 
-  it("has no shell, so this computer's gh is absent with its reason in a browser tab (#320)", () => {
+  it("has no shell, so this computer's gh is absent with its reason in a browser tab", () => {
     const platform = browserPlatform(window, "0.5.0");
     expect(platform.shell).toBeUndefined();
     const runtime = createRuntime(platform);

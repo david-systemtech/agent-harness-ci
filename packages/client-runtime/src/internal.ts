@@ -1,6 +1,6 @@
 import { PROTOCOL_VERSION, type PromptKind, type RunEndedPayload } from "@agent-harness/contracts";
 import { answerCapability } from "./capabilities.js";
-import { LOCAL_PLACEHOLDER_ID } from "./connections/records.js";
+import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/records.js";
 import { createRegistry, type ConnectionSeams, type RegistryCaches } from "./connections/registry.js";
 import { createNotices } from "./notices.js";
 import { derived, type Observable } from "./observable.js";
@@ -143,11 +143,31 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const requestCache = createRequestCache({ clock: platform.clock, call, records: registry.list, report });
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
   const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
+  /** Resolves true once the environment's connection is ready (at once if it is), false once it is forgotten or the runtime closes. */
+  const readyAgain = (environmentId: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      /** True or false once it is known; undefined while the connection is on its way. */
+      const known = (records: readonly ConnectionRecord[]): boolean | undefined => {
+        const record = records.find((r) => r.environmentId === environmentId);
+        if (closing !== undefined || record === undefined) return false;
+        return record.phase === "ready" ? true : undefined;
+      };
+      const now = known(registry.list.read());
+      if (now !== undefined) return resolve(now);
+      const stop = registry.list.subscribe((records) => {
+        const later = known(records);
+        if (later === undefined) return;
+        stop();
+        resolve(later);
+      });
+    });
   const forgeNotices = createForgeNotices({
     notices,
     name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? "The environment",
     held: (environmentId) => requestCache.peek(environmentId, "forge.accounts.list", {})?.accounts ?? null,
     list: async (environmentId) => {
+      // A row heard while catching up after a reconnect comes before the connection is ready, when no request may go yet.
+      if (!(await readyAgain(environmentId))) return null;
       const answer = await call(environmentId, "forge.accounts.list", {});
       return answer.ok ? answer.result.accounts : null;
     },
