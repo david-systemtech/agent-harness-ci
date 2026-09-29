@@ -140,6 +140,8 @@ export interface TestEnvironmentOptions {
   readonly releaseSource?: EnvironmentOptions["releaseSource"];
   /** The launcher protocol the environment's own launcher speaks, which a handover brings; preset the build's. */
   readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
+  /** The steps `setup.check` runs (`test/setup-steps.ts` scripts them); preset: the step registry with the environment's own answers. */
+  readonly setupSteps?: EnvironmentOptions["setupSteps"];
 }
 
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
@@ -315,6 +317,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
+    ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;

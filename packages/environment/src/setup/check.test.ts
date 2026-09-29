@@ -1,5 +1,6 @@
-import { STEP_REGISTRY, presetSettings, type RegisteredStep } from "@agent-harness/contracts";
+import { STEP_REGISTRY, presetSettings, type RegisteredStep, type SettingsValues } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { manualClock } from "../../test/clock.js";
 import { checkStep, type StateCheckers } from "./check.js";
 
 /**
@@ -12,6 +13,10 @@ import { checkStep, type StateCheckers } from "./check.js";
 const AT = "2026-09-25T08:00:00.000Z";
 const stepOf = (id: RegisteredStep["id"]): RegisteredStep => STEP_REGISTRY.find((step) => step.id === id) as RegisteredStep;
 
+/** The step's check at `AT`, its state checks answering as `stateChecks` says, with no last good result. */
+const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateCheckers) =>
+  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, lastGood: undefined });
+
 const holding: StateCheckers = {
   "your-machines.not-root": () => true,
   "your-machines.release-channel": () => true,
@@ -23,8 +28,8 @@ const holding: StateCheckers = {
 };
 
 describe("a step's result", () => {
-  it("is done when every check holds, its line what they found", () => {
-    expect(checkStep(stepOf("permissions"), presetSettings(), holding, AT)).toEqual({
+  it("is done when every check holds, its line what they found", async () => {
+    expect(await check(stepOf("permissions"), presetSettings(), holding)).toEqual({
       step: "permissions",
       state: "done",
       reason: "The containment default can be enforced here. Each denylist section holds its presets, or was emptied on purpose. The environment runs as a non-root user.",
@@ -32,17 +37,16 @@ describe("a step's result", () => {
       actions: [],
       checkedAt: AT,
     });
-    expect(checkStep(stepOf("appearance"), presetSettings(), holding, AT)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
+    expect(await check(stepOf("appearance"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
   });
 
-  it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", () => {
+  it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {
     const values = { ...presetSettings(), "permissions.parkedPrompt.ttl": "forever" } as unknown as ReturnType<typeof presetSettings>;
-    const result = checkStep(
-      stepOf("permissions"),
-      values,
-      { ...holding, "permissions.denylist": () => ({ reason: "The paths section is short." }), "permissions.not-root": () => ({ reason: "Root." }) },
-      AT,
-    );
+    const result = await check(stepOf("permissions"), values, {
+      ...holding,
+      "permissions.denylist": () => ({ reason: "The paths section is short." }),
+      "permissions.not-root": () => ({ reason: "Root." }),
+    });
     expect(result).toEqual({
       step: "permissions",
       state: "needs-attention",
@@ -53,18 +57,13 @@ describe("a step's result", () => {
     });
   });
 
-  it("needs attention when a state check throws, saying it could not check", () => {
-    const result = checkStep(
-      stepOf("your-machines"),
-      presetSettings(),
-      {
-        ...holding,
-        "your-machines.not-root": () => {
-          throw new Error("the log is closed");
-        },
+  it("needs attention when a state check throws, saying it could not check", async () => {
+    const result = await check(stepOf("your-machines"), presetSettings(), {
+      ...holding,
+      "your-machines.not-root": () => {
+        throw new Error("the log is closed");
       },
-      AT,
-    );
+    });
     expect(result).toMatchObject({ state: "needs-attention", reason: "Could not check your-machines.not-root: the log is closed.", failing: ["your-machines.not-root"] });
   });
 });

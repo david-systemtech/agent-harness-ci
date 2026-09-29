@@ -7,5 +7,5 @@
     "needs-attention",
     "skipped"
   ],
-  "description": "What a step's check found: done, needs-attention, or skipped (a skippable step a person skipped; never a preference step)."
+  "description": "What a step's check found: done, needs-attention, or skipped (a skippable step whose skip check found nothing set up to check; never a preference step)."
 }
