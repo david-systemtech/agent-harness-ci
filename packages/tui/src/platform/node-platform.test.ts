@@ -247,6 +247,8 @@ describe("the terminal UI's platform", () => {
       "documents/environments.enabled.json",
       "documents/environments.lastUsed.json",
       "documents/environments.sequence.json",
+      // The directories hidden from the picker: the runtime's one presentation preference (#332).
+      "documents/hiddenDirectories.json",
       // The session list's cache and cursor (#127): the runtime's, never the terminal UI's.
       `documents/streams.${wire.environmentId}.meta.json`,
       "secrets",

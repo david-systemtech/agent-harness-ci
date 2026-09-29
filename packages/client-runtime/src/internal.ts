@@ -12,6 +12,7 @@ import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } fro
 import { createAttention } from "./projections/attention.js";
 import { createClientCalls } from "./projections/client-calls.js";
 import { environmentsProjection } from "./projections/environments.js";
+import { hideKnownDirectory, knownDirectoriesProjection, type KnownDirectoriesHost, type KnownDirectory } from "./projections/known-directories.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
@@ -190,6 +191,12 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const accountsProjections = memo((environmentId): Observable<AccountsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "accounts.list", {}), (result) => result.accounts));
   const modelsProjections = memo((environmentId): Observable<ModelsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "models.list", {}), (result) => result.catalogues));
   const modesProjections = memo((environmentId): Observable<ModePicker> => modesProjection(registry.list, environmentId));
+  const directoriesHost: KnownDirectoriesHost = {
+    lists,
+    preferences: registry.preferences,
+    hide: (environmentId, path, lastUsedAt) => registry.hideDirectory(environmentId, path, lastUsedAt),
+  };
+  const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>
       list.filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId),
@@ -229,6 +236,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       models: (environmentId) => modelsProjections(environmentId),
       usage,
       modes: (environmentId) => modesProjections(environmentId),
+      knownDirectories: (environmentId) => knownDirectories(environmentId),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
@@ -246,6 +254,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       flush: () => drafts.flush(),
     },
     notices: { dismiss: (id) => notices.dismiss(id) },
+    knownDirectories: { hide: (environmentId, path) => hideKnownDirectory(directoriesHost, environmentId, path) },
     environmentNow: (environmentId) => made.now(environmentId),
     requests,
     capability,
