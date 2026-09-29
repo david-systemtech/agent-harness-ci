@@ -1,4 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { SETUP_PENDING_MS } from "@agent-harness/client-runtime";
+import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, denylistPresets } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -274,5 +276,65 @@ describe("a step's named actions", () => {
     await app.user.click(await within(account).findByRole("button", { name: "Sign in again" }));
     expect(within(settings()).getByRole("region", { name: "Accounts" })).toBeDefined();
     expect(pickedIn(within(settings()).getByRole("region", { name: "Accounts" }))).toBe("desk");
+  });
+});
+
+describe("a check's time", () => {
+  it("shows a step pending once this window's check has waited half a second, and a result older than its step's cadence with its age", async () => {
+    const threeHoursBefore = new Date(Date.parse(MANUAL_CLOCK_START) - 3 * 3_600_000).toISOString();
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { account: { checkedAt: threeHoursBefore } } }] });
+    await screen.findByText(NO_SESSION);
+    const release = app.environment("desk").holdSetupChecks();
+    const pane = await setupPane(app);
+    await waitFor(() => expect(app.environment("desk").requests("setup.check").length).toBeGreaterThan(0));
+    expect(within(pane).queryByText("Checking…")).toBeNull();
+
+    act(() => app.clock.advance(SETUP_PENDING_MS));
+    expect(await within(pane).findAllByText("Checking…")).toHaveLength(11);
+
+    release();
+    expect(await within(pane).findByText("Every setting it writes holds a valid value. (checked 3 h ago)")).toBeDefined();
+    expect(within(pane).queryByText("Checking…")).toBeNull();
+    expect(within(pane).getByText("The containment default can be enforced here. Each denylist section holds its presets, or was emptied on purpose. The environment runs as a non-root user.")).toBeDefined();
+  });
+});
+
+/** Each row of the Settings rail that shows a health dot, and the dot's state, by the row's label. */
+const railDots = () =>
+  within(within(settings()).getByRole("navigation", { name: "Settings rows" }))
+    .queryAllByRole("img")
+    .map((dot) => dot.getAttribute("aria-label"));
+
+describe("health dots", () => {
+  it("show on home rows only, each the worst state of the steps homed there, the Set up row the worst of all, and follow the environment the last environment pane picked", async () => {
+    const app = await twoEnvironments();
+    await openSettings(app);
+    await waitFor(() =>
+      expect(railDots()).toEqual([
+        "Set up: needs attention",
+        "Accounts: done",
+        "Permissions: needs attention",
+        "Browser: skipped",
+        "Forges: done",
+        "Your machines: done",
+        "Theme: done",
+      ]),
+    );
+
+    // An environment pane picks laptop: the dots follow it, whose results its stream carries.
+    const accounts = within(settings()).getByRole("region", { name: "Set up" });
+    await app.user.selectOptions(within(accounts).getByRole("combobox", { name: "Environment" }), "laptop");
+    await waitFor(() =>
+      expect(railDots()).toEqual([
+        "Set up: needs attention",
+        "Accounts: done",
+        "Permissions: done",
+        "Browser: done",
+        "Forges: done",
+        "Your machines: done",
+        "Theme: needs attention",
+      ]),
+    );
+    expect(within(within(settings()).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Theme" })).toBeDefined();
   });
 });
