@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normaliseRemote } from "./forge.js";
+import type { SkillMember } from "./skills.js";
 
 /**
  * The three rules that decide what a skill is called and what a skill
@@ -161,11 +162,12 @@ export const checkSourceUrl = (url: string): SkillRuleCheck<"source-url"> => {
   if ([parts.userinfo, parts.host, parts.scpPath].some((part) => part?.startsWith("-"))) {
     return refused("leading_hyphen", "A user, host or path in the URL cannot begin with a hyphen, which ssh or git would read as an option.");
   }
-  if (remote === null || (scheme === null && !remote.sshDerived)) {
-    return refused("malformed", "The URL is not one git and the harness read alike: write https://host/owner/repository, ssh://host/owner/repository or user@host:owner/repository.");
+  if (scheme === null && remote !== null && !remote.sshDerived) {
+    return refused("malformed", "A bare host:port/path is read as scp by git and as https by the harness: write https://host:port/owner/repository, or user@host:owner/repository.");
   }
   const port = parts.port === "" ? null : Number(parts.port);
   if (port !== null && (port < 1 || port > 65535)) return refused("malformed", "The URL's port is not 1 to 65535.");
+  if (remote === null) return refused("malformed", "The URL's host is neither a host name nor a bracketed IPv6 address.");
   if (remote.path === null || remote.path.split("/").length < 2) return refused("malformed", "The URL names no repository: its path needs an owner and a repository at least.");
   return { ok: true, value: url };
 };
@@ -173,7 +175,7 @@ export const checkSourceUrl = (url: string): SkillRuleCheck<"source-url"> => {
 // The source folder rule ------------------------------------------------------------------
 
 /** The repository's root, as a source's folder names it. */
-export const ROOT_FOLDER = ".";
+const ROOT_FOLDER = ".";
 
 /** A path from a root: `/` or `\`, or a Windows drive, which `C:skills` names too. */
 const ABSOLUTE = /^(?:[/\\]|[a-z]:)/i;
@@ -314,18 +316,7 @@ export type SkillMemberFolder =
   | { readonly kind: "root"; readonly sourceFolderSegment: string | null; readonly repositorySegment: string | null };
 
 /** What a member's own files say of it: the fields of the member shape the reader takes from its frontmatter and folder. */
-export interface SkillMemberReading {
-  /** Its name; null when it has none, `problems` then saying why. */
-  readonly name: string | null;
-  /** Its description, trimmed; null when it has none, `problems` then saying so. */
-  readonly description: string | null;
-  readonly invocation: SkillInvocation;
-  /** Whether a person may invoke it: false exactly when its frontmatter sets `user-invocable: false`. */
-  readonly userInvocable: boolean;
-  /** Empty for a valid member; anything here leaves it invalid. */
-  readonly problems: SkillMemberProblem[];
-  readonly warnings: SkillMemberWarning[];
-}
+export type SkillMemberReading = Pick<SkillMember, "name" | "description" | "invocation" | "userInvocable" | "problems" | "warnings">;
 
 /** A name a member may be named after, with what it is to a person. */
 interface NameCandidate {
