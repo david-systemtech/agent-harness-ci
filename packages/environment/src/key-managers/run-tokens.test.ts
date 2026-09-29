@@ -615,7 +615,7 @@ describe("where the block and the run token go", () => {
     expect(tokens).toHaveLength(2);
 
     const spawned = pty.spawned[0];
-    expect([spawned?.file, ...(spawned?.args ?? [])].filter((word) => tokens.some((token) => word.includes(token)))).toEqual([]);
+    expect([spawned?.file ?? "", ...(spawned?.args ?? [])].filter((word) => tokens.some((token) => word.includes(token)))).toEqual([]);
     const logged = t.env.log.read<{ payload: string }>("SELECT payload FROM events");
     expect(logged.filter((row) => tokens.some((token) => row.payload.includes(token)))).toEqual([]);
     await t.close();
