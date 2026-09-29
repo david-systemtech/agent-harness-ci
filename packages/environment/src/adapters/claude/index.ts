@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
-import { hashedName } from "../../workspace/directory-names.js";
+import { autoMemoryName } from "../../workspace/auto-memory.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
@@ -116,15 +116,12 @@ export interface ClaudeAdapter extends Adapter {
 }
 
 /**
- * The auto-memory directory of a run's repository (ADR 0018): one per
- * repository identity, else per workspace path, under `root`, shared by every
- * account. Named for a person reading the directory, and hashed so two
- * repositories never share one.
+ * The auto-memory directory of a run's repository (ADR 0018): one per key
+ * under `root`, shared by every account. The key is the repository identity,
+ * else the repository's main checkout, else one for every scratch workspace,
+ * else the workspace path (`workspace/auto-memory.ts`, #329).
  */
-export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "repositoryIdentity" | "workspace">): string => {
-  const key = input.repositoryIdentity ?? input.workspace.path;
-  return join(root, hashedName(key, key, "workspace"));
-};
+export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "repositoryIdentity" | "workspace">): string => join(root, autoMemoryName(input));
 
 /**
  * What an adapter declares: `CLAUDE_DESCRIPTOR`, less what only the session
