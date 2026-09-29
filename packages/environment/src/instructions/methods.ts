@@ -23,7 +23,7 @@ export const instructionMethods = (options: InstructionMethodsOptions): MethodHa
       const target: InstructionTarget | undefined =
         sessionId !== undefined ? { sessionId } : accountId !== undefined && workspace !== undefined ? { accountId, workspace } : undefined;
       if (target === undefined) {
-        const message = "Name a session, or an account and a workspace, not both.";
+        const message = "Name a session, or an account and a workspace.";
         throw new ContractError(invalidParams([{ code: "custom", path: [], message }], message));
       }
       const composed = await host.previewInstructions(target);

@@ -16,9 +16,9 @@ const runId = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
 const workspace = { kind: "directory", path: "/home/david/work/agent-harness" };
 const digest = "a".repeat(64);
 
-const orientationPart = { id: "orientation", version: null, characters: 40 };
+const orientationPart = { id: "orientation", version: null, characters: 42 };
 const sessionPart = { id: sessionId, version: null, characters: 17 };
-const userLayer = { layer: "user", characters: 40, parts: [orientationPart] };
+const userLayer = { layer: "user", characters: 42, parts: [orientationPart] };
 const sessionLayer = { layer: "session", characters: 17, parts: [sessionPart] };
 const alwaysOnSkill = {
   name: "grilling",
@@ -59,7 +59,7 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
   },
   "instructions/manifest-layer.json": {
     valid: [userLayer, { layer: "persona", characters: 30, parts: [{ id: "reviewer", version: null, characters: 30 }] }],
-    invalid: [{ layer: "user", characters: 40, parts: [] }, { layer: "user", characters: 0, parts: [orientationPart] }, { layer: "bank", characters: 40, parts: [orientationPart] }],
+    invalid: [{ layer: "user", characters: 42, parts: [] }, { layer: "user", characters: 0, parts: [orientationPart] }, { layer: "bank", characters: 42, parts: [orientationPart] }],
   },
   "instructions/always-on-skill.json": {
     valid: [alwaysOnSkill, { name: "unslop", origin: null, commit: null }],
@@ -82,6 +82,7 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
       { ...composedManifest, channel: "stdin" },
       { ...composedManifest, unreadRegistries: [""] },
       { ...composedManifest, skillSetFingerprint: "" },
+      // No leftOut.
       { channel: "none", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [] },
     ],
   },

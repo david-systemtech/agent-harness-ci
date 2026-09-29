@@ -82,6 +82,7 @@ const wholeRun = (runId: string, [prompt, queued]: readonly [string, string]): E
     resumedFrom: null,
     forkedFrom: null,
   }),
+  transcript("message.sent", { runId, messageId: prompt, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" }),
   {
     type: "run.instructions.composed",
     payload: INSTRUCTION_SESSION_EVENT_TYPES["run.instructions.composed"].payload.parse({
@@ -90,7 +91,6 @@ const wholeRun = (runId: string, [prompt, queued]: readonly [string, string]): E
       digest: "e".repeat(64),
     }) as Record<string, unknown>,
   },
-  transcript("message.sent", { runId, messageId: prompt, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" }),
   transcript("session.provider-linked", { runId, providerSessionId: `provider-${runId}` }),
   transcript("assistant.delta", { runId, itemId: `${runId}-thinking`, fragments: [{ kind: "thinking", text: "Look" }] }),
   transcript("assistant.thinking", { runId, itemId: `${runId}-thinking`, text: "Look at the receipts", aborted: false }),
