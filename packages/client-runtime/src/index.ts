@@ -184,6 +184,7 @@ export {
   lastReply,
   liveRun,
   liveTasks,
+  promptsIn,
   rewoundRowId,
   transcriptRows,
   undoableFold,

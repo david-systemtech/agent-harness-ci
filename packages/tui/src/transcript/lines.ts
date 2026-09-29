@@ -7,6 +7,7 @@ import {
   formatDuration,
   oneLine,
   outputText,
+  promptsIn,
   summarizeToolInput,
   turnFacts,
   undoableFold,
@@ -315,10 +316,6 @@ const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry
   return block(row, { text: "⚿", dim: answer !== null, ...(answer === null && { color: "yellow" }) }, [[{ text: prompt.summary, dim: answer !== null }, verdict]], context.width, true);
 };
 
-/** How many user messages a rewind's fold holds, a fold inside it included. */
-const messagesIn = (rows: readonly Row[]): number =>
-  rows.reduce((count, row) => count + (row.kind === "user" ? 1 : row.kind === "rewound" ? messagesIn(row.rows) : 0), 0);
-
 /**
  * What a rewind cut: one line saying what the session went back to and how
  * much went with it, with the keys that read it (unfolded, not in the pager,
@@ -327,7 +324,7 @@ const messagesIn = (rows: readonly Row[]): number =>
  * cannot be used now; unfolded, the cut rows under it, marked in the gutter.
  */
 const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineContext): Line[] => {
-  const cut = messagesIn(row.rows);
+  const cut = promptsIn(row.rows);
   const head: Span[] = [
     { text: "Rewound: ", bold: true },
     { text: oneLine(row.entry.text, 160) },

@@ -201,7 +201,7 @@ const HandoffOffer = ({ offer }: { readonly offer: string }) => {
   return (
     <p className="flex min-w-0 flex-1 items-center gap-2 text-amber">
       <span className="min-w-0 truncate">{offer}</span>
-      <Button className="h-6 shrink-0 px-2 text-xs" onClick={openHandoff}>
+      <Button className="h-6 shrink-0 px-2 text-xs" onClick={() => openHandoff()}>
         Hand off…
       </Button>
     </p>
