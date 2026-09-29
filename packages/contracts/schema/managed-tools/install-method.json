@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManagedToolInstallMethod",
+  "type": "string",
+  "enum": [
+    "homebrew",
+    "winget",
+    "scoop",
+    "mise",
+    "asdf",
+    "npm",
+    "native",
+    "apt",
+    "dnf",
+    "manual",
+    "unknown"
+  ],
+  "description": "How a tool was installed: homebrew (a Cellar or Caskroom), winget (WinGet's packages or links), scoop, mise, asdf, npm (a node_modules path), native (claude's native installer, its versions directory), apt (a package dpkg owns), dnf (a package rpm owns), manual (nothing claims it) or unknown (the package owner could not be asked)."
+}

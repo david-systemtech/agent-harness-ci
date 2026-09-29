@@ -1,16 +1,16 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostEnvironment } from "../src/adapters/claude/credentials.js";
-import { GH_TOKEN_VARIABLES, managedGh, type ManagedGh } from "../src/forge/gh.js";
+import { GH_TOKEN_VARIABLES } from "../src/forge/gh.js";
 
 /**
  * A fake `gh` on a PATH the test sets (forge spec, "Testing Decisions";
- * #312): an executable named `gh` that prints a version, `gh auth status`
- * in the text form every `gh` from 2.40 prints, and a token per host and
- * login from `gh auth token`, from a state the test scripts and changes. A
- * version before 2.40 refuses `--user` as those did. Every call is recorded
- * with its arguments and the names of the token variables it saw, never a
- * value.
+ * #312), which the Managed tools registry finds (#373): an executable named
+ * `gh` that prints a version, `gh auth status` in the text form every `gh`
+ * from 2.40 prints, and a token per host and login from `gh auth token`,
+ * from a state the test scripts and changes. A version before 2.40 refuses
+ * `--user` as those did. Every call is recorded with its arguments and the
+ * names of the token variables it saw, never a value.
  */
 
 /** An account the fake `gh` holds. */
@@ -40,10 +40,12 @@ export interface FakeGhCall {
 }
 
 export interface FakeGh {
+  /** The directory holding the fake `gh`: the PATH the Managed tools registry finds it on. */
+  readonly bin: string;
   /** A host environment whose PATH holds the fake `gh` and nothing else, with every token variable set, as another tool might leave them. */
   readonly hostEnv: HostEnvironment;
-  /** The environment's `gh` seam over it, run for real. */
-  readonly gh: ManagedGh;
+  /** What an environment is started with to find the fake `gh` and run it from `hostEnv`: its login shell's PATH is `bin`. */
+  readonly managedTools: { readonly readPath: () => Promise<string>; readonly hostEnv: HostEnvironment };
   /** Replaces what it holds and reports. */
   set(state: FakeGhState): void;
   /** Every call so far, in order. */
@@ -135,8 +137,9 @@ export const installFakeGh = (directory: string, state: FakeGhState = {}): FakeG
   writeFileSync(join(directory, "calls.jsonl"), "");
   const hostEnv: HostEnvironment = { PATH: bin, HOME: directory, ...Object.fromEntries(GH_TOKEN_VARIABLES.map((name) => [name, "stray-token"])) };
   return {
+    bin,
     hostEnv,
-    gh: managedGh({ hostEnv }),
+    managedTools: { readPath: async () => bin, hostEnv },
     set,
     calls: () =>
       readFileSync(join(directory, "calls.jsonl"), "utf8")

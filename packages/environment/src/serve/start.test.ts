@@ -172,7 +172,7 @@ describe("discovery and health", () => {
       environmentName: "desk",
       harnessVersion: packageVersion,
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: ["forge", "keyManagers", "setup"],
+      capabilities: ["forge", "keyManagers", "managedTools", "setup"],
       authPolicy: "local-only",
       readiness: "ready",
     });

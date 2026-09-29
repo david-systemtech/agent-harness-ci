@@ -431,6 +431,7 @@ describe("the method registry", () => {
       | "keyManagers.connections.setBasePath"
       | "keyManagers.move.list"
       | "keyManagers.move"
+      | "tools.list"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

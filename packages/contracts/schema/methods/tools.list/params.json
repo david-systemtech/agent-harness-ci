@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tools.list params",
+  "type": "object",
+  "properties": {
+    "refresh": {
+      "description": "Probe first, unless a probe began in the last fifteen minutes: sent when Set up or About opens.",
+      "type": "boolean"
+    }
+  }
+}
