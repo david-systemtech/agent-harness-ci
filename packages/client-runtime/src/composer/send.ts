@@ -1,6 +1,8 @@
 import type { AdapterCapabilities, AttachmentInput, QueueHolder } from "@agent-harness/contracts";
 import type { CapabilityAnswer } from "../capabilities.js";
-import type { RunState } from "../projections/runs.js";
+import type { RunState, SessionRun } from "../projections/runs.js";
+import type { SessionProjection } from "../projections/session.js";
+import { liveRun } from "../transcript/rows.js";
 import type { Runtime } from "../runtime.js";
 
 /**
@@ -26,6 +28,15 @@ export const lockOf = (answer: CapabilityAnswer): Lock => (answer.status === "pr
 
 /** A run is live on the session as far as a send is concerned: running, parked on a prompt, or starting. */
 export const isLive = (state: RunState | undefined): boolean => state === "running" || state === "parked" || state === "starting";
+
+/**
+ * The run a send during a run joins and an interrupt stops: the one the
+ * session's transcript holds running, else the one its run state names while
+ * running or parked; undefined when none is known (a run still starting has
+ * no id yet).
+ */
+export const liveRunIdOf = (view: Pick<SessionProjection, "runs">, run: Pick<SessionRun, "state" | "runId"> | undefined): string | undefined =>
+  liveRun(view)?.runId ?? (run?.state === "running" || run?.state === "parked" ? (run.runId ?? undefined) : undefined);
 
 /** A message as the composer hands it over. */
 export interface OutgoingMessage {

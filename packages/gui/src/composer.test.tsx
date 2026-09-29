@@ -232,6 +232,21 @@ describe("attachments", () => {
     expect(chips()).toEqual(["clipboard-1.png"]);
   });
 
+  it("come by the page's own paste too, its files attached and its text left to the box", async () => {
+    await opened();
+    fireEvent.paste(box(), { clipboardData: { files: [new File([PNG], "pasted.png", { type: "image/png" })], types: ["Files"] } });
+    await waitFor(() => expect(chips()).toEqual(["pasted.png"]));
+  });
+
+  it("need words to go with them", async () => {
+    const { app, env } = await opened();
+    fireEvent.drop(box(), { dataTransfer: { types: ["Files"], files: [new File([PNG], "shot.png", { type: "image/png" })] } });
+    await waitFor(() => expect(chips()).toEqual(["shot.png"]));
+    await write(app, "{Enter}");
+    await screen.findByText("Write a message to go with the attachments.");
+    expect(env.requests("runs.start")).toEqual([]);
+  });
+
   it("refuses one the provider's input flags do not take with its reason, and keeps the others", async () => {
     const shell = fakeShell();
     shell.answer("dialogs.openFileContents", async () => [

@@ -167,6 +167,7 @@ export {
   attachmentRefused,
   interruptRun,
   isLive,
+  liveRunIdOf,
   lockOf,
   readQueueNow,
   sendMessage,

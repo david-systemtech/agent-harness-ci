@@ -1,6 +1,9 @@
 import { fuzzyMatch, matchCommands, mentionAt, type CachedAnswer, type FileMatch, type Mention } from "@agent-harness/client-runtime";
-import type { MouseEvent, ReactNode } from "react";
+import type { AdapterCapabilities, SessionSummary } from "@agent-harness/contracts";
+import { useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { classes } from "../ui/classes.js";
+import { useFollowed, useRuntime } from "../window-context.js";
+import { typedCommand, useWiredCommands } from "./slash-commands.js";
 
 /**
  * The composer's two menus (docs/specs/gui.md, "A session pane"; #400), one
@@ -65,6 +68,77 @@ export const menuOf = (text: string, caret: number, commands: readonly CommandRo
         ? "No file in the workspace matches."
         : undefined;
   return { kind: "files", key: `files ${String(mention.start)} ${mention.query}`, mention, rows, note };
+};
+
+/** The slash menu's rows: the commands wired, then the provider's own that no command of the shared list shadows. */
+const commandRowsOf = (wired: readonly Omit<CommandRow, "provider">[], provided: readonly { readonly name: string; readonly description: string }[]): readonly CommandRow[] => [
+  ...wired.map(({ name, usage, description }) => ({ name, usage, description, provider: false })),
+  ...provided.filter((command) => typedCommand(`/${command.name}`) === undefined).map(({ name, description }) => ({ name, usage: `/${name}`, description, provider: true })),
+];
+
+export interface MenusHost {
+  readonly environmentId: string;
+  readonly sessionId: string;
+  readonly summary: SessionSummary | null;
+  readonly provider: AdapterCapabilities | undefined;
+  /** The box's text and where its caret is. */
+  readonly text: string;
+  readonly caret: number;
+}
+
+export interface Menus {
+  /** The menu open over the box, if any. */
+  readonly open: Menu | null;
+  /** Its highlighted row; -1 with none. */
+  readonly at: number;
+  /** The id its list is drawn under, which the box names. */
+  readonly listId: string;
+  /** A menu's own keys, before the composer's: ↑ and ↓ move its highlight, Esc puts it away until the text changes. */
+  keyDown(event: KeyboardEvent): void;
+}
+
+/**
+ * The menu the box opens, over what each needs: the commands wired and the
+ * provider's own while its adapter lists them (`commands.list`, asked while
+ * the text begins with a `/`), and the workspace's files (`files.list`, asked
+ * while a file is being named), both through the request cache.
+ */
+export const useMenus = ({ environmentId, sessionId, summary, provider, text, caret }: MenusHost): Menus => {
+  const runtime = useRuntime();
+  const wired = useWiredCommands();
+  const workspace = summary?.workspace;
+  const accountId = summary?.accountId ?? undefined;
+  // The workspace and account are read through their key, so an equal summary does not make a new query.
+  const commandsKey = text.startsWith("/") && provider?.commands === true && workspace !== undefined ? JSON.stringify([workspace, accountId ?? null]) : undefined;
+  const provided = useFollowed(
+    useMemo(
+      () => (commandsKey === undefined || workspace === undefined ? undefined : runtime.requests.cached(environmentId, "commands.list", { workspace, ...(accountId !== undefined && { accountId }) })),
+      [runtime, environmentId, commandsKey],
+    ),
+  );
+  const naming = mentionAt(text, caret) !== null;
+  const files = useFollowed(useMemo(() => (naming ? runtime.requests.cached(environmentId, "files.list", { sessionId }) : undefined), [runtime, environmentId, sessionId, naming]));
+  const commands = useMemo(() => commandRowsOf(wired, provided?.result?.commands ?? []), [wired, provided]);
+  const [highlight, setHighlight] = useState<{ readonly key: string; readonly index: number } | null>(null);
+  const [dismissed, dismiss] = useState<string | null>(null);
+  const listId = useId();
+
+  const menu = menuOf(text, caret, commands, files);
+  const open = menu !== null && menu.key !== dismissed ? menu : null;
+  const at = open === null ? -1 : highlighted(open, highlight);
+  return {
+    open,
+    at,
+    listId,
+    keyDown(event) {
+      if (open === null || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key === "Escape") dismiss(open.key);
+      else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && open.rows.length > 0) {
+        setHighlight({ key: open.key, index: Math.min(Math.max(at + (event.key === "ArrowUp" ? -1 : 1), 0), open.rows.length - 1) });
+      } else return;
+      event.preventDefault();
+    },
+  };
 };
 
 /** The highlighted row of `menu`: the one chosen over its text, else the first; -1 when it offers none. */

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   hear,
+  liveRunIdOf,
   lockOf,
   nextQuietChange,
   runningCalls,
@@ -113,7 +114,6 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
   }
 
   const runs = opened ? runtime.projections.runs.read().sessions.get(opened.environmentId)?.get(opened.sessionId) : undefined;
-  const liveRun = projection?.runs.findLast((run) => run.state === "running")?.runId;
 
   // The quiet calls: heard afresh on every render, with a frame asked for when one turns amber or its minute moves on.
   const heard = useRef<QuietCalls>(new Map());
@@ -130,7 +130,7 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
     projection,
     runState: runs?.state,
     runs: sessionRuns?.read(),
-    liveRunId: liveRun ?? (runs?.state === "running" || runs?.state === "parked" ? (runs.runId ?? undefined) : undefined),
+    liveRunId: liveRunIdOf(projection ?? { runs: [] }, runs),
     lock: opened ? lockOf(runtime.capability(opened.environmentId, "runs.send")) : { locked: false },
     provider,
     providerCommands: commands?.read().result?.commands ?? [],

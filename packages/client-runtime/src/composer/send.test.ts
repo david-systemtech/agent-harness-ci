@@ -1,6 +1,6 @@
 import type { AdapterCapabilities } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { attachmentRefusal, attachmentRefused, isLive, lockOf } from "./send.js";
+import { attachmentRefusal, attachmentRefused, isLive, liveRunIdOf, lockOf } from "./send.js";
 
 /** Sending: the lock, a live run, and what the provider cannot take (docs/specs/tui.md, "The composer"; docs/specs/gui.md, "A session pane"). */
 
@@ -13,6 +13,15 @@ describe("sending", () => {
   it("counts a run starting, running or parked as live", () => {
     expect(["starting", "running", "parked"].every((state) => isLive(state as never))).toBe(true);
     expect(["idle", "ended", "interrupted", undefined].some((state) => isLive(state as never))).toBe(false);
+  });
+
+  it("names the run a send joins and an interrupt stops: the transcript's running one, else the run state's while running or parked", () => {
+    const running = { runs: [{ runId: "run-1", state: "ended" }, { runId: "run-2", state: "running" }] } as never;
+    expect(liveRunIdOf(running, { state: "starting", runId: null })).toBe("run-2");
+    expect(liveRunIdOf({ runs: [] }, { state: "parked", runId: "run-3" })).toBe("run-3");
+    expect(liveRunIdOf({ runs: [] }, { state: "starting", runId: null })).toBeUndefined();
+    expect(liveRunIdOf({ runs: [] }, { state: "ended", runId: "run-3" })).toBeUndefined();
+    expect(liveRunIdOf({ runs: [] }, undefined)).toBeUndefined();
   });
 
   it("refuses an attachment the session's provider cannot take, once it is known", () => {
