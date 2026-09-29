@@ -108,13 +108,17 @@ export interface ChannelFailure {
   readonly message: string;
 }
 
-/** A release that can be staged: its version, this platform's artefact as the forge lists it and as its manifest does, the launcher protocol it needs, and its image. */
-export interface StageableRelease {
+/** One asset of a release that can be downloaded: the release's version, and the asset as the forge lists it and as the manifest does. */
+export interface DownloadableAsset {
   readonly version: string;
-  /** The artefact's record on the forge: what is downloaded. */
+  /** The asset's record on the forge: what is downloaded. */
   readonly asset: ForgeReleaseAsset;
-  /** The artefact as the manifest lists it: what the download is checked against. */
+  /** The asset as the manifest lists it: what the download is checked against. */
   readonly artefact: ReleaseAsset;
+}
+
+/** A release that can be staged: its version, this platform's artefact as the forge lists it and as its manifest does, the launcher protocol it needs, and its image. */
+export interface StageableRelease extends DownloadableAsset {
   /** The launcher protocol the release's environment needs. */
   readonly launcherProtocol: number;
   /** The release's image as its manifest names it: what a container's update goes to, which the host-side updater pulls (#348). */
@@ -158,11 +162,17 @@ export interface ReleaseChannelReader {
    */
   requested(version: string | undefined, channel: ReleaseChannel, launcherProtocol: number | null): Promise<StageableRelease | ReleaseRefusal>;
   /**
-   * Downloads `release`'s artefact into the file `destination` and checks
-   * its size and SHA-256 against the manifest: null once it matches, else
-   * why not. What it wrote stays for the caller to remove.
+   * The desktop build for `platform` in `format` (#354), from the release
+   * the desktop follows under `settings`: the pinned version, else the
+   * channel's newest; or why there is none to download.
    */
-  download(release: StageableRelease, destination: string): Promise<ChannelFailure | null>;
+  desktopBuild(platform: string, format: string, settings: Pick<ChannelSettings, "channel" | "pinnedVersion">): Promise<DownloadableAsset | ReleaseRefusal>;
+  /**
+   * Downloads the asset `release` names into the file `destination` and
+   * checks its size and SHA-256 against the manifest: null once it matches,
+   * else why not. What it wrote stays for the caller to remove.
+   */
+  download(release: DownloadableAsset, destination: string): Promise<ChannelFailure | null>;
 }
 
 export interface ReleaseChannelOptions {
@@ -435,6 +445,24 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
           return { code: "conflict", message: `Cannot update to ${version}: ${launcherMessage(version, needs, launcherProtocol)}`, data: { reason: "launcher" } };
         }
       }
+    },
+
+    async desktopBuild(platform, format, { channel, pinnedVersion }) {
+      const listed = await list();
+      if ("outcome" in listed) return { code: "conflict", message: listed.message, data: { reason: listed.reason } };
+      const version = pinnedVersion ?? newestOn(listed, channel)?.version;
+      if (version === undefined) return { code: "not_found", message: `No release is published on the ${channel} channel.`, data: {} };
+      const found = await pinnedRelease(version, listed);
+      if (found === null) return { code: "not_found", message: missing(version).message, data: {} };
+      if ("outcome" in found) return { code: "conflict", message: `The release ${version} cannot be read: ${found.message}`, data: { reason: found.reason } };
+      const manifest = await manifestOf(version, found.release);
+      if ("outcome" in manifest) return { code: "conflict", message: `The release ${version} cannot be read: ${manifest.message}`, data: { reason: manifest.reason } };
+      for (const artefact of manifest.assets) {
+        if (artefact.kind !== "desktop" || artefact.platform !== platform || artefact.format !== format) continue;
+        const asset = found.release.assets.find((published) => published.name === artefact.name);
+        if (asset !== undefined) return { version, asset, artefact };
+      }
+      return { code: "not_found", message: `The release ${version} has no desktop build for ${platform} as ${format}.`, data: {} };
     },
 
     async download(release, destination) {
