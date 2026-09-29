@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { ENVIRONMENT_ADDRESS_VARIABLE, RUN_SECRET_VARIABLE, formatHostPort, registry, type KeyManagerReference } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { InjectionAnswer } from "../adapter/process-environment.js";
@@ -24,7 +25,7 @@ import type { WireClient } from "../../test/wire-client.js";
  * end-to-end test (`packages/cli/src/forge-git.test.ts`).
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 /** The command git would name as its helper: never run here, since no test runs git. */
 const HELPER = ["/opt/agent-harness/bin/agent-harness"];
@@ -370,5 +371,38 @@ describe("a session's terminal", () => {
     await terminalCommand(client, "terminals.close", { id: terminal.id });
 
     await vi.waitFor(async () => expect(await routeAnswers(t, secret, home)).toBe(401));
+  });
+});
+
+describe("containment", () => {
+  /** Starts a routine's run, which is unattended, on the session and waits for its end. */
+  const routineRun = async (t: TestEnvironment, sessionId: string): Promise<void> => {
+    t.env.startRun({ sessionId, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
+    await vi.waitFor(() => expect(ended(t, sessionId)).toHaveLength(1));
+  };
+
+  it("adds the helper's directory to an unattended run's exempt directories where the denylist's paths cover the helper, the data directory's preset among them", async () => {
+    const forge = await fakeForge();
+    const dataDir = join(tempDir(), "data");
+    const shim = join(dataDir, "bin", "agent-harness");
+    const t = await start(forge, { dataDir, harnessCommand: [shim] });
+    const session = await create(await t.client());
+
+    await routineRun(t, session.id);
+
+    const projected = t.adapter.lastRun().input.denylist;
+    expect(projected?.paths).toContain(dataDir);
+    expect(projected?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees"), join(dataDir, "bin")]);
+  });
+
+  it("leaves the exempt directories as they are for a helper no denied path covers", async () => {
+    const forge = await fakeForge();
+    const t = await start(forge);
+    const session = await create(await t.client());
+
+    await routineRun(t, session.id);
+
+    const dataDir = t.env.dataDir;
+    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees")]);
   });
 });
