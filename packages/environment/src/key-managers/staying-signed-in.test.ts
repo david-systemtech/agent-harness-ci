@@ -105,5 +105,35 @@ describe("a login the environment made", () => {
     const run = await tokenOf(t, session.id);
     expect(bao.issued(run)?.parent).toBe(second);
     expect(bao.live(run)).toBe(true);
+    // No run token of the old login was held: it is revoked at once, twenty minutes before its end.
+    await eventually(() => expect(bao.live(first)).toBe(false));
+  });
+
+  it("is revoked once no run token minted from it is held, and not before", async () => {
+    // Renewed at forty minutes to the end of its ninety, it is due at sixty.
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 90 * 60 }, { processIdleMinutes: () => 600 });
+    await connected(client, bao);
+    const [first = ""] = bao.minted;
+    const session = await create(client);
+    t.clock.advance(5 * MINUTE);
+    await runTo(t, client, session.id);
+    const held = await tokenOf(t, session.id);
+    t.clock.advance(35 * MINUTE);
+    await eventually(() => expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]));
+
+    t.clock.advance(20 * MINUTE);
+
+    await eventually(() => expect(bao.minted).toHaveLength(2));
+    const replacedAt = bao.requests.length;
+    await eventually(async () => expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE)));
+    expect(bao.live(first)).toBe(true);
+    expect(bao.live(held)).toBe(true);
+    expect(bao.requests.slice(replacedAt).filter((request) => request.path === "auth/token/revoke-self")).toEqual([]);
+
+    const stopped = await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: session.id });
+
+    expect(stopped.receipt.status).toBe("accepted");
+    await eventually(() => expect([held, first].map((token) => bao.live(token))).toEqual([false, false]));
+    expect(bao.live(bao.minted[1] ?? "")).toBe(true);
   });
 });
