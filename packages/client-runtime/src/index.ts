@@ -171,6 +171,8 @@ export {
   type ActivityCounts,
   type ToolCategory,
 } from "./transcript/format.js";
+export { isLiveTask, sessionTasks, type SessionTask } from "./transcript/tasks.js";
+export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
 export { matchCommands } from "./composer/commands.js";
@@ -191,6 +193,9 @@ export {
   type OutgoingMessage,
   type SendOutcome,
 } from "./composer/send.js";
+export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
+export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
+export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
