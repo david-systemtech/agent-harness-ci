@@ -188,6 +188,7 @@ const stepOf = (id: string): LooseStep => {
 const appearance = stepOf("appearance");
 const account = stepOf("account");
 const machines = stepOf("your-machines");
+const forges = stepOf("forges");
 const permissions = stepOf("permissions");
 /** The session keys: the auto-settle keys and the transcript compaction window. */
 const SESSION_KEYS: readonly string[] = [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays"];
@@ -220,7 +221,7 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "browser", "permissions", "appearance"]);
   });
 
   it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
@@ -239,9 +240,8 @@ describe("the step registry", () => {
 
   it("exports the check the switch-over's done checklist runs: the steps of the milestone-1 order no entry registers, in that order (#94)", () => {
     expect(unregisteredSteps(STEP_ORDER.map((id) => ({ id })))).toEqual([]);
-    expect(unregisteredSteps([{ id: "account" }, { id: "your-machines" }, { id: "permissions" }, { id: "appearance" }])).toEqual([
+    expect(unregisteredSteps([{ id: "account" }, { id: "your-machines" }, { id: "forges" }, { id: "permissions" }, { id: "appearance" }])).toEqual([
       "carry-over",
-      "forges",
       "key-manager",
       "memory-bank",
       "skills",
@@ -275,8 +275,15 @@ describe("the step registry", () => {
     for (const key of SESSION_KEYS) expect(SETTINGS[key as SettingsKey].step, key).toEqual({ id: "your-machines", row: "environments.service" });
   });
 
-  it("leaves the Appearance entry writing and linking nothing, and never skipped, until its theme key arrives (#391)", () => {
-    expect(appearance).toMatchObject({ home: "appearance.theme", writes: [], checks: [], stateChecks: [], links: [], skippable: false });
+  it("gives the Appearance entry the theme on its home row appearance.theme, the state check appearance.contrast with Restore, and never skips it (ADR 0023, ADR 0031; #391)", () => {
+    expect(appearance).toMatchObject({ home: "appearance.theme", writes: ["appearance.theme"], links: [], budget: "local", triggers: ["settings.updated"] });
+    expect(appearance.checks.map((check) => check.key)).toEqual(["appearance.theme"]);
+    expect(SETTINGS["appearance.theme"].step).toEqual({ id: "appearance", row: "appearance.theme" });
+    expect(appearance.stateChecks).toEqual([
+      { id: "appearance.contrast", holds: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.", actions: ["restore"] },
+    ]);
+    expect(appearance.skippable).toBe(false);
+    expect(appearance.skip).toBeUndefined();
   });
 
   it("puts the five permission keys under the Permissions entry, on its home row access.permissions (ADR 0027)", () => {
@@ -358,6 +365,50 @@ describe("the step registry", () => {
     ]);
   });
 
+  it("registers Forges fourth, after Your machines (ADR 0020, ADR 0034), writing no settings key and its forge accounts through the four forge account commands (#319)", () => {
+    const order = STEP_ORDER as readonly string[];
+    expect(order.indexOf("forges")).toBe(3);
+    expect(order[order.indexOf("forges") - 1]).toBe("your-machines");
+    expect(forges).toMatchObject({ writes: [], checks: [] });
+    expect(Object.values(SETTINGS).filter((setting) => setting.step.id === "forges")).toEqual([]);
+    expect(forges.writesState).toEqual([
+      { method: "forge.accounts.add", parts: ["forgeAccounts"] },
+      { method: "forge.accounts.update", parts: ["forgeAccounts"] },
+      { method: "forge.accounts.remove", parts: ["forgeAccounts"] },
+      { method: "forge.accounts.setPrimary", parts: ["forgeAccounts"] },
+    ]);
+  });
+
+  it("homes Forges on the Access band's Forges row (ADR 0027) and links it to the Key manager step, whose Move card takes stored tokens (ADR 0028)", () => {
+    expect(STEP_REGISTRY.find((step) => step.id === "forges")?.home).toBe("access.forges");
+    expect(forges.links).toEqual([{ step: "key-manager" }]);
+  });
+
+  it("may skip Forges, skipped when forges.present finds no forge account, then checks identity, reads, the primary, gh, expiry and coverage with actions from ADR 0031's vocabulary", () => {
+    expect(forges).toMatchObject({ skippable: true, skip: "forges.present" });
+    expect(forges.stateChecks.map((check) => [check.id, check.actions])).toEqual([
+      ["forges.present", []],
+      ["forges.identity", ["sign-in-again", "check-again"]],
+      ["forges.reads", ["check-again"]],
+      ["forges.primary", []],
+      ["forges.gh", ["install", "update", "sign-in-again"]],
+      ["forges.expiry", ["sign-in-again"]],
+      ["forges.coverage", []],
+    ]);
+    for (const check of forges.stateChecks) {
+      for (const action of check.actions) expect(SETUP_ACTIONS as readonly string[], `${check.id}: ${action}`).toContain(action);
+    }
+    expect(forges.stateChecks.map((check) => check.holds)).toEqual([
+      "At least one forge account is on this environment.",
+      "Each forge account answers as the identity it was added with.",
+      "Every read of each forge account passes.",
+      "Exactly one forge account is primary.",
+      "Every forge account whose credential is gh finds gh installed, at 2.40.0 or later, and signed in as its login.",
+      "No forge account's token expires within thirty days.",
+      "No origin a harness operation was refused on for want of a forge account counts as missing.",
+    ]);
+  });
+
   it("holds the Your machines entry's update keys done on any value their schemas take, a pin included", () => {
     const checkOf = (key: string) => machines.checks.find((check) => check.key === key)?.check;
     const presets = presetSettings();
@@ -370,14 +421,18 @@ describe("the step registry", () => {
     expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
   });
 
-  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines the network one, and each an hourly cadence", () => {
-    expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence])).toEqual([
-      ["account", "local", { minutes: 60 }],
-      ["your-machines", "network", { minutes: 60 }],
-      ["browser", "local", { minutes: 60 }],
-      ["permissions", "local", { minutes: 60 }],
-      ["appearance", "local", { minutes: 60 }],
+  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines and Forges the network one, each an hourly cadence but Forges, checked every fifteen minutes because the orientation block reports each forge account's status", () => {
+    expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence.minutes])).toEqual([
+      ["account", "local", 60],
+      ["your-machines", "network", 60],
+      ["forges", "network", 15],
+      ["browser", "local", 60],
+      ["permissions", "local", 60],
+      ["appearance", "local", 60],
     ]);
+    expect(CHECK_BUDGET_SECONDS[forges.budget as keyof typeof CHECK_BUDGET_SECONDS]).toBe(10);
+    expect(forges.cadence?.reason).toMatch(/orientation block reports each forge account's status/);
+    for (const step of STEP_REGISTRY) if (step.id !== "forges") expect(step.cadence, step.id).toEqual({ minutes: 60 });
   });
 
   it("fails an entry with no budget, a budget outside ADR 0031's three classes, no cadence, a cadence of no whole minutes, or a cadence other than the hour with no reason", () => {
@@ -393,10 +448,11 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices and settings.updated, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices and settings.updated, Forges on every forge.account.* event, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["your-machines", ["environment.update-*", "settings.updated"]],
+      ["forges", ["forge.account.*"]],
       ["browser", []],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],
@@ -529,9 +585,9 @@ describe("the step registry", () => {
   });
 
   it("fails when a step writes a key that is not a setting, or writes a key it does not check", () => {
-    expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, writes: [...sessionsStep.writes, "appearance.theme"] }])).toEqual([
-      "your-machines: writes appearance.theme, which is not a setting",
-      "your-machines: needs one health check of appearance.theme",
+    expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, writes: [...sessionsStep.writes, "sessions.autoArchive"] }])).toEqual([
+      "your-machines: writes sessions.autoArchive, which is not a setting",
+      "your-machines: needs one health check of sessions.autoArchive",
     ]);
     expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, checks: [] }])).toEqual([
       "your-machines: needs one health check of sessions.autoSettleAfterIdle",

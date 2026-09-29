@@ -385,9 +385,9 @@ describe("/handoff", () => {
     await app.press(KEY.enter);
     await app.waitFor("Handed off to personal: a new session forked from Receipts runs on it; Receipts stays as it is.");
     expect(env.requests("sessions.fork").map((r) => r.params)).toEqual([expect.objectContaining({ sessionId: SESSION, account: "account-2" })]);
-    // The fork is open, and its first run is the chosen account's.
+    // The fork is open, on the row naming where it came from, and its first run is the chosen account's.
     const fork = String(env.requests("sessions.fork")[0]?.params?.["id"]);
-    await app.waitFor("Nothing said yet.");
+    await app.waitFor("Forked from Receipts");
     await app.type("carry on");
     await app.press(KEY.enter);
     await app.waitUntil(() => env.summary(fork).accountId === "account-2", "the fork's run on personal");
@@ -650,7 +650,7 @@ describe("/settings by row (#389)", () => {
     await app.press(KEY.esc);
     await command(app, "/settings secrets");
     await app.waitFor(
-      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, access.browser, environments.machines, environments.service.",
+      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, access.browser, environments.machines, environments.service, appearance.theme.",
     );
   });
 });

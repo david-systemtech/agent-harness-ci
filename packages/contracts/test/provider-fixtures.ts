@@ -37,7 +37,7 @@ const stopped = { ...busy, state: "stopped", runId: null, stoppedAt: later, stop
 /** Every providers schema the export writes, by path. */
 export const providerSchemaFixtures: Record<string, Fixtures> = {
   "adapter/process-state.json": { valid: ["starting", "idle", "busy", "parked", "stopping", "stopped"], invalid: ["running", ""] },
-  "adapter/process-stop-reason.json": { valid: ["idle", "parked", "deleted", "admin", "drain", "closed", "failed", "exited", "rewound"], invalid: ["bored", "restart"] },
+  "adapter/process-stop-reason.json": { valid: ["idle", "parked", "deleted", "admin", "drain", "closed", "failed", "exited", "rewound", "moved"], invalid: ["bored", "restart"] },
   "adapter/process-hold-kind.json": { valid: ["task", "schedule"], invalid: ["cron", ""] },
   "adapter/process-hold.json": { valid: [{ kind: "task", id: "bash_1" }], invalid: [{ kind: "task", id: "" }, { kind: "timer", id: "t" }] },
   "adapter/provider-process.json": {

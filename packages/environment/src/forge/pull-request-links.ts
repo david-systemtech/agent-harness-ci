@@ -1,0 +1,516 @@
+import {
+  ContractError,
+  GITHUB_ORIGIN,
+  SESSION_STREAM_KIND,
+  normaliseRemote,
+  parsePullRequestUrl,
+  shelfOf,
+  pullRequestUrl,
+  type ErrorOf,
+  type ForgeAccountRecord,
+  type ForgeKind,
+  type ForgeOrigin,
+  type PullRequest,
+  type PullRequestReference,
+  type RunEndedPayload,
+  type SessionSummary,
+} from "@agent-harness/contracts";
+import type { EventLog } from "../event-log/event-log.js";
+import type { Clock } from "../serve/clock.js";
+import type { CommandRejection, MethodHandler, PreparedCommand } from "../serve/methods.js";
+import { sessionNotFound } from "../sessions/decider.js";
+import { readSummary } from "../sessions/session-reads.js";
+import type { Reader, SessionRow } from "../sessions/session-tables.js";
+import { sessionStream } from "../sessions/streams.js";
+import { servingAccount } from "./git-helper.js";
+import type { ForgeAnswer, ForgeOperations } from "./operations.js";
+import type { ForgePullRequest } from "./providers.js";
+import { FORGE_ACTOR } from "./verifier.js";
+import { readWorkspaceBranch } from "./workspace-branch.js";
+
+/**
+ * A session's pull requests (forge spec, "Pull-request links and status";
+ * ADR 0012; #317): linked by a person, found at a run's end, and kept
+ * current, so session-state's settle sweep has a `mergedAt` to read. The
+ * events and the summary's `pullRequests` are session-state's (#117); this
+ * module appends them.
+ *
+ * - **Where a pull request is.** A URL is read by the provider of the forge
+ *   account serving its origin, else GitHub's on github.com, else whichever
+ *   reads it (GitHub's `/pull/`, the Gitea API's `/pulls/`). A session keeps
+ *   a pull request by its web URL on the origin it is read from (the forge
+ *   account's canonical origin), its owner and repository as the forge
+ *   spells them, whatever page or alias the URL named.
+ * - **Linked and unlinked by a person**, as the client session: a link
+ *   reads the pull request first, in its prepare; an unlink takes the one
+ *   the URL names from the session.
+ * - **Found at a run's end** as `system:forge`: when the workspace is on a
+ *   branch other than its repository's default, whose remote (its
+ *   upstream's, else `origin`) a forge account serves, the pull requests
+ *   from that branch are linked if open, or if closed or merged since the
+ *   session was created; so are pull-request URLs on an origin a forge
+ *   account serves in the run's tool outputs and assistant text, the first
+ *   twenty not linked yet, each read first. A pull request whose latest
+ *   link event is an unlink is never linked again this way.
+ * - **Kept current** as `system:forge`: an open pull request is read every
+ *   five minutes while its session is in the active list (active or
+ *   pinned) and hourly otherwise, a closed one daily for fourteen days from
+ *   when it closed, a merged one never; one that has not merged is read at
+ *   each run's end and on refresh too. A read appends
+ *   `session.pull-request-synced` only when the state, merged-at or
+ *   closed-at changed; a read that fails keeps what the session holds, and
+ *   a 404 (or an anonymous read's refusal, behind which a private
+ *   repository hides) stops the reads of that pull request until it is
+ *   linked again or refreshed. When each was last read, and which are
+ *   stopped, is kept in memory: a start reads each again.
+ */
+
+/** A pull request a URL names, and where it is read. */
+interface Located {
+  /** The kind of the provider that reads it: the forge account's, or the one whose shape the URL has. */
+  readonly kind: Exclude<ForgeKind, "gitlab">;
+  readonly reference: PullRequestReference;
+  /** The origin it is read on: the canonical origin of the forge account serving the URL's, else the URL's own. */
+  readonly origin: ForgeOrigin;
+  /** The forge account serving it; null where none does, so it is read anonymously. */
+  readonly account: ForgeAccountRecord | null;
+}
+
+export interface PullRequestLinksOptions {
+  readonly log: EventLog;
+  readonly clock: Clock;
+  /** The log's query-only read: inside a command it reads that command's own transaction. */
+  readonly reader: Reader;
+  /** The forge accounts as the environment holds them now. */
+  readonly accounts: () => readonly ForgeAccountRecord[];
+  /** The ForgeService's pull-request operations, which read with the forge account serving an origin, or anonymously. */
+  readonly pullRequests: ForgeOperations["pullRequests"];
+  /** The ForgeService's repository operations: a repository's default branch. */
+  readonly repositories: ForgeOperations["repositories"];
+}
+
+export interface PullRequestLinks {
+  /** `forge.pullRequests.link`: reads the pull request, then links it as the client session. */
+  readonly link: PreparedCommand<"forge.pullRequests.link">;
+  /** `forge.pullRequests.unlink`: unlinks the pull request the URL names, as the client session. */
+  readonly unlink: MethodHandler<"forge.pullRequests.unlink">;
+  /** `forge.pullRequests.refresh`: reads every pull request of the session that has not merged, a stopped one too, and answers them after; `not_found` for a session not here. */
+  refresh(sessionId: string): Promise<PullRequest[]>;
+  /** Hears every run's end, and reads each pull request due a read now and every minute from now on; returns what stops both. */
+  start(): () => void;
+  /** Resolves once every read and discovery under way has ended and appended what it found. */
+  idle(): Promise<void>;
+}
+
+type LinkRefusal = CommandRejection<ErrorOf<"forge.pullRequests.link">["code"]>;
+
+const MINUTE = 60_000;
+
+/** How often the sync looks for the pull requests due a read. */
+const SYNC_EVERY_MS = MINUTE;
+/** How often an open pull request is read while its session is in the active list, and while it is not. */
+const OPEN_ACTIVE_EVERY_MS = 5 * MINUTE;
+const OPEN_SHELVED_EVERY_MS = 60 * MINUTE;
+/** How often a closed pull request is read, and for how long after it closed. */
+const CLOSED_EVERY_MS = 24 * 60 * MINUTE;
+const CLOSED_FOR_MS = 14 * CLOSED_EVERY_MS;
+
+/** The most pull-request URLs a run's end reads from the run's text (a chosen default). */
+const MAX_URLS_PER_RUN = 20;
+
+/** The most pull requests a run's end lists from the workspace's branch: more than a branch is ever opened as. */
+const MAX_FROM_BRANCH = 20;
+
+/** An `owner/name` a remote's path names, which the operations read; a deeper path (a GitLab subgroup's) is none. */
+const OWNER_AND_NAME = /^[^/]+\/[^/]+$/;
+
+/** A URL in a text: from its scheme to the first character no URL in running text holds. */
+const URL_IN_TEXT = /https?:\/\/[^\s<>"'`()[\]{}|\\^]+/g;
+
+/** The punctuation a sentence puts after a URL, which is not part of it. */
+const TRAILING = /[.,;:!?*_~]+$/;
+
+/** Every string in a JSON value: a tool's output as the provider reports it. */
+const stringsIn = (value: unknown): string[] => {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(stringsIn);
+  return [];
+};
+
+/** The URLs in `texts`, in the order they appear. */
+const urlsIn = (texts: readonly string[]): string[] => texts.flatMap((text) => [...text.matchAll(URL_IN_TEXT)].map(([url]) => url.replace(TRAILING, "")));
+
+/** The kinds whose shape a URL on an origin no forge account serves is tried with: GitHub Enterprise's, then the Gitea API's. */
+const ANONYMOUS_KINDS: readonly Exclude<ForgeKind, "gitlab">[] = ["github", "forgejo"];
+
+export const createPullRequestLinks = (options: PullRequestLinksOptions): PullRequestLinks => {
+  const { log, clock, reader } = options;
+
+  /** The reads and discoveries under way, which `idle` waits for. */
+  const underway = new Set<Promise<void>>();
+  /** Set once `start`'s stop is called: the log may close under work still under way, whose failure then says nothing. */
+  let closing = false;
+  /** Runs `work` in the background, logging what it throws, and counts it under way until it ends. */
+  const background = (what: string, work: () => Promise<void>): void => {
+    const running = work()
+      .catch((error: unknown) => {
+        if (!closing) console.error(`${what} failed:`, error);
+      })
+      .finally(() => underway.delete(running));
+    underway.add(running);
+  };
+
+  /** When each pull request was last read, by `readingOf`. */
+  const lastRead = new Map<string, number>();
+  /** The pull requests whose reads a 404 stopped, by `readingOf`. */
+  const stopped = new Set<string>();
+  /** A session's pull request, as the reads are kept in memory: the session and the URL the session holds it by. */
+  const readingOf = (sessionId: string, url: string): string => `${sessionId}\n${url}`;
+
+  /** Where the pull request `url` names is read; null for a URL no provider reads as one. */
+  const locate = (url: string): Located | null => {
+    const remote = normaliseRemote(url);
+    const account = remote === null ? null : servingAccount(remote, options.accounts());
+    const kinds = account !== null ? (account.kind === "gitlab" ? [] : [account.kind]) : remote?.origin === GITHUB_ORIGIN ? (["github"] as const) : ANONYMOUS_KINDS;
+    for (const kind of kinds) {
+      const reference = parsePullRequestUrl(kind, url);
+      if (reference !== null) return { kind, reference, origin: account?.origin ?? reference.origin, account };
+    }
+    return null;
+  };
+
+  /**
+   * What tells one pull request from another, however a URL spells it: its
+   * number in its repository on the origin it is read on, the names in
+   * lower case as the forges read them; a URL no provider reads is itself.
+   */
+  const keyOf = (url: string): string => {
+    const located = locate(url);
+    return located === null ? url : keyOfLocated(located);
+  };
+
+  const keyOfLocated = ({ origin, reference }: Located): string => [origin, reference.owner.toLowerCase(), reference.repository.toLowerCase(), reference.number].join("\n");
+
+  /** The session's pull request `url` names, as it holds it; undefined for none. */
+  const heldIn = (pullRequests: readonly PullRequest[], url: string): PullRequest | undefined => {
+    const key = keyOf(url);
+    return pullRequests.find((held) => keyOf(held.url) === key);
+  };
+
+  /** Whether two readings of a pull request say the same. */
+  const same = (one: PullRequest, other: PullRequest): boolean => one.state === other.state && one.mergedAt === other.mergedAt && one.closedAt === other.closedAt;
+
+  /** The pull request as the session keeps it: on the origin it was read on, its owner and repository as the forge's own page spells them. */
+  const kept = (located: Located, read: ForgePullRequest): PullRequest => {
+    const spelled = parsePullRequestUrl(located.kind, read.url) ?? located.reference;
+    const url = pullRequestUrl(located.kind, { origin: located.origin, owner: spelled.owner, repository: spelled.repository, number: located.reference.number });
+    if (url === null) throw new Error(`No web URL of a pull request on a ${located.kind} forge.`);
+    return { url, state: read.state, mergedAt: read.mergedAt, closedAt: read.closedAt };
+  };
+
+  /** Reads the pull request `located` names, as `purpose` says. */
+  const read = (located: Located, purpose: string): Promise<ForgeAnswer<ForgePullRequest>> => {
+    const { reference } = located;
+    return options.pullRequests.get({ origin: located.origin, kind: located.kind, repository: `${reference.owner}/${reference.repository}`, number: reference.number, purpose });
+  };
+
+  /** Why a link's read linked nothing, as the method's refusal. */
+  const unread = (located: Located, answer: Exclude<ForgeAnswer<ForgePullRequest>, { outcome: "done" }>): LinkRefusal => {
+    const { origin } = located;
+    switch (answer.outcome) {
+      case "refused": {
+        const { error } = answer;
+        if (error.code === "forge_account_missing" || error.code === "credential_unavailable") return error;
+        // A read names its origin and sends no body, so neither the primary forge nor the scrub can refuse it.
+        throw new Error(`Reading a pull request was refused ${error.code}: ${error.message}`);
+      }
+      case "unreachable":
+        return { code: "unreachable", message: answer.message, data: { origin } };
+      case "failed": {
+        if (answer.status !== 404) return { code: "verification_failed", message: `${answer.message} Nothing was linked.`, data: { origin, status: answer.status } };
+        const url = pullRequestUrl(located.kind, { ...located.reference, origin }) ?? origin;
+        return { code: "not_found", message: `The forge at ${origin} has no pull request ${url}.`, data: { kind: "pull_request", url } };
+      }
+    }
+  };
+
+  const notAPullRequest = (url: string): LinkRefusal => {
+    const origin = normaliseRemote(url)?.origin ?? null;
+    return {
+      code: "not_a_pull_request",
+      message: `The URL is no pull request's page on ${origin ?? "a forge"}: give its /pull/<number> page on GitHub, or its /pulls/<number> page on Forgejo or Gitea.`,
+      data: { origin },
+    };
+  };
+
+  const link: PullRequestLinks["link"] = {
+    async prepare(params) {
+      const stream = sessionStream(params.sessionId);
+      const rejecting = (rejected: LinkRefusal) => () => ({ aggregate: stream, rejected });
+      if (readSummary(reader, params.sessionId) === null) return rejecting(sessionNotFound(params.sessionId));
+      const located = locate(params.url);
+      if (located === null) return rejecting(notAPullRequest(params.url));
+      const answer = await read(located, "link a pull request to a session");
+      if (answer.outcome !== "done") return rejecting(unread(located, answer));
+      const pullRequest = kept(located, answer.value);
+
+      return (_params, command) => {
+        const current = readSummary(reader, params.sessionId);
+        if (current === null) return { aggregate: stream, rejected: sessionNotFound(params.sessionId) };
+        const held = heldIn(current.pullRequests, pullRequest.url);
+        // One linked already keeps the URL it was linked by. Just read, it is read again on its cadence from now, a stopped one too.
+        const payload: PullRequest = { ...pullRequest, url: held?.url ?? pullRequest.url };
+        command.tx.afterCommit(() => {
+          stopped.delete(readingOf(params.sessionId, payload.url));
+          lastRead.set(readingOf(params.sessionId, payload.url), clock.now().getTime());
+        });
+        // As the forge answers it now, there is nothing to link.
+        if (held !== undefined && same(held, pullRequest)) return { aggregate: stream, result: { summary: current } };
+        log.append(stream, [{ type: "session.pull-request-linked", payload: { ...payload } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        const summary = readSummary(reader, params.sessionId);
+        if (summary === null) throw new Error(`The session ${params.sessionId} is not in the list after a pull request was linked to it.`);
+        return { aggregate: stream, result: { summary } };
+      };
+    },
+  };
+
+  /**
+   * Appends what a read found of the session's pull request `url`, as
+   * `system:forge`, when its state, merged-at or closed-at changed: nothing
+   * for a session gone, or a pull request it no longer holds.
+   */
+  const synced = (sessionId: string, url: string, found: PullRequest): void => {
+    log.atomically((tx) => {
+      const held = readSummary(reader, sessionId)?.pullRequests.find((pullRequest) => pullRequest.url === url);
+      if (held === undefined || same(held, found)) return;
+      log.append(sessionStream(sessionId), [{ type: "session.pull-request-synced", payload: { ...found, url } }], { tx, actor: FORGE_ACTOR });
+    });
+  };
+
+  /**
+   * Reads the session's pull request `url` now and appends what changed; a
+   * 404, or an anonymous read's refusal, stops its reads. Its next read on
+   * the cadence counts from when this one was asked.
+   */
+  const sync = async (sessionId: string, url: string): Promise<void> => {
+    const reading = readingOf(sessionId, url);
+    const located = locate(url);
+    if (located === null) return void stopped.add(reading);
+    lastRead.set(reading, clock.now().getTime());
+    const answer = await read(located, "keep a session's pull request current");
+    if (answer.outcome === "done") return synced(sessionId, url, kept(located, answer.value));
+    if ((answer.outcome === "failed" && answer.status === 404) || (answer.outcome === "refused" && answer.error.code === "forge_account_missing")) stopped.add(reading);
+  };
+
+  /** The pull requests whose latest link event on the session is an unlink, by `keyOf`: discovery links none of them again. */
+  const unlinked = (sessionId: string): Set<string> => {
+    const rows = reader.all<{ type: string; url: string }>(
+      `SELECT type, json_extract(payload, '$.url') AS url FROM events
+       WHERE stream_kind = ? AND stream_id = ? AND type IN ('session.pull-request-linked', 'session.pull-request-unlinked')
+       ORDER BY sequence`,
+      SESSION_STREAM_KIND,
+      sessionId,
+    );
+    const latest = new Map<string, string>();
+    for (const row of rows) latest.set(keyOf(row.url), row.type);
+    return new Set([...latest].filter(([, type]) => type === "session.pull-request-unlinked").map(([key]) => key));
+  };
+
+  /**
+   * Links a pull request discovery found, as `system:forge`, unless the
+   * session is gone, holds it already, or last had it unlinked.
+   */
+  const discovered = (sessionId: string, found: PullRequest): void => {
+    const appended = log.atomically((tx) => {
+      const summary = readSummary(reader, sessionId);
+      if (summary === null || heldIn(summary.pullRequests, found.url) !== undefined || unlinked(sessionId).has(keyOf(found.url))) return false;
+      log.append(sessionStream(sessionId), [{ type: "session.pull-request-linked", payload: { ...found } }], { tx, actor: FORGE_ACTOR });
+      return true;
+    });
+    if (appended) lastRead.set(readingOf(sessionId, found.url), clock.now().getTime());
+  };
+
+  /**
+   * The pull requests from the branch the session's workspace is on, when
+   * a forge account serves its remote and it is not the repository's
+   * default: each open one, and each closed or merged since the session was
+   * created, is linked.
+   */
+  const discoverFromBranch = async (summary: SessionSummary): Promise<void> => {
+    const head = await readWorkspaceBranch(summary.workspace.path);
+    const remote = head === null ? null : normaliseRemote(head.remote);
+    if (head === null || remote === null || remote.path === null || !OWNER_AND_NAME.test(remote.path)) return;
+    const account = servingAccount(remote, options.accounts());
+    if (account === null || account.kind === "gitlab") return;
+    const target = { origin: account.origin, repository: remote.path, purpose: "find a session's pull requests" };
+    const repository = await options.repositories.get(target);
+    if (repository.outcome !== "done" || repository.value.defaultBranch === head.branch) return;
+    const listed = await options.pullRequests.listByHead({ ...target, branch: head.branch, limit: MAX_FROM_BRANCH });
+    if (listed.outcome !== "done") return;
+    const [owner = "", name = ""] = remote.path.split("/");
+    const since = Date.parse(summary.createdAt);
+    for (const found of listed.value) {
+      const ended = found.mergedAt ?? found.closedAt;
+      if (found.state !== "open" && (ended === null || Date.parse(ended) < since)) continue;
+      const reference = { origin: account.origin, owner, repository: name, number: found.number };
+      discovered(summary.id, kept({ kind: account.kind, reference, origin: account.origin, account }, found));
+    }
+  };
+
+  /** The assistant's text and every string of the tool outputs of the run `runId`, in order. */
+  const runTexts = (sessionId: string, runId: string): string[] =>
+    reader
+      .all<{ type: string; payload: string }>(
+        `SELECT type, payload FROM events
+         WHERE stream_kind = ? AND stream_id = ? AND type IN ('assistant.text', 'tool.ended') AND json_extract(payload, '$.runId') = ?
+         ORDER BY sequence`,
+        SESSION_STREAM_KIND,
+        sessionId,
+        runId,
+      )
+      .flatMap((row) => {
+        const payload = JSON.parse(row.payload) as { readonly text?: unknown; readonly output?: unknown };
+        return stringsIn(row.type === "assistant.text" ? payload.text : payload.output);
+      });
+
+  /**
+   * The pull-request URLs on an origin a forge account serves in the run's
+   * tool outputs and assistant text: the first twenty the session neither
+   * holds nor last had unlinked, each read, then linked as it answered.
+   */
+  const discoverInRun = async (sessionId: string, runId: string): Promise<void> => {
+    const summary = readSummary(reader, sessionId);
+    if (summary === null) return;
+    const passed = new Set([...summary.pullRequests.map((pullRequest) => keyOf(pullRequest.url)), ...unlinked(sessionId)]);
+    const candidates: Located[] = [];
+    for (const url of urlsIn(runTexts(sessionId, runId))) {
+      const located = locate(url);
+      if (located?.account == null || passed.has(keyOfLocated(located))) continue;
+      passed.add(keyOfLocated(located));
+      candidates.push(located);
+      if (candidates.length === MAX_URLS_PER_RUN) break;
+    }
+    for (const located of candidates) {
+      const answer = await read(located, "find a session's pull requests");
+      if (answer.outcome === "done") discovered(sessionId, kept(located, answer.value));
+    }
+  };
+
+  /**
+   * What a run's end owes the session: the pull requests found from its
+   * workspace's branch and in the run, which only a forge account's origin
+   * is looked at for, then a read of each it held that has not merged.
+   */
+  const runEnded = async (sessionId: string, runId: string): Promise<void> => {
+    const summary = readSummary(reader, sessionId);
+    if (summary === null) return;
+    const unmerged = summary.pullRequests.filter((pullRequest) => pullRequest.state !== "merged" && !stopped.has(readingOf(sessionId, pullRequest.url)));
+    // With no forge account, nothing is looked for: not even git is asked.
+    const looking = options.accounts().length > 0;
+    const parts = [
+      ...(looking
+        ? ([
+            ["Finding a session's pull requests from its workspace's branch", () => discoverFromBranch(summary)],
+            ["Finding a session's pull requests in a run", () => discoverInRun(sessionId, runId)],
+          ] as const)
+        : []),
+      ["Reading a session's pull requests at a run's end", () => Promise.all(unmerged.map(({ url }) => sync(sessionId, url)))],
+    ] as const;
+    // Each part is tried even when one before it fails, and named when it does.
+    for (const [what, part] of parts) {
+      try {
+        await part();
+      } catch (error) {
+        console.error(`${what} (session ${sessionId}) failed:`, error);
+      }
+    }
+  };
+
+  /** Whether the session's pull request is due a read at `now` on its cadence, `active` saying whether the session is in the active list. */
+  const due = (sessionId: string, pullRequest: PullRequest, active: boolean, now: number): boolean => {
+    const reading = readingOf(sessionId, pullRequest.url);
+    if (pullRequest.state === "merged" || stopped.has(reading)) return false;
+    if (pullRequest.state === "closed" && (pullRequest.closedAt === null || now - Date.parse(pullRequest.closedAt) > CLOSED_FOR_MS)) return false;
+    const every = pullRequest.state === "closed" ? CLOSED_EVERY_MS : active ? OPEN_ACTIVE_EVERY_MS : OPEN_SHELVED_EVERY_MS;
+    const last = lastRead.get(reading);
+    return last === undefined || now - last >= every;
+  };
+
+  /**
+   * Reads every pull request of every session that is due a read now: one
+   * query a minute, of the columns the cadence reads. What the reads kept of
+   * a pull request no session holds now (unlinked, or its session deleted)
+   * is let go, so a link later reads it on its cadence afresh.
+   */
+  const syncDue = (): void => {
+    const now = clock.now();
+    const rows = reader.all<Pick<SessionRow, "id" | "pull_requests" | "archived_at" | "settled_at" | "snoozed_until" | "pinned_at">>(
+      `SELECT id, pull_requests, archived_at, settled_at, snoozed_until, pinned_at FROM sessions
+       WHERE deleted_at IS NULL AND pull_requests <> '[]' ORDER BY created_at, id`,
+    );
+    const held = new Set<string>();
+    for (const row of rows) {
+      const shelf = shelfOf({ archivedAt: row.archived_at, settledAt: row.settled_at, snoozedUntil: row.snoozed_until, pinnedAt: row.pinned_at }, now);
+      const active = shelf === "active" || shelf === "pinned";
+      for (const pullRequest of JSON.parse(row.pull_requests) as PullRequest[]) {
+        held.add(readingOf(row.id, pullRequest.url));
+        if (due(row.id, pullRequest, active, now.getTime())) background("Keeping a session's pull request current", () => sync(row.id, pullRequest.url));
+      }
+    }
+    for (const reading of lastRead.keys()) if (!held.has(reading)) lastRead.delete(reading);
+    for (const reading of stopped) if (!held.has(reading)) stopped.delete(reading);
+  };
+
+  const unlink: PullRequestLinks["unlink"] = (params, command) => {
+    const stream = sessionStream(params.sessionId);
+    const current = readSummary(reader, params.sessionId);
+    if (current === null) return { aggregate: stream, rejected: sessionNotFound(params.sessionId) };
+    const held = heldIn(current.pullRequests, params.url);
+    if (held === undefined) return { aggregate: stream, result: { summary: current } };
+    log.append(stream, [{ type: "session.pull-request-unlinked", payload: { url: held.url } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+    const summary = readSummary(reader, params.sessionId);
+    if (summary === null) throw new Error(`The session ${params.sessionId} is not in the list after a pull request was unlinked from it.`);
+    return { aggregate: stream, result: { summary } };
+  };
+
+  const refresh: PullRequestLinks["refresh"] = async (sessionId) => {
+    const summary = readSummary(reader, sessionId);
+    if (summary === null) throw new ContractError(sessionNotFound(sessionId));
+    const unmerged = summary.pullRequests.filter((pullRequest) => pullRequest.state !== "merged");
+    // Asked now, a pull request whose reads were stopped is read too, and goes on being read once it answers.
+    for (const { url } of unmerged) stopped.delete(readingOf(sessionId, url));
+    await Promise.all(unmerged.map(({ url }) => sync(sessionId, url)));
+    return readSummary(reader, sessionId)?.pullRequests ?? [];
+  };
+
+  return {
+    link,
+    unlink,
+    refresh,
+    start() {
+      const unsubscribe = log.subscribe((event) => {
+        if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "run.ended") return;
+        const { runId } = event.payload as RunEndedPayload;
+        background(`What the run ${runId}'s end owes its session's pull requests`, () => runEnded(event.streamId, runId));
+      });
+      const timer = clock.setInterval(() => {
+        try {
+          syncDue();
+        } catch (error) {
+          console.error("Finding the pull requests due a read failed; the next minute tries again:", error);
+        }
+      }, SYNC_EVERY_MS);
+      // Nothing was read before the start: every pull request due a read is read now.
+      syncDue();
+      return () => {
+        closing = true;
+        unsubscribe();
+        timer.cancel();
+      };
+    },
+    async idle() {
+      while (underway.size > 0) await Promise.all(underway);
+    },
+  };
+};

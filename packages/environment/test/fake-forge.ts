@@ -25,7 +25,9 @@ import type { ForgeFetch } from "../src/forge/providers.js";
  * what `detectable` scripts on each kind's version or meta route, and a
  * GitLab-shaped route is scripted with `answer`; `organisations` scripts
  * GitHub's organisation list, which answers a fine-grained token with
- * none, beside its memberships, and the Gitea API's list.
+ * none, beside its memberships, and the Gitea API's list. `pullRequest`
+ * scripts a pull request on both APIs (#317), read by its number and listed
+ * among the repository's others by its head.
  */
 
 /** What a route answers a token. */
@@ -68,6 +70,23 @@ export interface FakeGitRequest {
   readonly status: number;
 }
 
+/** A pull request as a test scripts one; every field has a preset. */
+export interface FakePullRequest {
+  /** Preset `open`. */
+  readonly state?: "open" | "closed" | "merged";
+  /** When it merged; preset: none, or `closedAt` for a merged one. */
+  readonly mergedAt?: string | null;
+  /** When it closed or merged; preset: none, or `MERGED_OR_CLOSED_AT` for one that is not open. */
+  readonly closedAt?: string | null;
+  /** The branch it is from; preset `feature`. */
+  readonly head?: string;
+  /** The repository its head branch is in, `owner/name`; preset: the one it is opened on. */
+  readonly headRepository?: string;
+}
+
+/** When a pull request a test scripts closed or merged, unless it says. */
+export const MERGED_OR_CLOSED_AT = "2026-09-24T00:00:30Z";
+
 /** What detection may find a fake forge to be: Forgejo, Gitea, or GitHub on an Enterprise origin. */
 export type DetectableKind = "forgejo" | "gitea" | "github";
 
@@ -109,6 +128,15 @@ export interface FakeForge {
    * API's list.
    */
   organisations(token: string, names: readonly string[]): void;
+  /**
+   * Scripts the pull request `number` of `fullName` (`owner/name`) for
+   * `token`, or for a caller with no credential when it is null, on both
+   * APIs as each answers one: read by its number, and listed among the
+   * repository's pull requests scripted for that caller, most recently
+   * scripted first, GitHub's list filtered by its `head=owner:branch` query
+   * and the Gitea API's answering them all. Scripting it again replaces it.
+   */
+  pullRequest(token: string | null, fullName: string, number: number, fields?: FakePullRequest): void;
   /** Every request of the APIs so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
   /**
@@ -207,6 +235,8 @@ export const startFakeForge = async (): Promise<FakeForge> => {
   const gitRepositories = new Map<string, { readonly private: boolean }>();
   const gitCredentials = new Set<string>();
   const gitRequests: FakeGitRequest[] = [];
+  /** The pull requests scripted per caller and repository, by number, in the order scripted. */
+  const pulls = new Map<string, Map<number, FakePullRequest>>();
 
   /** Serves git's smart HTTP through `git http-backend`, once the request's credential passes: every push and every read of a private repository need one. */
   const serveGit = (request: IncomingMessage, response: ServerResponse, method: string, path: string, query: string): void => {
@@ -348,6 +378,43 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       const memberships = names.map((login, index) => ({ state: "active", role: "member", organization: { login, id: 100 + index } }));
       script(token, "GET /api/v3/user/memberships/orgs", { status: 200, body: memberships });
       script(token, "GET /api/v1/user/orgs", { status: 200, body: names.map((name, index) => ({ id: 100 + index, name, username: name, full_name: "" })) });
+    },
+    pullRequest(token, fullName, number, fields = {}) {
+      const caller = token ?? ANONYMOUS;
+      const key = keyOf(caller, fullName);
+      const held = pulls.get(key) ?? new Map<number, FakePullRequest>();
+      // Scripted again, it is the most recently updated.
+      held.delete(number);
+      held.set(number, fields);
+      pulls.set(key, held);
+      /** The pull request as an API answers it: GitHub's merged by `merged_at`, the Gitea API's by `merged` too. */
+      const body = (api: "/api/v3" | "/api/v1", pull: number, scripted: FakePullRequest) => {
+        const state = scripted.state ?? "open";
+        const closedAt = scripted.closedAt !== undefined ? scripted.closedAt : state === "open" ? null : MERGED_OR_CLOSED_AT;
+        const mergedAt = scripted.mergedAt !== undefined ? scripted.mergedAt : state === "merged" ? closedAt : null;
+        return {
+          number: pull,
+          title: `Pull request ${pull}`,
+          body: "",
+          state: state === "open" ? "open" : "closed",
+          ...(api === "/api/v1" && { merged: state === "merged" }),
+          merged_at: mergedAt,
+          closed_at: closedAt,
+          head: { ref: scripted.head ?? "feature", sha: "0123abcd", repo: { full_name: scripted.headRepository ?? fullName } },
+          base: { ref: "main" },
+          html_url: `${origin}/${fullName}/${api === "/api/v3" ? "pull" : "pulls"}/${pull}`,
+        };
+      };
+      const listed = (api: "/api/v3" | "/api/v1") => [...held.entries()].reverse().map(([pull, scripted]) => ({ scripted, answer: body(api, pull, scripted) }));
+      for (const api of ["/api/v3", "/api/v1"] as const) {
+        script(caller, `GET ${api}/repos/${fullName}/pulls/${number}`, { status: 200, body: body(api, number, fields) });
+      }
+      script(caller, `GET /api/v3/repos/${fullName}/pulls`, (request) => {
+        const head = new URLSearchParams(request.query ?? "").get("head");
+        const answers = listed("/api/v3").filter(({ scripted }) => head === null || head === `${(scripted.headRepository ?? fullName).split("/")[0]}:${scripted.head ?? "feature"}`);
+        return { status: 200, body: answers.map(({ answer }) => answer) };
+      });
+      script(caller, `GET /api/v1/repos/${fullName}/pulls`, () => ({ status: 200, body: listed("/api/v1").map(({ answer }) => answer) }));
     },
     requests,
     gitRepository(path, options = {}) {

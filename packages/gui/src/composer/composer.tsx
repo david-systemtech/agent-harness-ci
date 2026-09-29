@@ -6,13 +6,16 @@ import {
   lockOf,
   replaceMention,
   sendMessage,
+  shellLine,
   type CapabilityAnswer,
 } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
 import { KeyContext, useKeyAction, type Offer } from "../keys/key-dispatch.js";
 import { useSessionQueue } from "../queue/session-queue.js";
+import { useModelChoice } from "../status/run-choices.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
+import { useShellLines } from "../terminal/shell-lines.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { AttachmentChips, useAttachments } from "./attachments.js";
@@ -38,6 +41,8 @@ export interface ComposerProps {
  *   the environment queues or steers; Shift+Enter breaks the line. A run
  *   command never waits in the outbox: while no run can start the composer is
  *   locked with `capability`'s line, and a send is refused at once with it.
+ * - **The model** the status line's model picker chose goes with the
+ *   session's next `runs.start` (#402).
  * - **Slash commands.** `/` opens the commands the window wires and the
  *   provider's own; a name of the shared list is the window's, any other
  *   word goes to the agent as typed.
@@ -51,6 +56,10 @@ export interface ComposerProps {
  *   whole queue from the command palette.
  * - **Stop the run** (`app.interrupt`) is the palette's stop of this pane's
  *   run, Stop's own; no key stops a run until "Esc stops the run" is on.
+ * - **Shell lines** (#409), as the terminal UI runs them (`useShellLines`):
+ *   `!command` in a terminal of its own in the side column's Terminal pane,
+ *   the composer keeping the keys; `!!command` in one nobody sees, what it
+ *   printed sent to the agent as the session's next message.
  *
  * Each action it wires is offered to the palette with whether it can be
  * done now, as the runtime says: dim there with the line while it cannot.
@@ -71,6 +80,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose, attachments.dialog);
   const queue = useSessionQueue();
+  const [choice] = useModelChoice(environmentId, sessionId);
 
   const sending = runtime.capability(environmentId, "runs.send");
   const lock = lockOf(sending);
@@ -79,9 +89,15 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const live = isLive(runs.state) || liveRunId !== undefined;
   const [interruptAsked, askInterrupt] = useState<string | undefined>(undefined);
   const stoppable = stopOffer(runtime.capability(environmentId, "runs.interrupt"), live, liveRunId, interruptAsked);
+  const runShellLine = useShellLines({ environmentId, sessionId, line, say, lock, live });
 
   /** Sends `raw` as the box would: a command of the window's is run, anything else goes to the agent with the attachments. */
   const send = (raw: string) => {
+    const shell = shellLine(raw);
+    if (shell !== null) {
+      if (runShellLine(shell)) box.put("");
+      return;
+    }
     const typed = typedCommand(raw);
     if (typed !== undefined) {
       const command = wired.find((candidate) => candidate.name === typed.name);
@@ -98,7 +114,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     box.put("");
     attachments.set([]);
     say(undefined);
-    void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
+    void sendMessage(runtime, environmentId, sessionId, message, live, choice).then((outcome) => {
       if (outcome.ok) return;
       say(outcome.line);
       // What was not sent comes back into an empty box, so it is not lost.

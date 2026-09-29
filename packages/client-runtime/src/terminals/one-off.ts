@@ -1,7 +1,8 @@
-import type { Clock, Runtime, TerminalHandle } from "@agent-harness/client-runtime";
-import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv, oneOffOutput } from "@agent-harness/contracts";
-import type { Opened } from "../session/use-session.js";
-import { createScreen } from "./screen.js";
+import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv, oneOffOutput, type TerminalInfo } from "@agent-harness/contracts";
+import type { Clock } from "../platform.js";
+import type { Runtime } from "../runtime.js";
+import type { TerminalHandle } from "../streams/terminals.js";
+import type { TextScreens } from "./text-screen.js";
 
 /**
  * One-off commands (docs/specs/tui.md, "The composer": `!` runs a command
@@ -34,9 +35,9 @@ import { createScreen } from "./screen.js";
  *   marker the command never ran (a shell that could not hand itself to
  *   `sh`): nothing is sent, and the last line the terminal showed says why.
  * - **It is read as a terminal would show it**: the output goes through the
- *   same headless emulator the pane draws with, so carriage-return progress
- *   bars and colours come out as the text a person saw, cut to its first
- *   `ONE_OFF_MAX_LINES` lines with the rest counted.
+ *   emulator the renderer's pane draws with (`TextScreens`), so
+ *   carriage-return progress bars and colours come out as the text a person
+ *   saw, cut to its first `ONE_OFF_MAX_LINES` lines with the rest counted.
  * - **A minute at most**: past `ONE_OFF_TIMEOUT_MS` the terminal is closed
  *   and the output says so. Every way it ends, the terminal is closed (a
  *   close the environment could not be asked is sent again once it can
@@ -44,7 +45,8 @@ import { createScreen } from "./screen.js";
  *
  * The variables, the line and the reading of the marker are contracts'
  * (`one-off.ts` there), where the environment's tests prove them against
- * real pseudo-terminals.
+ * real pseudo-terminals. Both renderers run one-offs through here (#409):
+ * the terminal UI's `!` and `!!`, and the window's.
  */
 
 /**
@@ -102,7 +104,7 @@ const SHOWN_SCROLLBACK = SHOWN_MAX_FEEDS + 1 + Math.ceil((2 * ONE_OFF_MAX_CHARS)
  * through the screen, up to `SHOWN_MAX_FEEDS` line feeds, and less while the screen comes back full (its oldest lines may
  * be gone); the lines after that are counted by their line feeds, a line cut short counted among them.
  */
-export const shownOutput = async (raw: string): Promise<string> => {
+export const shownOutput = async (screens: TextScreens, raw: string): Promise<string> => {
   let end = raw.length;
   let at = -1;
   for (let feeds = 0; feeds < SHOWN_MAX_FEEDS; feeds++) {
@@ -111,7 +113,7 @@ export const shownOutput = async (raw: string): Promise<string> => {
   }
   if (at !== -1) end = at + 1;
   for (;;) {
-    const read = await readThrough(raw.slice(0, end));
+    const read = await readThrough(screens, raw.slice(0, end));
     if (read !== null) {
       const rest = raw.slice(end).trimEnd();
       return clipOutput(read, ONE_OFF_MAX_LINES, rest.length === 0 ? 0 : rest.split("\n").length);
@@ -130,8 +132,8 @@ const shorter = (raw: string, end: number): number => {
 };
 
 /** `raw` as the reader screen shows it, as text; null when the screen came back full, so its first lines may be gone. */
-const readThrough = async (raw: string): Promise<string | null> => {
-  const screen = createScreen({ ...ONE_OFF_SIZE, scrollback: SHOWN_SCROLLBACK });
+const readThrough = async (screens: TextScreens, raw: string): Promise<string | null> => {
+  const screen = screens({ ...ONE_OFF_SIZE, scrollback: SHOWN_SCROLLBACK });
   await screen.write(raw);
   const text = screen.full() ? null : screen.text();
   screen.dispose();
@@ -139,8 +141,8 @@ const readThrough = async (raw: string): Promise<string | null> => {
 };
 
 /** `raw` as a terminal `ONE_OFF_SIZE` wide shows it, as text. */
-export const shownText = async (raw: string): Promise<string> => {
-  const screen = createScreen({ ...ONE_OFF_SIZE, scrollback: ONE_OFF_MAX_LINES * 20 });
+export const shownText = async (screens: TextScreens, raw: string): Promise<string> => {
+  const screen = screens({ ...ONE_OFF_SIZE, scrollback: ONE_OFF_MAX_LINES * 20 });
   await screen.write(raw);
   const text = screen.text();
   screen.dispose();
@@ -172,13 +174,21 @@ export interface OneOffDeps {
   readonly clock: Clock;
   readonly newCommandId: () => string;
   readonly newTerminalId: () => string;
+  /** The emulator the renderer draws a terminal with, which what the command printed is read through. */
+  readonly screens: TextScreens;
   readonly timeoutMs?: number;
+}
+
+/** The session a one-off runs for, on its environment. */
+export interface OneOffTarget {
+  readonly environmentId: string;
+  readonly sessionId: string;
 }
 
 type Ended = { readonly exitCode: number | null; readonly signal: number | null; readonly timedOut: boolean; readonly gone: boolean };
 
 /** Runs `command` for `!!` in a terminal of its own on the session's environment and reads what it printed. */
-export const runOneOff = async (deps: OneOffDeps, target: Opened, command: string): Promise<OneOffResult> => {
+export const runOneOff = async (deps: OneOffDeps, target: OneOffTarget, command: string): Promise<OneOffResult> => {
   const { runtime, clock } = deps;
   const { environmentId, sessionId } = target;
   const timeoutMs = deps.timeoutMs ?? ONE_OFF_TIMEOUT_MS;
@@ -221,11 +231,11 @@ export const runOneOff = async (deps: OneOffDeps, target: Opened, command: strin
   const said = heard.said();
   if (said === null) {
     // The command never ran: what the terminal showed is the shell's, never the command's, so none of it goes to the agent.
-    const last = (await shownText(heard.before())).split("\n").findLast((line) => line.trim().length > 0);
+    const last = (await shownText(deps.screens, heard.before())).split("\n").findLast((line) => line.trim().length > 0);
     const why = end.timedOut ? `within ${seconds(timeoutMs)}` : "before its terminal ended";
     return { ok: false, line: `The shell never started it ${why}${last === undefined ? "." : `; it last showed: ${last.trim()}`}` };
   }
-  return { ok: true, output: await shownOutput(said.text), ...end, timeoutMs, cut: said.cut, dropped: said.dropped };
+  return { ok: true, output: await shownOutput(deps.screens, said.text), ...end, timeoutMs, cut: said.cut, dropped: said.dropped };
 };
 
 const seconds = (ms: number): string => `${String(Math.round(ms / 1000))}s`;
@@ -247,3 +257,10 @@ export const oneOffMessage = (command: string, result: Extract<OneOffResult, { r
   if (body.length === 0) return `Ran \`${command}\`; it printed nothing.`;
   return `Ran \`${command}\`:\n\`\`\`\n${body}\n\`\`\``;
 };
+
+/**
+ * The terminal a pane reopens as its session's shell: the newest `terminals.list` has still running that is not a one-off
+ * this client started (`oneOffs`, by lowercased id), which only its own `!` or `!!` shows; undefined when there is none.
+ */
+export const reusableTerminal = (terminals: readonly TerminalInfo[], oneOffs: ReadonlySet<string>): TerminalInfo | undefined =>
+  terminals.filter((t) => t.exitCode === null && !oneOffs.has(t.id.toLowerCase())).at(-1);

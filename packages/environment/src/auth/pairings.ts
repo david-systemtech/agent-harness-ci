@@ -42,6 +42,8 @@ export interface Pairings {
   exchange(tx: Tx, code: string, client: { readonly kind: ClientKind; readonly label: string }): Outcome<PairingRefusal>;
   /** Records the expiry of every code whose ten minutes are over and that no one exchanged, attributed to the sweep. */
   sweep(tx: Tx): void;
+  /** Whether any code was ever exchanged here: whether a client has ever paired. */
+  everExchanged(): boolean;
 }
 
 export interface PairingsOptions {
@@ -156,6 +158,8 @@ export const createPairings = (options: PairingsOptions): Pairings => {
       const now = clock.now().getTime();
       for (const pairing of byHash.values()) if (now >= pairing.expiresAt) expire(tx, pairing, SYSTEM.sweep);
     },
+
+    everExchanged: () => [...byHash.values()].some((pairing) => pairing.exchanged),
   };
 };
 

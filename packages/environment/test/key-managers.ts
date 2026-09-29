@@ -2,12 +2,13 @@ import type { KeyManagerReference } from "@agent-harness/contracts";
 import type { KeyManagerRegistry, ReferenceRequest } from "../src/key-managers/registry.js";
 
 /**
- * A scripted key-manager registry (#312): the resolve seam #91's registry
- * fills, standing in for it. Each reference answers the value the test
- * scripted for it, or that it is unavailable; every request is recorded,
- * and the values it has answered and not yet had released are counted. It
- * registers nothing with the scrub registry itself, so what a test sees
- * scrubbed is what its caller registered.
+ * A scripted key-manager registry (#312): the resolve seam the environment's
+ * registry fills (#370), standing in for it. Each reference answers the
+ * value the test scripted for it, or that it is unavailable
+ * (`credential_source_unavailable`); every request is recorded, and the
+ * values it has answered and not yet had released are counted. It registers
+ * nothing with the scrub registry itself, so what a test sees scrubbed is
+ * what its caller registered.
  */
 export interface ScriptedKeyManagers {
   readonly registry: KeyManagerRegistry;
@@ -30,7 +31,9 @@ export const scriptedKeyManagers = (): ScriptedKeyManagers => {
       async resolve(request) {
         requests.push(request);
         const value = values.get(keyOf(request.reference)) ?? null;
-        if (value === null) return { outcome: "unavailable", message: `The key manager answered no value for ${request.reference.provider} reference ${request.reference.connectionId}.` };
+        if (value === null) {
+          return { outcome: "unavailable", code: "credential_source_unavailable", message: `The key manager answered no value for ${request.reference.provider} reference ${request.reference.connectionId}.` };
+        }
         outstanding += 1;
         let released = false;
         return {

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RequestedDirectory",
+  "type": "string",
+  "pattern": "^(?:~(?:[\\\\/]|$)|\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+  "description": "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home."
+}

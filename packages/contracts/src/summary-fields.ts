@@ -26,8 +26,10 @@ export type SummaryFieldOwner = { readonly command: CommandMethodName } | { read
  * filing fields through its own (unarchive, unsettle, wake, the `active`
  * override cleared) and a run's end wakes, a sync moves `pullRequests`, a
  * generated title (`session.title-generated`, from the first user message,
- * a fork's source or the provider) moves `title` and `titleSource`, and a
- * fork, a rewind and `runs.withdraw` write `draft` (#137, #228).
+ * a fork's source or the provider) moves `title` and `titleSource`, a
+ * fork, a rewind and `runs.withdraw` write `draft` (#137, #228), and
+ * `sessions.setWorkspace` gives a missing session another `workspace` and
+ * `repositoryIdentity` and clears `workspaceMissingSince` (#328).
  */
 export const SUMMARY_FIELD_OWNERS = {
   // Identity: born with the session; updatedAt then moves with every organisation command.
@@ -52,7 +54,8 @@ export const SUMMARY_FIELD_OWNERS = {
   unsettledAt: { command: "sessions.unsettle" },
   snoozedUntil: { command: "sessions.snooze" },
   snoozedAt: { command: "sessions.snooze" },
-  // Place (ADR 0005): written once, by the creating command; the missing mark is the availability watcher's (workspace-picker spec).
+  // Place (ADR 0005): written by the creating command, and again only by sessions.setWorkspace while the workspace is missing;
+  // the missing mark is the availability watcher's (workspace-picker spec).
   workspace: { command: "sessions.create" },
   repositoryIdentity: { command: "sessions.create" },
   workspaceMissingSince: { event: "session.workspace-status-changed" },

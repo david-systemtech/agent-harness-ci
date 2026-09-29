@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
   BROWSER_SETTINGS_KEYS,
+  DEFAULT_THEME,
   EVENT_TYPES,
   IdleSpan,
   MAX_IDLE_SPAN_AMOUNT,
@@ -20,6 +21,7 @@ import {
   isGenericSettingsKey,
   presetPermissionSettings,
   settingForm,
+  Theme,
 } from "./index.js";
 
 /**
@@ -29,7 +31,7 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335) and the browser keys (#541)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391) and the browser keys (#541)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -40,6 +42,7 @@ describe("the settings keys", () => {
       "providers.processIdleMinutes",
       ...PERMISSION_SETTINGS_KEYS,
       ...UPDATE_SETTINGS_KEYS,
+      "appearance.theme",
       ...BROWSER_SETTINGS_KEYS,
     ]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
@@ -57,6 +60,7 @@ describe("the settings keys", () => {
       "updates.pinnedVersion": null,
       "updates.idleWindowMinutes": 10,
       "updates.deferralCapHours": 24,
+      "appearance.theme": DEFAULT_THEME,
       "browser.devSites": [],
       "browser.evaluateEverywhere": false,
       "browser.deepReadEverywhere": false,
@@ -79,6 +83,7 @@ describe("the settings keys", () => {
       "accounts.defaultModelFamily",
       "accounts.defaultEffort",
       "providers.processIdleMinutes",
+      "appearance.theme",
       ...BROWSER_SETTINGS_KEYS,
     ]);
     for (const key of PERMISSION_SETTINGS_KEYS) {
@@ -111,6 +116,33 @@ describe("the settings keys", () => {
       }),
     ]);
     expect(issues({ theme: "dark" })?.[0]?.message).not.toContain("settings.set");
+  });
+
+  it("hold the environment's theme, appearance.theme (ADR 0023): a name and seven seeds, preset \"Default\", written by settings.update at admin, the Appearance step's on the row appearance.theme", () => {
+    const theme = SETTINGS["appearance.theme"];
+    expect(theme.schema).toBe(Theme);
+    expect(Theme.parse(theme.preset)).toEqual({
+      name: "Default",
+      seeds: {
+        canvas: { hue: 0, chroma: 0 },
+        accent: { hue: 264, chroma: 0.21 },
+        machine: { hue: 210, chroma: 0.1 },
+        thinking: { hue: 310, chroma: 0.035 },
+        success: { hue: 150, chroma: 0.17 },
+        warning: { hue: 85, chroma: 0.155 },
+        danger: { hue: 25, chroma: 0.18 },
+      },
+    });
+    expect(presetSettings()["appearance.theme"]).toEqual(DEFAULT_THEME);
+    expect(theme.step).toEqual({ id: "appearance", row: "appearance.theme" });
+    expect(isGenericSettingsKey("appearance.theme")).toBe(true);
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "appearance.theme": ember } }).success).toBe(true);
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "appearance.theme": { name: "Ember" } } }).success).toBe(false);
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "appearance.theme": { ...ember, name: "" } } }).success).toBe(false);
+    expect(registry["settings.update"].scope).toBe("admin");
+    expect(settingForm("appearance.theme")).toEqual({ kind: "text", nullable: false });
   });
 
   it("take an idle span of 1 to 1000 days, weeks or months, or null for never", () => {

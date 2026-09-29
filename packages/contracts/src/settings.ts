@@ -5,8 +5,10 @@ import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
+import { setOf } from "./primitives.js";
 import type { SettingsRowId } from "./settings-rows.js";
 import type { StepId } from "./steps.js";
+import { DEFAULT_THEME, Theme } from "./theme.js";
 import { UPDATE_SETTINGS } from "./update-settings.js";
 
 /**
@@ -111,8 +113,11 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * Permissions step's, on `access.permissions`, written through
  * `permissions.settings.set` only, and the update keys (#335) the Your
  * machines step's, on `environments.machines`, written through
- * `updates.settings.set` only. The browser keys (#541) are the Browser
- * step's, on `access.browser`, written through `settings.update`.
+ * `updates.settings.set` only. The theme (ADR 0023: `appearance.theme`, a
+ * name and seven seeds, preset "Default") is the Appearance step's, on its
+ * home row, `appearance.theme`, written by `settings.update` (#391). The
+ * browser keys (#541) are the Browser step's, on `access.browser`, written
+ * through `settings.update`.
  */
 const SESSIONS_PLACE = { id: "your-machines", row: "environments.service" } as const;
 const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
@@ -155,6 +160,11 @@ export const SETTINGS = {
   }),
   ...PERMISSION_SETTINGS,
   ...UPDATE_SETTINGS,
+  "appearance.theme": setting({
+    schema: Theme,
+    preset: DEFAULT_THEME,
+    step: { id: "appearance", row: "appearance.theme" },
+  }),
   ...BROWSER_SETTINGS,
 } as const;
 
@@ -241,6 +251,27 @@ export const SettingsUpdatedPayload = z
   .object({ values: SettingsPatch.meta({ description: "The keys that changed, with their new values." }) })
   .meta({ description: "settings.updated: settings changed; the keys that did, with their new values." });
 export type SettingsUpdatedPayload = z.infer<typeof SettingsUpdatedPayload>;
+
+/**
+ * `settings.changed`, the environment notice (GUI spec, "Live"; #391):
+ * appended on the environment's own stream in the transaction of every
+ * `settings.updated`, whichever method wrote it, naming the keys that
+ * changed, so every connected client hears it whatever else it subscribes
+ * to and fetches its settings again (a theme set from one client repaints
+ * every window within a round trip). The values are not carried: a client
+ * reads them through `settings.get` or the method of its own that answers
+ * them, at the scope that method asks. The access log's `settings.changed`
+ * (`permissions-settings.ts`) is another type of the same name on the
+ * access stream.
+ */
+export const SettingsChangedNoticePayload = z
+  .object({
+    keys: setOf(SettingsKeyName)
+      .min(1)
+      .meta({ description: "The keys whose values changed, each once, in the order settings.updated names them." }),
+  })
+  .meta({ description: "settings.changed: settings changed on the environment; the keys that did, whose values a client reads again." });
+export type SettingsChangedNoticePayload = z.infer<typeof SettingsChangedNoticePayload>;
 
 /** The event types of the `settings` stream: none changes the session list. */
 export const SETTINGS_EVENT_TYPES = {

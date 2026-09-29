@@ -343,6 +343,18 @@
       "title": "WorkspaceStatus"
     },
     {
+      "path": "sessions/repository-identified-reason.json",
+      "title": "RepositoryIdentifiedReason"
+    },
+    {
+      "path": "sessions/absolute-path.json",
+      "title": "AbsolutePath"
+    },
+    {
+      "path": "sessions/requested-directory.json",
+      "title": "RequestedDirectory"
+    },
+    {
       "path": "sessions/activity-state.json",
       "title": "ActivityState"
     },
@@ -491,6 +503,14 @@
       "title": "SessionWorkspaceStatusChangedPayload"
     },
     {
+      "path": "sessions/events/session.workspace-set.json",
+      "title": "SessionWorkspaceSetPayload"
+    },
+    {
+      "path": "sessions/events/session.repository-identified.json",
+      "title": "SessionRepositoryIdentifiedPayload"
+    },
+    {
       "path": "sessions/events/prompt.opened.json",
       "title": "PromptOpenedPayload"
     },
@@ -597,6 +617,10 @@
     {
       "path": "sessions/events/tool.decision.json",
       "title": "ToolDecisionPayload"
+    },
+    {
+      "path": "sessions/events/run.instructions.composed.json",
+      "title": "RunInstructionsComposedPayload"
     },
     {
       "path": "sessions/events/group.created.json",
@@ -1073,6 +1097,18 @@
     {
       "path": "key-managers/certificate.json",
       "title": "KeyManagerCertificate"
+    },
+    {
+      "path": "key-managers/reference-display.json",
+      "title": "KeyManagerReferenceDisplay"
+    },
+    {
+      "path": "key-managers/reference-holder.json",
+      "title": "KeyManagerReferenceHolder"
+    },
+    {
+      "path": "key-managers/reference-problem.json",
+      "title": "KeyManagerReferenceProblem"
     },
     {
       "path": "key-managers/events/key-manager.connection.added.json",
@@ -1571,6 +1607,38 @@
       "title": "ReviewRun"
     },
     {
+      "path": "instructions/layer.json",
+      "title": "InstructionLayer"
+    },
+    {
+      "path": "instructions/manifest-part.json",
+      "title": "InstructionManifestPart"
+    },
+    {
+      "path": "instructions/manifest-layer.json",
+      "title": "InstructionManifestLayer"
+    },
+    {
+      "path": "instructions/always-on-skill.json",
+      "title": "InstructionAlwaysOnSkill"
+    },
+    {
+      "path": "instructions/left-out-reason.json",
+      "title": "InstructionLeftOutReason"
+    },
+    {
+      "path": "instructions/left-out.json",
+      "title": "InstructionLeftOut"
+    },
+    {
+      "path": "instructions/manifest.json",
+      "title": "InstructionManifest"
+    },
+    {
+      "path": "instructions/preview-part.json",
+      "title": "InstructionPreviewPart"
+    },
+    {
       "path": "terminals/terminal-id.json",
       "title": "TerminalId"
     },
@@ -1621,6 +1689,26 @@
     {
       "path": "diffs/session-diff-file.json",
       "title": "SessionDiffFile"
+    },
+    {
+      "path": "workspaces/browsed-directory.json",
+      "title": "BrowsedDirectory"
+    },
+    {
+      "path": "workspaces/inspected-commit.json",
+      "title": "InspectedCommit"
+    },
+    {
+      "path": "workspaces/inspected-branch.json",
+      "title": "InspectedBranch"
+    },
+    {
+      "path": "workspaces/inspected-repository.json",
+      "title": "InspectedRepository"
+    },
+    {
+      "path": "workspaces/workspace-inspection.json",
+      "title": "WorkspaceInspection"
     },
     {
       "path": "actions/action-context.json",
@@ -1757,6 +1845,10 @@
     {
       "path": "settings/settings-event-type.json",
       "title": "SettingsEventType"
+    },
+    {
+      "path": "settings/notices/settings.changed.json",
+      "title": "SettingsChangedNoticePayload"
     },
     {
       "path": "settings/band-id.json",
@@ -2507,6 +2599,14 @@
       "title": "CredentialSourceUnavailableError"
     },
     {
+      "path": "errors/reference_not_found.json",
+      "title": "ReferenceNotFoundError"
+    },
+    {
+      "path": "errors/reference_denied.json",
+      "title": "ReferenceDeniedError"
+    },
+    {
       "path": "errors/forge_account_missing.json",
       "title": "ForgeAccountMissingError"
     },
@@ -2517,6 +2617,10 @@
     {
       "path": "errors/not_a_forge.json",
       "title": "NotAForgeError"
+    },
+    {
+      "path": "errors/not_a_pull_request.json",
+      "title": "NotAPullRequestError"
     },
     {
       "path": "forge/errors/unreachable.json",
@@ -2745,6 +2849,22 @@
     {
       "path": "methods/sessions.create/error.json",
       "title": "sessions.create error"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/params.json",
+      "title": "sessions.setWorkspace params"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/result.json",
+      "title": "sessions.setWorkspace result"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/response.json",
+      "title": "sessions.setWorkspace response"
+    },
+    {
+      "path": "methods/sessions.setWorkspace/error.json",
+      "title": "sessions.setWorkspace error"
     },
     {
       "path": "methods/sessions.rename/params.json",
@@ -3575,6 +3695,18 @@
       "title": "commands.list error"
     },
     {
+      "path": "methods/instructions.preview/params.json",
+      "title": "instructions.preview params"
+    },
+    {
+      "path": "methods/instructions.preview/result.json",
+      "title": "instructions.preview result"
+    },
+    {
+      "path": "methods/instructions.preview/error.json",
+      "title": "instructions.preview error"
+    },
+    {
       "path": "methods/forge.accounts.list/params.json",
       "title": "forge.accounts.list params"
     },
@@ -3697,6 +3829,50 @@
     {
       "path": "methods/forge.orgs.list/error.json",
       "title": "forge.orgs.list error"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/params.json",
+      "title": "forge.pullRequests.link params"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/result.json",
+      "title": "forge.pullRequests.link result"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/response.json",
+      "title": "forge.pullRequests.link response"
+    },
+    {
+      "path": "methods/forge.pullRequests.link/error.json",
+      "title": "forge.pullRequests.link error"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/params.json",
+      "title": "forge.pullRequests.unlink params"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/result.json",
+      "title": "forge.pullRequests.unlink result"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/response.json",
+      "title": "forge.pullRequests.unlink response"
+    },
+    {
+      "path": "methods/forge.pullRequests.unlink/error.json",
+      "title": "forge.pullRequests.unlink error"
+    },
+    {
+      "path": "methods/forge.pullRequests.refresh/params.json",
+      "title": "forge.pullRequests.refresh params"
+    },
+    {
+      "path": "methods/forge.pullRequests.refresh/result.json",
+      "title": "forge.pullRequests.refresh result"
+    },
+    {
+      "path": "methods/forge.pullRequests.refresh/error.json",
+      "title": "forge.pullRequests.refresh error"
     },
     {
       "path": "methods/keyManagers.list/params.json",
@@ -3829,6 +4005,30 @@
     {
       "path": "methods/keyManagers.certificate.preview/error.json",
       "title": "keyManagers.certificate.preview error"
+    },
+    {
+      "path": "methods/keyManagers.references.check/params.json",
+      "title": "keyManagers.references.check params"
+    },
+    {
+      "path": "methods/keyManagers.references.check/result.json",
+      "title": "keyManagers.references.check result"
+    },
+    {
+      "path": "methods/keyManagers.references.check/error.json",
+      "title": "keyManagers.references.check error"
+    },
+    {
+      "path": "methods/keyManagers.references.browse/params.json",
+      "title": "keyManagers.references.browse params"
+    },
+    {
+      "path": "methods/keyManagers.references.browse/result.json",
+      "title": "keyManagers.references.browse result"
+    },
+    {
+      "path": "methods/keyManagers.references.browse/error.json",
+      "title": "keyManagers.references.browse error"
     },
     {
       "path": "methods/settings.get/params.json",
@@ -4177,6 +4377,30 @@
     {
       "path": "methods/diffs.session/error.json",
       "title": "diffs.session error"
+    },
+    {
+      "path": "methods/workspaces.browse/params.json",
+      "title": "workspaces.browse params"
+    },
+    {
+      "path": "methods/workspaces.browse/result.json",
+      "title": "workspaces.browse result"
+    },
+    {
+      "path": "methods/workspaces.browse/error.json",
+      "title": "workspaces.browse error"
+    },
+    {
+      "path": "methods/workspaces.inspect/params.json",
+      "title": "workspaces.inspect params"
+    },
+    {
+      "path": "methods/workspaces.inspect/result.json",
+      "title": "workspaces.inspect result"
+    },
+    {
+      "path": "methods/workspaces.inspect/error.json",
+      "title": "workspaces.inspect error"
     },
     {
       "path": "methods/updates.status/params.json",
@@ -4668,6 +4892,16 @@
       "result": "methods/sessions.create/result.json",
       "response": "methods/sessions.create/response.json",
       "error": "methods/sessions.create/error.json"
+    },
+    {
+      "name": "sessions.setWorkspace",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setWorkspace/params.json",
+      "result": "methods/sessions.setWorkspace/result.json",
+      "response": "methods/sessions.setWorkspace/response.json",
+      "error": "methods/sessions.setWorkspace/error.json"
     },
     {
       "name": "sessions.rename",
@@ -5213,6 +5447,15 @@
       "error": "methods/commands.list/error.json"
     },
     {
+      "name": "instructions.preview",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/instructions.preview/params.json",
+      "result": "methods/instructions.preview/result.json",
+      "error": "methods/instructions.preview/error.json"
+    },
+    {
       "name": "forge.accounts.list",
       "scope": "read",
       "kind": "query",
@@ -5296,6 +5539,35 @@
       "params": "methods/forge.orgs.list/params.json",
       "result": "methods/forge.orgs.list/result.json",
       "error": "methods/forge.orgs.list/error.json"
+    },
+    {
+      "name": "forge.pullRequests.link",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.pullRequests.link/params.json",
+      "result": "methods/forge.pullRequests.link/result.json",
+      "response": "methods/forge.pullRequests.link/response.json",
+      "error": "methods/forge.pullRequests.link/error.json"
+    },
+    {
+      "name": "forge.pullRequests.unlink",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.pullRequests.unlink/params.json",
+      "result": "methods/forge.pullRequests.unlink/result.json",
+      "response": "methods/forge.pullRequests.unlink/response.json",
+      "error": "methods/forge.pullRequests.unlink/error.json"
+    },
+    {
+      "name": "forge.pullRequests.refresh",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.pullRequests.refresh/params.json",
+      "result": "methods/forge.pullRequests.refresh/result.json",
+      "error": "methods/forge.pullRequests.refresh/error.json"
     },
     {
       "name": "keyManagers.list",
@@ -5383,6 +5655,24 @@
       "params": "methods/keyManagers.certificate.preview/params.json",
       "result": "methods/keyManagers.certificate.preview/result.json",
       "error": "methods/keyManagers.certificate.preview/error.json"
+    },
+    {
+      "name": "keyManagers.references.check",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.references.check/params.json",
+      "result": "methods/keyManagers.references.check/result.json",
+      "error": "methods/keyManagers.references.check/error.json"
+    },
+    {
+      "name": "keyManagers.references.browse",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.references.browse/params.json",
+      "result": "methods/keyManagers.references.browse/result.json",
+      "error": "methods/keyManagers.references.browse/error.json"
     },
     {
       "name": "settings.get",
@@ -5620,6 +5910,24 @@
       "params": "methods/diffs.session/params.json",
       "result": "methods/diffs.session/result.json",
       "error": "methods/diffs.session/error.json"
+    },
+    {
+      "name": "workspaces.browse",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/workspaces.browse/params.json",
+      "result": "methods/workspaces.browse/result.json",
+      "error": "methods/workspaces.browse/error.json"
+    },
+    {
+      "name": "workspaces.inspect",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/workspaces.inspect/params.json",
+      "result": "methods/workspaces.inspect/result.json",
+      "error": "methods/workspaces.inspect/error.json"
     },
     {
       "name": "updates.status",

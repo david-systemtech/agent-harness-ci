@@ -4,8 +4,9 @@ import type { BusyReason, DrainStarted, DrainTrigger, EnvironmentStatus } from "
 /**
  * What the environment and its launcher share (launcher-update spec, "The
  * channel" and "Versions and the launcher"): the messages on the IPC channel
- * the launcher spawns the environment with, and the files in the data
- * directory both of them touch. This is their one definition. It is plain
+ * the launcher spawns the environment with, the files in the data directory
+ * both of them touch, and the report a version's `preflight` prints for the
+ * launcher. This is their one definition. It is plain
  * data and loads nothing at run time (every import above is a type), so the
  * launcher, which runs on Node's built-ins, reads it alone through
  * `@agent-harness/contracts/launcher`.
@@ -38,6 +39,52 @@ export const LAUNCHER_PROTOCOL = 1;
  */
 export const RELEASE_VERSION_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
+
+/** A release version's parts: its three numbers, its prerelease identifiers (none for a release), its build metadata left out. */
+const partsOf = (version: string): { readonly numbers: readonly string[]; readonly prerelease: readonly string[] } => {
+  const core = version.split("+", 1)[0] ?? "";
+  const dash = core.indexOf("-");
+  const numbers = (dash === -1 ? core : core.slice(0, dash)).split(".");
+  return { numbers, prerelease: dash === -1 ? [] : core.slice(dash + 1).split(".") };
+};
+
+const NUMERIC = /^\d+$/;
+
+/** Two digit strings without leading zeros, compared as numbers of any length. */
+const compareNumbers = (a: string, b: string): number => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+
+/** Two prerelease identifiers: numbers numerically and below any alphanumeric one, which compare in ASCII order. */
+const compareIdentifiers = (a: string, b: string): number => {
+  const [numericA, numericB] = [NUMERIC.test(a), NUMERIC.test(b)];
+  if (numericA && numericB) return compareNumbers(a, b);
+  if (numericA !== numericB) return numericA ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+};
+
+/**
+ * Two release versions by SemVer precedence: below zero when `a` comes
+ * before `b`, above when after, zero when they are equal in precedence
+ * (build metadata is ignored). A prerelease comes before its release; its
+ * identifiers compare one by one, and a longer set comes after its prefix.
+ * Both must be release versions (`RELEASE_VERSION_PATTERN`). Defined here,
+ * where the launcher reads it to keep the versions before the active one.
+ */
+export const compareReleaseVersions = (a: string, b: string): number => {
+  const [left, right] = [partsOf(a), partsOf(b)];
+  for (let index = 0; index < 3; index++) {
+    const order = compareNumbers(left.numbers[index] ?? "0", right.numbers[index] ?? "0");
+    if (order !== 0) return order;
+  }
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) return right.prerelease.length - left.prerelease.length;
+  for (let index = 0; index < Math.min(left.prerelease.length, right.prerelease.length); index++) {
+    const order = compareIdentifiers(left.prerelease[index] ?? "", right.prerelease[index] ?? "");
+    if (order !== 0) return order;
+  }
+  return left.prerelease.length - right.prerelease.length;
+};
+
+/** Whether a release version has a prerelease part: only the beta channel follows one. */
+export const isPrerelease = (version: string): boolean => partsOf(version).prerelease.length > 0;
 
 /**
  * An update's id, as the launcher reads it: a version 4 UUID, in either case
@@ -240,6 +287,43 @@ export const artefactNode = (platform: string): readonly string[] => (platform =
 
 /** Where a release's server artefact, unpacked, holds its CLI's entry script. */
 export const ARTEFACT_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
+
+/**
+ * What a version's `preflight` verb prints on its standard output once it
+ * has loaded what it needs (SQLite, `node-pty`, the bundled Claude binary):
+ * one JSON document, the version's identity under the release manifest's
+ * names. The launcher runs a staged version's `preflight` before it installs
+ * it and reads this; a later version only ever adds to it.
+ */
+export interface PreflightReport {
+  readonly version: string;
+  readonly protocolVersion: number;
+  readonly launcherProtocol: number;
+  /** The number of the version's last database migration. */
+  readonly databaseSchemaVersion: number;
+  /** What the bundled Claude binary's `--version` printed. */
+  readonly bundledClaudeCodeVersion: string;
+}
+
+/**
+ * The report a `preflight` printed as `text`, or undefined when it printed
+ * anything but one report: a part missing or of the wrong kind, or more than
+ * one document. Fields it does not define are dropped.
+ */
+export const parsePreflightReport = (text: string): PreflightReport | undefined => {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isFields(value)) return undefined;
+  const { version, protocolVersion, launcherProtocol, databaseSchemaVersion, bundledClaudeCodeVersion } = value;
+  if (typeof version !== "string" || !RELEASE_VERSION_PATTERN.test(version)) return undefined;
+  if (!isCount(protocolVersion) || !isCount(launcherProtocol) || !isText(bundledClaudeCodeVersion)) return undefined;
+  if (!Number.isSafeInteger(databaseSchemaVersion) || (databaseSchemaVersion as number) < 0) return undefined;
+  return { version, protocolVersion, launcherProtocol, databaseSchemaVersion: databaseSchemaVersion as number, bundledClaudeCodeVersion };
+};
 
 /**
  * The database, a file in the data directory: the environment's SQLite event

@@ -104,6 +104,21 @@ describe("a rewound fold's lines", () => {
   });
 });
 
+describe("a fork's first row", () => {
+  const rows = transcriptRows(view([{ kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2" }, message(5, "Carry on")]));
+
+  it("names the source's title and the prompt it was taken at, with the key that opens the source", () => {
+    expect(shown(transcriptLines(rows.slice(0, 1), { ...CONTEXT, forkedFrom: { title: "Receipts", anchor: "Then the tests" } }))).toEqual([
+      "⑂ Forked from Receipts at Then the tests · o opens it",
+    ]);
+  });
+
+  it("names what it knows: another session while the source is not read, no prompt for a fork of the whole session; and no key in the pager", () => {
+    expect(shown(transcriptLines(rows.slice(0, 1), CONTEXT))).toEqual(["⑂ Forked from another session · o opens it"]);
+    expect(shown(transcriptLines(rows.slice(0, 1), { ...CONTEXT, expanded: true, openKey: "O", forkedFrom: { title: "Receipts", anchor: null } }))).toEqual(["⑂ Forked from Receipts"]);
+  });
+});
+
 describe("the fold's lines", () => {
   const rows = transcriptRows(
     view([call(1, "Bash", "ok", { command: "ls" }), call(2, "Read", "ok", { file_path: "a.ts" }), call(3, "Bash", "error", { command: "pnpm test" }, RUN, "FAIL one\nFAIL two"), call(4, "Edit", "running", { file_path: "b.ts" })]),

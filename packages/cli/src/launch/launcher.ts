@@ -8,8 +8,14 @@ import {
   type EnvironmentRequest,
   type LauncherMessage,
   type Numbered,
+  type OutcomeRecord,
   type SwitchAnswer,
 } from "@agent-harness/contracts/launcher";
+import { listed } from "../listed.js";
+import { clearHandover, readHandover, writeHandover, type Handover } from "./handover.js";
+import { createInstaller } from "./install.js";
+import { LAUNCHER_VERSION_FILE, writeLauncherVersion } from "./launcher-version.js";
+import { pruning, removeVersion, snapshotsIn } from "./prune.js";
 import { discardSnapshot, finishMarkedRestore, hasSnapshot, restoreSnapshot, snapshotNeeds, takeSnapshot, writeOutcomeRecord } from "./snapshot.js";
 import { readServiceState, writeServiceState, type PendingUpdate, type ServiceState } from "./state.js";
 import { completeVersions, isComplete, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
@@ -24,8 +30,9 @@ import { completeVersions, isComplete, versionCommand, versionDirectory, VERSION
  * doubles from five seconds to five minutes; one that exits cleanly after a
  * drain the launcher did not ask for (`environment.drain`, or a signal to it)
  * is restarted at once, since under a launcher a drain is a graceful restart.
- * The launcher itself stops only when the service manager stops it, and only
- * after draining its child. Each step is one line of the service log.
+ * The launcher itself stops only when the service manager stops it, or to
+ * hand over, and only after draining its child. Each step is one line of the
+ * service log.
  *
  * An update goes through it: on `switch?` it writes the pending-update
  * record, answers `switching`, waits for the child to exit, snapshots the
@@ -34,6 +41,18 @@ import { completeVersions, isComplete, versionCommand, versionDirectory, VERSION
  * the snapshot and starts the version the update went from, whose settle
  * reports the failure from the outcome record. A launcher restarted in the
  * middle of an update finishes what it finds before it starts anything.
+ * The version an update goes to got into the versions directory on
+ * `install?`: the launcher installs what the environment staged once the
+ * version's own preflight has passed (`install.ts`).
+ *
+ * For ten minutes after a commit the launcher watches: three unexpected exits
+ * roll the update back as a failed trial is, at stage `crash-loop`. When the
+ * watch ends, the snapshots are discarded and the versions pruned
+ * (`prune.ts`), and when the active version carries another launcher than
+ * this one, the launcher hands over to it at the first idle (`handover.ts`):
+ * a launcher is replaced only by one whose version has held through its
+ * watch, and the launcher entry puts the old one back when the new one
+ * cannot get its child through the gate.
  *
  * It runs on Node's built-ins and the contracts' launcher module alone, and
  * loads nothing of the environment package, so the process that judges every
@@ -57,6 +76,24 @@ export const SWITCH_EXIT_WAIT_MS = DRAIN_CAP_MS + 60_000;
 export const TRIAL_DEADLINE_MS = 120_000;
 /** How long after its commit a version is watched for a crash loop; the deadline goes into the service state. */
 export const WATCH_MS = 10 * 60_000;
+/** How many unexpected exits within the watch make a crash loop, which rolls the watched update back. */
+export const CRASH_LOOP_EXITS = 3;
+/** How often the launcher asks its child `idle?` while a handover to the active version's launcher waits for idle. */
+export const HANDOVER_ASK_INTERVAL_MS = 10 * 60_000;
+/**
+ * The code the launcher exits with to hand over: not 0, so every service
+ * definition starts the launcher entry again (systemd's and launchd's
+ * restart on failure, the Windows entry's own loop), which then starts the
+ * launcher the launcher version file names. EX_TEMPFAIL, "try again".
+ */
+export const RELAUNCH_EXIT_CODE = 75;
+/**
+ * The code a launcher handed over to exits with when its child did not pass
+ * the gate under it, or it starts nothing, before it confirmed the handover:
+ * the launcher entry counts one more unconfirmed start as the service
+ * manager starts it again.
+ */
+export const UNCONFIRMED_EXIT_CODE = 1;
 
 /**
  * Why an update's trial failed, the reason its outcome record gives: its
@@ -99,15 +136,21 @@ export interface LauncherOptions {
   readonly log?: (line: string) => void;
   /** Preset: the system's clock and timers. */
   readonly timer?: LauncherTimer;
-  /** The bytes free on the disk holding the data directory, which a snapshot needs room on. Preset: the file system's count. */
+  /** The bytes free on the disk holding the data directory, which a snapshot and an installed version need room on. Preset: the file system's count. */
   readonly freeBytes?: (dataDir: string) => number;
+  /** The launcher's own version: the version whose folder it runs from. Preset: its package's (`LAUNCHER_VERSION`). */
+  readonly version?: string;
 }
 
 export interface Launcher {
-  /** The service manager's stop: drains the child and settles once its channel has closed. The same stop however often it is asked. */
-  stop(): Promise<void>;
-  /** Settles once the launcher has stopped. */
-  readonly stopped: Promise<void>;
+  /** The service manager's stop: drains the child and settles once its channel has closed, with 0. The same stop however often it is asked. */
+  stop(): Promise<number>;
+  /**
+   * Settles once the launcher has stopped, with the code its process exits
+   * with: 0 after the service manager's stop, `RELAUNCH_EXIT_CODE` after a
+   * handover.
+   */
+  readonly stopped: Promise<number>;
 }
 
 /** One start of the child. */
@@ -137,10 +180,12 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 /** Starts the launcher on `options.dataDir`: it starts the active version's `serve` at once, or says in the service log why it starts nothing. */
 export const startLauncher = (options: LauncherOptions): Launcher => {
   const { dataDir, port, name } = options;
+  const ownVersion = options.version ?? LAUNCHER_VERSION;
   const timer = options.timer ?? systemTimer;
   const freeBytes = options.freeBytes ?? freeBytesOn;
   const write = options.log ?? ((line: string) => void process.stdout.write(`${line}\n`));
   const log = (text: string) => write(`${new Date(timer.now()).toISOString()} launcher: ${text}`);
+  const installer = createInstaller({ dataDir, timer, freeBytes, log });
 
   /** The service state as last read or written; set before any child runs. */
   let state!: ServiceState;
@@ -149,13 +194,27 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   let exitsInARow = 0;
   let cancelRestart: (() => void) | undefined;
   let cancelDrainAsk: (() => void) | undefined;
+  /** Unexpected exits since the watched update's commit. */
+  let watchExits = 0;
+  /** Cancels the end of the watch, while one runs. */
+  let cancelWatch: (() => void) | undefined;
+  /** Cancels the next `idle?`, while a handover waits for idle. */
+  let cancelIdleAsk: (() => void) | undefined;
+  /** The version whose launcher handed over to this one, while this one has not confirmed the handover: its child has not passed the gate under it. */
+  let handedOverFrom: string | undefined;
   let stopping = false;
-  let settle!: () => void;
-  const stopped = new Promise<void>((resolve) => (settle = resolve));
+  /** The code the process exits with once stopped. */
+  let exitCode = 0;
+  let settle!: (code: number) => void;
+  const stopped = new Promise<number>((resolve) => (settle = resolve));
+  /** Cancels every wait still to come, so nothing keeps the process past its stop. */
+  const cancelWaits = () => {
+    for (const cancel of [cancelRestart, cancelDrainAsk, cancelWatch, cancelIdleAsk]) cancel?.();
+    cancelRestart = cancelDrainAsk = cancelWatch = cancelIdleAsk = undefined;
+  };
   const finish = () => {
-    cancelDrainAsk?.();
-    cancelDrainAsk = undefined;
-    settle();
+    cancelWaits();
+    settle(exitCode);
   };
 
   /** Writes `next` as the service state, durably, and holds it once written. */
@@ -164,9 +223,65 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     state = next;
   };
 
-  /** Clears the pending-update record once its update is rolled back. */
-  const clearPending = ({ updateId }: { readonly updateId: string }) => {
-    if (state.pendingUpdate?.updateId === updateId) save({ ...state, pendingUpdate: null });
+  /**
+   * Records in the state that the update of `record` is rolled back, while
+   * its restore is still marked: a trial's pending-update record is cleared;
+   * after a crash loop, the version the update went from is active again,
+   * the two swapped back as the commit swapped them, and the watch is over.
+   * Each is done once however often it is asked, as a restore finished after
+   * a kill asks again.
+   */
+  const recordRollback = ({ updateId, stage, fromVersion, toVersion }: OutcomeRecord) => {
+    if (stage === "trial" && state.pendingUpdate?.updateId === updateId) save({ ...state, pendingUpdate: null });
+    if (stage === "crash-loop" && state.watchedUpdateId === updateId) {
+      save({ ...state, activeVersion: fromVersion, previousVersion: toVersion, watchDeadline: null, watchedUpdateId: null });
+    }
+  };
+
+  /**
+   * Says why the launcher starts nothing, and stays until it is stopped;
+   * a launcher handed over to exits instead, for the launcher entry to count
+   * the start (`notConfirmed`).
+   */
+  const startsNothing = (why: string) => {
+    log(`starts nothing: ${why}`);
+    if (handedOverFrom !== undefined) notConfirmed("this launcher starts nothing");
+  };
+
+  /** A launcher handed over to could not bring its child through the gate: it exits, for the launcher entry to count one more unconfirmed start. */
+  const notConfirmed = (why: string) => {
+    log(
+      `the handover from the launcher of ${handedOverFrom} is not confirmed: ${why}, so this launcher exits with code ${UNCONFIRMED_EXIT_CODE} for the launcher entry to count the start`,
+    );
+    void halt(UNCONFIRMED_EXIT_CODE);
+  };
+
+  /** Confirms the handover to this launcher once `version` passed the gate under it: the state names it the launcher, and the launcher entry stops counting. */
+  const confirmHandover = (version: string) => {
+    const from = handedOverFrom;
+    handedOverFrom = undefined;
+    try {
+      save({ ...state, launcherVersion: ownVersion, failedHandover: null });
+      clearHandover(dataDir);
+    } catch (error) {
+      return log(`the handover from the launcher of ${from} could not be confirmed: ${messageOf(error)}`);
+    }
+    log(`confirmed the handover from the launcher of ${from}: ${version} passed the gate under this one`);
+  };
+
+  /**
+   * The launcher entry started this launcher again, which had handed over:
+   * the launcher it handed over to did not confirm. The state records it, so
+   * no handover to that version is tried again, and the entry stops counting.
+   */
+  const recordFailedHandover = ({ toVersion }: Handover) => {
+    try {
+      save({ ...state, launcherVersion: ownVersion, failedHandover: { toVersion, at: new Date(timer.now()).toISOString() } });
+      clearHandover(dataDir);
+    } catch (error) {
+      return log(`the failed handover to the launcher of ${toVersion} could not be recorded: ${messageOf(error)}`);
+    }
+    log(`the handover to the launcher of ${toVersion} failed: it was not confirmed, and the launcher entry started this launcher again, which runs on`);
   };
 
   const tell = (to: Child, message: LauncherMessage) => {
@@ -193,7 +308,14 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     if (version !== update.toVersion) return fail(trial, "version", `it said prepared for ${version}`);
     const watchDeadline = new Date(timer.now() + WATCH_MS).toISOString();
     try {
-      save({ ...state, activeVersion: update.toVersion, previousVersion: update.fromVersion, pendingUpdate: null, watchDeadline });
+      save({
+        ...state,
+        activeVersion: update.toVersion,
+        previousVersion: update.fromVersion,
+        pendingUpdate: null,
+        watchDeadline,
+        watchedUpdateId: update.updateId,
+      });
     } catch (error) {
       return fail(trial, "commit", `its commit could not be written: ${messageOf(error)}`);
     }
@@ -201,6 +323,150 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     trial.committed = true;
     tell(trial, { type: "committed" });
     log(`${version} committed: update ${update.updateId} from ${update.fromVersion}, watched until ${watchDeadline}`);
+    watchExits = 0;
+    watch();
+  };
+
+  /** Ends the watch at its deadline, or at once when that has passed. */
+  const watch = () => {
+    cancelWatch?.();
+    cancelWatch = undefined;
+    if (state.watchDeadline === null) return;
+    const left = Date.parse(state.watchDeadline) - timer.now();
+    if (left <= 0) return endWatch();
+    cancelWatch = timer.after(left, endWatch);
+  };
+
+  /**
+   * The watch is over: the version it watched held for its ten minutes. With
+   * no update pending, every snapshot is discarded, the committed update's
+   * and any a rolled-back update kept (#443), and the versions are pruned;
+   * with one pending, nothing is, until the next watch ends.
+   */
+  const endWatch = () => {
+    cancelWatch = undefined;
+    const watched = state.watchedUpdateId;
+    const pending = state.pendingUpdate;
+    if (pending === null) {
+      log(`the watch of update ${watched} is over: ${state.activeVersion} held for ${WATCH_MS / 60_000} minutes`);
+      clearAway();
+    } else {
+      log(`the watch of update ${watched} is over while update ${pending.updateId} is pending, so nothing is pruned`);
+    }
+    try {
+      save({ ...state, watchDeadline: null, watchedUpdateId: null });
+    } catch (error) {
+      return log(`the end of the watch of update ${watched} could not be written: ${messageOf(error)}`);
+    }
+    askIdle();
+  };
+
+  /**
+   * Whether the launcher hands over to the active version's: that version
+   * carries another launcher, has held through its watch, and is not one a
+   * handover already failed to, and no update is pending.
+   */
+  const handoverDue = (): boolean =>
+    !stopping &&
+    state.activeVersion !== ownVersion &&
+    state.pendingUpdate === null &&
+    state.watchDeadline === null &&
+    state.failedHandover?.toVersion !== state.activeVersion;
+
+  /**
+   * Asks the committed child `idle?` now, when the handover is due, and
+   * again every ten minutes while it stays due: from the end of the watch,
+   * and from the commit of a child when the launcher started with the
+   * handover due.
+   */
+  const askIdle = () => {
+    const asking = cancelIdleAsk !== undefined;
+    cancelIdleAsk?.();
+    cancelIdleAsk = undefined;
+    if (!handoverDue()) return;
+    if (!asking) {
+      log(`${state.activeVersion} carries another launcher than this one's ${ownVersion}, so it is asked idle? every ${HANDOVER_ASK_INTERVAL_MS / 60_000} minutes to hand over to it`);
+    }
+    if (child?.committed && child.switching === undefined) tell(child, { type: "idle?" });
+    cancelIdleAsk = timer.after(HANDOVER_ASK_INTERVAL_MS, askIdle);
+  };
+
+  /**
+   * Hands over to the active version's launcher once `from` said it is idle:
+   * the handover record, then the launcher version file naming that version,
+   * then the child drained as a stop drains it, and the process exits with
+   * the relaunch code for the service manager to start the launcher entry
+   * again. A file that cannot be written leaves everything as it was, and
+   * the next ask tries again.
+   */
+  const handOver = (from: Child) => {
+    const toVersion = state.activeVersion;
+    try {
+      writeHandover(dataDir, { fromVersion: ownVersion, toVersion });
+      writeLauncherVersion(dataDir, toVersion);
+    } catch (error) {
+      log(`could not hand over to the launcher of ${toVersion}, so it asks again in ${HANDOVER_ASK_INTERVAL_MS / 60_000} minutes: ${messageOf(error)}`);
+      try {
+        clearHandover(dataDir);
+      } catch {
+        // A record left without its launcher version file names this launcher as the one that handed over, which reads as a failed handover.
+      }
+      return;
+    }
+    log(
+      `handing over to the launcher of ${toVersion}: ${join(dataDir, LAUNCHER_VERSION_FILE)} names it, and this launcher exits with code ${RELAUNCH_EXIT_CODE} once ${from.version} has drained, for the service manager to start it`,
+    );
+    void halt(RELAUNCH_EXIT_CODE);
+  };
+
+  /**
+   * Discards every snapshot and prunes the versions (`prune.ts`). One that
+   * cannot be removed is said and passed over, the rest removed all the
+   * same: it costs only its room until the next watch's end.
+   */
+  const clearAway = () => {
+    const removed = (what: string, remove: () => void): boolean => {
+      try {
+        remove();
+        return true;
+      } catch (error) {
+        log(`${what} could not be removed, so it waits for the next watch's end: ${messageOf(error)}`);
+        return false;
+      }
+    };
+    try {
+      for (const updateId of snapshotsIn(dataDir)) {
+        if (removed(`the snapshot of update ${updateId}`, () => discardSnapshot(dataDir, updateId))) log(`discarded the snapshot of update ${updateId}`);
+      }
+      const { kept, pruned } = pruning(dataDir, { activeVersion: state.activeVersion, launcherVersion: ownVersion, stagedVersion: state.stagedVersion });
+      const gone = pruned.filter((version) => removed(version, () => removeVersion(dataDir, version)));
+      if (gone.length > 0) log(`pruned ${listed(gone)}, keeping ${listed(kept)}`);
+    } catch (error) {
+      log(`the snapshots and versions could not be read to clear them away: ${messageOf(error)}`);
+    }
+  };
+
+  /**
+   * Rolls the watched update back after its version crash-looped: the
+   * snapshot is restored as a failed trial's is, with stage `crash-loop`,
+   * and the version it went from is started. Everything written since the
+   * commit is lost with the database; no other file is touched. A rollback
+   * that fails leaves the launcher starting nothing.
+   */
+  const crashLoop = (version: string) => {
+    cancelWatch?.();
+    cancelWatch = undefined;
+    const { watchedUpdateId: updateId, previousVersion: fromVersion } = state;
+    if (updateId === null || fromVersion === null) return startsNothing(`${version} crash-looped, and the state names no update to roll back`);
+    log(`${version} exited ${CRASH_LOOP_EXITS} times within ${WATCH_MS / 60_000} minutes of its commit, so update ${updateId} is rolled back to ${fromVersion}`);
+    try {
+      restoreSnapshot(dataDir, { updateId, fromVersion, toVersion: version, stage: "crash-loop", reason: "exit" }, { whileMarked: recordRollback });
+    } catch (error) {
+      return startsNothing(`update ${updateId} could not be rolled back: ${messageOf(error)}`);
+    }
+    log(`restored the snapshot of update ${updateId}`);
+    exitsInARow = 0;
+    runActive();
   };
 
   /**
@@ -230,11 +496,14 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
         const free = freeBytes(dataDir);
         if (free < needed) return refuse("disk", `${free} bytes are free and a snapshot needs ${needed}`);
       }
-      save({ ...state, pendingUpdate: update });
+      save({ ...state, pendingUpdate: update, stagedVersion: null });
     } catch (error) {
       return refuse("io", messageOf(error));
     }
     from.switching = update;
+    // A handover waits for no update: the one pending ends in a commit, whose watch comes first, or a rollback.
+    cancelIdleAsk?.();
+    cancelIdleAsk = undefined;
     answer({ type: "switching" });
     log(`switching from ${update.fromVersion} to ${version} for update ${updateId}`);
     from.cancelWait = timer.after(SWITCH_EXIT_WAIT_MS, () => {
@@ -243,15 +512,33 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     });
   };
 
+  /**
+   * Records `version`, just installed, as the one staged for the
+   * environment's next update, which may wait for idle past the end of a
+   * watch; a switch clears it. A write that fails costs only a download,
+   * should a watch end before the switch.
+   */
+  const keepStaged = (version: string) => {
+    if (state.stagedVersion === version) return;
+    try {
+      save({ ...state, stagedVersion: version });
+    } catch (error) {
+      log(`${version} could not be recorded as staged, so a watch's end may prune it: ${messageOf(error)}`);
+    }
+  };
+
   const hear = (from: Child, raw: unknown) => {
     const message = parseEnvironmentMessage(raw);
     switch (message?.type) {
       case "prepared":
         if (from.committed || from.failed !== undefined || stopping) return;
         if (from.trial !== undefined) return commit(from, from.trial, message.version);
+        from.cancelWait?.();
         from.committed = true;
         tell(from, { type: "committed" });
         log(`${from.version} committed`);
+        if (handedOverFrom !== undefined) confirmHandover(from.version);
+        askIdle();
         return;
       case "switch?":
         return switchFor(from, message);
@@ -262,15 +549,30 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
         } catch (error) {
           log(`answers versions? with none: the versions directory could not be read: ${messageOf(error)}`);
         }
-        tell(from, { type: "versions", id: message.id, installed, launcherVersion: LAUNCHER_VERSION, launcherProtocol: LAUNCHER_PROTOCOL });
+        tell(from, { type: "versions", id: message.id, installed, launcherVersion: ownVersion, launcherProtocol: LAUNCHER_PROTOCOL });
+        return;
+      }
+      case "install?": {
+        const { id, version, staged } = message;
+        void installer.install(version, staged).then((answer) => {
+          if (answer?.type === "installed") keepStaged(version);
+          if (answer !== undefined) tell(from, { ...answer, id });
+        });
         return;
       }
       case "draining":
         cancelDrainAsk?.();
         cancelDrainAsk = undefined;
         return;
+      case "idle": {
+        if (from !== child || !from.committed || !handoverDue()) return;
+        const { activity } = message;
+        if (activity.state === "idle") return handOver(from);
+        log(`${from.version} is ${activity.state === "busy" ? `busy (${activity.reason})` : activity.state}, so the handover waits`);
+        return;
+      }
       default:
-        // `install?` is answered once installing (#339) is built; anything else is ignored.
+        // Anything else is ignored.
         return;
     }
   };
@@ -288,15 +590,15 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     const record = { ...update, stage: "trial", reason } as const;
     try {
       if (targetRan) {
-        restoreSnapshot(dataDir, record, { whileMarked: clearPending });
+        restoreSnapshot(dataDir, record, { whileMarked: recordRollback });
         log(`restored the snapshot of update ${update.updateId}`);
       } else {
         writeOutcomeRecord(dataDir, record);
-        clearPending(update);
+        recordRollback(record);
         log(`${update.toVersion} never ran, so there was nothing to restore`);
       }
     } catch (error) {
-      log(`starts nothing: update ${update.updateId} could not be rolled back: ${messageOf(error)}`);
+      startsNothing(`update ${update.updateId} could not be rolled back: ${messageOf(error)}`);
       return;
     }
     if (!targetRan) {
@@ -331,11 +633,14 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     if (stopping) return finish();
     if (which.switching !== undefined) return beginTrial(which.switching);
     if (which.trial !== undefined && !which.committed) return rollBack(which.trial, which.failed ?? "exit", true);
+    if (handedOverFrom !== undefined && !which.committed) return notConfirmed(`${which.version} ${how} before it passed the gate`);
     if (clean) {
       exitsInARow = 0;
       log(`restarting ${which.version} now: it drained`);
       return run(which.version);
     }
+    // Within the watch its end is still to come, whatever the state could be told.
+    if (cancelWatch !== undefined && ++watchExits >= CRASH_LOOP_EXITS) return crashLoop(which.version);
     if (timer.now() - which.spawnedAt >= LONGEST_RESTART_WAIT_MS) exitsInARow = 0;
     const wait = Math.min(FIRST_RESTART_WAIT_MS * 2 ** exitsInARow, LONGEST_RESTART_WAIT_MS);
     exitsInARow++;
@@ -373,6 +678,9 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     });
     if (trial !== undefined) {
       started.cancelWait = timer.after(TRIAL_DEADLINE_MS, () => fail(started, "deadline", `it did not say prepared within ${TRIAL_DEADLINE_MS / 1000} s of its spawn`));
+    } else if (handedOverFrom !== undefined) {
+      // Under a launcher handed over to, the child's gate is the trial of that launcher.
+      started.cancelWait = timer.after(TRIAL_DEADLINE_MS, () => notConfirmed(`${version} did not say prepared within ${TRIAL_DEADLINE_MS / 1000} s of its spawn`));
     }
     if (spawned.pid !== undefined) log(`spawned ${version} as pid ${spawned.pid}${trial === undefined ? "" : `, the trial of update ${trial.updateId}`}`);
   };
@@ -380,7 +688,7 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
   /** Runs the active version, unless it is not complete. */
   const runActive = () => {
     if (!isComplete(dataDir, state.activeVersion)) {
-      log(`starts nothing: the active version ${state.activeVersion} is not complete in ${join(dataDir, VERSIONS_DIRECTORY)}`);
+      startsNothing(`the active version ${state.activeVersion} is not complete in ${join(dataDir, VERSIONS_DIRECTORY)}`);
       return;
     }
     run(state.activeVersion);
@@ -392,15 +700,19 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
    * committed, is rolled back as a failed trial; only then is anything run.
    */
   const begin = () => {
+    const handover = readHandover(dataDir);
+    if (handover?.toVersion === ownVersion) handedOverFrom = handover.fromVersion;
     const read = readServiceState(dataDir);
-    if ("problem" in read) return log(`starts nothing: ${read.problem}`);
+    if ("problem" in read) return startsNothing(read.problem);
     state = read.state;
+    if (handover?.fromVersion === ownVersion) recordFailedHandover(handover);
     try {
-      const finished = finishMarkedRestore(dataDir, { whileMarked: clearPending });
+      const finished = finishMarkedRestore(dataDir, { whileMarked: recordRollback });
       if (finished !== undefined) log(`finished the restore of update ${finished.updateId}, which was cut short`);
     } catch (error) {
-      return log(`starts nothing: ${messageOf(error)}`);
+      return startsNothing(messageOf(error));
     }
+    watch();
     const pending = state.pendingUpdate;
     if (pending === null) return runActive();
     log(`update ${pending.updateId} to ${pending.toVersion} was pending and not committed when the launcher last stopped`);
@@ -409,29 +721,42 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
 
   begin();
 
+  /**
+   * Stops the launcher, to exit with `code`: the installer and every wait
+   * are stopped, and the child is drained (or ended, when it has not
+   * committed); `stopped` settles once it has gone. The same stop however
+   * often it is asked.
+   */
+  function halt(code: number): Promise<number> {
+    if (stopping) return stopped;
+    stopping = true;
+    exitCode = code;
+    installer.stop();
+    cancelWaits();
+    const current = child;
+    if (current === undefined) {
+      log("stopping: no child is running");
+      finish();
+    } else if (!current.process.connected) {
+      // It closed its channel as it drained by itself, and its exit settles the stop.
+      log(`stopping: ${current.version} is already going`);
+    } else if (current.committed) {
+      log(`stopping: draining ${current.version}`);
+      askToDrain(current);
+    } else {
+      // Before its commit a child has served nothing and answers no query, so there is nothing to drain.
+      const rollback = current.trial === undefined ? "" : `, and the next start rolls update ${current.trial.updateId} back`;
+      log(`stopping: ${current.version} has not committed, so it is ended${rollback}`);
+      current.process.kill();
+    }
+    return stopped;
+  }
+
   return {
     stop: () => {
-      if (stopping) return stopped;
-      stopping = true;
-      cancelRestart?.();
-      cancelRestart = undefined;
-      const current = child;
-      if (current === undefined) {
-        log("stopping: no child is running");
-        finish();
-      } else if (!current.process.connected) {
-        // It closed its channel as it drained by itself, and its exit settles the stop.
-        log(`stopping: ${current.version} is already going`);
-      } else if (current.committed) {
-        log(`stopping: draining ${current.version}`);
-        askToDrain(current);
-      } else {
-        // Before its commit a child has served nothing and answers no query, so there is nothing to drain.
-        const rollback = current.trial === undefined ? "" : `, and the next start rolls update ${current.trial.updateId} back`;
-        log(`stopping: ${current.version} has not committed, so it is ended${rollback}`);
-        current.process.kill();
-      }
-      return stopped;
+      // The service manager's stop exits 0, even in the middle of a handover, whose files are written: the next start is the new launcher's.
+      exitCode = 0;
+      return halt(0);
     },
     stopped,
   };

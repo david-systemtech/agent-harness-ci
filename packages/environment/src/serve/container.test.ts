@@ -21,4 +21,12 @@ describe("the container detector", () => {
     expect(declared("")).toBe(false);
     expect(declared(undefined)).toBe(false);
   });
+
+  it("says a container was declared only when the install declared it, not when a runtime left its trace", () => {
+    const detector = (env: Record<string, string>, files: Record<string, string>) =>
+      processContainerDetector({ exists: (path) => path in files, read: (path) => files[path], env });
+    expect(detector({ [CONTAINER_MARKER_VARIABLE]: "1" }, {}).declared?.()).toBe(true);
+    expect(detector({ [CONTAINER_MARKER_VARIABLE]: " " }, { "/.dockerenv": "" }).declared?.()).toBe(false);
+    expect(detector({}, { "/.dockerenv": "" }).declared?.()).toBe(false);
+  });
 });

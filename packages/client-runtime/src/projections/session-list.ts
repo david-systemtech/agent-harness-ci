@@ -99,9 +99,27 @@ export interface MergedGroupHeading {
 
 /** The sessions of one repository across environments (ADR 0005): the same kind of view over `repositoryIdentity`. */
 export interface RepositoryHeading {
+  readonly kind: "repository";
   readonly repositoryIdentity: string;
+  /**
+   * What the heading says: the identity's path (`david/agent-harness`), or
+   * its host and path (`github.com/david/agent-harness`) when another
+   * heading has the same path; the whole identity when it is not of the
+   * `https://<host>/<path>` form.
+   */
+  readonly label: string;
   readonly shelves: SessionShelves;
 }
+
+/** One environment's sessions with no repository identity, after every repository's heading, so the view holds every session. */
+export interface NoRepositoryHeading {
+  readonly kind: "no-repository";
+  readonly environmentId: string;
+  readonly shelves: SessionShelves;
+}
+
+/** A heading of the by-repository view. */
+export type ByRepositoryHeading = RepositoryHeading | NoRepositoryHeading;
 
 /** How current one environment's list is, and why its subscription failed if it did. */
 export interface ListFreshness {
@@ -117,8 +135,8 @@ export interface SessionListView extends SessionShelves {
   readonly rows: readonly SessionRow[];
   /** Merged headings: those the primary environment has in its group order, then those found only on other environments by their key (`groupNameKey`). */
   readonly groups: readonly MergedGroupHeading[];
-  /** One heading per repository identity, in plain string order. */
-  readonly repositories: readonly RepositoryHeading[];
+  /** One heading per repository identity, in plain string order, then one per enabled environment for its sessions with none, in the connection list's order. */
+  readonly repositories: readonly ByRepositoryHeading[];
 }
 
 export interface SessionListInput {
@@ -135,6 +153,20 @@ export interface SessionListInput {
 }
 
 type Visible = Exclude<Shelf, "hidden">;
+
+/** An identity as the contracts' rule writes one: `https://`, the host, then the path. */
+const IDENTITY_FORM = /^https:\/\/([^/]+)\/(.+)$/;
+
+/** Each identity's label: its path, with its host before it when another identity has the same path. */
+const labelsOf = (identities: readonly string[]): Map<string, string> => {
+  const parts = identities.map((identity) => {
+    const [, host, path] = IDENTITY_FORM.exec(identity) ?? [];
+    return { identity, host, path: path ?? identity };
+  });
+  const shared = new Map<string, number>();
+  for (const { path } of parts) shared.set(path, (shared.get(path) ?? 0) + 1);
+  return new Map(parts.map(({ identity, host, path }) => [identity, host !== undefined && (shared.get(path) ?? 0) > 1 ? `${host}/${path}` : path]));
+};
 
 /** The longest delay a timer takes: a signed 32-bit count of milliseconds, about 24.8 days. */
 export const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -186,18 +218,23 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
   const shelves = new Map(rows.map((row) => [row, shelfOf(row.summary, nows.get(row.environmentId) as Date)]));
   const shelf = (row: SessionRow) => shelves.get(row) as Shelf;
 
-  // One pass puts each row under its heading and its repository; the shelves then sort each bucket.
+  // One pass puts each row under its heading and its repository, or its environment's when it has none; the shelves then sort
+  // each bucket.
   const repositories = new Map<string, SessionRow[]>();
+  const unidentified = new Map<string, SessionRow[]>(enabled.map(({ environmentId }) => [environmentId, []]));
   for (const row of rows) {
     const { groupId, repositoryIdentity } = row.summary;
     const key = groupId === null ? undefined : headingOf.get(`${row.environmentId} ${groupId}`);
     if (key !== undefined) headings.get(key)?.rows.push(row);
-    if (repositoryIdentity !== null) {
+    if (repositoryIdentity === null) unidentified.get(row.environmentId)?.push(row);
+    else {
       const bucket = repositories.get(repositoryIdentity);
       if (bucket) bucket.push(row);
       else repositories.set(repositoryIdentity, [row]);
     }
   }
+  const identities = [...repositories.keys()].sort();
+  const labels = labelsOf(identities);
 
   // The primary environment's headings in its group order, then the rest by key: one rule, whatever the connection order of the others.
   const placed = [...headings].sort(([keyA, a], [keyB, b]) => {
@@ -220,10 +257,17 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
       pending: heading.members.some((member) => input.pending.get(member.environmentId)?.groups.has(member.groupId) === true),
       awaitingReceipt: heading.members.some((member) => input.awaiting.get(member.environmentId)?.groups.has(member.groupId) === true),
     })),
-    repositories: [...repositories.keys()].sort().map((repositoryIdentity) => ({
-      repositoryIdentity,
-      shelves: shelvesOf(repositories.get(repositoryIdentity) as SessionRow[], order, shelf),
-    })),
+    repositories: [
+      ...identities.map(
+        (repositoryIdentity): ByRepositoryHeading => ({
+          kind: "repository",
+          repositoryIdentity,
+          label: labels.get(repositoryIdentity) as string,
+          shelves: shelvesOf(repositories.get(repositoryIdentity) as SessionRow[], order, shelf),
+        }),
+      ),
+      ...[...unidentified].map(([environmentId, bucket]): ByRepositoryHeading => ({ kind: "no-repository", environmentId, shelves: shelvesOf(bucket, order, shelf) })),
+    ],
   };
 };
 

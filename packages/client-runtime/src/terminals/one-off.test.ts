@@ -1,9 +1,13 @@
+import xterm from "@xterm/headless";
 import { describe, expect, it } from "vitest";
-import { writable, type Runtime, type TerminalOutput, type TerminalStreamView } from "@agent-harness/client-runtime";
-import { manualClock } from "@agent-harness/client-runtime/testing";
-import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, oneOffEnv } from "@agent-harness/contracts";
-import { clipOutput, oneOffMessage, runOneOff } from "./one-off.js";
+import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, oneOffEnv, type TerminalInfo } from "@agent-harness/contracts";
+import { writable } from "../observable.js";
+import type { Runtime } from "../runtime.js";
+import type { TerminalOutput, TerminalStreamView } from "../streams/terminals.js";
+import { flush } from "../testing/fake-wire.js";
+import { manualClock } from "../testing/in-memory-platform.js";
+import { clipOutput, oneOffMessage, reusableTerminal, runOneOff } from "./one-off.js";
+import { xtermScreen, type TextScreens } from "./text-screen.js";
 
 /**
  * `!!`'s one-off command (docs/specs/tui.md, "The composer"): the command
@@ -11,8 +15,13 @@ import { clipOutput, oneOffMessage, runOneOff } from "./one-off.js";
  * marker is what it said, read as a terminal showed it and cut, and a
  * minute at most. The real shell's side is proven against real
  * pseudo-terminals in the environment's `terminals/one-off.test.ts`; this
- * is the reading of what came back, over a terminal the test plays.
+ * is the reading of what came back, over a terminal the test plays, read
+ * through the terminal UI's emulator (`@xterm/headless`) as a renderer
+ * hands it.
  */
+
+/** The terminal UI's emulator, as it hands it to a one-off. */
+const screens: TextScreens = (size) => xtermScreen(new xterm.Terminal({ ...size, allowProposedApi: true }));
 
 const MARKER = "agent-harness-one-off-t1";
 const TARGET = { environmentId: "env-1", sessionId: "session-1" };
@@ -73,7 +82,7 @@ const played = () => {
     exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" } }),
     /** The terminal gone with no exit said (closed by another client, lost to a restart of the environment). */
     vanish: () => state.set({ status: "ended", cursor: sequence, terminal: null, exit: null, fault: null }),
-    deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1" },
+    deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1", screens },
   };
 };
 
@@ -256,5 +265,15 @@ describe("a one-off command run", () => {
     const result = await runOneOff(terminal.deps, TARGET, "ls");
     expect(result).toEqual({ ok: false, line: "desk cannot be reached." });
     expect(terminal.clock.pending()).toBe(0);
+  });
+});
+
+describe("the terminal a pane reopens", () => {
+  const info = (id: string, exitCode: number | null = null): TerminalInfo => ({ id, sessionId: "s", openedAt: "2026-09-29T00:00:00.000Z", cols: 80, rows: 24, exitCode, signal: null });
+
+  it("is the newest still running that is not a one-off this client started, in any case of its id", () => {
+    expect(reusableTerminal([info("a"), info("b"), info("c", 0)], new Set())?.id).toBe("b");
+    expect(reusableTerminal([info("a"), info("B")], new Set(["b"]))?.id).toBe("a");
+    expect(reusableTerminal([info("a", 1)], new Set())).toBeUndefined();
   });
 });

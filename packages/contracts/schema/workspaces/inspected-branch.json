@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InspectedBranch",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The branch's name, without refs/heads/."
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+      "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+    },
+    "committedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "The commit's committer date."
+    },
+    "worktree": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The worktree the branch is checked out in (the main checkout among them), where a worktree on it cannot be made; null when none holds it."
+    },
+    "sessionId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When the harness made that worktree for a session on this environment: the session whose workspace it is; else null."
+    }
+  },
+  "required": [
+    "name",
+    "commit",
+    "committedAt",
+    "worktree",
+    "sessionId"
+  ],
+  "description": "A local branch at its latest commit, with the worktree holding it."
+}

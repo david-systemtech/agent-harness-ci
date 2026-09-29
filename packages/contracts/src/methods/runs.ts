@@ -70,7 +70,12 @@ const message = {
  * that is not on this environment or not signed in is rejected `conflict`
  * (reason `account_unavailable`), and one with no mode available at or below
  * the ceiling `conflict` (reason `mode_unavailable`); while the environment
- * drains it is `unavailable`.
+ * drains it is `unavailable`. The environment looks at the session's
+ * workspace first (workspace-picker spec, "Missing workspaces"): while it is
+ * missing, whether found gone now or marked so before, the start is
+ * rejected `conflict` (reason `workspace_missing`, with its `path`) until
+ * `sessions.setWorkspace` gives the session another; one found back clears
+ * the mark and the run starts.
  */
 export const runsStart = defineMethod({
   name: "runs.start",
@@ -93,7 +98,9 @@ export const runsStart = defineMethod({
  * the answer says who holds it: the provider, which steers it into the turn
  * if it can, or the environment, which starts the next run with it when the
  * turn ends (ADR 0022). `message.sent` records it either way, and
- * `message.delivered` when it is steered or read.
+ * `message.delivered` when it is steered or read. While the session's
+ * workspace is missing it is rejected `conflict` (reason
+ * `workspace_missing`, with its `path`), as `runs.start` is.
  */
 export const runsSend = defineMethod({
   name: "runs.send",
@@ -159,6 +166,8 @@ export const runsStopTask = defineMethod({
  * accepted with no event, and a live run is left alone. It starts a run, so
  * while the environment drains it is `unavailable` when anything is queued;
  * with nothing queued it is the same no-op, accepted, draining or not.
+ * While the session's workspace is missing it is rejected `conflict`
+ * (reason `workspace_missing`, with its `path`), as `runs.start` is.
  */
 export const runsReadNow = defineMethod({
   name: "runs.readNow",

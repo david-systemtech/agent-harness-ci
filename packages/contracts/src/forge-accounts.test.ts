@@ -13,6 +13,7 @@ import {
   ForgeUnreachableError,
   KindUnsupportedError,
   NotAForgeError,
+  NotAPullRequestError,
   eventTypeEntry,
   forgeCopyCredential,
   forgeTokenPages,
@@ -35,7 +36,7 @@ const reference = { kind: "reference", reference: { provider: "openbao", connect
 const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SYSTEM-SERVER" };
 
 describe("the forge account methods", () => {
-  it("have one scope each: the list, the gh probe and the owners at read, add, update, remove and setPrimary as admin commands, verify and detect admin queries", () => {
+  it("have one scope each: the list, the gh probe, the owners and a session's pull requests' refresh at read, add, update, remove and setPrimary as admin commands, verify and detect admin queries, and a session's pull request linked and unlinked at sessions:write", () => {
     const owned = methods.filter((m) => m.name.startsWith("forge."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "forge.accounts.list": ["query", "read"],
@@ -48,7 +49,28 @@ describe("the forge account methods", () => {
       // The environment calls an address the caller chose.
       "forge.detect": ["query", "admin"],
       "forge.orgs.list": ["query", "read"],
+      "forge.pullRequests.link": ["command", "sessions:write"],
+      "forge.pullRequests.unlink": ["command", "sessions:write"],
+      "forge.pullRequests.refresh": ["query", "read"],
     });
+  });
+
+  it("link and unlink take a session and a URL, answering its summary, and refresh takes a session, answering its pull requests", () => {
+    const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    const url = "https://git.systemtech.dev:5526/david/agent-harness/pulls/309";
+    for (const name of ["forge.pullRequests.link", "forge.pullRequests.unlink"] as const) {
+      const params = registry[name].params;
+      expect(params.safeParse({ commandId, sessionId, url }).success, name).toBe(true);
+      expect(params.safeParse({ commandId, sessionId, url: "" }).success, name).toBe(false);
+      expect(params.safeParse({ commandId, url }).success, name).toBe(false);
+      expect(params.safeParse({ sessionId, url }).success, name).toBe(false);
+      expect(registry[name].result.safeParse({ summary: {} }).success, name).toBe(false);
+    }
+    const refresh = registry["forge.pullRequests.refresh"];
+    expect(refresh.params.safeParse({ sessionId }).success).toBe(true);
+    expect(refresh.params.safeParse({}).success).toBe(false);
+    expect(refresh.result.safeParse({ pullRequests: [{ url, state: "merged", mergedAt: "2026-09-24T01:02:03.456Z", closedAt: "2026-09-24T01:02:03.456Z" }] }).success).toBe(true);
+    expect(refresh.result.safeParse({ pullRequests: [{ url, state: "draft", mergedAt: null, closedAt: null }] }).success).toBe(false);
   });
 
   it("detect takes a URL in any form and answers the origin, the kind, the version and the token pages, never GitLab's reserved kind", () => {
@@ -128,12 +150,32 @@ describe("the forge account methods", () => {
     expect(add.safeParse({ ...base, credential: { kind: "gh", login: "--hostname" } }).success).toBe(false);
   });
 
-  it("errors with verification_failed, alias_identity_mismatch and credential_source_unavailable on add and update, identity_mismatch on update alone, and detection's three on add and detect", () => {
-    const own = (name: "forge.accounts.add" | "forge.accounts.update" | "forge.detect" | "forge.orgs.list") => registry[name].errors.map((member) => member.shape.code.value);
-    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable", "kind_unsupported", "not_a_forge", "unreachable"]);
-    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable"]);
+  it("errors with verification_failed, alias_identity_mismatch and a reference's refusals on add and update, identity_mismatch on update alone, and detection's three on add and detect", () => {
+    const own = (name: "forge.accounts.add" | "forge.accounts.update" | "forge.detect" | "forge.orgs.list" | "forge.pullRequests.link" | "forge.pullRequests.unlink" | "forge.pullRequests.refresh") =>
+      registry[name].errors.map((member) => member.shape.code.value);
+    expect(own("forge.accounts.add")).toEqual([
+      "verification_failed",
+      "alias_identity_mismatch",
+      "credential_source_unavailable",
+      "reference_not_found",
+      "reference_denied",
+      "kind_unsupported",
+      "not_a_forge",
+      "unreachable",
+    ]);
+    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable", "reference_not_found", "reference_denied"]);
     expect(own("forge.detect")).toEqual(["kind_unsupported", "not_a_forge", "unreachable"]);
     expect(own("forge.orgs.list")).toEqual(["credential_unavailable", "verification_failed", "unreachable"]);
+    expect(own("forge.pullRequests.link")).toEqual(["not_a_pull_request", "forge_account_missing", "credential_unavailable", "verification_failed", "unreachable"]);
+    expect(own("forge.pullRequests.unlink")).toEqual([]);
+    expect(own("forge.pullRequests.refresh")).toEqual([]);
+  });
+
+  it("name the origin a URL no provider reads as a pull request is on, when it names one", () => {
+    expect(NotAPullRequestError.safeParse({ code: "not_a_pull_request", message: "m", data: { origin: "https://github.com" } }).success).toBe(true);
+    expect(NotAPullRequestError.safeParse({ code: "not_a_pull_request", message: "m", data: { origin: null } }).success).toBe(true);
+    expect(NotAPullRequestError.safeParse({ code: "not_a_pull_request", message: "m", data: { origin: "github.com" } }).success).toBe(false);
+    expect(NotAPullRequestError.safeParse({ code: "not_a_pull_request", message: "m", data: {} }).success).toBe(false);
   });
 
   it("name the forge in detection's errors: GitLab by its reserved kind, an address that is no forge and one that does not answer by origin", () => {

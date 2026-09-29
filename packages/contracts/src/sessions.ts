@@ -3,6 +3,7 @@ import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
 import { Sequence, Timestamp } from "./primitives.js";
+import { RepositoryIdentity } from "./repository-identity.js";
 
 /**
  * Session organisation state (session-state spec; ADR 0003): the session
@@ -147,7 +148,7 @@ export type SettledBy = z.infer<typeof SettledBy>;
  * from the root (`/`), a drive (`C:\` or `C:/`) or a share (`\\`). A
  * workspace is never relative to a client.
  */
-const AbsolutePath = z
+export const AbsolutePath = z
   .string()
   .regex(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/)
   .meta({ description: "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)." });
@@ -236,14 +237,21 @@ const WorktreeRequest = z
     not: { required: ["branch", "newBranch"], properties: { branch: true, newBranch: true } },
   });
 
-/** A directory as a request names it: an absolute path, or one from the environment's home (`~`, `~/code`), which the environment expands. */
+/**
+ * A directory as a request names it: an absolute path, or one from the
+ * environment's home (`~`, `~/code`), which the environment expands; a
+ * directory request and the picker's browse and inspect take it alike.
+ */
+export const RequestedDirectory = z
+  .string()
+  .regex(/^(?:~(?:[\\/]|$)|\/|[A-Za-z]:[\\/]|\\\\)/)
+  .meta({ description: "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home." });
+export type RequestedDirectory = z.infer<typeof RequestedDirectory>;
+
 const DirectoryRequest = z
   .object({
     kind: z.literal("directory"),
-    path: z
-      .string()
-      .regex(/^(?:~(?:[\\/]|$)|\/|[A-Za-z]:[\\/]|\\\\)/)
-      .meta({ description: "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home." }),
+    path: RequestedDirectory,
   })
   .meta({
     description:
@@ -596,6 +604,33 @@ export const SessionWorkspaceStatusChangedPayload = z
   });
 export type SessionWorkspaceStatusChangedPayload = z.infer<typeof SessionWorkspaceStatusChangedPayload>;
 
+export const SessionWorkspaceSetPayload = z
+  .object({
+    workspace: Workspace,
+    repositoryIdentity: RepositoryIdentity.nullable().meta({ description: "The new workspace's repository identity, resolved afresh; null outside a repository." }),
+  })
+  .meta({
+    description:
+      "session.workspace-set: sessions.setWorkspace gave the session, whose workspace was missing, the workspace its request resolved to, with that workspace's repository identity; it clears workspaceMissingSince and moves updatedAt.",
+  });
+export type SessionWorkspaceSetPayload = z.infer<typeof SessionWorkspaceSetPayload>;
+
+/** Why an identity pass gave a session its repository identity after creation (workspace-picker spec, "Repository identity"). */
+export const REPOSITORY_IDENTIFIED_REASONS = ["resolved", "alias"] as const;
+export const RepositoryIdentifiedReason = z.enum(REPOSITORY_IDENTIFIED_REASONS).meta({
+  description:
+    "Why the session's repository identity changed after creation: resolved (the pass after a start found one for a session that had none) or alias (a forge account's verified alias moved the identity's host to the account's canonical host).",
+});
+export type RepositoryIdentifiedReason = z.infer<typeof RepositoryIdentifiedReason>;
+
+export const SessionRepositoryIdentifiedPayload = z
+  .object({ repositoryIdentity: RepositoryIdentity, reason: RepositoryIdentifiedReason })
+  .meta({
+    description:
+      "session.repository-identified: an identity pass of the environment (system:workspaces) gave the session this repository identity, resolved again or rewritten to a forge account's canonical host; updatedAt stays.",
+  });
+export type SessionRepositoryIdentifiedPayload = z.infer<typeof SessionRepositoryIdentifiedPayload>;
+
 export const SessionPullRequestLinkedPayload = PullRequest.meta({
   description: "session.pull-request-linked: a pull request was linked to the session (the forge workstream's).",
 });
@@ -650,6 +685,8 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-unlinked": listed(SessionPullRequestUnlinkedPayload, SummaryPatch),
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
   "session.workspace-status-changed": listed(SessionWorkspaceStatusChangedPayload, SummaryPatch),
+  "session.workspace-set": listed(SessionWorkspaceSetPayload, SummaryPatch),
+  "session.repository-identified": listed(SessionRepositoryIdentifiedPayload, SummaryPatch),
 } as const satisfies Record<string, EventTypeEntry>;
 
 /** The event types of the `group` stream, every one `list`-flagged with a `GroupPatch`. */

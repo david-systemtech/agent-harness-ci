@@ -127,8 +127,12 @@ export const updatesBegin = defineMethod({
  * The local environment resolves the desktop build for the platform and
  * format the desktop's shell reports, from the release it targets (its pin,
  * else its channel's newest), downloads and verifies it into its data
- * directory, and answers where it is. `forbidden` with reason `local` to any
- * but a local client session; `not_found` with no such build in the release.
+ * directory, and answers where it is; a build already staged there is
+ * answered without a download (#354). `forbidden` with reason `local` to any
+ * but a local client session; `not_found` with no release, or no such build
+ * in it; `conflict` with the reason the release could not be read
+ * (`no_release_access`, `unreachable`, `manifest`) or the build downloaded
+ * (`no_release_access`, `artefact`).
  */
 export const updatesDesktopStage = defineMethod({
   name: "updates.desktop.stage",

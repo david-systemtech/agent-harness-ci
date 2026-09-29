@@ -2,7 +2,7 @@
 # "Never root"; ADR 0006, ADR 0007; #141). From a checkout:
 #
 #   docker build -t agent-harness .
-#   docker compose -f scripts/compose.yaml up -d
+#   AGENT_HARNESS_IMAGE=agent-harness docker compose -f scripts/compose.yaml up -d
 #
 # `agent-harness serve` refuses root, in a container as anywhere else, so the
 # image runs it as its own user, `agent-harness` (uid and gid 10001), which
@@ -14,7 +14,9 @@
 # adapter strips both from the provider's environment anyway.
 #
 # No release publishes this image yet (install.sh's artefact does not exist
-# either); build it from a checkout.
+# either); build it from a checkout. The compose file's default image is the
+# release's, which the release workflow writes in (#358), so a checkout's
+# build is named with AGENT_HARNESS_IMAGE.
 
 FROM node:24-bookworm AS build
 ENV CI=true

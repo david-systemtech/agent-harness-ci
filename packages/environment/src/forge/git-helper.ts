@@ -1,4 +1,4 @@
-import { matchForgeAccount, type ForgeAccountRecord, type ForgeOrigin, type ForgeRemote } from "@agent-harness/contracts";
+import { matchForgeAccount, type ForgeAccountOrigins, type ForgeAccountRecord, type ForgeOrigin, type ForgeRemote } from "@agent-harness/contracts";
 
 /**
  * git's side of the credential helper (forge spec, "Runs: the injection" and
@@ -16,6 +16,10 @@ export const servedOrigins = (account: Pick<ForgeAccountRecord, "origin" | "alia
   account.origin,
   ...account.aliases.filter((alias) => alias.verifiedAt !== null).map((alias) => alias.origin),
 ];
+
+/** What the repository identity rule reads of each forge account: its canonical origin and the aliases verified there (ADR 0020). */
+export const verifiedOrigins = (accounts: readonly Pick<ForgeAccountRecord, "origin" | "aliases">[]): ForgeAccountOrigins[] =>
+  accounts.map((account) => ({ origin: account.origin, aliases: servedOrigins(account).slice(1) }));
 
 /** The forge account of `accounts` serving `remote`: on its canonical origin or a verified alias, by host for an ssh-derived remote; null for none. */
 export const servingAccount = (remote: ForgeRemote, accounts: readonly ForgeAccountRecord[]): ForgeAccountRecord | null =>

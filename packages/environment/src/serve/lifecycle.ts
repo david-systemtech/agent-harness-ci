@@ -9,7 +9,6 @@ import type {
 } from "@agent-harness/contracts";
 import { DRAIN_CAP_MS } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
-import type { StreamSource } from "../wire/subscriptions.js";
 import type { Clock } from "./clock.js";
 import type { MethodHandlers } from "./methods.js";
 import { activityOf, type RunRegistry } from "./run-registry.js";
@@ -78,8 +77,6 @@ export interface Lifecycle {
   answer(query: LauncherQuery): LauncherReply;
   /** The lifecycle's own methods. */
   readonly handlers: Required<Pick<MethodHandlers, "environment.status" | "environment.drain">>;
-  /** What `environment.subscribe` reads: the environment's notices, snapshotted as the status. */
-  readonly source: StreamSource<{ status: EnvironmentStatus }>;
   /** Ends a drain's wait at once: the environment is closing. */
   stopWaiting(): void;
 }
@@ -202,8 +199,6 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
         result: startedOf(drain("command", { actor, commandId })),
       }),
     },
-    // The snapshot, sent when replay from the cursor is out of bounds, is the status now.
-    source: { stream: options.stream, snapshot: () => ({ status: status() }) },
     stopWaiting() {
       stopped = true;
       interrupt?.();

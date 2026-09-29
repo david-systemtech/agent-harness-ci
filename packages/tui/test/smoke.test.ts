@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
+import { WAIT_MS } from "../../environment/test/wire-client.js";
 import { FORBIDDEN_WORDS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { App } from "../src/app.js";
 import { DEFAULT_KEYMAP } from "../src/keys.js";
@@ -14,7 +15,7 @@ import { nodePlatform } from "../src/platform/node-platform.js";
 import type { LocalService } from "../src/platform/services.js";
 import type { Fault } from "../src/view.js";
 import { createRuntimeHost } from "../src/runtime-host.js";
-import { SIZE } from "./harness.js";
+import { SIZE, SMOKE_TEST_MS } from "./harness.js";
 
 /**
  * The smoke tests through the real spine (docs/specs/tui.md, "Testing
@@ -31,7 +32,6 @@ import { SIZE } from "./harness.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-const WAIT_MS = 5000;
 const until = async (condition: () => boolean, what: () => string): Promise<void> => {
   const deadline = Date.now() + WAIT_MS;
   while (!condition()) {
@@ -89,7 +89,7 @@ const terminal = (dataDir: string, stateDir: string, tty: string, session?: stri
 const ENTER = "\r";
 const UP = "\u001B[A";
 
-describe.sequential("the terminal UI through the real spine", () => {
+describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_TEST_MS }, () => {
   it("exchanges the grant and renders the header and the rail", async () => {
     const t = await startTestEnvironment({ name: "smoke-desk" });
     onCleanup(() => t.close());

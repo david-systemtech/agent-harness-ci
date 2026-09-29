@@ -201,6 +201,189 @@
       "maximum": 168,
       "description": "The deferral cap, in hours: how long busy work may hold a pending update before the environment drains for it anyway; 1 to 168, preset 24, with no never."
     },
+    "appearance.theme": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?$",
+          "description": "A theme's name: 1 to 40 characters counted as code points, on one line, with no control or format character and no white space at either end."
+        },
+        "seeds": {
+          "type": "object",
+          "properties": {
+            "canvas": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "The neutral base: the window's ground and every surface, hairline and edge drawn from it."
+            },
+            "accent": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "The accent: fills, focus rings, selection and links; the one colour that means act."
+            },
+            "machine": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "Tool and terminal activity."
+            },
+            "thinking": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "The model's thinking and plans."
+            },
+            "success": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "The success status."
+            },
+            "warning": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "The warning status, and what waits on the person."
+            },
+            "danger": {
+              "type": "object",
+              "properties": {
+                "hue": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 360,
+                  "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+                },
+                "chroma": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 0.4,
+                  "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+                }
+              },
+              "required": [
+                "hue",
+                "chroma"
+              ],
+              "description": "The danger status: errors and denials."
+            }
+          },
+          "required": [
+            "canvas",
+            "accent",
+            "machine",
+            "thinking",
+            "success",
+            "warning",
+            "danger"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "seeds"
+      ],
+      "description": "A theme: a name and seven seeds (canvas, accent, machine, thinking, success, warning, danger), each an OKLCH hue and chroma. Every colour a client paints is a token derived from them, in a light and a dark ladder; a theme file is this shape as JSON."
+    },
     "browser.devSites": {
       "type": "array",
       "items": {

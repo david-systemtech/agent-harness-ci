@@ -8,6 +8,13 @@ import { existsSync, readFileSync } from "node:fs";
  */
 export interface ContainerDetector {
   inContainer(): boolean;
+  /**
+   * Whether the install declared the container (`AGENT_HARNESS_CONTAINER`),
+   * as the published compose file does: such a container pairs from its
+   * own log (#349). Absent, as in a stub that says only where it runs: not
+   * declared.
+   */
+  declared?(): boolean;
 }
 
 /** Files only a container runtime writes: Docker's, and Podman's. */
@@ -56,4 +63,5 @@ const fileProbe: ContainerProbe = {
  */
 export const processContainerDetector = (probe: ContainerProbe = fileProbe): ContainerDetector => ({
   inContainer: () => isDeclaredContainer(probe.env ?? {}) || isDetectedContainer(probe),
+  declared: () => isDeclaredContainer(probe.env ?? {}),
 });

@@ -218,6 +218,8 @@ describe("a deleted session", () => {
     "sessions.snooze": { sessionId, until: "2020-01-01T00:00:00.000Z" },
     "sessions.unsnooze": { sessionId },
     "sessions.delete": { sessionId },
+    // A deleted session is not found before its workspace is looked at or the request resolved (#328).
+    "sessions.setWorkspace": { sessionId, workspace: { kind: "scratch" } },
     "runs.start": { sessionId, text: "Back to work" },
     "runs.send": { sessionId, text: "Anyone there?" },
     "permissions.mode.set": { sessionId, mode: "plan" },
@@ -236,6 +238,9 @@ describe("a deleted session", () => {
     "sessions.rewind": { sessionId, messageId: randomUUID() },
     // Nor a rewind to undo (#218).
     "sessions.undoRewind": { sessionId },
+    // A deleted session is not found before the forge is asked (#317).
+    "forge.pullRequests.link": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
+    "forge.pullRequests.unlink": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
   });
 
   /**
@@ -251,6 +256,8 @@ describe("a deleted session", () => {
     "diffs.session": { sessionId },
     "sessions.subagentTranscript": { sessionId, agentId: "a1b2c3" },
     "permissions.prompts.list": { sessionId },
+    "instructions.preview": { sessionId },
+    "forge.pullRequests.refresh": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */

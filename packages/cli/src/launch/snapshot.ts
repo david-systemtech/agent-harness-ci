@@ -140,7 +140,7 @@ const finish = (dataDir: string, record: OutcomeRecord, options: RestoreOptions)
 };
 
 /** The restore marked in `dataDir`, or undefined when none is. A marker that is not an outcome record throws, naming it. */
-const markedRestore = (dataDir: string): OutcomeRecord | undefined => {
+export const markedRestore = (dataDir: string): OutcomeRecord | undefined => {
   const path = join(dataDir, RESTORE_MARKER_FILE);
   let text: string;
   try {

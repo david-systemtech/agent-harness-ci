@@ -152,7 +152,26 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX provider_transcript_summaries_by_mtime ON provider_transcript_summaries (mtime);
     `,
   },
+  {
+    version: 7,
+    name: "setup results: the result cache, each Set up step's latest result (#569)",
+    // Beside the log, not a projection and not events: a result that only refreshes its checked-at is written here and
+    // appended nowhere. The result is its JSON, checked-at included (ADR 0031: the cache survives a restart with it).
+    sql: `
+      CREATE TABLE setup_results (
+        step TEXT PRIMARY KEY,
+        result TEXT NOT NULL
+      ) STRICT;
+    `,
+  },
 ];
+
+/**
+ * The database schema this build writes: the number of its last migration,
+ * which a database it has migrated holds as its `user_version`. A release's
+ * manifest and its preflight name it.
+ */
+export const DATABASE_SCHEMA_VERSION: number = MIGRATIONS.at(-1)?.version ?? 0;
 
 const userVersion = (db: DatabaseSync): number => {
   const row = db.prepare("PRAGMA user_version").get();

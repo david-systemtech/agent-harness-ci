@@ -92,6 +92,29 @@ export const sessionsCreate = defineMethod({
   errors: [],
 });
 
+/**
+ * Give a session whose workspace is missing (`workspaceMissingSince` set)
+ * a new one (workspace-picker spec, "Missing workspaces"; ADR 0021): the
+ * request is resolved as a create's is, with its refusals, and the
+ * repository identity afresh. The environment looks at the session's
+ * workspace first, as a run's start does: one there is refused `conflict`,
+ * reason `workspace_present`, with its `path` (a moved session's transcript
+ * would name paths that are not its workspace's); a session with a run live
+ * `conflict`, reason `run_active`, with its `runId`; a session not here or
+ * deleted `not_found` (data kind `session`). Accepted, it appends
+ * `session.workspace-set`, which clears the missing mark and moves
+ * `updatedAt`, and stops the session's kept provider process, so its next
+ * run resumes the provider's conversation in the new workspace.
+ */
+export const sessionsSetWorkspace = defineMethod({
+  name: "sessions.setWorkspace",
+  scope: "sessions:write",
+  kind: "command",
+  params: commandParams({ ...sessionTarget, workspace: WorkspaceRequest }),
+  result: summaryResult,
+  errors: [],
+});
+
 /** Set the session's title, 1 to 200 characters, or clear it with null to show the generated title or the default. */
 export const sessionsRename = defineMethod({
   name: "sessions.rename",
