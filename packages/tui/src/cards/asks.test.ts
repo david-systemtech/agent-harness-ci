@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { abbreviationOf } from "../rail/badge.js";
 import { askRows, asksHeading, decidable, inBulk, parkedSessions } from "./asks.js";
 
-/** The asks card's rows as pure functions: the badge, the countdown's words, and which rows answer in place. */
+/** The asks card's rows as pure functions: the badge, and which rows answer in place (the countdown's words are the client runtime's). */
 
 const view = (environmentId: string, name: string | null, colour: string | null = null) => ({ environmentId, name, colour }) as unknown as EnvironmentView;
 
