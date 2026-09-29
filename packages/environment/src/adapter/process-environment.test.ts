@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { registry } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -19,7 +21,7 @@ import { presetInjection, type InjectionAnswer, type ProcessEnvironmentScope, ty
  * hold, never the registry's own state.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 /** A provider process's idle time, the setting's preset. */
 const IDLE = 30 * 60_000;
@@ -136,6 +138,62 @@ describe("a run's process environment", () => {
     expect(asked.supplies.map((scope) => scope.origin)).toEqual(["client", "completions", "routine"]);
     const given = await Promise.all(t.adapter.processes.map((process) => process.supplied));
     expect(given).toEqual([{ HARNESS_TEST_VARIABLE: "for every run" }, { HARNESS_TEST_VARIABLE: "for every run" }, { HARNESS_TEST_VARIABLE: "for every run" }]);
+  });
+
+  it("leaves out a supplier that fails, saying so, and gives the process the others' variables, the later registered winning a name both give", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    const t = await start();
+    const first = testSupplier({ HARNESS_SHARED: "first", HARNESS_FIRST: "1" }, "first");
+    const failing: ProcessEnvironmentSupplier = {
+      name: "failing",
+      key: () => "failing",
+      supply: () => Promise.reject(new Error("The vault is sealed.")),
+    };
+    const keyless: ProcessEnvironmentSupplier = {
+      name: "keyless",
+      key: () => {
+        throw new Error("No key today.");
+      },
+      supply: () => ({ variables: { HARNESS_KEYLESS: "never" }, release: () => undefined }),
+    };
+    const last = testSupplier({ HARNESS_SHARED: "last" }, "last");
+    for (const supplier of [first.supplier, failing, keyless, last.supplier]) t.env.processEnvironments.register(supplier);
+    const client = await t.client();
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+
+    expect(await t.adapter.processesOf(session.id)[0]?.supplied).toEqual({ HARNESS_SHARED: "last", HARNESS_FIRST: "1" });
+    expect(errors.mock.calls.map((call) => String(call[0]))).toEqual(
+      expect.arrayContaining([expect.stringContaining("supplier keyless could not give its key"), expect.stringContaining("supplier failing failed")]),
+    );
+  });
+
+  it("refuses a second supplier under a name registered already", async () => {
+    const t = await start();
+    t.env.processEnvironments.register(testSupplier({}, "forge").supplier);
+
+    expect(() => t.env.processEnvironments.register(testSupplier({}, "forge").supplier)).toThrow(/named forge is registered already/);
+  });
+
+  it("never writes the variables to the data directory or the log", async () => {
+    const value = `token-for-tests-${randomUUID()}`;
+    const dataDir = join(tempDir(), "data");
+    const t = await start({}, { dataDir });
+    t.env.processEnvironments.register(testSupplier({ HARNESS_TEST_TOKEN: value }).supplier);
+    const client = await t.client();
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    expect(await t.adapter.processesOf(session.id)[0]?.supplied).toEqual({ HARNESS_TEST_TOKEN: value });
+
+    const logged = t.env.log.read<{ payload: string }>("SELECT payload FROM events");
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.some((row) => row.payload.includes(value))).toBe(false);
+    await t.close();
+    const written = readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile());
+    expect(written.length).toBeGreaterThan(0);
+    expect(written.filter((entry) => readFileSync(join(entry.parentPath, entry.name)).includes(value)).map((entry) => entry.name)).toEqual([]);
   });
 });
 
