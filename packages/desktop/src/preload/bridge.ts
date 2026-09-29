@@ -1,10 +1,13 @@
 import type {
+  GrantReader,
   HttpFetch,
+  SecretStore,
   Shell,
   ShellClipboard,
   ShellDeepLinks,
   ShellDialogs,
   ShellNetwork,
+  ShellService,
   ShellSystem,
   ShellWindow,
 } from "@agent-harness/client-runtime";
@@ -12,7 +15,7 @@ import { channelOf, DEEP_LINK_CHANNEL, type Answered, type HttpAnswer, type Told
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
- * surface needs. The platform's own (`secrets`, `localGrant`, `service`),
+ * surface needs, and the platform's own (`secrets`, `localGrant`, `service`).
  * `notifications`, `preview`, `webView`, `update` and `installer` join as
  * their tickets build them; there is no `tray` in milestone 1.
  */
@@ -25,6 +28,9 @@ export interface DesktopShell extends Shell {
   readonly http: HttpFetch;
   readonly network: ShellNetwork;
   readonly deepLinks: Required<ShellDeepLinks>;
+  readonly secrets: SecretStore;
+  readonly localGrant: GrantReader;
+  readonly service: ShellService;
 }
 
 /** `ipcRenderer`, as the preload uses it. */
@@ -89,5 +95,12 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
         return () => void linkListeners.delete(listener);
       },
     },
+    secrets: {
+      get: (name) => ask("secrets.get", name),
+      set: (name, secret) => ask("secrets.set", name, secret),
+      delete: (name) => ask("secrets.delete", name),
+    },
+    localGrant: { read: () => ask("localGrant.read") },
+    service: { install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },
   };
 };

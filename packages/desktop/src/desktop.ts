@@ -1,13 +1,20 @@
+import { join } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
 import { ANSWERED, channelOf, TOLD } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
+import { grantFile } from "./local-grant.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronIpcMain, IpcCaller, WindowOptions } from "./electron.js";
 import { lockNavigation, lockNetwork } from "./lockdown.js";
 import { bringForward, shellMembers, type Members } from "./members.js";
 import type { DesktopPlatform } from "./platform.js";
 import { APP_SCHEME, APP_URL, isAppPage } from "./schemes.js";
+import { keychainSecrets } from "./secrets.js";
+import { bundledService, type ServiceWait } from "./service.js";
+
+/** The client session tokens' folder in the desktop's data directory. */
+const SECRETS_DIRECTORY = "secrets";
 
 /**
  * The desktop's main process (docs/specs/gui.md, "The desktop shell"): one
@@ -65,8 +72,10 @@ const serveShell = (ipcMain: ElectronIpcMain, members: Members, reportError: (er
 };
 
 export interface DesktopOptions {
-  /** Hears a fault with no caller to hand it to: a refused told member, a window that failed to load. */
+  /** Hears a fault with no caller to hand it to: a refused told member, a window that failed to load, an error on the window's console. */
   readonly reportError?: (error: unknown) => void;
+  /** How `service.start` waits for the environment to answer: preset `SERVICE_WAIT`. */
+  readonly serviceWait?: ServiceWait;
 }
 
 /**
@@ -76,7 +85,7 @@ export interface DesktopOptions {
  * as Electron requires of the data path, the lock, the scheme's privileges
  * and the macOS `open-url` listener.
  */
-export const startDesktop = async (electron: DesktopElectron, platform: DesktopPlatform, { reportError = console.error }: DesktopOptions = {}): Promise<void> => {
+export const startDesktop = async (electron: DesktopElectron, platform: DesktopPlatform, { reportError = console.error, serviceWait }: DesktopOptions = {}): Promise<void> => {
   const { app, protocol } = electron;
   // First: Electron keeps the single-instance lock in the data directory in force when it is asked for.
   app.setPath("userData", platform.paths.data);
@@ -111,7 +120,14 @@ export const startDesktop = async (electron: DesktopElectron, platform: DesktopP
   const window = electron.openWindow(windowOptions(platform, (await canvas.read()) ?? presetCanvas(electron.nativeTheme.shouldUseDarkColors)));
   shown.window = window;
   lockNavigation(window.webContents, (url) => void electron.shell.openExternal(url).catch(reportError));
+  // The renderer's platform reports what it has no caller for to its console: its errors are the window's faults.
+  window.webContents.on("console-message", ({ level, message, sourceId, lineNumber }) => {
+    if (level === "error") reportError(`The window: ${message} (${sourceId}:${lineNumber})`);
+  });
   const network = lockNetwork(window.webContents.session.webRequest);
-  serveShell(electron.ipcMain, shellMembers({ electron, platform, window, canvas, network, links }), reportError);
+  const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: platform.os, dir: join(platform.paths.data, SECRETS_DIRECTORY), report: reportError });
+  const localGrant = grantFile(platform.paths.environment, reportError);
+  const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
+  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, platform, window, canvas, network, links }), reportError);
   await window.loadURL(APP_URL).catch(reportError);
 };

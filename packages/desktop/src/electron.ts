@@ -79,6 +79,16 @@ export interface NavigationDetails extends Refusable {
 /** One request Chromium is about to make, and the answer to it. */
 export type RequestListener = (details: { readonly url: string }, answer: (response: { cancel: boolean }) => void) => void;
 
+/** A message the page logged to its console, as Electron hands it to `console-message`'s listener. */
+export interface ConsoleMessage {
+  /** `info`, `warning`, `error` or `debug`. */
+  readonly level: string;
+  readonly message: string;
+  readonly lineNumber: number;
+  /** The script that logged it. */
+  readonly sourceId: string;
+}
+
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
   /**
@@ -87,6 +97,8 @@ export interface ElectronContents {
    * `preventDefault`. The positional arguments after it are deprecated.
    */
   on(name: "will-navigate", listener: (details: NavigationDetails) => void): unknown;
+  /** The page logged to its console: one details object, as Electron (35 and later) hands it; the positional arguments after it are deprecated. */
+  on(name: "console-message", listener: (details: ConsoleMessage) => void): unknown;
   setWindowOpenHandler(handler: (details: { readonly url: string }) => { action: "deny" }): void;
   send(channel: string, ...args: unknown[]): void;
   /** The window's Chromium profile; the desktop reads its request hook only. */
@@ -147,6 +159,23 @@ export interface ElectronClipboard {
   read(): Promise<ClipboardEntry[]>;
 }
 
+/**
+ * The `safeStorage` module: text encrypted under a key the OS keeps for the
+ * app (the macOS Keychain, Windows' DPAPI, a Linux secret service), usable
+ * once the app is ready.
+ */
+export interface ElectronSafeStorage {
+  isEncryptionAvailable(): boolean;
+  /** Throws when encryption is not available. */
+  encryptString(plainText: string): Buffer;
+  /** Throws when encryption is not available, or `encrypted` was not encrypted under this key. */
+  decryptString(encrypted: Buffer): string;
+  /** Linux only: the secret store Chromium chose, `basic_text` when no secret service answers. */
+  getSelectedStorageBackend(): string;
+  /** Linux only: lets `basic_text` encrypt, under Chromium's fixed key. */
+  setUsePlainTextEncryption(usePlainText: boolean): void;
+}
+
 /** Electron's main-process modules, and the window's constructor, as the desktop takes them. */
 export interface DesktopElectron {
   readonly app: ElectronApp;
@@ -158,6 +187,7 @@ export interface DesktopElectron {
   readonly shell: { openExternal(url: string): Promise<void> };
   /** Whether the OS prefers dark: which of the preset's ladders the first window opens on. */
   readonly nativeTheme: { readonly shouldUseDarkColors: boolean };
+  readonly safeStorage: ElectronSafeStorage;
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
 }
