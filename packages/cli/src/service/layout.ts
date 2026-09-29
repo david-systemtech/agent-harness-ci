@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import { basename, dirname, join, resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
-import { syncDirectory, syncFile, writeFileDurably } from "../launch/durable.js";
+import { syncDirectory, syncTree, writeFileDurably } from "../launch/durable.js";
 import { LAUNCHER_VERSION_FILE, writeLauncherVersion } from "../launch/launcher-version.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "../launch/state.js";
 import { isComplete, VERSION_CLI_ENTRY, VERSION_SENTINEL, versionDirectory, versionNode, VERSIONS_DIRECTORY } from "../launch/versions.js";
@@ -63,16 +63,6 @@ const sameFolder = (a: string, b: string): boolean => {
   } catch {
     return false;
   }
-};
-
-/** Puts every file and folder under `dir`, and `dir` itself, on disk; links are left as they are. */
-const syncTree = (dir: string): void => {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) syncTree(path);
-    else if (entry.isFile()) syncFile(path);
-  }
-  syncDirectory(dir);
 };
 
 /** The version install names, and how to take back what it did to put it there. */

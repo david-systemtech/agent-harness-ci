@@ -1,4 +1,5 @@
 import { inMemoryDocuments } from "@agent-harness/client-runtime/testing";
+import { DEFAULT_THEME, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { PRESENTATION_KEYS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { PRESENTATION_DEFAULTS, openPresentation } from "./presentation.js";
@@ -106,6 +107,23 @@ describe("the presentation", () => {
     await odd.set("presentation", { format: 1, sideColumns: ["files"] });
     expect((await openPresentation(odd, (error) => reported.push(error))).values.read().sideColumns).toEqual({});
     expect(String(reported[0])).toContain("sideColumns");
+  });
+
+  it("holds the light or dark preference, preset to the OS's, and the cached theme, preset none, each read back only when it is one", async () => {
+    const olive: Theme = { name: "Olive", seeds: { ...DEFAULT_THEME.seeds, canvas: { hue: 110, chroma: 0.02 }, accent: { hue: 130, chroma: 0.15 } } };
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read()).toMatchObject({ lightOrDark: "system", cachedTheme: null });
+    first.set("lightOrDark", "light");
+    first.set("cachedTheme", olive);
+    await first.close();
+    expect((await openPresentation(documents)).values.read()).toMatchObject({ lightOrDark: "light", cachedTheme: olive });
+
+    const reported: unknown[] = [];
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, lightOrDark: "dim", cachedTheme: { name: "Olive", seeds: { canvas: { hue: 110, chroma: 0.02 } } } });
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toMatchObject({ lightOrDark: "system", cachedTheme: null });
+    expect(String(reported[0])).toContain("lightOrDark, cachedTheme");
   });
 
   it("holds only keys on the organisation-state lint's presentation list", () => {

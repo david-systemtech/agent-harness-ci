@@ -166,6 +166,13 @@ export const MIGRATIONS: readonly Migration[] = [
   },
 ];
 
+/**
+ * The database schema this build writes: the number of its last migration,
+ * which a database it has migrated holds as its `user_version`. A release's
+ * manifest and its preflight name it.
+ */
+export const DATABASE_SCHEMA_VERSION: number = MIGRATIONS.at(-1)?.version ?? 0;
+
 const userVersion = (db: DatabaseSync): number => {
   const row = db.prepare("PRAGMA user_version").get();
   return Number(row?.["user_version"] ?? 0);
