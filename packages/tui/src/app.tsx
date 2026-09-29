@@ -2104,9 +2104,7 @@ export const App = (props: AppProps) => {
     ? "no session open: /resume opens one, /new starts one"
     : session.lock.locked
       ? "nothing can be sent now"
-      : gone !== undefined
-        ? "/cwd chooses a workspace"
-        : live
+      : live
         ? "steer or queue a message"
         : "message the agent";
   const steers = session.provider?.steering === true;
