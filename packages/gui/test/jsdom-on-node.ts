@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { builtinEnvironments, type Environment } from "vitest/environments";
+import { builtinEnvironments, type Environment } from "vitest/runtime";
 
 /**
  * jsdom's window over Node's modules, for the smoke tests through the real
