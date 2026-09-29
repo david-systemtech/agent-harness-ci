@@ -709,7 +709,7 @@ describe("environment.subscribe", () => {
       payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } },
     });
     const { setup } = registry["environment.subscribe"].result.parse(snapshot.payload);
-    expect(setup?.map((result) => result.step)).toEqual(["account", "your-machines", "forges", "permissions", "appearance"]);
+    expect(setup?.map((result) => result.step)).toEqual(["account", "your-machines", "forges", "browser", "permissions", "appearance"]);
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);
   });

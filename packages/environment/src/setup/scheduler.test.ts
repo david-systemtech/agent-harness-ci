@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_THEME, EnvironmentNotice, registry, type EventFrame, type Frame, type ResultOf, type StepResult } from "@agent-harness/contracts";
+import { DEFAULT_THEME, EnvironmentNotice, STEP_REGISTRY, registry, type EventFrame, type Frame, type ResultOf, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
 import { useCleanups } from "../../test/cleanups.js";
@@ -480,8 +480,8 @@ describe("who the checks run as", () => {
     await frame(program, subscription, "synchronized");
     const events = program.received.filter(isEvent(subscription)).map((f) => [f.event.type, f.event.actor]);
     const setupActors = events.filter(([type]) => type === "setup.result-changed").map(([, actor]) => actor);
-    // The start pass's five results, and Forges done once it had a forge account.
-    expect(setupActors).toEqual(Array.from({ length: 6 }, () => ({ kind: "system", id: "setup" })));
+    // The start pass's first result of every registered step, and Forges done once it had a forge account.
+    expect(setupActors).toEqual(Array.from({ length: STEP_REGISTRY.length + 1 }, () => ({ kind: "system", id: "setup" })));
     expect(events.filter(([type]) => type === "forge.account.verified")).toEqual([["forge.account.verified", { kind: "system", id: "forge" }]]);
   });
 });
