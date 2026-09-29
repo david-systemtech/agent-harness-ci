@@ -190,7 +190,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     try {
       const said = (message: string): string => scrub.scrubOutput(message);
       const fields = { note: item.note, service: item.service, added: clock.now().toISOString().slice(0, 10) };
-      // On the wall clock, never the environment's, which a test may hold still.
+      // The write's budget runs on the wall clock, never the environment's, which a test may hold still; `added` is the environment's day.
       const written = await login.provider.write(login.target, login.token, { reference, value: stored.value, fields, overwrite }, AbortSignal.timeout(budgetMs));
       if (written.outcome === "exists") {
         const message = `A different value is at ${named} already: nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token. Move it with overwrite to replace that value.`;

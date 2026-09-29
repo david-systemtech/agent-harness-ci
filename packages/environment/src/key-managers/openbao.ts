@@ -32,8 +32,9 @@ import { sameValue } from "./same-value.js";
  * mounts the UI endpoint names.
  *
  * Whether a login may write a secret (#371) is its capabilities on the
- * secret's path, as `sys/capabilities-self` answers them: `create` or
- * `update` (or `root`) there, `<mount>/data/<path>` on version 2. A write
+ * secret's path, as `sys/capabilities-self` answers them: `create` (or
+ * `root`) there, which a new entry needs, `<mount>/data/<path>` on version
+ * 2. A write
  * reads the secret first: a different value at the key is left as it was
  * unless the write overwrites, and the secret is written back whole, with
  * the value and the fields given beside what else it held, the body itself
@@ -294,8 +295,8 @@ type KvVersion = 1 | 2;
 /** The path of the secret at `path` under a KV mount of `version`, as OpenBao's API and its policies name it: under `data/` on version 2. */
 const secretPath = (version: KvVersion, mount: string, path: string): string => (version === 2 ? `${mount}/data/${path}` : `${mount}/${path}`);
 
-/** The capabilities that let a login write a secret: create a new one or replace one, or everything. */
-const WRITING = new Set(["create", "update", "root"]);
+/** The capabilities that let a login create a secret where none is, as a new entry needs: `update` alone only replaces one. */
+const CREATING = new Set(["create", "root"]);
 
 /** The names a list answered: `keys` under `data`, each a name; a folder's ends in `/`. */
 const keysIn = (body: unknown): string[] => {
@@ -431,7 +432,8 @@ export const createOpenBaoProvider = (): ConnectionProvider => {
       const kept = detected.version === 2 && isRecord(data) ? data["data"] : data;
       const existing = isRecord(kept) ? kept : {};
       const there = existing[reference.key];
-      if (typeof there === "string" && !overwrite && !sameValue(there, value)) return { outcome: "exists" };
+      // Anything at the key but the same text is a different value, left as it is unless the write overwrites it.
+      if (there !== undefined && !overwrite && (typeof there !== "string" || !sameValue(there, value))) return { outcome: "exists" };
       const secret = { ...existing, ...fields, [reference.key]: value };
       const reply = await call(target, "POST", path, { token, body: detected.version === 2 ? { data: secret } : secret, signal });
       if (reply.outcome !== "answered") return reply;
@@ -446,7 +448,7 @@ export const createOpenBaoProvider = (): ConnectionProvider => {
       const reply = await call(target, "POST", "sys/capabilities-self", { token, body: { paths: [asked] }, signal });
       if (reply.outcome !== "answered") return reply;
       if (reply.status !== 200) return readRefusal(target, "ask its capabilities", reply.status, reply.body, signal);
-      return { outcome: "checked", writable: capabilitiesIn(reply.body, asked).some((capability) => WRITING.has(capability)) };
+      return { outcome: "checked", writable: capabilitiesIn(reply.body, asked).some((capability) => CREATING.has(capability)) };
     },
   };
 };

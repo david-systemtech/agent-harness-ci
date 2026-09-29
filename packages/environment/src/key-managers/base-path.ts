@@ -37,7 +37,7 @@ const PROBE_ENTRY = "entry";
 /**
  * The base path OpenBao suggests while none is set (ADR 0028's chosen
  * default; #371): `harness` on the first KV mount, in the order the login's
- * view of the mounts names them, where the login may write an entry below
+ * view of the mounts names them, where the login may create an entry below
  * it. A mount whose path holds a slash cannot hold a base (above). Null when
  * the login can write under no mount, or its mounts cannot be listed.
  */

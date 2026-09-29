@@ -104,7 +104,7 @@ export interface SecretLocation {
   readonly path: string;
 }
 
-/** What a write check answered: whether the login may write a secret at the location, creating or replacing it. */
+/** What a write check answered: whether the login may create a secret at the location, as a new entry needs. */
 export type WriteCheckAnswer = { readonly outcome: "checked"; readonly writable: boolean } | ProviderFailure;
 
 /** A value a Move writes at a reference (#371), with the fields its entry carries beside it. */
@@ -139,7 +139,7 @@ export interface ConnectionProvider {
   read(target: SignInTarget, token: string, reference: KeyManagerReference, signal?: AbortSignal): Promise<ReadAnswer>;
   /** Lists the names under `location` with the login's token: never a value. */
   list(target: SignInTarget, token: string, location: ListLocation, signal?: AbortSignal): Promise<ListAnswer>;
-  /** Asks whether the login's token may write a secret at `location` (#371): its capabilities there, nothing written. */
+  /** Asks whether the login's token may create a secret at `location` (#371): its capabilities there, nothing written. */
   canWrite(target: SignInTarget, token: string, location: SecretLocation, signal?: AbortSignal): Promise<WriteCheckAnswer>;
   /**
    * Writes `request.value` at its reference with the login's token (#371),
