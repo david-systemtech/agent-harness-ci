@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScreenshotValue",
+  "type": "object",
+  "properties": {
+    "mimeType": {
+      "type": "string",
+      "enum": [
+        "image/jpeg",
+        "image/png"
+      ],
+      "description": "The image's type: image/jpeg for a driver's screenshot of the viewport, or image/png."
+    },
+    "data": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+      "description": "The image, base64."
+    }
+  },
+  "required": [
+    "mimeType",
+    "data"
+  ],
+  "description": "A screenshot of the viewport."
+}

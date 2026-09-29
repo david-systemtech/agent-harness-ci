@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeadlessLimits",
+  "type": "object",
+  "properties": {
+    "maxContexts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16,
+      "description": "The most live browser contexts, one per session; a session past them is refused with a sentence; 1 to 16, preset 2."
+    },
+    "idleMinutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440,
+      "description": "Minutes with no tool call before a session's context is closed; 1 to 1440, preset 10."
+    },
+    "tabHeapMb": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16384,
+      "description": "Megabytes of heap past which a tab is closed, least recently used first; 1 to 16384, preset 500."
+    },
+    "exitMinutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440,
+      "description": "Minutes with no context before the browser is asked to exit; 1 to 1440, preset 5."
+    }
+  },
+  "required": [
+    "maxContexts",
+    "idleMinutes",
+    "tabHeapMb",
+    "exitMinutes"
+  ],
+  "description": "browser.headless.limits: the headless browser's tab rules, none of which can be switched off."
+}

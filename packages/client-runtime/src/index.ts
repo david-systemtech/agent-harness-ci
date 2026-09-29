@@ -108,6 +108,16 @@ export type {
   WorkspacePresetReason,
 } from "./projections/new-session.js";
 export {
+  SETUP_AGE_TICK_MS,
+  SETUP_CHECK_TIMEOUT_MS,
+  SETUP_PENDING_MS,
+  type SetupCounts,
+  type SetupReach,
+  type SetupResultView,
+  type SetupStepView,
+  type SetupView,
+} from "./projections/setup.js";
+export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
   type AcceptedReceipt,

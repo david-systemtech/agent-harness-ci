@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OneTimeAllowance",
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "The host the person allowed, in any spelling the denylist's matcher reads."
+    }
+  },
+  "required": [
+    "host"
+  ],
+  "description": "A one-time allowance: a person allowed this host on this call, so it may be opened once though the denylist lists it."
+}

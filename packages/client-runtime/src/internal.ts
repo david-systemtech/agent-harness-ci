@@ -23,6 +23,7 @@ import { createForgeNotices } from "./projections/forge-notices.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
+import { SETUP_CHECK_TIMEOUT_MS, createSetup } from "./projections/setup.js";
 import { createRequestCache, createRequests, type Requests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
@@ -246,6 +247,15 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     hide: (environmentId, path, lastUsedAt) => registry.hideDirectory(environmentId, path, lastUsedAt),
   };
   const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
+  // Set up (#570): each environment's results from its own stream and this client's checks through the request path.
+  const setup = createSetup({
+    clock: platform.clock,
+    records: registry.list,
+    environments: made.environments,
+    call: createRequests({ clock: platform.clock, capability, request: registry.seams.request, timeoutMs: SETUP_CHECK_TIMEOUT_MS }).call,
+    now: (environmentId) => made.now(environmentId),
+  });
+  registry.seams.onForget((environmentId) => setup.forget(environmentId));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>
       list.filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId),
@@ -303,6 +313,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       copyTargets: (environmentId) => copyTargets(environmentId),
       knownDirectories: (environmentId) => knownDirectories(environmentId),
       newSession: (context) => newSessionProjection(newSessionHost, context),
+      setup: (environmentId) => setup.view(environmentId),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
@@ -326,6 +337,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     environmentNow: (environmentId) => made.now(environmentId),
     requests,
     desktopUpdate: { view: desktopUpdate.view, restart: () => desktopUpdate.restart(), applyBundledServer: () => desktopUpdate.applyBundledServer() },
+    setup: { check: (environmentId, step) => setup.check(environmentId, step) },
     forges: createForges({ clock: platform.clock, shell: platform.shell, capability, call, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null }),
     capability,
     close() {
@@ -340,6 +352,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         runs.close();
         clientCalls.close();
         forgeNotices.close();
+        setup.close();
         requestCache.close();
         await made.close();
       })();
