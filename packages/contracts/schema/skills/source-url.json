@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillSourceUrl",
+  "type": "string",
+  "description": "A skill source's URL, as entered: https://, ssh:// or scp's [user@]host:path, naming a repository with an identity; no credential, query, fragment or leading hyphen, and no other scheme or local path. Refused as invalid_params, the issue's params naming the rule source-url and its reason; this pattern holds part of the rule, and cases/skill-source-url.json holds all of it.",
+  "pattern": "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$"
+}

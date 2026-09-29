@@ -13,6 +13,7 @@ import {
   PAIR_PATH,
   PROTOCOL_VERSION,
   SESSION_STREAM_KIND,
+  STEP_REGISTRY,
   WIRE_PATH,
   formatHostPort,
   pairingLink,
@@ -111,7 +112,7 @@ import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
-import { setupMethods } from "../setup/methods.js";
+import { setupMethods, type SetupSteps } from "../setup/methods.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
@@ -352,6 +353,12 @@ export interface EnvironmentOptions {
    * it to stand for a stepping stone whose launcher speaks a newer one.
    */
   readonly launcherProtocol?: number;
+  /**
+   * The steps `setup.check` runs and how their state checks answer (#308).
+   * Preset: the step registry with this environment's own answers; a test
+   * gives steps of its own whose checks answer when it says.
+   */
+  readonly setupSteps?: SetupSteps;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -929,15 +936,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       presets: settingsPresets(),
-      stateChecks: environmentStateChecks({
-        log,
-        containment,
-        isRoot,
-        dataDir,
-        releaseChannel: () => channelChecks.releaseChannelHolds(),
-        updates: () => updates.machineHolds(channelChecks.status().newest),
-        hostUpdater: () => hostUpdater.holds(),
-      }),
+      steps: options.setupSteps ?? {
+        steps: STEP_REGISTRY,
+        stateChecks: environmentStateChecks({
+          log,
+          containment,
+          isRoot,
+          dataDir,
+          releaseChannel: () => channelChecks.releaseChannelHolds(),
+          updates: () => updates.machineHolds(channelChecks.status().newest),
+          hostUpdater: () => hostUpdater.holds(),
+        }),
+      },
     }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillInvocation",
+  "type": "string",
+  "enum": [
+    "model+slash",
+    "slash-only"
+  ],
+  "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GitCommit",
+  "type": "string",
+  "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+  "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+}

@@ -403,7 +403,7 @@ describe("forge.accounts.update", () => {
     expect((await forgeEvents(client, from)).map((event) => event.payload)).toEqual([
       { forgeAccountId: account.id, credential: after?.credential, identity: { login: "david-renamed", userId: "42" }, problem: null },
     ]);
-    await vi.waitFor(async () => expect(await saidBack(t, [TOKEN, OTHER_TOKEN])).toEqual([TOKEN, "[redacted]"]));
+    expect(await saidBack(t, [TOKEN, OTHER_TOKEN])).toEqual([TOKEN, "[redacted]"]);
 
     await t.close();
     const again = await start({ dataDir });
@@ -486,7 +486,7 @@ describe("forge.accounts.remove", () => {
     expect((await remove(client, primary.id)).result).toEqual({ forgeAccountId: primary.id });
     expect(await list(client)).toEqual([{ ...kept, primary: false }]);
     expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["forge.account.removed", { forgeAccountId: primary.id }]]);
-    await vi.waitFor(async () => expect(await saidBack(t, [TOKEN, OTHER_TOKEN])).toEqual([TOKEN, "[redacted]"]));
+    expect(await saidBack(t, [TOKEN, OTHER_TOKEN])).toEqual([TOKEN, "[redacted]"]);
     expect(rejection((await remove(client, primary.id)).receipt)).toMatchObject({ reason: "not_found", data: { kind: "forge_account", forgeAccountId: primary.id } });
 
     await t.close();

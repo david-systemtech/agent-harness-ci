@@ -18,7 +18,9 @@ import type { SetupAction } from "./setup.js";
  * Its shape is the ADR's four parts, and what #141's Permissions entry needs
  * beside them (the state it writes through a method of its own, the value it
  * confirms, a link to another step, the checks of the environment's state,
- * whether it may be skipped); phase B replaces the shape, never its entries.
+ * whether it may be skipped), and ADR 0031's budget and cadence with the
+ * state check that skips a skippable step (#308); phase B replaces the
+ * shape, never its entries.
  * Its pane and band links became a home row and links to further rows with
  * the row registry (#389), which the Set up workstream (#88) reads.
  */
@@ -102,6 +104,32 @@ export interface StateCheck {
   readonly actions: readonly SetupAction[];
 }
 
+/**
+ * The budgets a step's check may take, in seconds (ADR 0031): five for a
+ * local read or version probe, ten for a network call, thirty for a git
+ * probe or clone. Past its budget a check answers that it timed out.
+ */
+export const CHECK_BUDGETS_SECONDS = [5, 10, 30] as const;
+export type CheckBudgetSeconds = (typeof CHECK_BUDGETS_SECONDS)[number];
+
+/** How often a step is checked unasked unless its entry states a reason for another cadence (ADR 0031: David set the hour). */
+export const DEFAULT_CADENCE_MINUTES = 60;
+
+/**
+ * How often the environment checks a step with nobody asking (ADR 0031):
+ * every hour, or another whole number of minutes with the reason why. ADR
+ * 0031 gives the Key manager and Account steps fifteen, because the
+ * orientation block reports token and sign-in freshness; each entry takes
+ * it with the checks that report it (#574 for Account), and until then
+ * every registered entry declares the hour. The runs on start, on the
+ * cadence and on a feature's events are the Set up specification's (#88).
+ */
+export interface Cadence {
+  readonly minutes: number;
+  /** Why the step leaves the hour: required when `minutes` is not 60. */
+  readonly reason?: string;
+}
+
 /** One step of the checklist. */
 export interface Step {
   readonly id: StepId;
@@ -119,8 +147,18 @@ export interface Step {
   readonly stateChecks: readonly StateCheck[];
   /** The rows beside its home the step links to (every row its keys sit on is its home or one of these), and the other steps. */
   readonly links: readonly (RowLink | StepLink)[];
-  /** Whether a person may skip it (ADR 0031: a skipped step passes a re-run); a preference step never is. */
+  /** Whether it may be skipped (ADR 0031: a skipped step passes a re-run); a preference step never is. */
   readonly skippable: boolean;
+  /**
+   * On a skippable step, the one of its state checks that holds when
+   * something is set up here: when it fails, the step answers skipped with
+   * that check's line and runs no other check (#308).
+   */
+  readonly skip?: string;
+  /** How long `setup.check` awaits the step's checks before answering that they timed out, in seconds (ADR 0031). */
+  readonly budgetSeconds: CheckBudgetSeconds;
+  /** How often it is checked unasked. */
+  readonly cadence: Cadence;
 }
 
 /** A check that passes on any value the key's schema accepts: what a setting with no stronger notion of done asks. */
@@ -157,6 +195,8 @@ export const STEP_REGISTRY = [
     stateChecks: [],
     links: [{ row: "accounts.default-model" }],
     skippable: false,
+    budgetSeconds: 5,
+    cadence: { minutes: 60 },
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:
@@ -196,6 +236,8 @@ export const STEP_REGISTRY = [
     ],
     links: [],
     skippable: false,
+    budgetSeconds: 5,
+    cadence: { minutes: 60 },
   },
   {
     // The Permissions step (permissions spec, "The Permissions step"; #129's keys, #141's entry): at home on the Access
@@ -235,6 +277,8 @@ export const STEP_REGISTRY = [
     ],
     links: [{ step: "your-machines" }],
     skippable: false,
+    budgetSeconds: 5,
+    cadence: { minutes: 60 },
   },
   {
     // The Appearance step (ADR 0023), at home on appearance.theme; the session keys it writes sit on
@@ -250,6 +294,8 @@ export const STEP_REGISTRY = [
     stateChecks: [],
     links: [{ row: "environments.service" }],
     skippable: false,
+    budgetSeconds: 5,
+    cadence: { minutes: 60 },
   },
 ] as const satisfies readonly Step[];
 

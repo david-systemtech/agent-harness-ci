@@ -20,7 +20,7 @@ import { absentProbe, brokenProbe, bubblewrapProbe, noNetworkNamespaceProbe } fr
 import { end, fakeAdapter, gate, say, toolCall, type FakeAdapter, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import type { ToolAccess } from "../adapter/contract.js";
 import { toWireEnvelope } from "../wire/envelope.js";
 
@@ -64,8 +64,9 @@ const sessionEvents = (t: TestEnvironment, sessionId: string): EventEnvelope[] =
 const runEvents = (t: TestEnvironment, sessionId: string, runId: string): EventEnvelope[] =>
   sessionEvents(t, sessionId).filter((event) => event.payload["runId"] === runId);
 
+/** Resolves once the run has ended: within the frame wait, not `vi.waitFor`'s preset second, which a run of a few tool calls outlasts on a throttled runner (#597). */
 const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
-  vi.waitFor(() => expect(runEvents(t, sessionId, runId).map((event) => event.type)).toContain("run.ended"));
+  vi.waitFor(() => expect(runEvents(t, sessionId, runId).map((event) => event.type)).toContain("run.ended"), { timeout: WAIT_MS });
 
 /** The run's one `run.policy.resolved` containment. */
 const containmentOf = (t: TestEnvironment, sessionId: string, runId: string) => {
