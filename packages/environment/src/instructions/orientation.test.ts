@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { bubblewrapProbe } from "../../test/containment.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
-import { DAVID, TOKEN, added } from "../../test/forge.js";
+import { DAVID, TOKEN, added, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
@@ -103,6 +103,26 @@ describe("the OrientationRenderer", () => {
 
     expect(text.startsWith("# Orientation\n\n## This environment\n\n")).toBe(true);
     expect(headings(text)).toEqual(["## This environment", "## Key managers", "## Forges", "## Banks", "## Other environments"]);
+  });
+
+  it("is byte-identical across runs whose state has not changed, twenty minutes and a verification that changed nothing between them, so the session's process is reused", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch, harnessCommand: HELPER, orientationSections: [section("banks", "Banks", "cortex: a memory bank")] });
+    const client = await t.client();
+    forge.user(TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
+    const session = await create(client);
+    const first = await runTo(t, client, session.id);
+
+    // Within the process's idle time, so only a changed text would let it go.
+    t.clock.advance(20 * 60 * 1000);
+    await verify(client);
+    const second = await runTo(t, client, session.id, "Twenty minutes later");
+
+    expect(second).toBe(first);
+    // No line reads the clock: the only time is the forge's status's last change, 00:00.
+    expect(second.match(/\d{2}:\d{2}/g)).toEqual(["00:00"]);
+    expect(t.adapter.processesOf(session.id)).toHaveLength(1);
   });
 
   it("leaves out a section no provider is registered for", async () => {
@@ -311,6 +331,24 @@ describe("the environment section", () => {
       "This run's containment is off: nothing but the denylist limits what its commands and tools read, write or reach.",
     ]);
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual(texts);
+  });
+
+  it("is in instructions.preview as a run is handed it: at the session's own level, and at the default for a new session", async () => {
+    const t = await start({ containment: bubblewrapProbe() });
+    const client = await t.client();
+    const workspace = { kind: "directory", path: realpathSync(tempDir("agent-harness-workspace-")) } as const;
+    const session = await create(client, { workspace });
+    const set = await client.request("permissions.containment.set", { commandId: randomUUID(), sessionId: session.id, level: "workspace-no-network" });
+    expect(set.receipt).toMatchObject({ status: "accepted" });
+
+    const previewed = await client.request("instructions.preview", { sessionId: session.id });
+    const fresh = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+    const handed = await runTo(t, client, session.id);
+
+    expect(environmentOf(previewed.text)).toContain("This run's containment is workspace-no-network: ");
+    // A new session names no level of its own: the preset default, workspace, where it can be enforced.
+    expect(environmentOf(fresh.text)).toContain("This run's containment is workspace: ");
+    expect(handed).toBe(previewed.text);
   });
 
   it("names the environment as it is now: a rename changes the next run's text", async () => {
