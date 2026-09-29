@@ -7,3 +7,4 @@
 export { frameUntrusted } from "./frame.js";
 export { TOKEN_SHAPES, redactTokens, redactedFieldValue, secretField, type FieldAttributes, type SecretField, type TokenShapeId } from "./redaction.js";
 export { CHALLENGE_MARKERS, detectChallenge, type ChallengeMarkers } from "./challenge.js";
+export { SHELL_TEXT_CHARS, isShell } from "./shell.js";
