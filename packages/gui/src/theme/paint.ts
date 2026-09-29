@@ -19,5 +19,7 @@ export const paintLadder = (root: HTMLElement, ladder: Ladder, name: LadderName)
  * theme and is never a literal. None for no colour, or a name that is none
  * of the twelve (a newer environment's).
  */
-export const environmentColour = (colour: string | null): string | undefined =>
-  ENVIRONMENT_COLOURS.find((name) => name === colour) === undefined ? undefined : `var(--environment-${colour})`;
+export const environmentColour = (colour: string | null): string | undefined => {
+  const name = ENVIRONMENT_COLOURS.find((known) => known === colour);
+  return name === undefined ? undefined : `var(--environment-${name})`;
+};
