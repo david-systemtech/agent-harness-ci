@@ -84,6 +84,7 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
+import { instructionsPreview } from "./methods/instructions.js";
 import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate, forgeAccountsVerify, forgeGhProbe } from "./methods/forge.js";
 import {
   keyManagersCertificatePreview,
@@ -187,6 +188,7 @@ export const methods = [
   accountsHandoffRecommend,
   modelsList,
   commandsList,
+  instructionsPreview,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,

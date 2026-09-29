@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionAlwaysOnSkill",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The skill's name."
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where the skill comes from: its repository identity and folder; null for one with no known origin."
+    },
+    "commit": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)."
+    }
+  },
+  "required": [
+    "name",
+    "origin",
+    "commit"
+  ],
+  "description": "An always-on skill the composition appended: its name, its origin and the commit it was read at."
+}
