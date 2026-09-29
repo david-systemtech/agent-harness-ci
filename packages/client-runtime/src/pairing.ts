@@ -1,6 +1,7 @@
 import {
   DEFAULT_ENVIRONMENT_PORT,
   PAIR_PATH,
+  PRODUCT_NAME,
   normalisePairingCode,
   parsePairingLink,
   type ClientSessionCredential,
@@ -18,7 +19,7 @@ import type { ClientIdentity, HttpFetch } from "./platform.js";
  * the short code, exchanged at `POST /api/pair` for a client session.
  */
 
-/** What David pastes, scans or types. */
+/** What David pastes, scans or types, or a pairing deep link the desktop was opened with (`pairingDeepLink`). */
 export type PairingInput = { readonly link: string } | { readonly address: string; readonly code: string };
 
 /** Pair again in place: exchange the code for the saved connection to this environment, which must be the one that answers. */
@@ -71,13 +72,33 @@ export const pairingFailed = (reason: PairingFailureReason, message: string): Pa
 export const discoveryFailure = (reason: DiscoveryRefusal): PairingFailureReason =>
   reason === "starting" || reason === "draining" ? "not-ready" : reason;
 
+/**
+ * A pairing link as the desktop app is handed it by the OS, from a page or
+ * another app: `agent-harness://pair?link=<the pairing link, percent-encoded>`
+ * (a chosen default). `connections.add` takes it as it takes the link.
+ */
+export const pairingDeepLink = (link: string): string => `${PRODUCT_NAME}://pair?link=${encodeURIComponent(link)}`;
+
+const DEEP_LINK = new RegExp(`^${PRODUCT_NAME}://pair/?\\?link=([^&#\\s]+)$`, "i");
+
+/** The pairing link a pairing deep link carries; anything else as it is. */
+const unwrapped = (text: string): string => {
+  const match = DEEP_LINK.exec(text.trim());
+  if (!match) return text;
+  try {
+    return decodeURIComponent(match[1] as string);
+  } catch {
+    return text;
+  }
+};
+
 /** The origin and canonical code in what was pasted or typed, or why there are none. */
 export const parsePairingInput = (
   input: PairingInput,
 ): { readonly ok: true; readonly origin: string; readonly code: string } | { readonly ok: false; readonly failure: PairingFailure } => {
   const refuse = (reason: PairingFailureReason, message: string) => ({ ok: false as const, failure: { reason, message } });
   if ("link" in input) {
-    const link = parsePairingLink(input.link);
+    const link = parsePairingLink(unwrapped(input.link));
     const origin = link && parseAddress(link.origin);
     if (!link || !origin) return refuse("invalid-link", "That is not a pairing link: it looks like http://<address>/pair#<code>.");
     return { ok: true, origin, code: link.code };

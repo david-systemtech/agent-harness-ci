@@ -10,9 +10,11 @@ changes the desktop shell. When no machine of a platform is at hand, the pull
 request says so and lists that section as not run; it stays owed until someone
 runs it there. Never run Electron on the shared agent box.
 
-The desktop build (#423) adds its own sections here: first launch installing
-the service, the keychain, notifications and their activation, the browser
-dock, the preview scheme, and restart to update (#355).
+First launch installing the service and the keychain (#395) have their
+section below, which needs a packaged desktop carrying the server artefact:
+a run from a checkout carries none. The desktop build (#423) adds its own
+sections here: notifications and their activation, the browser dock, the
+preview scheme, and restart to update (#355).
 
 ## Before the first run
 
@@ -49,8 +51,9 @@ preload exposes, and a member named bare is on it: `setBadge(3)` is
    again: it is kept, so IndexedDB has a stable origin.
 3. **The sandbox.** `typeof require`, `typeof process` and `typeof module` are
    `"undefined"`. `Object.keys(desktopShell)` lists exactly `window`,
-   `dialogs`, `clipboard`, `openExternal`, `system`, `http`, `network` and
-   `deepLinks`; nothing named `ipcRenderer` is reachable.
+   `dialogs`, `clipboard`, `openExternal`, `system`, `http`, `network`,
+   `deepLinks`, `secrets`, `localGrant` and `service`; nothing named
+   `ipcRenderer` is reachable.
 4. **The content policy.** `eval("1")` throws a content-policy error;
    `document.head.append(Object.assign(document.createElement("script"), { textContent: "window.ran = 1" }))`
    leaves `window.ran` undefined; `fetch("https://example.org")` fails.
@@ -126,3 +129,74 @@ preload exposes, and a member named bare is on it: `setBadge(3)` is
    Dock), `setBadge(3)` shows 3 and `setBadge(undefined)` clears it. The
    badge follows the app's `.desktop` file, so an unpackaged run may show
    none; record which.
+
+## First launch and the keychain (#395)
+
+Run on each platform with a packaged desktop (#423's artefact) as an ordinary
+user who has no agent-harness service installed (`agent-harness service
+status`, from a release's shim, says `Installed: no`, or the user is new).
+`<data>` is the environment's data directory, `<desktop>` the desktop's
+(`<data>/desktop`).
+
+### Every platform
+
+1. **First launch installs and starts the service.** Start the desktop. The
+   window says "Starting the environment on this machine…", then "<name> is
+   starting…", and the sidebar then lists this machine's environment by name
+   with no session open. `<data>/bin/agent-harness service status` says
+   installed, running and ready; `<data>/versions` holds the desktop's
+   version, complete; the service's definition runs `<data>`'s launcher
+   entry, never a path inside the app.
+2. **Opted out.** Turn "Run an environment on this machine" off: the window
+   shows pairing. Stop the service (`service` has no stop verb: stop it
+   through the OS's service manager), quit and start: the window opens on
+   pairing and starts nothing. Turn the switch on: the service starts and the
+   window follows it to ready.
+3. **A service down is offered, not started.** With the switch on, stop the
+   service, quit and start: the heading says "Not running" with Start, and
+   nothing starts until Start is pressed.
+4. **Pairing.** On another machine's environment, `agent-harness pair` prints
+   a link and a code. Paste the link in "Pair with an environment…": the
+   environment is listed and connects. Pair again with a code that is wrong,
+   then one past its ten minutes: each says one line, "Not paired: …". Open
+   `agent-harness://pair?link=<the link, percent-encoded>` from a terminal
+   (`open`, `xdg-open` or `start`): the window comes forward and pairs.
+5. **The keychain.** After pairing, `<desktop>/secrets/<environment id>.secret`
+   exists, readable by its owner alone, its bytes beginning with Chromium's
+   encryption prefix (`v10` or `v11`) and nothing in it
+   readable as text. Quit and start: the paired environment connects without
+   pairing again.
+6. **The log.** In the console, `console.error("checklist")`: a line
+   `... The window: checklist (...)` is appended to
+   `<desktop>/logs/desktop.log`.
+
+### macOS
+
+1. **The Keychain prompt.** The first token kept may ask to let the app use
+   "agent-harness Safe Storage" in the login keychain: record whether it
+   asked, and that allowing it keeps later launches quiet.
+2. **Translocation.** Unzip the download in Downloads and open the app from
+   there without moving it (Gatekeeper runs it translocated, from a read-only
+   path). Run step 1: the install reads the bundle and copies the version
+   out, so it works from there. Then `xattr -l <data>/versions/<v>/node/bin/node`:
+   record whether the copy carries `com.apple.quarantine`, and whether
+   launchd starts the service with it (if Gatekeeper refuses the copied Node,
+   the install must strip the attribute).
+
+### Windows
+
+1. **The install directory.** Install per user with the NSIS setup and run
+   step 1 from the Start menu shortcut: the install runs from
+   `%LOCALAPPDATA%\Programs\agent-harness\resources\server` (a path with a
+   space in the user's name included) with no console window showing, and
+   Task Scheduler's task runs `<data>\launcher-entry.cmd`.
+2. **DPAPI.** Sign out and in: the paired environment still connects.
+
+### Linux
+
+1. **A secret service.** Under GNOME Keyring or KWallet, step 5's file begins
+   `v11`.
+2. **No secret service.** Start the desktop with `--password-store=basic`, or
+   in a session with no keyring: pairing still works, the file begins `v10`,
+   and `desktop.log` says once that tokens are stored unprotected.
+

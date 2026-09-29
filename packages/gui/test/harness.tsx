@@ -1,19 +1,33 @@
 import { act, render, type RenderResult } from "@testing-library/react";
 import { userEvent, type UserEvent } from "@testing-library/user-event";
 import { createRuntime, type Runtime } from "@agent-harness/client-runtime";
-import { fakeShell, inMemoryPlatform, manualClock, type FakeShell, type InMemoryDocumentStore, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
+import {
+  fakeShell,
+  inMemoryDocuments,
+  inMemoryNetwork,
+  manualClock,
+  runtimeSpeaking,
+  seededRandom,
+  type FakeShell,
+  type InMemoryDocumentStore,
+  type InMemoryNetwork,
+  type ManualClock,
+} from "@agent-harness/client-runtime/testing";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
-import { openPresentation, type Presentation } from "../src/presentation.js";
+import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
+import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
 
 export { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedEnvironment } from "@agent-harness/client-runtime/testing/scripted-environment";
 
 /**
  * The GUI's test harness (docs/specs/gui.md, "Testing Decisions"): the app
- * mounted over a client runtime on the in-memory platform, against the
- * scripted fake environment, with the recording fake shell as the desktop's,
- * in jsdom. A test drives it as a person does, through `user` (Testing
+ * mounted over a client runtime on the desktop platform, against the
+ * scripted fake environment, over the recording fake shell as the desktop's
+ * preload gives it, in jsdom. The shell answers `http` and `localGrant` for
+ * the scripted world and keeps `secrets` in memory; the documents, the
+ * clock, the network signal and the sockets are the test's. A test drives it as a person does, through `user` (Testing
  * Library's user-event), and asserts what a person sees: roles, accessible
  * names and text, through `screen`. What presentation keeps is asserted by
  * mounting the window again on the same storage (`remount`).
@@ -27,12 +41,25 @@ export interface RenderOptions {
   readonly macOS?: boolean;
   /** The desktop's shell: preset a fresh recording fake. */
   readonly shell?: FakeShell;
+  /** What the window's presentation holds before it first opens, as a launch before this one left it. */
+  readonly presentation?: Partial<PresentationValues>;
+  /** The protocol version this client speaks: preset this build's, so a test can be the newer side of a mismatch. */
+  readonly protocolVersion?: number;
+}
+
+/** The desktop platform the window runs on, with what the test holds of it. */
+export interface HarnessPlatform extends DesktopPlatform {
+  readonly documents: InMemoryDocumentStore;
+  readonly clock: ManualClock;
+  readonly network: InMemoryNetwork;
+  /** Every fault handed to `reportError`, oldest first. */
+  readonly reported: readonly unknown[];
 }
 
 export interface RenderedApp {
   readonly world: ScriptedWorld;
   readonly clock: ManualClock;
-  readonly platform: InMemoryPlatform;
+  readonly platform: HarnessPlatform;
   readonly shell: FakeShell;
   readonly runtime: Runtime;
   readonly presentation: Presentation;
@@ -54,24 +81,30 @@ interface Mount {
   readonly clock: ManualClock;
   readonly shell: FakeShell;
   readonly macOS: boolean;
-  readonly documents?: InMemoryDocumentStore;
-  readonly secrets?: InMemoryPlatform["secrets"];
+  readonly documents: InMemoryDocumentStore;
+  readonly protocolVersion: number | undefined;
 }
 
-const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
-  const platform = inMemoryPlatform({
-    clock,
-    kind: "desktop",
-    fetch: world.fetch,
-    webSocket: world.webSocket,
+const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
+  const reported: unknown[] = [];
+  const network = inMemoryNetwork();
+  const desktop = await desktopPlatform({
     shell,
-    // The desktop reads the local grant through its shell, so with no local environment scripted the grant reads nothing.
-    grant: world.grant ?? shell.localGrant,
-    ...(documents && { documents }),
-    ...(secrets && { secrets }),
+    version: "0.0.0-test",
+    documents,
+    clock,
+    network,
+    webSocket: world.webSocket,
+    random: seededRandom(),
+    reportError: (error) => void reported.push(error),
   });
-  const runtime = createRuntime(platform);
-  onTestFinished(() => runtime.close());
+  const platform: HarnessPlatform = { ...desktop, documents, clock, network, reported };
+  const runtime = protocolVersion === undefined ? createRuntime(platform) : runtimeSpeaking(platform, protocolVersion);
+  const stopFollowing = platform.follow(runtime.connections.list);
+  onTestFinished(async () => {
+    stopFollowing();
+    await runtime.close();
+  });
   await runtime.start();
   for (const name of pair) {
     const outcome = await runtime.connections.add({ link: world.environment(name).wire.link });
@@ -97,7 +130,7 @@ const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, 
       view.unmount();
       await presentation.close();
       await runtime.close();
-      return mount({ world, clock, shell, macOS, documents: platform.documents, secrets: platform.secrets }, []);
+      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion }, []);
     },
   };
 };
@@ -112,5 +145,14 @@ export const renderApp = async (script: Script, options: RenderOptions = {}): Pr
   const clock = manualClock();
   const world = scriptedWorld(clock, script);
   const paired = script.environments.filter((environment) => environment.reach === "paired").map((environment) => environment.name);
-  return mount({ world, clock, shell: options.shell ?? fakeShell(), macOS: options.macOS ?? false }, paired);
+  const shell = options.shell ?? fakeShell();
+  shell.answer("http", world.fetch);
+  shell.answer("localGrant.read", async () => world.grant?.read());
+  const documents = inMemoryDocuments();
+  if (options.presentation) {
+    const left = await openPresentation(documents);
+    for (const [key, value] of Object.entries(options.presentation) as [PresentationKey, never][]) left.set(key, value);
+    await left.close();
+  }
+  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion }, paired);
 };

@@ -55,6 +55,13 @@ export interface PresentationValues {
   readonly reasoningShown: boolean;
   /** Whether text still streaming fades in word by word. */
   readonly streamingFade: boolean;
+  /**
+   * Whether to run an environment on this machine (docs/specs/gui.md, "The
+   * local environment, pairing and updates"): on, the window installs and
+   * starts this machine's environment on first launch; off, it opens on
+   * pairing with an environment elsewhere.
+   */
+  readonly runLocalEnvironment: boolean;
 }
 
 export type PresentationKey = keyof PresentationValues;
@@ -67,6 +74,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   readingWidth: "comfortable",
   reasoningShown: true,
   streamingFade: true,
+  runLocalEnvironment: true,
 });
 
 /** The document the presentation is kept in, and the format this build writes. */
@@ -87,6 +95,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   readingWidth: (stored) => READING_WIDTHS.find((width) => width === stored),
   reasoningShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
   streamingFade: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  runLocalEnvironment: (stored) => (typeof stored === "boolean" ? stored : undefined),
 };
 
 export interface Presentation {

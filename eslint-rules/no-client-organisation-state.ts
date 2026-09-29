@@ -61,7 +61,16 @@ export const FORBIDDEN_WORDS = [
 ] as const;
 
 /** The presentation module's keys. Client-local presentation, never organisation state (glossary: Pane). */
-export const PRESENTATION_KEYS: readonly string[] = ["collapsedHeadings", "paneLayout", "readingWidth", "reasoningShown", "sidebarWidth", "streamingFade", "textSize"];
+export const PRESENTATION_KEYS: readonly string[] = [
+  "collapsedHeadings",
+  "paneLayout",
+  "readingWidth",
+  "reasoningShown",
+  "runLocalEnvironment",
+  "sidebarWidth",
+  "streamingFade",
+  "textSize",
+];
 
 /** The client runtime's projection cache and outbox: a module file or a directory of that name. */
 export const ALLOWLISTED_MODULES: readonly RegExp[] = [
