@@ -412,8 +412,9 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
     async requested(asked, channel, launcherProtocol) {
       const listed = await list();
       if ("outcome" in listed) return { code: "conflict", message: listed.message, data: { reason: listed.reason } };
+      if (asked !== undefined && runsOn(asked)) return { code: "conflict", message: `This environment runs ${asked} already.`, data: { reason: "current" } };
       const version = asked ?? newestOn(listed, channel)?.version;
-      if (version === undefined || runsOn(version) || (asked === undefined && !newerThanRunning(version))) {
+      if (version === undefined || (asked === undefined && !newerThanRunning(version))) {
         return { code: "conflict", message: `This environment runs ${harnessVersion}, and nothing newer is published on the ${channel} channel.`, data: { reason: "current" } };
       }
       const examined = await examineVersion(version, listed);

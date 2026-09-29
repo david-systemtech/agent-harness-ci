@@ -515,12 +515,19 @@ describe("updates.apply by version, with no path", () => {
     expect((await apply(await bare.client(), { version: "0.4.5", when: "idle" })).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "no_release_access" } } });
   });
 
-  it("with no version is refused conflict current when the channel publishes nothing newer than what runs", async () => {
+  it("with no version is refused conflict current when the channel publishes nothing newer than what runs, or the pin names the version that runs", async () => {
     const { fake, client } = await withReleases();
     fake.publish(release("0.4.0"), release("0.4.1"));
     expect((await apply(client, { when: "idle" })).receipt).toMatchObject({
       status: "rejected",
       error: { code: "conflict", data: { reason: "current" }, message: "This environment runs 0.4.1, and nothing newer is published on the stable channel." },
+    });
+
+    fake.publish(release("0.5.0"));
+    await setUpdates(client, { "updates.pinnedVersion": RUNNING });
+    expect((await apply(client, { when: "idle" })).receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", data: { reason: "current" }, message: "This environment runs 0.4.1 already." },
     });
   });
 
