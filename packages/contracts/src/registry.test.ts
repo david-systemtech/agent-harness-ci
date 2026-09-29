@@ -159,9 +159,8 @@ describe("the method registry", () => {
     });
   });
 
-  it("owes each updates method's handler not yet served to the launcher ticket that builds it (#335 registered them with none; #342, #343 and #346 serve theirs)", () => {
+  it("owes each updates method's handler not yet served to the launcher ticket that builds it (#335 registered them with none; #342, #343, #346 and #348 serve theirs)", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("updates.")))).toEqual({
-      "updates.begin": "#348",
       "updates.desktop.stage": "#354",
     });
   });
@@ -218,6 +217,11 @@ describe("the method registry", () => {
       "forge.accounts.update",
       "forge.accounts.remove",
       "forge.accounts.setPrimary",
+      "keyManagers.connections.add",
+      "keyManagers.connections.signIn",
+      "keyManagers.connections.update",
+      "keyManagers.connections.signOut",
+      "keyManagers.connections.remove",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -382,6 +386,12 @@ describe("the method registry", () => {
       | "forge.accounts.setPrimary"
       | "forge.accounts.verify"
       | "forge.gh.probe"
+      | "keyManagers.list"
+      | "keyManagers.connections.add"
+      | "keyManagers.connections.signIn"
+      | "keyManagers.connections.update"
+      | "keyManagers.connections.signOut"
+      | "keyManagers.connections.remove"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

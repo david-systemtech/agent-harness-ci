@@ -20,6 +20,7 @@ export * from "./forge-gh.js";
 export * from "./frames.js";
 export * from "./git-credential.js";
 export * from "./key-managers.js";
+export * from "./key-manager-connections.js";
 export * from "./launcher.js";
 export * from "./lifecycle.js";
 export * from "./notices.js";
@@ -61,6 +62,14 @@ export {
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
 export { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, MAX_FORGE_ALIASES, VerificationFailedError } from "./methods/forge.js";
+export {
+  CertificateRejectedError,
+  KEY_MANAGER_VERIFICATION_FAILURES,
+  KeyManagerVerificationFailedError,
+  ProviderUnavailableError,
+  SealedError,
+  UnreachableError,
+} from "./methods/key-managers.js";
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {

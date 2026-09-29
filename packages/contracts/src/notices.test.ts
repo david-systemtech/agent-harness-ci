@@ -13,7 +13,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), and the forge's events (#310), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310) and the key-manager connections' (#365), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -36,6 +36,11 @@ describe("environment notices", () => {
       "forge.account.git-rejected",
       "forge.account.removed",
       "forge.origin-missing",
+      "key-manager.connection.added",
+      "key-manager.connection.signed-in",
+      "key-manager.connection.signed-out",
+      "key-manager.connection.updated",
+      "key-manager.connection.removed",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
@@ -63,6 +68,15 @@ describe("an update's notices", () => {
     }
     expect(notice("environment.update-pending", { updateId, toVersion: "0.5.0", source: "cron", since, deferUntil: since }).success).toBe(false);
     expect(notice("environment.update-pending", { updateId: "u-1", toVersion: "0.5.0", source: "pin", since, deferUntil: since }).success).toBe(false);
+  });
+
+  it("say, managed outside, which image the pending update goes to: its reference and digest, which a native environment's update has none of (#348)", () => {
+    const pending = { updateId, toVersion: "0.5.0", source: "channel", since, deferUntil: "2026-09-29T10:00:00.000Z" };
+    const image = { reference: "git.example.com/david/agent-harness:0.5.0", digest: `sha256:${"0".repeat(64)}` };
+    expect(notice("environment.update-pending", { ...pending, image }).data).toEqual({ type: "environment.update-pending", payload: { ...pending, image } });
+    expect(notice("environment.update-pending", pending).success).toBe(true);
+    expect(notice("environment.update-pending", { ...pending, image: { reference: image.reference } }).success).toBe(false);
+    expect(notice("environment.update-pending", { ...pending, image: { ...image, digest: "latest" } }).success).toBe(false);
   });
 
   it("say an update began its drain: from and to which version, and its cause (idle, the cap, or asked)", () => {
