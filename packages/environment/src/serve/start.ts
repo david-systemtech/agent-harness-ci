@@ -903,7 +903,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
+  const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -972,7 +973,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
-    ...workspaceMethods({ log }),
+    // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
+    ...workspaceMethods({
+      log,
+      directoryRules: environmentResolver,
+      worktreesRoot: roots.worktrees,
+      ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+    }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,
