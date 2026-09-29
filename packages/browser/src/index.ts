@@ -9,3 +9,4 @@ export { TOKEN_SHAPES, redactTokens, redactedFieldValue, secretField, type Field
 export { CHALLENGE_MARKERS, detectChallenge, type ChallengeMarkers } from "./challenge.js";
 export { SHELL_TEXT_CHARS, isShell } from "./shell.js";
 export { READ_PAGE_CHARS, pageStatement, pageText, type TextPage } from "./paging.js";
+export { articleMarkdown, type MarkdownOptions, type ReaderArticle } from "./markdown.js";
