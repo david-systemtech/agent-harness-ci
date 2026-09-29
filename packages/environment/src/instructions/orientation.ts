@@ -31,7 +31,7 @@ export interface OrientationSection {
 const BLOCK_HEADING = "# Orientation";
 
 /** What a section whose provider failed renders in place of its lines. */
-export const COULD_NOT_BE_READ = "Could not be read.";
+const COULD_NOT_BE_READ = "Could not be read.";
 
 /** The section under its heading. */
 const headed = (title: string, lines: string): string => `## ${title}\n\n${lines}`;

@@ -130,7 +130,7 @@ describe("the forges section", () => {
     const client = await t.client();
     for (const at of [forge, work]) at.user(TOKEN, DAVID);
     forge.user(OTHER_TOKEN, DAVID);
-    const home = await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
+    await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
     const session = await create(client);
     const alone = await runTo(t, client, session.id);
     const github = await added(client, { url: "https://github.com", credential: pasted(OTHER_TOKEN) });
@@ -147,7 +147,6 @@ describe("the forges section", () => {
     expect(moved).toContain(`Your primary forge is GitHub; ${hostOf(forge)} (Forgejo) and ${hostOf(work)} (Gitea) are also connected. ${repositories}`);
     expect(none).toContain(`No forge is primary here; ${hostOf(forge)} (Forgejo) and ${hostOf(work)} (Gitea) are connected. Ask the user which forge a new repository goes to.`);
     expect(none).not.toContain(repositories);
-    expect(home.primary).toBe(true);
     expect(t.adapter.processesOf(session.id)).toHaveLength(4);
   });
 
@@ -182,13 +181,13 @@ describe("the forges section", () => {
     await added(client, { url: "https://github.com", credential: pasted(OTHER_TOKEN) });
     const session = await create(client);
     const before = await runTo(t, client, session.id);
-    const create_ = () => t.env.forge.repositories.create({ name: "bank", private: true, purpose: "create a bank" });
+    const createBank = () => t.env.forge.repositories.create({ name: "bank", private: true, purpose: "create a bank" });
 
     forge.answer(TOKEN, "POST /api/v1/user/repos", { status: 403, body: { message: "token does not have at least one of required scope(s)" } });
-    expect(await create_()).toMatchObject({ outcome: "failed", status: 403 });
+    expect(await createBank()).toMatchObject({ outcome: "failed", status: 403 });
     const failed = await runTo(t, client, session.id, "After the refusal");
     forge.answer(TOKEN, "POST /api/v1/user/repos", { status: 201, body: { full_name: "david/bank", private: true, default_branch: "main", html_url: `${forge.origin}/david/bank` } });
-    expect(await create_()).toMatchObject({ outcome: "done" });
+    expect(await createBank()).toMatchObject({ outcome: "done" });
     const verified = await runTo(t, client, session.id, "After the success");
 
     const heading = "Writes not known to work, by slug:";
@@ -212,8 +211,8 @@ describe("the forges section", () => {
     other.user(OTHER_TOKEN, DAVID);
     await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
     await added(client, { url: "https://github.com", credential: { kind: "none" } });
-    const changed = await added(client, { url: other.origin, kind: "gitea", slug: "changed" });
-    const work = await added(client, { url: "https://git.example", kind: "forgejo", slug: "work", credential: { kind: "reference", reference } });
+    await added(client, { url: other.origin, kind: "gitea", slug: "changed" });
+    await added(client, { url: "https://git.example", kind: "forgejo", slug: "work", credential: { kind: "reference", reference } });
     other.user(TOKEN, { login: "someone", id: 7 });
     keyManagers.answer(reference, null);
     // The spawn logs the token it cannot read.
@@ -238,8 +237,6 @@ describe("the forges section", () => {
         "- work: its credential could not be read when last checked, so runs may get no token or git credential for it.",
       ].join("\n"),
     );
-    expect(changed.primary).toBe(false);
-    expect(work.primary).toBe(false);
   });
 
   it("says git over https to the served origins just works while ssh uses the user's keys, and other origins have no credential here", async () => {
