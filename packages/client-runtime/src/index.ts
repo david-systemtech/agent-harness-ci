@@ -119,6 +119,7 @@ export {
   type SetupStepView,
   type SetupView,
 } from "./projections/setup.js";
+export { STEP_STATE_WORDS, checkedAgoWords, countsWords, lastGoodWords, rowHealth, setupReachWords, stepLine, worstState } from "./setup/checklist.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
