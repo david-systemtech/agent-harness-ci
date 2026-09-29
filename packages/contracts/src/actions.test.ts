@@ -54,6 +54,7 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "row.fork": ["f"],
   "row.rewindUndo": ["u"],
   "picker.branch": ["b"],
+  "picker.hide": ["Ctrl+D"],
   "rail.settle": ["s"],
   "rail.snooze": ["z"],
   "rail.tag": ["t"],

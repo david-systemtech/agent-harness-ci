@@ -6,7 +6,8 @@ import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../t
  * workspaces" and "Renderers"; ADR 0021; #328), through the #143 harness
  * against the scripted environment: its composer replaced by the gone path
  * and a Choose a workspace line, and `/cwd` there opening the workspace
- * step, which sends `sessions.setWorkspace`.
+ * step (its kinds the new-session card's, #334), which sends
+ * `sessions.setWorkspace`.
  */
 
 let apps: RenderedApp[] = [];
@@ -89,6 +90,19 @@ describe("a session whose workspace is missing", () => {
     await app.waitFor("/srv/gone does not exist on desk.");
     expect(app.frame()).toContain("Choose a workspace for “Receipts” on desk");
     expect(app.frame()).toContain(`${GONE} is gone`);
+  });
+
+  it("offers the workspace step's other kinds too: scratch given as the session's workspace", async () => {
+    const { app } = await launch();
+    await send(app, "/cwd");
+    await app.waitFor("Choose a workspace for “Receipts” on desk");
+    await app.waitFor("Browse desk's directories");
+    expect(app.frame()).toContain("A worktree");
+    for (let i = 0; i < 10 && !app.frame().includes("› Scratch"); i++) await app.press(KEY.down);
+    await app.press(KEY.enter);
+    await app.waitUntil(() => setWorkspaces(app).length === 1, "sessions.setWorkspace sent");
+    expect(setWorkspaces(app)).toEqual([{ commandId: expect.any(String), sessionId: SESSION, workspace: { kind: "scratch" } }]);
+    await app.waitFor("message the agent");
   });
 
   it("leaves /cwd starting a new session when the open session's workspace is there", async () => {

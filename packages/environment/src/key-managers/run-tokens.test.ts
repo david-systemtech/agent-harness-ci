@@ -621,7 +621,7 @@ describe("which connection injects", () => {
 describe("where the block and the run token go", () => {
   it("nowhere on a deny answer: no run token is minted and no variable added, and a run allowed after is served by a fresh process that has them", async () => {
     let answer: InjectionAnswer = "deny";
-    const { t, bao, client } = await withOpenBao({ adapterSeams: { injection: () => answer } });
+    const { t, bao, client } = await withOpenBao({ adapterSeams: { injection: () => ({ answer, level: { kind: "environment" } }) } });
     await connected(client, bao);
     const session = await create(client);
 

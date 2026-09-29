@@ -16,6 +16,7 @@ import {
 import { uuidv4 } from "../ids.js";
 import type { FakeAnswer, FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
+import type { ScriptedFolders } from "./scripted-folders.js";
 
 /**
  * The scripted environment's session list (`scripted-environment.ts`):
@@ -66,6 +67,8 @@ export interface ScriptedListOptions {
   readonly refusal: (method: string) => FakeAnswer | undefined;
   /** The directories a create's `directory` request is refused in, by the path as recorded (`~` read as `SCRIPTED_HOME`), each with its problem: preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
+  /** The environment's directories, which a `worktree` request is made from. */
+  readonly folders: ScriptedFolders;
 }
 
 /** The home a scripted environment's `~` stands for. */
@@ -138,8 +141,9 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
   /**
    * The workspace a create's or a `sessions.setWorkspace`'s request gives,
    * as the environment's resolver gives it (#325): a directory as sent, `~`
-   * read as `SCRIPTED_HOME`, unless the script refuses it; scratch under a
-   * data directory; another session's shared. Or the refusal.
+   * read as `SCRIPTED_HOME`, unless the script refuses it; a worktree of
+   * one of the script's repositories (`scripted-folders.ts`); scratch under
+   * a data directory; another session's shared. Or the refusal.
    */
   const resolved = (request: WorkspaceRequest, id: string): { readonly workspace: Workspace; readonly repositoryIdentity: string | null } | FakeAnswer => {
     switch (request.kind) {
@@ -155,8 +159,10 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
         const source = store.get(request.sessionId.toLowerCase());
         return source ? { workspace: source.workspace, repositoryIdentity: source.repositoryIdentity } : rejected("not_found", "No such session.", { kind: "session", sessionId: request.sessionId });
       }
-      default:
-        return rejected("conflict", "The scripted environment makes no worktree.", { reason: "kind_not_served", kind: request.kind });
+      case "worktree": {
+        const made = options.folders.worktree(request, id);
+        return "refused" in made ? rejected(made.refused.code, made.refused.message, made.refused.data) : made;
+      }
     }
   };
 

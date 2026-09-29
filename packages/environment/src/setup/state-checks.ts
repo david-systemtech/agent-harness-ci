@@ -3,6 +3,8 @@ import { themeMeetsRules } from "../appearance/contrast.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { forgesStateChecks } from "../forge/step-checks.js";
+import type { KeyManagerConnections } from "../key-managers/connections.js";
+import { keyManagerStateChecks } from "../key-managers/step-checks.js";
 import { readDenylist, readDenylistChangedBy } from "../permissions/denylist-store.js";
 import { readPermissionsReport } from "../permissions/methods.js";
 import { containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type StateCheckAnswer } from "../permissions/step-checks.js";
@@ -16,16 +18,18 @@ import type { StateCheckers } from "./check.js";
  * (#141): the Your machines step's not-root line, release channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348) and that the environment is named (#323), the
- * Forges step's seven (#319), the Permissions step's three checks, and the
- * Appearance step's contrast (#391), each read when it runs.
+ * Forges step's seven (#319), the Key manager step's skip check (#367), the
+ * Permissions step's three checks, and the Appearance step's contrast
+ * (#391), each read when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
  * denylist from its read model beside the presets for this environment's
  * data directory, the release channel from its checks (`updates/checks.ts`),
  * the updates from the update coordinator (`updates/coordinator.ts`), the
  * host-side updater's poll from its record (`updates/host-updater.ts`), the
- * forge accounts from the ForgeService (`forge/step-checks.ts`), and the
- * theme from the settings, derived by the theme package
+ * forge accounts from the ForgeService (`forge/step-checks.ts`), the
+ * key-manager connections from their store (`key-managers/step-checks.ts`),
+ * and the theme from the settings, derived by the theme package
  * (`appearance/contrast.ts`).
  */
 
@@ -47,6 +51,8 @@ export interface StateChecksOptions {
   readonly look: () => EnvironmentLook;
   /** The ForgeService, whose forge accounts the Forges step checks. */
   readonly forge: ForgeService;
+  /** The key-manager connections, which the Key manager step checks. */
+  readonly keyManagerConnections: Pick<KeyManagerConnections, "list">;
   /** The environment's clock: a forge token's expiry is read against it. */
   readonly clock: Clock;
 }
@@ -63,6 +69,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     // Named from the first start (ADR 0025's "named"): the record's name, the preset icon and colour stand until set.
     "your-machines.named": () => (options.look().name.trim() !== "" ? true : { reason: "The environment has no name: rename it." }),
     ...forgesStateChecks({ forge: options.forge, clock: options.clock }),
+    ...keyManagerStateChecks({ connections: () => options.keyManagerConnections.list() }),
     "permissions.containment": () => {
       const { values, containment } = report();
       return containmentDefaultHolds(values["permissions.containment.default"], containment);

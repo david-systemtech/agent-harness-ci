@@ -6,6 +6,7 @@ import type { ModelOption } from "../../environment/src/adapter/contract.js";
 import { fakeAdapter, signedInAs, usageOf, usageWindow, type FakeAdapter } from "../../environment/test/fake-adapter.js";
 import { grantReader, holds, useHarness } from "../test/harness.js";
 import { pickerFixtures } from "../test/picker.js";
+import { uuidv4 } from "./ids.js";
 import type { NewSessionContext, NewSessionView } from "./projections/new-session.js";
 import type { Runtime } from "./runtime.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
@@ -390,5 +391,21 @@ describe("commands.startSession", () => {
     expect(refused.answer).toMatchObject({ ok: false, error: { code: "conflict", data: { reason: "workspace_unusable", problem: "does_not_exist", path: gone } } });
     expect(runtime.projections.sessionList.read().rows.some((row) => row.summary.id === refused.sessionId)).toBe(false);
     expect(runtime.preferences.read()["environments.lastUsed"]).toBe(desk.env.id);
+  });
+
+  it("starts the session under the id the renderer minted, so a new worktree branch is the preset name it showed, and a refused create leaves the id for the next", async () => {
+    const { desk, runtime } = await twoEnvironments();
+    const clone = repository(FORGE);
+    const gone = directory();
+    rmSync(gone, { recursive: true, force: true });
+    const id = uuidv4();
+
+    const refused = await runtime.commands.startSession(desk.env.id, { id, workspace: { kind: "directory", path: gone } });
+    expect(refused).toMatchObject({ sessionId: id, answer: { ok: false, error: { data: { problem: "does_not_exist" } } } });
+
+    const started = await runtime.commands.startSession(desk.env.id, { id, workspace: { kind: "worktree", repository: clone, newBranch: {} } });
+
+    expect(started.sessionId).toBe(id);
+    expect(started.answer).toMatchObject({ ok: true, result: { summary: { id, workspace: { kind: "worktree", repository: clone, branch: `agent-harness/${id.slice(0, 8)}` } } } });
   });
 });

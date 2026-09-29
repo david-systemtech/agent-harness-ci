@@ -4,6 +4,7 @@ import {
   BROWSER_SETTINGS_KEYS,
   BYPASS_SENTENCE,
   CHECK_BUDGET_SECONDS,
+  CREDENTIAL_SETTINGS_KEYS,
   DEFAULT_CADENCE_MINUTES,
   DENYLIST_SECTIONS,
   EVENT_TYPES,
@@ -189,6 +190,7 @@ const appearance = stepOf("appearance");
 const account = stepOf("account");
 const machines = stepOf("your-machines");
 const forges = stepOf("forges");
+const keyManager = stepOf("key-manager");
 const permissions = stepOf("permissions");
 /** The session keys: the auto-settle keys and the transcript compaction window. */
 const SESSION_KEYS: readonly string[] = [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays"];
@@ -221,7 +223,7 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "key-manager", "browser", "permissions", "appearance"]);
   });
 
   it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
@@ -421,6 +423,50 @@ describe("the step registry", () => {
     ]);
   });
 
+  it("registers the Key manager entry fifth in the milestone-1 order, after Forges and before Memory bank (ADR 0034), at home on the Access band's Key managers pane, writing the two injection keys (#367)", () => {
+    const order = STEP_ORDER as readonly string[];
+    expect(order.indexOf("key-manager")).toBe(4);
+    expect(order[order.indexOf("key-manager") - 1]).toBe("forges");
+    expect(order[order.indexOf("key-manager") + 1]).toBe("memory-bank");
+    expect(STEP_REGISTRY.find((step) => step.id === "key-manager")?.home).toBe("access.key-managers");
+    expect(keyManager.writes).toEqual(["credentials.injection", "credentials.injectionByAccount"]);
+    expect(keyManager.writes).toEqual([...CREDENTIAL_SETTINGS_KEYS]);
+    for (const key of CREDENTIAL_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "key-manager", row: "access.key-managers" });
+  });
+
+  it("gives the Key manager entry its connections and the Move of stored tokens as the state it writes, through keyManagers.connections.* and keyManagers.move", () => {
+    expect(keyManager.writesState).toEqual([
+      { method: "keyManagers.connections.add", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.signIn", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.update", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.setPolicies", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.setBasePath", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.setInjected", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.signOut", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.connections.remove", parts: ["keyManagerConnections"] },
+      { method: "keyManagers.move", parts: ["storedTokens"] },
+    ]);
+  });
+
+  it("links the Key manager entry to the Forges and Memory bank steps and to About, where its Managed tools are (ADR 0026)", () => {
+    expect(keyManager.links).toEqual([{ step: "forges" }, { step: "memory-bank" }, { row: "about.about" }]);
+  });
+
+  it("may skip the Key manager step, skipped when key-manager.present finds no connection, and never forces one (ADR 0028)", () => {
+    expect(keyManager).toMatchObject({ skippable: true, skip: "key-manager.present" });
+    expect(keyManager.stateChecks).toEqual([{ id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] }]);
+  });
+
+  it("holds the Key manager entry's injection keys done on any value their schemas take, as a preference's", () => {
+    const checkOf = (key: string) => keyManager.checks.find((check) => check.key === key)?.check;
+    const presets = presetSettings();
+    for (const key of CREDENTIAL_SETTINGS_KEYS) expect(checkOf(key)?.(presets[key]), key).toBe(true);
+    expect(checkOf("credentials.injection")?.("deny")).toBe(true);
+    expect(checkOf("credentials.injectionByAccount")?.({ "claude-max": "deny" })).toBe(true);
+    expect(checkOf("credentials.injection")?.("inherit")).toBe("credentials.injection does not hold a valid value.");
+    expect(checkOf("credentials.injectionByAccount")?.({ "claude-max": "inherit" })).toBe("credentials.injectionByAccount does not hold a valid value.");
+  });
+
   it("holds the Your machines entry's update keys done on any value their schemas take, a pin included", () => {
     const checkOf = (key: string) => machines.checks.find((check) => check.key === key)?.check;
     const presets = presetSettings();
@@ -433,18 +479,21 @@ describe("the step registry", () => {
     expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
   });
 
-  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines and Forges the network one, each an hourly cadence but Forges, checked every fifteen minutes because the orientation block reports each forge account's status", () => {
+  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, each an hourly cadence but Forges and Key manager, checked every fifteen minutes because the orientation block reports each forge account's and each connection's status", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence.minutes])).toEqual([
       ["account", "local", 60],
       ["your-machines", "network", 60],
       ["forges", "network", 15],
+      ["key-manager", "network", 15],
       ["browser", "local", 60],
       ["permissions", "local", 60],
       ["appearance", "local", 60],
     ]);
     expect(CHECK_BUDGET_SECONDS[forges.budget as keyof typeof CHECK_BUDGET_SECONDS]).toBe(10);
     expect(forges.cadence?.reason).toMatch(/orientation block reports each forge account's status/);
-    for (const step of STEP_REGISTRY) if (step.id !== "forges") expect(step.cadence, step.id).toEqual({ minutes: 60 });
+    expect(CHECK_BUDGET_SECONDS[keyManager.budget as keyof typeof CHECK_BUDGET_SECONDS]).toBe(10);
+    expect(keyManager.cadence?.reason).toMatch(/orientation block reports each key-manager connection's status/);
+    for (const step of STEP_REGISTRY) if (step.id !== "forges" && step.id !== "key-manager") expect(step.cadence, step.id).toEqual({ minutes: 60 });
   });
 
   it("fails an entry with no budget, a budget outside ADR 0031's three classes, no cadence, a cadence of no whole minutes, or a cadence other than the hour with no reason", () => {
@@ -460,11 +509,12 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Key manager on every key-manager.* event and tools.updated, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
       ["forges", ["forge.account.*"]],
+      ["key-manager", ["key-manager.*", "tools.updated"]],
       ["browser", []],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],

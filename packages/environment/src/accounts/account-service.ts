@@ -19,6 +19,7 @@ import {
 import type { AccountRef, Adapter, ModelCatalogue } from "../adapter/contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "../adapter/registry.js";
 import { formatActor, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { dropAccountInjection } from "../key-managers/injection-setting.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { isDirectory } from "../serve/files.js";
@@ -352,6 +353,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
             ],
             { actor: ACCOUNT_STORE_ACTOR, tx },
           );
+          dropAccountInjection(log, environmentId, accountId, { actor: ACCOUNT_STORE_ACTOR, tx });
           tx.afterCommit(() => {
             forget(accountId);
             deleteOwned(current.directory.path);
@@ -692,6 +694,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       const events: EventInput[] = [{ type: "account.removed", payload: { accountId, reason: "user" } }];
       if (deleteDirectory) events.push({ type: "account.directory-deleted", payload: { accountId, directory: current.directory.path } });
       log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      dropAccountInjection(log, environmentId, accountId, context);
       context.tx.afterCommit(() => {
         forget(accountId);
         director.removed(accountId);

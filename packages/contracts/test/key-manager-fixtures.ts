@@ -123,6 +123,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
   "key-managers/auth-method.json": { valid: ["approle", "userpass", "token"], invalid: ["AppRole", "oidc", ""] },
   "key-managers/mount.json": { valid: ["approle", "agents/approle"], invalid: ["", "/approle", "approle/", "a//b"] },
   "key-managers/username.json": { valid: ["david", "david.abusiewicz"], invalid: ["", "da/vid", "david\n"] },
+  "key-managers/injection-answer.json": { valid: ["allow", "deny"], invalid: ["inherit", "Deny", "", null] },
   "key-managers/token-role.json": { valid: ["agent-runs"], invalid: ["", "roles/agent", "x".repeat(257)] },
   "key-managers/ca.json": { valid: [ca], invalid: ["", "not a certificate", "-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n"] },
   "key-managers/policy.json": { valid: ["default", "agent-read", "Personal Admin"], invalid: ["root", "", "a,b", "two\nlines"] },

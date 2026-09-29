@@ -205,6 +205,14 @@ export interface Commands {
 
 /** What the new-session card chose: the workspace request, and each other part only when set. */
 export interface StartSessionChoice {
+  /**
+   * The session's id, minted by the renderer: one that shows what the id
+   * names before the session exists (a new worktree branch's preset name,
+   * `agent-harness/` and its first eight characters). A fresh version 4 UUID
+   * when absent. A create refused leaves it unused, so the card may send it
+   * again.
+   */
+  readonly id?: string;
   readonly workspace: WorkspaceRequest;
   /** The account the session's runs use; the environment's default at each run without one. */
   readonly account?: string;
@@ -934,7 +942,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     },
     async startSession(environmentId, choice) {
       const { workspace, account, model, groupName } = choice;
-      const sessionId = uuidv4();
+      const sessionId = choice.id ?? uuidv4();
       const group = groupName === undefined ? null : groupNamed(environmentId, groupName);
       if (group?.create != null && "refused" in group.create) return { sessionId, answer: group.create.refused as DispatchAnswer<"sessions.create"> };
       const create = prepare(environmentId, "sessions.create", {

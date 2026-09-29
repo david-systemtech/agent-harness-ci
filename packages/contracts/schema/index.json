@@ -1039,6 +1039,14 @@
       "title": "KeyManagerTokenRole"
     },
     {
+      "path": "key-managers/injection-answer.json",
+      "title": "InjectionAnswer"
+    },
+    {
+      "path": "key-managers/run-injection.json",
+      "title": "RunInjection"
+    },
+    {
       "path": "key-managers/ca.json",
       "title": "KeyManagerCa"
     },
@@ -1973,6 +1981,14 @@
     {
       "path": "settings/keys/browser.internalHosts.json",
       "title": "BrowserInternalHosts"
+    },
+    {
+      "path": "settings/keys/credentials.injection.json",
+      "title": "CredentialInjection"
+    },
+    {
+      "path": "settings/keys/credentials.injectionByAccount.json",
+      "title": "CredentialInjectionByAccount"
     },
     {
       "path": "settings/settings-values.json",

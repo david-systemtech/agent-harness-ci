@@ -142,7 +142,10 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     const one = terminal(t.dataDir, stateDir, "pts/1");
     await until(() => one.frame().includes("● smoke-send ready"), one.frame);
 
+    // The new-session card, its cursor on the terminal's own directory, the workspace preset on this machine (#334).
     one.type("/new");
+    one.type(ENTER);
+    await until(() => one.frame().includes("where it works") && one.frame().includes("this directory"), one.frame);
     one.type(ENTER);
     await until(() => one.frame().includes("Nothing said yet."), one.frame);
     one.type("Fix the receipts");
@@ -180,7 +183,10 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     onCleanup(() => held.open());
     const one = terminal(t.dataDir, join(tempDir("agent-harness-tui-smoke-"), "tui"), "pts/1");
     await until(() => one.frame().includes("● smoke-withdraw ready"), one.frame);
+    // The new-session card, its cursor on the terminal's own directory, the workspace preset on this machine (#334).
     one.type("/new");
+    one.type(ENTER);
+    await until(() => one.frame().includes("where it works") && one.frame().includes("this directory"), one.frame);
     one.type(ENTER);
     await until(() => one.frame().includes("Nothing said yet."), one.frame);
     one.type("Fix the receipts");

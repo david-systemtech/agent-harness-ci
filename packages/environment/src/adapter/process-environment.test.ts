@@ -110,7 +110,7 @@ describe("a run's process environment", () => {
     // Both runs went to the one process, spawned once and supplied once.
     expect(t.adapter.processesOf(session.id)).toHaveLength(1);
     expect(await t.adapter.processesOf(session.id)[0]?.supplied).toEqual({ HARNESS_TEST_TOKEN: "token-for-tests" });
-    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process" }]);
+    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process", override: null }]);
     expect(texts(t, session.id)).toContain("The command said matched");
   });
 
@@ -212,15 +212,15 @@ describe("the injection answer", () => {
     await runTo(t, client, session.id, "And the refunds");
 
     expect(answered).toEqual([
-      { sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process" },
-      { sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process" },
+      { sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process", override: null },
+      { sessionId: session.id, accountId: "claude-max", origin: "client", holder: "provider-process", override: null },
     ]);
     expect(asked.supplies).toHaveLength(1);
   });
 
   it("asks no supplier on deny, so nothing is supplied, and is in the key: a run denied after an allowed one is served by a fresh process", async () => {
     let answer: InjectionAnswer = "allow";
-    const t = await start({}, { adapterSeams: { injection: () => answer } });
+    const t = await start({}, { adapterSeams: { injection: () => ({ answer, level: { kind: "environment" } }) } });
     const { supplier, asked } = testSupplier({ HARNESS_TEST_TOKEN: "token-for-tests" });
     t.env.processEnvironments.register(supplier);
     const client = await t.client();
@@ -351,7 +351,7 @@ describe("a session's terminal", () => {
 
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     expect(pty.spawned[0]?.options.env).toMatchObject({ HARNESS_TEST_TOKEN: "token-for-tests" });
-    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client", holder: "terminal" }]);
+    expect(asked.supplies).toEqual([{ sessionId: session.id, accountId: "claude-max", origin: "client", holder: "terminal", override: null }]);
     await terminalCommand(client, "terminals.close", { id: terminal.id });
     await vi.waitFor(() => expect(asked.releases).toEqual([1]));
   });

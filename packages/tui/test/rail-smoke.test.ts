@@ -83,10 +83,6 @@ describe.sequential("the rail through the real spine", () => {
     await press(KEY.tab);
     await shows("Enter starts a session on smoke-rail");
     await press(KEY.enter);
-    await shows("New session on smoke-rail: its account");
-    await press(KEY.enter);
-    await shows("New session on smoke-rail: its model");
-    await press(KEY.enter);
     await shows("New session on smoke-rail: where it works");
     await typeKeys(workspace);
     await shows(`${workspace} typed`);
@@ -104,7 +100,7 @@ describe.sequential("the rail through the real spine", () => {
     const missing = join(workspace, "not-there");
     await press(KEY.up);
     await shows("Enter starts a session on smoke-rail");
-    await press(KEY.enter, KEY.enter, KEY.enter);
+    await press(KEY.enter);
     await shows("where it works");
     await typeKeys(missing);
     await shows(`${missing} typed`);
@@ -113,8 +109,8 @@ describe.sequential("the rail through the real spine", () => {
     await shows(`${missing} does not exist on`);
     expect(frame()).toContain("New session on smoke-rail: where it works");
     expect(runtime.projections.sessionList.read().rows.map((r) => r.summary.workspace.path)).toEqual([workspace]);
-    // Out of the step (the query, the model and account steps, the card), onto the session.
-    await press(KEY.esc, KEY.esc, KEY.esc, KEY.esc);
+    // Out of the card (the query, then the card), onto the session.
+    await press(KEY.esc, KEY.esc);
     await until(() => !frame().includes("New session on smoke-rail:"), frame);
     await press(KEY.down);
     await shows("› ●SR · New session");

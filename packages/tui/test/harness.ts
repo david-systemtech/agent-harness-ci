@@ -40,6 +40,7 @@ export const KEY = {
   pageDown: "\u001B[6~",
   ctrlB: "\u0002",
   ctrlC: "\u0003",
+  ctrlD: "\u0004",
   ctrlG: "\u0007",
   ctrlJ: "\n",
   ctrlO: "\u000F",
