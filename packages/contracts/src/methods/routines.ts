@@ -270,8 +270,9 @@ export const routinesRunNow = defineMethod({
 
 /**
  * Runs a pre-check once and records nothing: a routine's, or one not yet
- * saved with the workspace its script runs in. Bounded at 25 seconds, inside
- * a client's request timeout; a slower pre-check is tried through run now.
+ * saved with the workspace of the routine it is for, whose directory a
+ * script runs in. Bounded at 25 seconds, inside a client's request timeout;
+ * a slower pre-check is tried through run now.
  */
 export const routinesTestPreCheck = defineMethod({
   name: "routines.testPreCheck",
@@ -281,7 +282,7 @@ export const routinesTestPreCheck = defineMethod({
     .object({
       routineId: RoutineId.optional().meta({ description: "The routine whose pre-check to run; never with preCheck and workspace." }),
       preCheck: PreCheckInput.optional().meta({ description: "A pre-check not yet saved, with the workspace it runs in." }),
-      workspace: RoutineWorkspace.optional().meta({ description: "The workspace the pre-check's script runs in, with preCheck." }),
+      workspace: RoutineWorkspace.optional().meta({ description: "The workspace of the routine the pre-check is for, always with preCheck: a script runs in its directory, and a URL pre-check does not use it." }),
     })
     .refine(
       (params) =>

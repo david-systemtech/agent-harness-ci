@@ -63,7 +63,7 @@
       ]
     },
     "workspace": {
-      "description": "The workspace the pre-check's script runs in, with preCheck.",
+      "description": "The workspace of the routine the pre-check is for, always with preCheck: a script runs in its directory, and a URL pre-check does not use it.",
       "allOf": [
         {
           "oneOf": [

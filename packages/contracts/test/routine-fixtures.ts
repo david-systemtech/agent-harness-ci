@@ -92,6 +92,12 @@ export const preCheck = {
   failure: null,
 };
 
+/** A script pre-check that exited 2: no hash, nothing kept but its standard error. */
+export const failedPreCheck = { ...preCheck, exitStatus: 2, bytes: 0, hash: null, differs: null, output: null, stderr: "gh: rate limited", failure: { reason: "exit_status", detail: "The script exited 2." } };
+
+/** A script pre-check whose output was the baseline's: its output is not kept again. */
+export const unchangedPreCheck = { ...preCheck, differs: false, output: null };
+
 export const clientNotice = { kind: "client-notice", on: "both" };
 export const webhook = { kind: "webhook", target: "hermes-home", on: "success" };
 
@@ -150,7 +156,7 @@ export const routineEventPayloads: Record<string, Record<string, unknown>> = {
   "routine.enabled": { savedUnderCeiling: "plan" },
   "routine.disabled": { movedTo: { environmentId: otherEnvironment, routineId, at } },
   "routine.deleted": {},
-  "routine.skipped": { skipId, trigger: "schedule", dueAt: at, reason: "pre-check-failed", cannotStart: null, count: 1, detail: "exit status 2", preCheck },
+  "routine.skipped": { skipId, trigger: "schedule", dueAt: at, reason: "pre-check-failed", cannotStart: null, count: 1, detail: "The script exited 2.", preCheck: failedPreCheck },
   "routine.firing-started": { firingId, trigger: "run-now", dueAt: at, count: 1, sessionId, runId, requestedBy: "cs-1", preCheck: null, targets: [clientNotice, webhook] },
   "routine.firing-continued": { firingId, runId: "8d0f7780-8536-41ef-a55c-f18c20a01b8e" },
   "routine.firing-ended": { firingId, outcome: "silent", reason: null, text: "[SILENT]", usage: null, durationMs: 4100, baselineAdvanced: true },
@@ -251,7 +257,7 @@ const deliveryTargets: Fixtures = {
 
 const failedRecord = { ...preCheck, exitStatus: null, hash: null, differs: null, output: null, stderr: "fetching...", failure: { reason: "output_too_large", detail: "The output passed 1 MiB." } };
 const preCheckRecords: Fixtures = {
-  valid: [preCheck, failedRecord, { ...preCheck, kind: "url", exitStatus: null, httpStatus: 200, differs: null }],
+  valid: [preCheck, failedRecord, failedPreCheck, unchangedPreCheck, { ...preCheck, kind: "url", exitStatus: null, httpStatus: 200, differs: null }],
   invalid: [without(preCheck, "hash"), { ...preCheck, output: "x".repeat(65_537) }, { ...failedRecord, failure: { reason: "crashed", detail: "x" } }, { ...preCheck, kind: "command" }],
 };
 
@@ -265,7 +271,7 @@ const entries = (kind: "firing" | "skip"): Fixtures =>
         invalid: [without(firing, "sessionId"), { ...firing, outcome: "skipped" }, { ...firing, text: "x".repeat(16_001) }, { ...firing, count: 0 }],
       }
     : {
-        valid: [skip, { ...skip, reason: "no-change", cannotStart: null, detail: null, count: 1 }],
+        valid: [skip, { ...skip, reason: "no-change", cannotStart: null, detail: null, count: 1, preCheck: unchangedPreCheck }],
         invalid: [without(skip, "reason"), { ...skip, cannotStart: "busy" }, { ...skip, count: 1.5 }, { ...skip, reason: "timed_out" }],
       };
 
