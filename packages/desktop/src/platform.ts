@@ -27,8 +27,19 @@ export interface DesktopPlatform {
 }
 
 export interface DesktopPaths {
-  /** Where the desktop keeps its own files: Chromium's profile and the window's last Canvas colour. */
+  /**
+   * Where the desktop keeps its own files: Chromium's profile, the window's
+   * last Canvas colour, the client session tokens and its log.
+   */
   readonly data: string;
+  /** This machine's environment's data directory, where its grant file is. */
+  readonly environment: string;
+  /**
+   * The server artefact the desktop carries, unpacked: its own Node and its
+   * CLI, whose `service` verbs install and start this machine's environment.
+   * Absent where the desktop carries none, as when run from a checkout.
+   */
+  readonly server?: string;
   /** The `gui` package's build, which the app scheme serves. */
   readonly renderer: string;
   /** The preload bundle. */

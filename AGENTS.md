@@ -61,19 +61,22 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   everything else and `terminals.open` answers `pty_unavailable` (and the
   real-pty terminal tests fail there).
 - The GUI's tests run in jsdom through its harness (`packages/gui/test/harness.tsx`:
-  the app over the runtime on the in-memory platform, the scripted
-  environment and the recording fake shell, driven by user-event), and are
-  type-checked by `packages/gui/tsconfig.test.json`, which has the DOM's
-  types. `pnpm --filter @agent-harness/gui build` writes its static bundle to
+  the app over the runtime on the desktop platform, over the recording fake
+  shell answering `http`, `localGrant` and `secrets` for the scripted
+  environment, driven by user-event), and are type-checked by
+  `packages/gui/tsconfig.test.json`, which has the DOM's types. IndexedDB,
+  which jsdom lacks, is `fake-indexeddb` in the tests that need it. `pnpm --filter @agent-harness/gui build` writes its static bundle to
   `packages/gui/dist/` with Vite; never serve it or open it in a browser on
   the shared agent box.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency
   whose package downloads its binary the first time Node requires it, never
   on install, so CI and the agent box hold none. Its tests drive the main
   process's modules with Electron's modules faked and the platform injected
-  (`packages/desktop/test/fake-electron.ts` and `harness.ts`), and build the
-  preload bundle with Vite and evaluate it as the sandbox would; no test may
-  import `electron` or `src/main.ts`. What only a real window can prove is the
+  (`packages/desktop/test/fake-electron.ts` and `harness.ts`), the shell's
+  `service` over a fake server artefact whose CLI answers the `service` verbs
+  from a file (`test/fake-artefact.ts`; no service manager is touched), and
+  build the preload bundle with Vite and evaluate it as the sandbox would; no
+  test may import `electron` or `src/main.ts`. What only a real window can prove is the
   manual checklist in `docs/agents/desktop-checklist.md`, run (or listed as
   not run, per platform) when the shell changes. Never run Electron on the
   shared agent box.

@@ -9,6 +9,7 @@ import type {
   ElectronDialog,
   ElectronIpcMain,
   ElectronProtocol,
+  ElectronSafeStorage,
   ElectronWindow,
   IpcCaller,
   RequestListener,
@@ -69,6 +70,8 @@ export interface FakeContents extends ElectronContents {
   openWindow(url: string): { readonly action: string };
   /** Asks the request hook about `url`: true when Chromium would cancel it. */
   cancels(url: string): boolean;
+  /** The page logs `message` to its console at `level`, as `console.error` and the like do. */
+  log(level: "info" | "warning" | "error" | "debug", message: string): void;
 }
 
 export interface FakeWindow extends ElectronBrowserWindow {
@@ -107,6 +110,17 @@ export interface FakeClipboard extends ElectronClipboard {
   image: { readonly bytes: Uint8Array; readonly mediaType: string } | undefined;
 }
 
+export interface FakeSafeStorage extends ElectronSafeStorage {
+  /** The secret store Chromium chose on Linux: preset `gnome_libsecret`, a secret service answering; `basic_text` is none. */
+  backend: string;
+  /** Whether the OS keeps a key for the app (the Keychain, DPAPI, the secret service): preset true; false is one locked or gone. */
+  keychain: boolean;
+  /** Whether the app asked for Chromium's fixed key where no secret service answers (`setUsePlainTextEncryption(true)`). */
+  readonly plainText: boolean;
+  /** The OS's key changes, as on a new keychain: what it encrypted before no longer decrypts. */
+  changeKey(): void;
+}
+
 export interface FakeElectron extends DesktopElectron {
   readonly app: FakeApp;
   readonly protocol: FakeProtocol;
@@ -115,6 +129,7 @@ export interface FakeElectron extends DesktopElectron {
   readonly clipboard: FakeClipboard;
   readonly shell: { openExternal(url: string): Promise<void>; readonly opened: string[] };
   readonly nativeTheme: { shouldUseDarkColors: boolean };
+  readonly safeStorage: FakeSafeStorage;
   /** Every window opened, oldest first. */
   readonly windows: FakeWindow[];
   /** The one window; throws when none is open. */
@@ -194,6 +209,9 @@ const fakeContents = (): FakeContents => {
       requestHook({ url }, (response) => (answer = response));
       if (!answer) throw new Error(`The request hook did not answer ${url}.`);
       return answer.cancel;
+    },
+    log(level, message) {
+      heard.emit("console-message", { level, message, lineNumber: 1, sourceId: "agent-harness://app/assets/index.js" });
     },
   };
 };
@@ -312,6 +330,45 @@ const fakeClipboard = (): FakeClipboard => {
   return clipboard;
 };
 
+/**
+ * `safeStorage` as Electron gives it on `os`: encryption available while the
+ * OS keeps a key, and on Linux while a secret service answers, or once the
+ * app takes Chromium's fixed key where none does. What it encrypts starts
+ * with Chromium's version prefix (`v11` under the OS's key, `v10` under the
+ * fixed one) and does not hold the text as it was.
+ */
+const fakeSafeStorage = (os: ShellPlatform): FakeSafeStorage => {
+  let key = 1;
+  const scramble = (bytes: Uint8Array) => Buffer.from(bytes.map((byte) => byte ^ 0x5a));
+  const storage: FakeSafeStorage & { plainText: boolean } = {
+    backend: "gnome_libsecret",
+    keychain: true,
+    plainText: false,
+    changeKey: () => void key++,
+    isEncryptionAvailable() {
+      if (os !== "linux") return storage.keychain;
+      return storage.backend === "basic_text" ? storage.plainText : storage.keychain;
+    },
+    encryptString(plainText) {
+      if (!storage.isEncryptionAvailable()) throw new Error("Error while encrypting the text provided to safeStorage.encryptString. Encryption is not available.");
+      const prefix = os === "linux" && storage.backend === "basic_text" ? "v10" : `v11:${key}:`;
+      return Buffer.concat([Buffer.from(prefix), scramble(Buffer.from(plainText, "utf8"))]);
+    },
+    decryptString(encrypted) {
+      if (!storage.isEncryptionAvailable()) throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString. Decryption is not available.");
+      const text = encrypted.toString("latin1");
+      const prefix = text.startsWith("v10") ? "v10" : `v11:${key}:`;
+      if (!text.startsWith(prefix)) throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString.");
+      return scramble(encrypted.subarray(prefix.length)).toString("utf8");
+    },
+    getSelectedStorageBackend: () => (os === "linux" ? storage.backend : "unknown"),
+    setUsePlainTextEncryption(usePlainText) {
+      storage.plainText = usePlainText;
+    },
+  };
+  return storage;
+};
+
 /** Electron on `os`, ready at once unless `ready` is false (then `app.becomeReady()`), preferring dark unless `dark` is false. */
 export const fakeElectron = ({ os = "linux", ready = true, dark = true }: { os?: ShellPlatform; ready?: boolean; dark?: boolean } = {}): FakeElectron => {
   const windows: FakeWindow[] = [];
@@ -329,6 +386,7 @@ export const fakeElectron = ({ os = "linux", ready = true, dark = true }: { os?:
       },
     },
     nativeTheme: { shouldUseDarkColors: dark },
+    safeStorage: fakeSafeStorage(os),
     windows,
     openWindow(options) {
       const window = fakeWindow(options);
