@@ -1,6 +1,7 @@
+import { choiceRows } from "@agent-harness/client-runtime";
 import { PromptOpenedPayload, promptAnswerMisfits } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { cardFor, choiceRows, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./prompt.js";
+import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./prompt.js";
 
 /**
  * The card's state as pure functions: every answer a key makes fits its

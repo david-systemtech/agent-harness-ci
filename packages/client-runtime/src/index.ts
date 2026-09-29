@@ -184,3 +184,5 @@ export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.j
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
+export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
+export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";

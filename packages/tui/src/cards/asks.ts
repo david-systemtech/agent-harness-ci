@@ -1,4 +1,4 @@
-import type { EnvironmentView, ParkedAsk } from "@agent-harness/client-runtime";
+import { ttlWords, type EnvironmentView, type ParkedAsk } from "@agent-harness/client-runtime";
 import type { PromptKind } from "@agent-harness/contracts";
 import { badgesOf, type Badge } from "../rail/badge.js";
 
@@ -28,17 +28,6 @@ export const askKey = (ask: Pick<ParkedAsk, "environmentId" | "sessionId" | "pro
 /** An environment's badge, the rail's (`rail/badge.ts`), so it has the same two letters here; one not listed wears none of another's. */
 export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge =>
   badgesOf(views).get(environmentId) ?? { icon: "●", abbreviation: "??", colour: "gray" };
-
-/** How long a TTL has left, in words: hours and minutes, then minutes and seconds, then seconds; "expiring" at zero. */
-export const ttlWords = (remainingMs: number): string => {
-  if (remainingMs <= 0) return "expiring";
-  const seconds = Math.floor(remainingMs / 1000);
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m left`;
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s left`;
-  return `${seconds}s left`;
-};
 
 /** Whether `y` and `n` answer the row in place: a yes-or-no prompt. */
 export const decidable = (kind: PromptKind): boolean => kind === "permission" || kind === "denylist";
