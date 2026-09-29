@@ -2,6 +2,7 @@ import { CONTAINMENT_LEVELS, presetPermissionSettings } from "@agent-harness/con
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntimeWithSeams } from "./internal.js";
 import { noticeEvent } from "../test/events.js";
+import { forgeEventPayload, forgeRecord } from "../test/forges.js";
 import { subscription } from "../test/scripted.js";
 import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
 import { writable } from "./observable.js";
@@ -356,6 +357,39 @@ describe("the request cache", () => {
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
     expect(skills.read()).toMatchObject({ result: view, error: null });
+  });
+
+  it("fetches trust.get and trust.list again on trust.updated and on a forge account's aliases changing, and no other query (#500)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const reads = { get: 0, list: 0 };
+    const offer = { instructionFiles: ["CLAUDE.md"], skillRoots: [], commands: 0, hooks: [], permissionRules: { allow: 0, ask: 0, deny: 0 }, subagents: 0, mcpServers: [] };
+    const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    wire.answer("trust.get", () => {
+      reads.get++;
+      return { result: { key: "https://git.systemtech.dev/david/agent-harness", keyKind: "identity", decision: reads.get > 1 ? "trusted" : "undecided", offer } };
+    });
+    wire.answer("trust.list", () => {
+      reads.list++;
+      return { result: { trusted: [], declined: [] } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const trust = runtime.requests.cached(id, "trust.get", { sessionId });
+    trust.subscribe(() => undefined);
+    runtime.requests.cached(id, "trust.list", {}).subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.get, reads.list]).toEqual([1, 1, 1]);
+
+    environment?.event(noticeEvent(1, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads.get, reads.list]).toEqual([1, 2, 2]);
+    expect(trust.read()).toMatchObject({ result: { decision: "trusted" }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads.get, reads.list]).toEqual([1, 2, 2]);
+    // A key is read on the canonical host of a verified alias: an alias verified since may change it.
+    environment?.event(noticeEvent(3, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([asked(), reads.get, reads.list]).toEqual([1, 3, 3]);
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
