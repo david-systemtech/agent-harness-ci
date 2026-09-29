@@ -21,9 +21,8 @@ describe("the app scheme", () => {
   it("is registered standard and secure before the app is ready, so the renderer's storage has a stable origin", async () => {
     const electron = fakeElectron({ ready: false });
     const started = startDesktop(electron, platformOn("linux"));
-    expect(electron.protocol.privileged).toEqual([
-      { scheme: "agent-harness", privileges: expect.objectContaining({ standard: true, secure: true }) },
-    ]);
+    // Beside the preview scheme (`preview.test.ts`).
+    expect(electron.protocol.privileged).toContainEqual({ scheme: "agent-harness", privileges: expect.objectContaining({ standard: true, secure: true }) });
     electron.app.becomeReady();
     await started;
   });
