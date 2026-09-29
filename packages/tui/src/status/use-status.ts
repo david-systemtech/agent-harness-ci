@@ -89,7 +89,8 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
     // Armed again each second, from the frame that drew the second before.
   }, [clock, request, second]);
 
-  const badge: Styled = environment ? { text: `${environment.icon ?? "●"} ${nameOf(environment)}`, color: environment.colour ?? "cyan" } : { text: "no environment", dim: true };
+  // The environment's icon and colour are names the terminal UI has yet to map (#327): the line keeps its circle and cyan until then.
+  const badge: Styled = environment ? { text: `● ${nameOf(environment)}`, color: "cyan" } : { text: "no environment", dim: true };
   const hints = (): string | undefined => {
     if (!inputs.composerKeys) return undefined;
     if (!opened) return `${keys("app.interruptOrQuit")} quits · ${keys("app.help")} keys · /pair · /environment · /resume · /new`;

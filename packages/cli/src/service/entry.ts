@@ -27,7 +27,7 @@ export interface EntrySpec {
   /** The data directory, absolute: where the launcher version file and the versions are, and what `launch` runs on. */
   readonly dataDir: string;
   readonly port: number;
-  /** The name a new environment is created with; with none, `serve` takes the hostname. */
+  /** The name a new environment is created with; with none, `serve` takes the hostname's first label. */
   readonly name?: string | undefined;
 }
 
