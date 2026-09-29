@@ -18,6 +18,7 @@ import { readSettings } from "../settings/settings-store.js";
 import { channelSettingsOf, type ReleaseChannelReader } from "./channel.js";
 import type { ChannelChecks } from "./checks.js";
 import type { UpdateCoordinator } from "./coordinator.js";
+import { desktopStage } from "./desktop-builds.js";
 import type { HostUpdaterPolls } from "./host-updater.js";
 
 /**
@@ -31,7 +32,8 @@ import type { HostUpdaterPolls } from "./host-updater.js";
  * the channel and then the same document; `updates.settings.set`, the one
  * way to write the five update settings, a pin checked against its release
  * first (#346); and the coordinator's `updates.apply` and `updates.cancel`
- * (#343) and `updates.begin` (#348).
+ * (#343) and `updates.begin` (#348); and `updates.desktop.stage`, the
+ * desktop's build staged for a local client session (#354).
  */
 
 /** Why nothing manages the updates of an environment `serve` runs in the foreground, for people. */
@@ -42,6 +44,8 @@ const LAUNCHER_GONE_REASON = "the launcher that started the environment no longe
 
 export interface UpdateMethodsOptions {
   readonly log: EventLog;
+  /** The data directory, where the desktop's builds are staged. */
+  readonly dataDir: string;
   /** The environment's id: the id of its settings stream. */
   readonly environmentId: string;
   /** The harness version the environment runs as. */
@@ -58,8 +62,8 @@ export interface UpdateMethodsOptions {
   readonly coordinator: Pick<UpdateCoordinator, "pending" | "outcomes" | "handlers" | "settingsChanging">;
   /** Where the releases are read. */
   readonly releaseSource: ReleaseSource;
-  /** The release channel: why a version cannot be pinned. */
-  readonly channel: Pick<ReleaseChannelReader, "pinRefusal">;
+  /** The release channel: why a version cannot be pinned, and the desktop's build with its download. */
+  readonly channel: Pick<ReleaseChannelReader, "pinRefusal" | "desktopBuild" | "download">;
   /** The channel's checks: what the last found, a check now, and a check once the settings the target follows change. */
   readonly checks: Pick<ChannelChecks, "status" | "check" | "settingsChanged">;
 }
@@ -138,6 +142,8 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
       if (hostUpdater === true) options.hostUpdater.polled();
       return status();
     },
+
+    "updates.desktop.stage": desktopStage({ dataDir: options.dataDir, channel: options.channel, settings: () => channelSettingsOf(readUpdateSettings(reader)) }),
 
     "updates.check": async () => {
       await options.checks.check();

@@ -102,6 +102,8 @@ export interface Requests {
 
 export interface RequestsHost {
   readonly clock: Clock;
+  /** How long a request waits for its answer. Preset `REQUEST_TIMEOUT_MS`. */
+  readonly timeoutMs?: number;
   capability(environmentId: string, method: MethodName): CapabilityAnswer;
   /** A request on the environment's ready socket; rejects when there is none, or when it closes first. */
   request(environmentId: string, method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
@@ -112,6 +114,7 @@ const failed = (code: RequestFailureCode, message: string, data?: Record<string,
 
 export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
   async call<N extends MethodName>(environmentId: string, method: N, params: ParamsOf<N>): Promise<RequestAnswer<N>> {
+    const timeoutMs = host.timeoutMs ?? REQUEST_TIMEOUT_MS;
     const entry = registry[method];
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
     if (OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
@@ -122,7 +125,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     if (!checked.success) return failed("invalid_params", `The params are not ${method}'s: ${checked.error.issues.map((i) => i.message).join("; ")}`);
 
     let timer: { cancel(): void } | undefined;
-    const timeout = new Promise<"timeout">((resolve) => (timer = host.clock.setTimeout(() => resolve("timeout"), REQUEST_TIMEOUT_MS)));
+    const timeout = new Promise<"timeout">((resolve) => (timer = host.clock.setTimeout(() => resolve("timeout"), timeoutMs)));
     let response: ResponseFrame | "timeout";
     try {
       response = await Promise.race([host.request(environmentId, method, checked.data as Record<string, unknown>), timeout]);
@@ -131,7 +134,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     } finally {
       timer?.cancel();
     }
-    if (response === "timeout") return failed("timeout", `The environment did not answer ${method} within ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+    if (response === "timeout") return failed("timeout", `The environment did not answer ${method} within ${timeoutMs / 1000} seconds.`);
     if (response.error) return failed(response.error.code, response.error.message, response.error.data);
     const schema = isCommand(entry) ? entry.response : entry.result;
     const result = schema.safeParse(response.result);

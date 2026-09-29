@@ -29,9 +29,13 @@ export {
   hasShellMember,
   type FileFilter,
   type Shell,
+  type ShellApplyOutcome,
+  type ShellApplyWhen,
+  type ShellBundledServer,
   type ShellClipboard,
   type ShellContent,
   type ShellDeepLinks,
+  type ShellDesktopBuild,
   type ShellDialogs,
   type ShellFile,
   type ShellGh,
@@ -43,6 +47,7 @@ export {
   type ShellPlatform,
   type ShellPreview,
   type ShellService,
+  type ShellStagedBuild,
   type ShellSystem,
   type ShellTray,
   type ShellUpdate,
@@ -77,6 +82,14 @@ export {
 } from "./pairing.js";
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
+export {
+  DESKTOP_CHECK_INTERVAL_MS,
+  type BundledServerView,
+  type DesktopBuildView,
+  type DesktopUpdate,
+  type DesktopUpdateFailure,
+  type DesktopUpdateView,
+} from "./desktop-update.js";
 export type { EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
