@@ -319,3 +319,49 @@ describe("a refusal from the environment", () => {
     expect(kindOf(transcript, "and the tests")).toBe("Queued message");
   });
 });
+
+describe("↑ in an empty composer (composer.withdrawLast)", () => {
+  it("takes the newest queued message back, and ↑ is the composer's own again once its text is in the box", async () => {
+    const { app, env, transcript, session } = await withQueue({}, "and the tests", "and the docs");
+    const newest = env.queued(session).at(-1);
+    await write(app, "{ArrowUp}");
+    await waitFor(() => expect(box().value).toBe("and the docs"));
+    expect(sent(env, "runs.withdraw")).toEqual([expect.objectContaining({ messageId: newest?.messageId })]);
+    expect(kindOf(transcript, "and the tests")).toBe("Queued message");
+
+    await write(app, "{ArrowUp}");
+    expect(env.requests("runs.withdraw")).toHaveLength(1);
+    expect(kindOf(transcript, "and the tests")).toBe("Queued message");
+  });
+
+  it("walks the session's prompts as before while nothing is queued", async () => {
+    const { app, env, transcript, session } = await opened();
+    env.startRun(session, "Fix the receipts");
+    await within(transcript).findByRole("article", { name: "Your message" });
+    await write(app, "{ArrowUp}");
+    expect(box().value).toBe("Fix the receipts");
+    expect(env.requests("runs.withdraw")).toEqual([]);
+  });
+
+  it("refuses in one line while the verb cannot be used, walking nothing", async () => {
+    const { app, env } = await withQueue({}, "and the tests");
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    await screen.findByText("Locked: desk cannot be reached.");
+    await write(app, "{ArrowUp}");
+    await screen.findByText("Not withdrawn: desk cannot be reached.");
+    expect(box().value).toBe("");
+    expect(env.requests("runs.withdraw")).toEqual([]);
+  });
+
+  it("does nothing more while its withdraw is on its way, so no prompt is walked into the box the text is coming to", async () => {
+    const { app, env } = await withQueue({}, "and the docs");
+    env.wire.answer("runs.withdraw", () => new Promise<FakeAnswer>(() => undefined));
+    await write(app, "{ArrowUp}");
+    await waitFor(() => expect(env.requests("runs.withdraw")).toHaveLength(1));
+    await write(app, "{ArrowUp}");
+    expect(box().value).toBe("");
+    expect(env.requests("runs.withdraw")).toHaveLength(1);
+  });
+});
