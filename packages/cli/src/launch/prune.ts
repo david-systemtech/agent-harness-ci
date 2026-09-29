@@ -8,8 +8,12 @@ import { completeVersions, VERSION_SENTINEL, versionDirectory, VERSIONS_DIRECTOR
  * What the end of a watch clears away (launcher-update spec, "Trial, commit,
  * rollback and the watch" and "Kept"): the database snapshots, which only a
  * rollback reads, and the versions no one will run. The launcher calls them
- * only when no update is pending and no watch runs, so no snapshot is needed
- * and no version is being switched to or installed.
+ * as a watch ends with no update pending, so no rollback can need a snapshot
+ * and no version is being switched to. Nor is one half moved in: an install
+ * waits only on its preflight, which runs in the staging area, and moves the
+ * version into the versions directory, sentinel and all, in one synchronous
+ * step, as this runs in one, and the launcher records it staged before any
+ * timer can run again.
  */
 
 /** How many versions before the active one a watch's end keeps, by precedence. */

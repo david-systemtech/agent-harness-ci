@@ -419,18 +419,30 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
     void halt(RELAUNCH_EXIT_CODE);
   };
 
-  /** Discards every snapshot and prunes the versions (`prune.ts`); a file that cannot be removed is said and passed over, costing only its room. */
+  /**
+   * Discards every snapshot and prunes the versions (`prune.ts`). One that
+   * cannot be removed is said and passed over, the rest removed all the
+   * same: it costs only its room until the next watch's end.
+   */
   const clearAway = () => {
+    const removed = (what: string, remove: () => void): boolean => {
+      try {
+        remove();
+        return true;
+      } catch (error) {
+        log(`${what} could not be removed, so it waits for the next watch's end: ${messageOf(error)}`);
+        return false;
+      }
+    };
     try {
       for (const updateId of snapshotsIn(dataDir)) {
-        discardSnapshot(dataDir, updateId);
-        log(`discarded the snapshot of update ${updateId}`);
+        if (removed(`the snapshot of update ${updateId}`, () => discardSnapshot(dataDir, updateId))) log(`discarded the snapshot of update ${updateId}`);
       }
       const { kept, pruned } = pruning(dataDir, { activeVersion: state.activeVersion, launcherVersion: ownVersion, stagedVersion: state.stagedVersion });
-      for (const version of pruned) removeVersion(dataDir, version);
-      if (pruned.length > 0) log(`pruned ${listed(pruned)}, keeping ${listed(kept)}`);
+      const gone = pruned.filter((version) => removed(version, () => removeVersion(dataDir, version)));
+      if (gone.length > 0) log(`pruned ${listed(gone)}, keeping ${listed(kept)}`);
     } catch (error) {
-      log(`the snapshots and versions could not all be cleared away: ${messageOf(error)}`);
+      log(`the snapshots and versions could not be read to clear them away: ${messageOf(error)}`);
     }
   };
 
