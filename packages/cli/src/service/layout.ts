@@ -152,9 +152,11 @@ const keep = (path: string): (() => void) => {
  * Names `version` active and the launcher's: in the service state and in the
  * launcher version file, durably. A state already there keeps the update it
  * records as pending, which the launcher rolls back at its next start, and
- * its active version becomes the previous one; its watch ends, since the
- * version it watched no longer runs. A state that cannot be used is
- * replaced. Answers how to put both files back as they were.
+ * the version staged for the next, and its active version becomes the
+ * previous one; its watch ends, since the version it watched no longer runs,
+ * and a failed handover is forgotten, since install chose the launcher. A
+ * state that cannot be used is replaced. Answers how to put both files back
+ * as they were.
  */
 export const nameVersion = (dataDir: string, version: string): (() => void) => {
   const putBack = [keep(join(dataDir, SERVICE_STATE_FILE)), keep(join(dataDir, LAUNCHER_VERSION_FILE))];
@@ -170,8 +172,19 @@ export const nameVersion = (dataDir: string, version: string): (() => void) => {
           launcherVersion: version,
           previousVersion: read.state.activeVersion === version ? read.state.previousVersion : read.state.activeVersion,
           watchDeadline: null,
+          watchedUpdateId: null,
+          failedHandover: null,
         }
-      : { activeVersion: version, previousVersion: null, launcherVersion: version, pendingUpdate: null, watchDeadline: null };
+      : {
+          activeVersion: version,
+          previousVersion: null,
+          launcherVersion: version,
+          pendingUpdate: null,
+          watchDeadline: null,
+          watchedUpdateId: null,
+          stagedVersion: null,
+          failedHandover: null,
+        };
   try {
     writeServiceState(dataDir, next);
     writeLauncherVersion(dataDir, version);

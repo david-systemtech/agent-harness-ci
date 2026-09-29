@@ -24,7 +24,8 @@ const start = readLines(reportPath).filter((line) => (JSON.parse(line) as ChildE
 const scriptPath = join(dataDir, CHILD_SCRIPT_FILE);
 const script = existsSync(scriptPath) ? (JSON.parse(readFileSync(scriptPath, "utf8")) as ChildStart[]) : [];
 const scripted = script[start] ?? "serve";
-const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install }: ScriptedStart = typeof scripted === "string" ? { behaviour: scripted } : scripted;
+const { behaviour = "serve", writes, preparedAs, spoilsState, switchTo, install, busyFor = 0 }: ScriptedStart =
+  typeof scripted === "string" ? { behaviour: scripted } : scripted;
 
 const report = (event: string, detail: Record<string, unknown> = {}) =>
   appendFileSync(reportPath, `${JSON.stringify({ start, pid: process.pid, version, event, ...detail })}\n`);
@@ -53,6 +54,7 @@ const SWITCH_ID = 2;
 const INSTALL_ID = 3;
 let committed = false;
 let drainsPassedOver = 0;
+let idleAsked = 0;
 process.on("message", (raw) => {
   const message = parseLauncherMessage(raw);
   report("heard", { message: message ?? raw });
@@ -91,7 +93,12 @@ process.on("message", (raw) => {
       if (message.type === "switching" && switchTo?.lingers) return;
       return leave(0);
     case "idle?":
-      return send({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+      return send({
+        type: "idle",
+        readiness: "ready",
+        activity: idleAsked++ < busyFor ? { state: "busy", reason: "run-running" } : { state: "idle" },
+        updatesManagedOutside: false,
+      });
     case "drain?":
       if (behaviour === "deaf-once" && drainsPassedOver++ === 0) return;
       report("drained", { trigger: "launcher" });

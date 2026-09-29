@@ -1,6 +1,6 @@
 # Service install: manual checklist
 
-The per-platform half of `agent-harness service` (tickets #113 and #338). The
+The per-platform half of `agent-harness service` (tickets #113, #338 and #341). The
 automated tests render each definition, the launcher entry and the shim from
 fixtures, run the `sh` entry and shim against scripted versions, and stub the
 service manager; these steps prove them against the real one. Run each as an
@@ -71,6 +71,20 @@ the shim, written `agent-harness` below, once its folder is on the PATH.
 10. On a Windows set to a language other than English, note whether `service status` still says `Running: yes`: it reads the English task status, so the running check is English-only until proven otherwise.
 11. `agent-harness service uninstall`. `schtasks /Query /TN agent-harness` finds nothing, nothing answers on port 7433, `service-task.xml`, `launcher-entry.cmd` and `bin\agent-harness.cmd` do not exist, and the data directory keeps `versions`, `service-state.json`, `launcher-version` and the environment's files.
 12. On an account whose user name has a non-ASCII character, install twice and force the second install's rerun to fail (end the task between the CLI's checks): the put-back decodes `schtasks /Query /XML` by dropping NULs, which damages non-ASCII characters, so record whether the previous task came back intact.
+
+## The handover (every platform)
+
+The launcher hands over to the active version's launcher once that version has
+held through its watch, at the first idle, by exiting with code 75; the service
+manager starts the launcher entry again (systemd's and launchd's restart on a
+non-zero exit, the Windows entry's own loop, since Task Scheduler's
+restart-on-failure is not relied on), and the entry falls back to the old
+launcher after three starts of the new one that did not confirm. Run it on each
+platform with two stand-in versions, A and B: a second copy of the stand-in whose
+`packages/cli/package.json` names a higher version.
+
+1. Install from A and start it. Stop the service, copy B into `versions/B` and write its empty `.complete` last, set `activeVersion` to B in `service-state.json`, and start the service. The log says `B carries another launcher than this one's A` and, at the first ask the environment answers idle (at once, or ten minutes later after recent activity), `handing over to the launcher of B`, `stopping: draining B` and B's exit; the service manager starts the entry again (on Windows the log says `the launcher exited with code 75, so it starts again in 5 s`), and B's launcher says `confirmed the handover from the launcher of A`. `service status` says `Launcher version: B`, `launcher-version` names B, and `launcher-handover` and `launcher-handover-starts` are gone. Record how long the service manager took to start the entry again.
+2. Stop the service, put `launcher-version` back to A and `launcherVersion` in `service-state.json` to A, and make B's launcher fail: in `versions/B/packages/cli/dist/main.js`, make the `launch` branch exit 1 at once. Start the service. A hands over; the entry starts B's launcher three times (`launcher-handover-starts` reads 1, 2, 3), then logs `the launcher of B was started 3 times without confirming that its child passed the gate, so the launcher of A starts again`; A logs `the handover to the launcher of B failed` and runs B's environment on. `service status` shows `Failed handover: to the launcher of B at …`, and A asks nothing more. Record the time from the first handover to A running again.
 
 ## Headless Linux (the install script)
 
