@@ -1,6 +1,8 @@
 import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
 import { DEFAULT_THEME } from "@agent-harness/contracts";
 import { useLayoutEffect } from "react";
+import { LocalServiceProvider } from "./connections/local-service.js";
+import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
 import { KeyDispatch } from "./keys/key-dispatch.js";
 import type { Presentation } from "./presentation.js";
@@ -30,9 +32,13 @@ export const App = ({ runtime, presentation, clock, macOS, shell }: AppProps) =>
   useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
   return (
     <WindowProvider runtime={runtime} presentation={presentation} clock={clock} shell={shell}>
-      <KeyDispatch macOS={macOS}>
-        <Frame />
-      </KeyDispatch>
+      <LocalServiceProvider>
+        <PairingProvider>
+          <KeyDispatch macOS={macOS}>
+            <Frame />
+          </KeyDispatch>
+        </PairingProvider>
+      </LocalServiceProvider>
     </WindowProvider>
   );
 };

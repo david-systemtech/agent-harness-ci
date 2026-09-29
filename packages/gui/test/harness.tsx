@@ -6,6 +6,7 @@ import {
   inMemoryDocuments,
   inMemoryNetwork,
   manualClock,
+  runtimeSpeaking,
   seededRandom,
   type FakeShell,
   type InMemoryDocumentStore,
@@ -16,7 +17,7 @@ import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld 
 import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
 import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
-import { openPresentation, type Presentation } from "../src/presentation.js";
+import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
 
 export { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedEnvironment } from "@agent-harness/client-runtime/testing/scripted-environment";
 
@@ -40,6 +41,10 @@ export interface RenderOptions {
   readonly macOS?: boolean;
   /** The desktop's shell: preset a fresh recording fake. */
   readonly shell?: FakeShell;
+  /** What the window's presentation holds before it first opens, as a launch before this one left it. */
+  readonly presentation?: Partial<PresentationValues>;
+  /** The protocol version this client speaks: preset this build's, so a test can be the newer side of a mismatch. */
+  readonly protocolVersion?: number;
 }
 
 /** The desktop platform the window runs on, with what the test holds of it. */
@@ -76,10 +81,11 @@ interface Mount {
   readonly clock: ManualClock;
   readonly shell: FakeShell;
   readonly macOS: boolean;
-  readonly documents?: InMemoryDocumentStore;
+  readonly documents: InMemoryDocumentStore;
+  readonly protocolVersion: number | undefined;
 }
 
-const mount = async ({ world, clock, shell, macOS, documents = inMemoryDocuments() }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
+const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
   const reported: unknown[] = [];
   const network = inMemoryNetwork();
   const desktop = await desktopPlatform({
@@ -93,7 +99,7 @@ const mount = async ({ world, clock, shell, macOS, documents = inMemoryDocuments
     reportError: (error) => void reported.push(error),
   });
   const platform: HarnessPlatform = { ...desktop, documents, clock, network, reported };
-  const runtime = createRuntime(platform);
+  const runtime = protocolVersion === undefined ? createRuntime(platform) : runtimeSpeaking(platform, protocolVersion);
   const stopFollowing = platform.follow(runtime.connections.list);
   onTestFinished(async () => {
     stopFollowing();
@@ -124,7 +130,7 @@ const mount = async ({ world, clock, shell, macOS, documents = inMemoryDocuments
       view.unmount();
       await presentation.close();
       await runtime.close();
-      return mount({ world, clock, shell, macOS, documents: platform.documents }, []);
+      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion }, []);
     },
   };
 };
@@ -142,5 +148,11 @@ export const renderApp = async (script: Script, options: RenderOptions = {}): Pr
   const shell = options.shell ?? fakeShell();
   shell.answer("http", world.fetch);
   shell.answer("localGrant.read", async () => world.grant?.read());
-  return mount({ world, clock, shell, macOS: options.macOS ?? false }, paired);
+  const documents = inMemoryDocuments();
+  if (options.presentation) {
+    const left = await openPresentation(documents);
+    for (const [key, value] of Object.entries(options.presentation) as [PresentationKey, never][]) left.set(key, value);
+    await left.close();
+  }
+  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion }, paired);
 };
