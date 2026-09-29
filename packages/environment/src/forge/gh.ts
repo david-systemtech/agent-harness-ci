@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { GH_MINIMUM_VERSION, GhLogin, ForgeToken, type ForgeTokenKind, type GhProbe, type GhSignedInAccount } from "@agent-harness/contracts";
+import { GH_MINIMUM_VERSION, GhLogin, ForgeToken, compareToolVersions, type ForgeTokenKind, type GhProbe, type GhSignedInAccount, type ManagedToolRow } from "@agent-harness/contracts";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
 import { githubTokenKind } from "./providers.js";
 
@@ -7,9 +7,9 @@ import { githubTokenKind } from "./providers.js";
  * The environment's own `gh` (forge spec, "Credentials"; ADR 0026, ADR
  * 0032): a Managed tools row, minimum 2.40, verified by `gh auth status`,
  * whose token a `gh` credential source reads with `gh auth token` for the
- * forge account's host and login on every operation. Until the Managed
- * tools registry (#91) exists, the ForgeService reaches `gh` through this
- * seam, which the registry replaces.
+ * forge account's host and login on every operation. Whether it is
+ * installed, where and which version is the Managed tools registry's `gh`
+ * row (#373); this runs the `gh` the row found.
  *
  * `gh` runs without the variables it reads a token from before its own
  * store (`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and
@@ -31,7 +31,7 @@ export type GhTokenAnswer =
   /** No token, and one line saying why and what to do: `gh` missing, older than 2.40, not signed in to the host as the login, or failing. */
   | { readonly outcome: "unavailable"; readonly message: string };
 
-/** The Managed tools seam for `gh`: #91's registry replaces it. */
+/** The forge's view of the environment's `gh`, over the Managed tools registry's row. */
 export interface ManagedGh {
   /** Whether `gh` is installed, its version against the minimum, and the accounts `gh auth status` reports signed in. */
   probe(): Promise<GhProbe>;
@@ -40,7 +40,9 @@ export interface ManagedGh {
 }
 
 export interface ManagedGhOptions {
-  /** The environment `gh` runs in, found on its PATH, less the token variables. Preset: this process's, copied once. */
+  /** The Managed tools registry's `gh` row, once any probe under way has ended. */
+  readonly row: () => Promise<ManagedToolRow>;
+  /** The environment `gh` runs in, less the token variables. Preset: this process's, copied once. */
   readonly hostEnv?: HostEnvironment;
   /** Preset `GH_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
@@ -49,7 +51,7 @@ export interface ManagedGhOptions {
 /** How one run of `gh` went. */
 type GhRun =
   | { readonly outcome: "ran"; readonly code: number | null; readonly stdout: string; readonly stderr: string }
-  /** No `gh` on the PATH. */
+  /** No `gh` where the row found it. */
   | { readonly outcome: "missing" }
   /** It did not finish: a timeout, or it could not start for another reason, in a few words. */
   | { readonly outcome: "failed"; readonly why: string };
@@ -57,21 +59,8 @@ type GhRun =
 /** More output than any of the commands run here prints; past it, the rest is dropped. */
 const OUTPUT_CAP = 256 * 1024;
 
-/** A version as `gh --version`'s first line says it: `gh version 2.63.2 (2024-12-05)`. */
-const VERSION_LINE = /^gh version (\d+)\.(\d+)\.(\d+)\b/m;
-
-const parseVersion = (stdout: string): readonly [number, number, number] | null => {
-  const match = VERSION_LINE.exec(stdout);
-  return match === null ? null : [Number(match[1]), Number(match[2]), Number(match[3])];
-};
-
-const MINIMUM = GH_MINIMUM_VERSION.split(".").map(Number) as [number, number, number];
-
 /** Whether `version` is the minimum or later. */
-const meetsMinimum = (version: readonly [number, number, number]): boolean => {
-  for (let at = 0; at < 3; at += 1) if (version[at] !== MINIMUM[at]) return (version[at] ?? 0) > (MINIMUM[at] ?? 0);
-  return true;
-};
+const meetsMinimum = (version: string): boolean => compareToolVersions(version, GH_MINIMUM_VERSION) >= 0;
 
 /** `'gist', 'read:org', 'repo'` as `gh` lists scopes; `none` for none. */
 const scopesOf = (listed: string): string[] =>
@@ -136,15 +125,15 @@ const ghEnvironment = (hostEnv: HostEnvironment): Record<string, string> => {
   return { ...env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" };
 };
 
-/** The `gh` on the host environment's PATH, run for real. */
-export const managedGh = (options: ManagedGhOptions = {}): ManagedGh => {
+/** The `gh` the Managed tools registry's row found, run for real. */
+export const managedGh = (options: ManagedGhOptions): ManagedGh => {
   const env = ghEnvironment({ ...(options.hostEnv ?? process.env) });
   const timeoutMs = options.timeoutMs ?? GH_TIMEOUT_MS;
 
-  const run = (args: readonly string[]): Promise<GhRun> =>
+  const run = (file: string, args: readonly string[]): Promise<GhRun> =>
     new Promise((resolve) => {
-      // A gh that is not on the PATH is reported through the error event, as ENOENT.
-      const child = spawn("gh", [...args], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      // A gh that is gone since the row found it is reported through the error event, as ENOENT.
+      const child = spawn(file, [...args], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       const out: string[] = [];
       const err: string[] = [];
       let size = 0;
@@ -169,40 +158,33 @@ export const managedGh = (options: ManagedGhOptions = {}): ManagedGh => {
       });
     });
 
-  /** `gh --version`: missing, or installed with the version it reports, null when it reports none. */
-  const version = async (): Promise<{ readonly installed: false } | { readonly installed: true; readonly version: readonly [number, number, number] | null }> => {
-    const answer = await run(["--version"]);
-    if (answer.outcome === "missing") return { installed: false };
-    return { installed: true, version: answer.outcome === "ran" && answer.code === 0 ? parseVersion(answer.stdout) : null };
-  };
-
   const notInstalled = (host: string): string => `gh is not installed on this environment: install the GitHub CLI ${GH_MINIMUM_VERSION} or later, then run gh auth login --hostname ${host}.`;
 
   return {
     async probe() {
-      const found = await version();
-      if (!found.installed) return { installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [] };
-      const status = await run(["auth", "status"]);
+      const row = await options.row();
+      if (row.path === null) return { installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [] };
+      const status = await run(row.path, ["auth", "status"]);
       return {
         installed: true,
-        version: found.version === null ? null : found.version.join("."),
+        version: row.version,
         minimum: GH_MINIMUM_VERSION,
-        meetsMinimum: found.version !== null && meetsMinimum(found.version),
+        meetsMinimum: row.version !== null && meetsMinimum(row.version),
         accounts: status.outcome === "ran" ? parseGhAuthStatus(`${status.stdout}\n${status.stderr}`) : [],
       };
     },
 
     async token(host, login) {
-      const answer = await run(["auth", "token", "--hostname", host, "--user", login]);
+      const row = await options.row();
+      if (row.path === null) return { outcome: "unavailable", message: notInstalled(host) };
+      const answer = await run(row.path, ["auth", "token", "--hostname", host, "--user", login]);
       if (answer.outcome === "missing") return { outcome: "unavailable", message: notInstalled(host) };
       if (answer.outcome === "failed") return { outcome: "unavailable", message: `gh on this environment did not give a token for ${login} on ${host}: ${answer.why}.` };
       const token = answer.stdout.trim();
       if (answer.code === 0 && ForgeToken.safeParse(token).success) return { outcome: "token", token };
       // Why not: a gh older than 2.40 refuses --user; otherwise it holds no token for the host and login.
-      const found = await version();
-      if (!found.installed) return { outcome: "unavailable", message: notInstalled(host) };
-      if (found.version !== null && !meetsMinimum(found.version)) {
-        return { outcome: "unavailable", message: `gh ${found.version.join(".")} on this environment is older than ${GH_MINIMUM_VERSION}, the first that reads a token per account: update gh.` };
+      if (row.version !== null && !meetsMinimum(row.version)) {
+        return { outcome: "unavailable", message: `gh ${row.version} on this environment is older than ${GH_MINIMUM_VERSION}, the first that reads a token per account: update gh.` };
       }
       return { outcome: "unavailable", message: `gh on this environment is not signed in to ${host} as ${login}: run gh auth login --hostname ${host} as ${login} here.` };
     },

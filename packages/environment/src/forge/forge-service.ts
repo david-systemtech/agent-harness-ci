@@ -34,7 +34,7 @@ import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, Pr
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder, type MissingOrigin } from "./forge-store.js";
-import { managedGh, type ManagedGh } from "./gh.js";
+import type { ManagedGh } from "./gh.js";
 import { keepSince } from "./verification.js";
 import { FORGE_ACTOR, createVerifier } from "./verifier.js";
 import { createEntityTags } from "./forge-http.js";
@@ -117,8 +117,8 @@ export interface ForgeServiceOptions {
   readonly fetch?: ForgeFetch;
   /** How long one call to a forge may take; preset `FORGE_CALL_TIMEOUT_MS`. */
   readonly callTimeoutMs?: number;
-  /** The environment's own `gh`, behind the Managed tools seam #91's registry replaces; preset: the `gh` on this process's PATH. */
-  readonly gh?: ManagedGh;
+  /** The environment's own `gh`: the one the Managed tools registry's row found (#373). */
+  readonly gh: ManagedGh;
   /** The key-manager registry's resolve seam, which #91 fills; preset: no key-manager connection, so every reference is unavailable. */
   readonly keyManagers?: KeyManagerRegistry;
   /** A client session's label, which a token its client's `gh` handed over records beside its id. */
@@ -242,8 +242,7 @@ export interface ForgeService extends ForgeOperations {
 }
 
 export const createForgeService = (options: ForgeServiceOptions): ForgeService => {
-  const { log, clock, vault, scrub, clientSessionLabel } = options;
-  const gh = options.gh ?? managedGh();
+  const { log, clock, vault, scrub, clientSessionLabel, gh } = options;
   const keyManagers = options.keyManagers ?? noKeyManagerConnections;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   const providerOptions: ProviderOptions = {

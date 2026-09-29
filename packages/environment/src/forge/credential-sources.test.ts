@@ -21,7 +21,9 @@ import type { ForgeAddRequest } from "./forge-service.js";
  * in for #91's. A credential read for one operation is seen through the
  * environment's in-process ForgeService, which every harness operation on a
  * forge reads it through; whether a value is held as a secret is seen in
- * what a run's provider says back.
+ * what a run's provider says back. The fake `gh` is on the PATH the
+ * environment's login shell answers, where the Managed tools registry finds
+ * it (#373).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -58,7 +60,7 @@ const withGh = async (state: FakeGhState = { version: "2.63.2", accounts: [githu
   const forge = await fakeForge();
   forge.user(GH_TOKEN, DAVID);
   const gh = fakeGh(state);
-  const t = await start({ forgeFetch: forge.fetch, gh: gh.gh });
+  const t = await start({ forgeFetch: forge.fetch, managedTools: gh.managedTools });
   return { t, forge, gh, client: await t.client() };
 };
 
@@ -98,9 +100,13 @@ describe("forge.gh.probe", () => {
   });
 
   it("says a gh older than 2.40 does not meet the minimum, and a gh signed in nowhere has no accounts", async () => {
-    const { client, gh } = await withGh({ version: "2.39.2", accounts: [github("david", GH_TOKEN)] });
+    const { t, client, gh } = await withGh({ version: "2.39.2", accounts: [github("david", GH_TOKEN)] });
     expect(await client.request("forge.gh.probe", {})).toMatchObject({ installed: true, version: "2.39.2", meetsMinimum: false, accounts: [{ login: "david", active: true }] });
     gh.set({ version: "2.40.0", accounts: [] });
+    // Installed and the version are the Managed tools registry's gh row (#373), probed again on a refresh fifteen minutes on.
+    expect(await client.request("forge.gh.probe", {})).toEqual({ installed: true, version: "2.39.2", minimum: "2.40.0", meetsMinimum: false, accounts: [] });
+    t.clock.advance(15 * 60_000);
+    await client.request("tools.list", { refresh: true });
     expect(await client.request("forge.gh.probe", {})).toEqual({ installed: true, version: "2.40.0", minimum: "2.40.0", meetsMinimum: true, accounts: [] });
   });
 
@@ -119,7 +125,11 @@ describe("the environment's gh as a credential source", () => {
     const account = await added(client, { url: "https://github.com", credential: ghCredential("david") });
 
     expect(account).toMatchObject({ origin: "https://github.com", kind: "github", identity: { login: "david", userId: "42" }, credential: { kind: "gh", login: "david" }, problem: null, primary: true });
-    expect(gh.calls()).toEqual([{ argv: ["auth", "token", "--hostname", "github.com", "--user", "david"], sawTokenVariables: [] }]);
+    // The Managed tools registry's probe asked its version at the start (#373).
+    expect(gh.calls()).toEqual([
+      { argv: ["--version"], sawTokenVariables: [] },
+      { argv: ["auth", "token", "--hostname", "github.com", "--user", "david"], sawTokenVariables: [] },
+    ]);
     expect(forge.requests).toEqual([{ method: "GET", path: "/api/v3/user", scheme: "Bearer" }]);
     expect((await forgeEvents(client, from)).map((event) => event.payload)).toEqual([expect.objectContaining({ credential: { kind: "gh", login: "david" }, identity: { login: "david", userId: "42" } })]);
   });
@@ -170,7 +180,7 @@ describe("the environment's gh as a credential source", () => {
     ];
     for (const { state, message } of cases) {
       const forge = await fakeForge();
-      const t = await start({ forgeFetch: forge.fetch, ...(state !== null && { gh: fakeGh(state).gh }) });
+      const t = await start({ forgeFetch: forge.fetch, ...(state !== null && { managedTools: fakeGh(state).managedTools }) });
       const account = await added(await t.client(), { url: "https://github.com", credential: ghCredential("david") });
       expect(account, message).toMatchObject({ identity: null, credential: { kind: "gh", login: "david" }, problem: { kind: "credential-unavailable", since: MANUAL_CLOCK_START, message } });
       // The forge was never asked: there was no token to ask with.
@@ -200,7 +210,7 @@ describe("the environment's gh as a credential source", () => {
     // An Enterprise origin, whose host gh names with its port.
     const host = forge.origin.replace("http://", "");
     const gh = fakeGh({ version: "2.63.2", accounts: [{ host, login: "david", token: GH_TOKEN }] });
-    const t = await start({ gh: gh.gh });
+    const t = await start({ managedTools: gh.managedTools });
     const client = await t.client();
     const account = await added(client, { url: forge.origin, kind: "github" });
     expect(await saidBack(t, [TOKEN])).toEqual(["[redacted]"]);
@@ -422,7 +432,7 @@ describe("a copy to another environment", () => {
     const reference: KeyManagerReference = { provider: "doppler", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", name: "FORGE_WORK_TOKEN" };
     keyManagers.answer(reference, TOKEN);
     const gh = fakeGh({ version: "2.63.2", accounts: [github("david", GH_TOKEN)] });
-    const source = await start({ name: "SYSTEM-SERVER", forgeFetch: forge.fetch, gh: gh.gh, keyManagers: keyManagers.registry });
+    const source = await start({ name: "SYSTEM-SERVER", forgeFetch: forge.fetch, managedTools: gh.managedTools, keyManagers: keyManagers.registry });
     const sourceClient = await source.client();
     const other = await fakeForge();
     other.user(TOKEN, DAVID);
