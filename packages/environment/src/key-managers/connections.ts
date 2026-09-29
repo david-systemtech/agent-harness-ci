@@ -13,6 +13,7 @@ import {
   type KeyManagerConnectionUpdatedPayload,
   type KeyManagerConnectionVerifiedPayload,
   type KeyManagerProvider,
+  type KeyManagerReferenceHolder,
   type KeyManagerStatus,
   type KeyManagerTokenInformation,
   type MethodName,
@@ -28,7 +29,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { basePathProblem } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createOpenBaoProvider } from "./openbao.js";
-import { KEY_MANAGER_BUDGET_MS, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
+import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createVerificationSchedule } from "./verifier.js";
 
 /**
@@ -79,6 +80,12 @@ import { createVerificationSchedule } from "./verifier.js";
  *   nothing, and when each connection was last verified is kept beside its
  *   record, in memory, as the forge's verified-at times are. Every line a
  *   key manager's text becomes passes the scrub registry first (#363).
+ * - **References** (#370) are read through `readable`: a connection's
+ *   record as it stands and the login held for it, which the registry
+ *   (`references.ts`) reads with, never a run token. A connection a
+ *   reference names is removed only with `force`, else `conflict` reason
+ *   `referenced` naming its holders, which the services holding references
+ *   answer (`referenceHolders`).
  */
 
 /** The environment's own sign-ins' actor. */
@@ -89,9 +96,6 @@ const VAULT_PREFIX = "key-manager:";
 
 /** A new vault entry for a credential given to `connectionId`: one per credential, so a replacement never overwrites the one it replaces. */
 const newEntry = (connectionId: string): string => `${VAULT_PREFIX}${connectionId}:${randomUUID()}`;
-
-/** How a provider is named to people. */
-const PROVIDER_NAMES: Record<KeyManagerProvider, string> = { openbao: "OpenBao", doppler: "Doppler", onepassword: "1Password", bitwarden: "Bitwarden Secrets Manager" };
 
 /** The secrets of a credential, each registered for scrubbing: a role id and a secret id, a password, or a token. */
 const secretsOf = (credential: KeyManagerCredential): string[] => {
@@ -120,6 +124,21 @@ export interface KeyManagerConnectionsOptions {
   /** The vault as the environment holds it: every entry registered with the scrub registry while it is held. */
   readonly vault: Vault;
   readonly scrub: ScrubRegistry;
+  /** What holds a reference to the connection: the forge accounts whose credential is one. Preset: nothing. */
+  readonly referenceHolders?: (connectionId: string) => readonly KeyManagerReferenceHolder[];
+}
+
+/** A login the environment holds for a connection, as a reference is read with it: its token, and the provider and target it signed in through. */
+export interface HeldLogin {
+  readonly token: string;
+  readonly provider: ConnectionProvider;
+  readonly target: SignInTarget;
+}
+
+/** A connection as references are read through it: its record as it stands now, and the login held for it, null while none is. */
+export interface ReadableConnection {
+  readonly record: KeyManagerConnectionRecord;
+  readonly login: HeldLogin | null;
 }
 
 export interface KeyManagerConnections {
@@ -142,6 +161,8 @@ export interface KeyManagerConnections {
   readonly setPolicies: MethodHandler<"keyManagers.connections.setPolicies">;
   readonly signOut: MethodHandler<"keyManagers.connections.signOut">;
   readonly remove: MethodHandler<"keyManagers.connections.remove">;
+  /** The connection `connectionId` as references are read through it; null for one the environment does not hold. */
+  readable(connectionId: string): ReadableConnection | null;
   /** Stops the sign-ins and verifications under way from recording anything, and lets go of every login and credential registration; a login is not revoked, and expires. */
   close(): void;
 }
@@ -938,6 +959,18 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const connectionId = params.connectionId.toLowerCase();
       const held = liveConnection(reader, connectionId);
       if (held === null) return { aggregate: stream, rejected: notFound(connectionId) };
+      const holders = params.force === true ? [] : (options.referenceHolders?.(connectionId) ?? []);
+      if (holders.length > 0) {
+        const named = holders.map((holder) => `the credential of the forge account ${holder.name}`).join(", ");
+        return {
+          aggregate: stream,
+          rejected: {
+            code: "conflict",
+            message: `The key-manager connection ${held.record.label} is named by ${named}: give it another credential first, or remove the connection with force.`,
+            data: { reason: "referenced", connectionId, holders: holders.map((holder) => ({ ...holder })) },
+          },
+        };
+      }
       log.append(stream, [{ type: "key-manager.connection.removed", payload: { connectionId } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
       command.tx.afterCommit(() => {
         forget(connectionId, held.credential);
@@ -945,6 +978,13 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         verifiedTimes.delete(connectionId);
       });
       return { aggregate: stream, result: { connectionId } };
+    },
+
+    readable(connectionId) {
+      const held = liveConnection(reader, connectionId.toLowerCase());
+      if (held === null) return null;
+      const login = logins.get(held.record.id);
+      return { record: standing(held.record), login: login === undefined ? null : { token: login.token, provider: login.provider, target: login.target } };
     },
 
     close() {

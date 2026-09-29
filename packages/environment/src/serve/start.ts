@@ -100,6 +100,7 @@ import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
+import { createKeyManagerReferences } from "../key-managers/references.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -331,7 +332,7 @@ export interface EnvironmentOptions {
    * put a fake one on a PATH of their own.
    */
   readonly gh?: ManagedGh;
-  /** The key-manager registry's resolve seam, which #91 fills (#312). Preset: no key-manager connection; tests script one. */
+  /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
   /** How long one verification of a key-manager connection, or one certificate preview, may take (#366). Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds. */
   readonly keyManagerTimeoutMs?: number;
@@ -452,6 +453,13 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /**
+   * The key-manager registry's resolve (#370): how the harness's services
+   * read a reference for one operation, in process, with the connection's
+   * login, the value registered for scrubbing until its release. The forge
+   * reads through it; banks, routine endpoints and the skills check will.
+   */
+  readonly keyManagers: KeyManagerRegistry;
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -574,8 +582,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The forge accounts' store (#310) starts in this step too, after the client sessions whose labels a token handed over
   // from a client's gh records (#312): each stored token is registered with its Basic-auth form, and the vault entries of
   // forge accounts that are gone are deleted, before anything can read them. So do the key-manager connections (#365): each
-  // credential the vault holds is registered, and the entries of connections that are gone deleted.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections } = await step("identity", async () => {
+  // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
+  // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
+  // connection's removal.
+  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -600,6 +610,24 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
       defaultCeiling: () => permissionSettings()["permissions.defaultCeiling"],
     });
+    const connections = createKeyManagerConnections({
+      log,
+      clock,
+      environmentId: loaded.id,
+      vault,
+      scrub,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+      // Asked only by a removal, once the wire is open and the forge made below.
+      referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+    });
+    closers.push(() => connections.close());
+    await connections.start();
+    const keyManagerReferences = createKeyManagerReferences({
+      connections,
+      scrub,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+    });
+    const registry: KeyManagerRegistry = options.keyManagers ?? keyManagerReferences;
     const forgeService: ForgeService = createForgeService({
       log,
       clock,
@@ -611,26 +639,24 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
       knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
       ...(options.gh !== undefined && { gh: options.gh }),
-      ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
+      keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
       // Where the credential helper asks: the loopback listener, bound after this step.
       address: () => address,
     });
     closers.push(() => forgeService.close());
     await forgeService.start();
-    capabilities.push("forge");
-    const connections = createKeyManagerConnections({
-      log,
-      clock,
-      environmentId: loaded.id,
-      vault,
-      scrub,
-      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
-    });
-    closers.push(() => connections.close());
-    await connections.start();
-    capabilities.push("keyManagers");
-    return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access, forge: forgeService, keyManagerConnections: connections };
+    capabilities.push("forge", "keyManagers");
+    return {
+      record: loaded,
+      clientSessions: loadedClientSessions,
+      pairings: loadedPairings,
+      accessLog: access,
+      forge: forgeService,
+      keyManagerConnections: connections,
+      keyManagers: registry,
+      references: keyManagerReferences,
+    };
   });
 
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
@@ -952,7 +978,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
+    ...keyManagerMethods(keyManagerConnections, references, options.keyManagerTimeoutMs),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
@@ -1164,6 +1190,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log,
     forge,
     keyManagerConnections,
+    keyManagers,
     close,
   };
 };

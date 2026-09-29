@@ -1,4 +1,4 @@
-import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy, KeyManagerReference, KeyManagerTokenInformation } from "@agent-harness/contracts";
+import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy, KeyManagerProvider, KeyManagerReference, KeyManagerTokenInformation } from "@agent-harness/contracts";
 
 /**
  * The provider interface (key-managers spec, "Providers"; ADR 0011): one
@@ -10,6 +10,9 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
  * use them (#368 to #379). A provider never disables TLS verification: a
  * pinned CA is the only trust it adds.
  */
+
+/** How a provider is named to people. */
+export const PROVIDER_NAMES: Record<KeyManagerProvider, string> = { openbao: "OpenBao", doppler: "Doppler", onepassword: "1Password", bitwarden: "Bitwarden Secrets Manager" };
 
 /** How long one exchange with a key manager may take, a verification or a certificate preview (ADR 0031's budget), past which it is `unreachable`. */
 export const KEY_MANAGER_BUDGET_MS = 10_000;
