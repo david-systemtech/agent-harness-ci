@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerAuthMethod",
+  "type": "string",
+  "enum": [
+    "approle",
+    "userpass",
+    "token"
+  ],
+  "description": "How a connection to OpenBao or Vault signs in: approle (a role id and a secret id), userpass (a username and a password) or token (a token, looked up)."
+}

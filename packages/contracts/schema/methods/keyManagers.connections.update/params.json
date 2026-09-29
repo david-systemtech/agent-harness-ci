@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "keyManagers.connections.update params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "label": {
+      "description": "The new label.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\p{Cc}]+$"
+    },
+    "address": {
+      "description": "The new address: only its origin is kept.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "ca": {
+      "description": "The CA to pin from now on, which a person accepted; null to pin none. OpenBao only.",
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 65536,
+          "pattern": "-----BEGIN CERTIFICATE-----",
+          "description": "The CA certificate a connection pins, as PEM (one or more certificates, up to 65536 characters): every request to the key manager verifies its certificate against it, and trusts nothing else."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tokenRole": {
+      "description": "The token role from now on; null for none. OpenBao only.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^/\\p{Cc}]+$",
+          "description": "The token role run tokens are created against: no slash, on one line."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "commandId",
+    "connectionId"
+  ]
+}

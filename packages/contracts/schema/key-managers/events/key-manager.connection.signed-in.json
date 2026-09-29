@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerConnectionSignedInPayload",
+  "type": "object",
+  "properties": {
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "awaiting-sign-in",
+            "signing-in",
+            "signed-in",
+            "credential-rejected",
+            "expired",
+            "unreachable",
+            "sealed",
+            "certificate-rejected"
+          ],
+          "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's)."
+        },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "Since when the connection has stood so: a login that finds what it had keeps the time."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\n]*$",
+          "description": "One line for people: where it stands and what to do."
+        }
+      },
+      "required": [
+        "kind",
+        "since",
+        "message"
+      ],
+      "description": "What the sign-in came to: signed in; or, for the environment's own sign-in from the kept credential, credential-rejected, unreachable, sealed or certificate-rejected."
+    },
+    "tokenInformation": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "displayName": {
+              "type": "string",
+              "description": "The token's display name, as the key manager answers it (approle, userpass-david)."
+            },
+            "policies": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+                "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+              },
+              "description": "The policies the login's token holds, as its lookup answers them."
+            },
+            "ttlSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The token's time to live when it was looked up, in seconds; 0 for a token that does not expire."
+            },
+            "renewable": {
+              "type": "boolean",
+              "description": "Whether the token can be renewed."
+            },
+            "expiresAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When the token expires; null for one that does not."
+            }
+          },
+          "required": [
+            "displayName",
+            "policies",
+            "ttlSeconds",
+            "renewable",
+            "expiresAt"
+          ],
+          "description": "What the login's lookup said of its token: display name, policies, time to live, whether it renews, and its expiry. Never the token or its id."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What the login's lookup said of its token; null when it did not sign in."
+    },
+    "credential": {
+      "description": "The vault entry of the credential a person gave, when it replaced the one held.",
+      "type": "string",
+      "pattern": "^key-manager:[0-9a-f-]+:[0-9a-f-]+$"
+    },
+    "method": {
+      "description": "The auth method, when it changed.",
+      "type": "string",
+      "enum": [
+        "approle",
+        "userpass",
+        "token"
+      ]
+    },
+    "mount": {
+      "description": "The mount, when it changed.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    },
+    "username": {
+      "description": "The username, when it changed: null for a method other than userpass.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^/\\p{Cc}]+$",
+          "description": "The username a userpass login signs in as: no slash, on one line."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ticks": {
+      "description": "The ticks, when this first sign-in preset them to every policy of the login.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+        "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+      }
+    },
+    "injects": {
+      "description": "Present when the connection now injects, being the first of its provider signed in.",
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "connectionId",
+    "status",
+    "tokenInformation"
+  ],
+  "description": "key-manager.connection.signed-in: a sign-in ended, a person's with a new credential or the environment's own from the kept one after a start, and how: the status, and the token information of its login."
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerImportedFrom",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 256,
+  "pattern": "^[^\\p{Cc}]+$",
+  "description": "The id the state import's source gave the connection it imported; a later import naming it again answers the connection it made."
+}

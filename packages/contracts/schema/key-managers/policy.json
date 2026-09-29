@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerPolicy",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 256,
+  "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+  "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+}
