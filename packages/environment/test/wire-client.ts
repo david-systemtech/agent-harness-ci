@@ -28,8 +28,15 @@ import type { Address } from "../src/serve/http.js";
  * always the bare wire path.
  */
 
-/** How long a test waits for a frame or a close before failing, in real time. */
-export const WAIT_MS = 3000;
+/**
+ * How long a test waits for a frame or a close before failing, in real time.
+ * Only a test that fails waits it out, so it is sized for a throttled CI
+ * runner rather than an idle machine: at three seconds, frames that come in
+ * well under a second here outlasted it there, in tests that ran six to ten
+ * seconds on 2026-09-28 (#597, #598, #599). Half the 30 seconds a test may
+ * take, so a frame that never comes still fails saying what it waited for.
+ */
+export const WAIT_MS = 15_000;
 
 /**
  * How long a test keeps trying to open the wire's socket, in real time: on a
@@ -42,9 +49,9 @@ export const CONNECT_MS = 15_000;
 
 /**
  * How long a test waits for the environment to close the socket after its
- * `bye`, in real time. Longer than `WAIT_MS`: on a loaded runner the close
- * came after three seconds (issue #226, a completions test on 2026-09-25),
- * and nothing is waiting on the test in the meantime.
+ * `bye`, in real time: on a loaded runner the close came after three seconds
+ * (issue #226, a completions test on 2026-09-25), and nothing is waiting on
+ * the test in the meantime.
  */
 export const CLOSE_AFTER_BYE_MS = 15_000;
 

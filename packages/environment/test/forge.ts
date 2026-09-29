@@ -3,8 +3,9 @@ import { request } from "node:http";
 import { GIT_CREDENTIAL_PATH, formatHostPort, type CommandReceipt, type EventEnvelope, type EventFrame, type ForgeAccountRecord, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
 import type { Address } from "../src/serve/http.js";
 import type { TestEnvironment } from "./helper.js";
+import { expect, vi } from "vitest";
 import { create } from "./sessions.js";
-import type { WireClient } from "./wire-client.js";
+import { WAIT_MS, type WireClient } from "./wire-client.js";
 
 /**
  * What the forge suites share (#310, #312): the forge account methods sent
@@ -71,6 +72,11 @@ export const forgeEvents = async (client: WireClient, afterSequence: number): Pr
  * Each of `values` as a run's provider says it back and a subscribed client
  * reads it (the fake's preset reply is `Done: <the prompt>`): `[redacted]`
  * for one the environment holds as a secret, itself for one it does not.
+ * Never inside `vi.waitFor`: each attempt is a whole run, which on a loaded
+ * runner outlasts the poll's one-second budget (#595). A command that takes a
+ * token on or lets one go does so in its `afterCommit`, before its answer is
+ * sent, so a test asks once the answer is in; for a change that comes after
+ * an answer, `saidBackOnceHeld`.
  */
 export const saidBack = async (t: TestEnvironment, values: readonly string[]): Promise<string[]> => {
   const client = await t.client();
@@ -127,3 +133,16 @@ export const askCredentialRoute = (address: Address, secret: string | null, body
     sent.on("error", reject);
     sent.end(text);
   });
+
+/**
+ * `saidBack` once the scrub registry holds each of `values` as `expected`
+ * says (`[redacted]`, or the value itself): for a token taken on or let go
+ * after the answer a test has, such as one read from the vault again once a
+ * verification has answered, or a login let go once its revoke is answered.
+ * The registry itself is polled, which is cheap, for as long as a frame is
+ * waited for; then one run is asked (#595).
+ */
+export const saidBackOnceHeld = async (t: TestEnvironment, values: readonly string[], expected: readonly string[]): Promise<string[]> => {
+  await vi.waitFor(() => expect(values.map((value) => t.scrub.scrub(value))).toEqual(expected), { timeout: WAIT_MS });
+  return saidBack(t, values);
+};
