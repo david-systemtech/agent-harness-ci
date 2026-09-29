@@ -1,7 +1,7 @@
 import type { KeyManagerTokenInformation } from "@agent-harness/contracts";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
-import type { ConnectionProvider, SignInTarget, TokenLife } from "./provider.js";
+import type { ConnectionProvider, RenewAnswer, SignInTarget, TokenLife } from "./provider.js";
 
 /**
  * The logins the environment holds for its key-manager connections, and
@@ -198,7 +198,10 @@ export const createLogins = (options: LoginsOptions): Logins => {
     const asked = askedOf(entry);
     // The lease is dated from the asking, never later than the key manager dated it, however late the answer is read.
     const at = now();
-    const answer = await entry.login.provider.renew(entry.login.target, entry.login.token, asked, AbortSignal.timeout(budgetMs));
+    const answer = await entry.login.provider
+      .renew(entry.login.target, entry.login.token, asked, AbortSignal.timeout(budgetMs))
+      // A renewal that throws is tried again as one that got no answer is.
+      .catch((error: unknown): RenewAnswer => ({ outcome: "unreachable", message: error instanceof Error ? error.message : String(error) }));
     if (!held.has(entry)) return;
     if (answer.outcome === "renewed") {
       entry.leaseStart = at;
