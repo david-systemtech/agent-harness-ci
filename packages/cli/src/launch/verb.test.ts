@@ -111,6 +111,21 @@ describe.runIf(posix)("agent-harness launch", () => {
     expect(await exit).toBe(0);
     expect(stdout).toMatch(/^\S+ launcher: spawned 0\.5\.0 as pid \d+\n\S+ launcher: 0\.5\.0 committed\n\S+ launcher: stopping: draining 0\.5\.0\n/);
   });
+
+  it("passes --name to every serve it starts, which names a new environment with it at its first start", async () => {
+    const dataDir = dataDirectory();
+    let stop!: () => void;
+    const stopRequested = new Promise<void>((resolve) => (stop = resolve));
+    const exit = runCli(["launch", "--data-dir", dataDir, "--port", "7433", "--name", "David's desk"], {
+      stdout: () => undefined,
+      stderr: () => undefined,
+      stopRequested: () => stopRequested,
+    });
+    await until("the child is committed", () => childReport(dataDir).some((line) => line.event === "committed"));
+    expect(childReport(dataDir)[0]?.["args"]).toEqual(["serve", "--data-dir", dataDir, "--port", "7433", "--name", "David's desk"]);
+    stop();
+    expect(await exit).toBe(0);
+  });
 });
 
 describe("agent-harness launch's arguments", () => {
@@ -121,11 +136,15 @@ describe("agent-harness launch's arguments", () => {
   };
 
   it("needs the data directory named, since the launcher does not ask the environment for its default", async () => {
-    expect(await refused()).toEqual({ code: 2, stderr: expect.stringMatching(/^launch needs --data-dir <path>[^\n]*\nusage: launch --data-dir <path> \[--port <n>\]\n$/) });
+    expect(await refused()).toEqual({
+      code: 2,
+      stderr: expect.stringMatching(/^launch needs --data-dir <path>[^\n]*\nusage: launch --data-dir <path> \[--port <n>\] \[--name <name>\]\n$/),
+    });
   });
 
   it("refuses a port that is not one, and anything else it does not take", async () => {
     expect(await refused("--data-dir", "/data", "--port", "http")).toMatchObject({ code: 2, stderr: expect.stringContaining("--port takes a port number") });
-    expect(await refused("--data-dir", "/data", "--name", "box")).toMatchObject({ code: 2, stderr: expect.stringContaining("--name") });
+    expect(await refused("--data-dir", "/data", "--channel", "beta")).toMatchObject({ code: 2, stderr: expect.stringContaining("--channel") });
+    expect(await refused("--data-dir", "/data", "--name", " ")).toMatchObject({ code: 2, stderr: expect.stringContaining("--name") });
   });
 });

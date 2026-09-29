@@ -31,9 +31,13 @@ const writeTemporary = (path: string, text: string, fs: DurableFs): string => {
   return temporary;
 };
 
-/** Puts the file at `path` on disk: what was written to it, and its size. It is opened for writing, which Windows needs to flush a file. */
-export const syncFile = (path: string, fs: DurableFs = nodeFs): void => {
-  const fd = fs.openSync(path, "r+");
+/**
+ * Puts the file at `path` on disk: what was written to it, and its size. It
+ * is opened for writing on Windows, which needs that to flush a file, and for
+ * reading elsewhere, so a read-only file is put on disk too.
+ */
+export const syncFile = (path: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
+  const fd = fs.openSync(path, platform === "win32" ? "r+" : "r");
   try {
     fs.fsyncSync(fd);
   } finally {

@@ -290,7 +290,8 @@ export {
   type UserCheck,
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
-export { createScrubRegistry, REDACTED, type ScrubRegistration, type ScrubRegistry, type ScrubRelease } from "./scrub/registry.js";
+export { secretShapedIn } from "./scrub/refusal.js";
+export { createScrubRegistry, REDACTED, type ScrubRegistration, type ScrubRegistry, type ScrubRelease, type ScrubStream } from "./scrub/registry.js";
 export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";
 export { toWireEnvelope } from "./wire/envelope.js";
 export type { Outlet, StreamSource, SubscriptionHooks } from "./wire/subscriptions.js";

@@ -1,41 +1,27 @@
 import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
-import { serveArguments, SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
+import { SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
 import { escapeXml } from "./xml.js";
 
 /** The file in the data directory the task XML is written to for `schtasks /Create`, and removed from after. */
 export const TASK_XML_FILE = "service-task.xml";
 
 /**
- * One argument as the Windows C runtime splits a command line: bare when it
- * has no space, tab or quote, else quoted, with each quote escaped and the
- * backslashes before a quote (or before the closing quote) doubled.
- */
-const windowsArgument = (arg: string): string => {
-  if (arg !== "" && !/[\s"]/.test(arg)) return arg;
-  let quoted = '"';
-  let backslashes = 0;
-  for (const char of arg) {
-    if (char === "\\") {
-      backslashes++;
-      continue;
-    }
-    quoted += "\\".repeat(char === '"' ? backslashes * 2 + 1 : backslashes) + char;
-    backslashes = 0;
-  }
-  return `${quoted}${"\\".repeat(backslashes * 2)}"`;
-};
-
-/**
  * The Task Scheduler task: a logon trigger and an interactive, least-privilege
- * principal for the user, `serve` with the data directory and port, no time
- * limit, restarted when it fails. It runs through `conhost.exe --headless`:
- * node is a console program, and a task that starts one directly opens a
- * console window at every logon, which Windows 11 hands to Windows Terminal
- * whatever the window style asked for. Task Scheduler cannot redirect output,
- * so this service writes no log file.
+ * principal for the user, the launcher entry through `cmd.exe`, no time
+ * limit, restarted when it fails to start. It runs through `conhost.exe
+ * --headless`: cmd and node are console programs, and a task that starts one
+ * directly opens a console window at every logon, which Windows 11 hands to
+ * Windows Terminal whatever the window style asked for. cmd runs the entry by
+ * its name in the entry's folder, the task's working directory: conhost
+ * passes on the rest of its command line re-quoted as the C runtime reads it,
+ * quoting a path only for a space, and cmd would read an `&` or `^` in a bare
+ * path, or strip the quotes of one that is quoted, so no command line carries
+ * the path. Task Scheduler cannot redirect output, and has no stop timeout:
+ * the entry writes the service log, and a stop (End) ends the processes at
+ * once.
  */
 export const renderTaskXml = (spec: ServiceSpec, user: string): string =>
   [
@@ -73,7 +59,8 @@ export const renderTaskXml = (spec: ServiceSpec, user: string): string =>
     '  <Actions Context="Author">',
     "    <Exec>",
     "      <Command>%SystemRoot%\\System32\\conhost.exe</Command>",
-    `      <Arguments>${escapeXml(["--headless", ...serveArguments(spec).map(windowsArgument)].join(" "))}</Arguments>`,
+    `      <Arguments>--headless cmd.exe /d /c .\\${escapeXml(win32.basename(spec.entry))}</Arguments>`,
+    `      <WorkingDirectory>${escapeXml(win32.dirname(spec.entry))}</WorkingDirectory>`,
     "    </Exec>",
     "  </Actions>",
     "</Task>",
@@ -114,7 +101,7 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
   return {
     kind: "task-scheduler",
     definitionPath: () => `\\${name}`,
-    install: async (spec) => {
+    install: async (spec, { restartRunning }) => {
       const existed = (await commands.probe("schtasks", ["/Query", "/TN", name])).code === 0;
       const wasRunning = existed && (await isRunning());
       // The previous task, kept so a refusal after /Create can put it back (the ServicePlatform contract).
@@ -132,7 +119,8 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
         }
       };
       await createFrom(renderTaskXml(spec, taskUser(installContext)));
-      if (wasRunning) {
+      // A running task left running takes the new definition at its next start.
+      if (wasRunning && restartRunning) {
         try {
           await schtasks("/End", "/TN", name);
           await schtasks("/Run", "/TN", name);

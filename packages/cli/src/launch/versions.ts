@@ -38,15 +38,20 @@ export const completeVersions = (dataDir: string): string[] => {
     .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 };
 
+/** Where a version's own Node runtime is in its folder: where Node's archive for the platform puts it once unpacked into the version's `node` folder. */
+export const versionNode = (platform: NodeJS.Platform): readonly string[] => (platform === "win32" ? ["node", "node.exe"] : ["node", "bin", "node"]);
+
+/** Where a version's CLI entry is in its folder. */
+export const VERSION_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
+
 /**
  * The command line that runs the `agent-harness` of the version installed in
- * `versionDir`: the version's own Node runtime, where Node's archive for the
- * platform puts it once unpacked into the version's `node` folder, on its
- * CLI's entry. The launcher runs node directly, never the version's
+ * `versionDir`: the version's own Node runtime (`versionNode`) on its CLI's
+ * entry. The launcher runs node directly, never the version's
  * `bin/agent-harness` script, so the IPC channel reaches the CLI on every
  * platform (a Windows command script would stand between them).
  */
 export const versionCommand = (versionDir: string, platform: NodeJS.Platform = process.platform): readonly [node: string, entry: string] => [
-  platform === "win32" ? join(versionDir, "node", "node.exe") : join(versionDir, "node", "bin", "node"),
-  join(versionDir, "packages", "cli", "dist", "main.js"),
+  join(versionDir, ...versionNode(platform)),
+  join(versionDir, ...VERSION_CLI_ENTRY),
 ];

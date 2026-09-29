@@ -293,7 +293,7 @@ export interface EnvironmentOptions {
    */
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "clock">;
+  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub">;
   /**
    * The resolver `sessions.create` and the completions surface give a new
    * session its workspace through (#321). Preset: the environment's
@@ -311,9 +311,9 @@ export interface EnvironmentOptions {
   /**
    * The command line that runs the `agent-harness` binary before its verb
    * (#314): git names it, with `git-credential <slug>`, as its credential
-   * helper. `serve` passes the one it runs as; the launcher's stable shim
-   * (#338) takes its place once it exists. Absent, the harness's git fails
-   * on an origin a forge account covers.
+   * helper. `serve` passes the launcher's `bin` shim under a launcher
+   * (#338, #459), whose path outlives every version, else the one it runs
+   * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
@@ -502,8 +502,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let address: Address | undefined;
   const closers = createCloserStack();
   // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
-  // registry from here to the end of its close, and of a failed start's (ADR 0011).
-  closers.push(scrubDiagnosticOutput((text) => scrub.scrub(text)));
+  // registry, registered values and then shape rules, from here to the end of its close, and of a failed start's (ADR 0011).
+  closers.push(scrubDiagnosticOutput((text) => scrub.scrubOutput(text)));
   // Pushed next, so it closes after everything else the environment opens, and only the scrub above is let go after it:
   // after the listener and the event log, and after a failed start too.
   closers.push(() => launcher.close());
@@ -781,7 +781,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, ...options.terminals });
+  const terminalService = createTerminalService({ log, clock, scrub, ...options.terminals });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,

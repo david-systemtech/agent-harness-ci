@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ShapeRuleId",
+  "type": "string",
+  "enum": [
+    "anthropic",
+    "openai-style",
+    "aws",
+    "google",
+    "github",
+    "private-key",
+    "bearer",
+    "key-assignment",
+    "openbao",
+    "doppler",
+    "onepassword",
+    "bitwarden"
+  ],
+  "description": "A shape rule of the scrub registry: anthropic, openai-style (an sk- key), aws (an access key id), google, github, private-key (a PEM private key), bearer, key-assignment (a value after a key's name and = or :), openbao (OpenBao and Vault tokens), doppler, onepassword (a service-account token) or bitwarden (an access token)."
+}

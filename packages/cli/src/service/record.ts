@@ -11,6 +11,12 @@ export interface ServiceRecord {
   readonly platform: ServicePlatform["kind"];
   readonly definitionPath: string;
   readonly port: number;
+  /**
+   * The launcher entry the definition runs. A record without one is from
+   * before the launcher, whose definition runs `serve` directly, so its
+   * service runs no launcher.
+   */
+  readonly launcherEntry?: string;
   /** Every folder install created, the data directory's included, outermost first; uninstall removes those left empty. */
   readonly createdDirectories: readonly string[];
 }
@@ -22,6 +28,7 @@ const isRecord = (value: unknown): value is ServiceRecord => {
     typeof record["platform"] === "string" &&
     typeof record["definitionPath"] === "string" &&
     Number.isInteger(record["port"]) &&
+    (record["launcherEntry"] === undefined || typeof record["launcherEntry"] === "string") &&
     Array.isArray(record["createdDirectories"]) &&
     record["createdDirectories"].every((dir) => typeof dir === "string")
   );
@@ -48,8 +55,15 @@ export const readServiceRecord = (dataDir: string): ServiceRecord | undefined =>
   return parsed;
 };
 
+/** Writes the record in `dataDir`; a write that fails is a `ServiceError`. */
 export const writeServiceRecord = (dataDir: string, record: ServiceRecord): void => {
-  writeFileSync(join(dataDir, SERVICE_RECORD_FILE), `${JSON.stringify(record, null, 2)}\n`);
+  const path = join(dataDir, SERVICE_RECORD_FILE);
+  try {
+    writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new ServiceError(`Could not write ${path}, so the install was taken back: ${reason}`, { cause: error });
+  }
 };
 
 export const removeServiceRecord = (dataDir: string): void => {

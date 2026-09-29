@@ -20,3 +20,11 @@ export const parsePort = (value: string | undefined, min: 0 | 1): number | undef
   }
   return Number(value);
 };
+
+/** A `--name` value: the name a new environment is created with, one line with something in it; undefined when none was given. */
+export const parseName = (value: string | undefined): string | undefined => {
+  if (value === undefined) return undefined;
+  if (value.trim() === "") throw new UsageError("--name takes the environment's name; got an empty one.");
+  if (/[\r\n]/.test(value)) throw new UsageError("--name takes the environment's name on one line; got a line break in it.");
+  return value;
+};

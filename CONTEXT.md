@@ -205,8 +205,12 @@ The stable script the service definition runs, which starts the launcher of the 
 _Avoid_: wrapper, bootstrap, the launcher (the process it starts)
 
 **Launcher version file**:
-The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by the launcher at a handover and by the entry when it falls back.
+The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by `service install` when no launcher runs, by the launcher at a handover and by the entry when it falls back.
 _Avoid_: pointer (a place in a bank), current link
+
+**Shim**:
+The `agent-harness` in the data directory's `bin` folder, which runs the CLI of the version the service state names active with the arguments it was given, so whatever a person or a helper starts from it matches its environment through every update; `service install` writes it and prints the line that puts its folder on the path.
+_Avoid_: wrapper, alias, the launcher entry (what the service definition runs)
 
 **Versions directory**:
 The folder in the data directory holding one folder per installed version, named by the version; a folder counts as a version only once its sentinel, written last, is in it.
@@ -327,6 +331,10 @@ _Avoid_: dependency, prerequisite, binary
 **Scrub registry**:
 The one list of values the harness has resolved or injected, consulted by transcripts, the event log, tool outputs, logs and renders so none of those values is ever shown or stored; secrets the model handles on its own are not in it.
 _Avoid_: redaction list, filter, mask
+
+**Shape rule**:
+A pattern for a secret the harness never registered, anchored on a recognisable prefix (`ghp_`, `hvs.`, `sk-ant-`, a key's name before `=`) and never on how random a string looks; applied beside the scrub registry's values to the harness's own log lines, captured output and error text, and checked on what it sends out, but never to a session's content.
+_Avoid_: secret detector, entropy check, pattern
 
 **Forge account**:
 An environment's one identity on one forge origin (GitHub, Forgejo, Gitea; GitLab later), with any verified alias origins, a slug, its credential source and its capabilities; the only thing banks, skill sources, the tracker, pull requests, releases and repository creation authenticate with on that origin.

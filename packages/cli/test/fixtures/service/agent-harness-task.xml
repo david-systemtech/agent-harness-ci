@@ -32,7 +32,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>%SystemRoot%\System32\conhost.exe</Command>
-      <Arguments>--headless "C:\Program Files\nodejs\node.exe" C:\Users\david\AppData\Local\Programs\agent-harness\0.1.0\dist\main.js serve --data-dir C:\Users\david\AppData\Local\agent-harness --port 7433</Arguments>
+      <Arguments>--headless cmd.exe /d /c .\launcher-entry.cmd</Arguments>
+      <WorkingDirectory>C:\Users\david\AppData\Local\agent-harness</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
