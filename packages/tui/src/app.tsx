@@ -33,6 +33,7 @@ import {
   type EnvironmentView,
   type GrantReader,
   type InStep,
+  type NewSessionFocus,
   type Notice,
   type Observable,
   type PairingInput,
@@ -50,7 +51,6 @@ import {
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
-  type WorkspaceRequest,
 } from "@agent-harness/contracts";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
@@ -96,8 +96,11 @@ import {
 import type { LocalService } from "./platform/services.js";
 import { inMemoryPresentation, type Presentation } from "./presentation.js";
 import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
+import { badgesOf } from "./rail/badge.js";
+import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
+import { isFullPath, workspaceLabel } from "./rail/workspace-step.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
@@ -437,6 +440,7 @@ export const App = (props: AppProps) => {
   const known = knownEnvironments(views);
   const down = started && localIsDown(views, local);
   const names = new Map(views.map((view) => [view.environmentId, nameOf(view)]));
+  const badges = useMemo(() => badgesOf(views), [views]);
 
   // The session on screen.
   const session = useSession(runtime, clock, request);
@@ -933,25 +937,36 @@ export const App = (props: AppProps) => {
     },
   ];
 
+  // What the new-session card opens on from the composer (#334): the open session, else the environment `--environment`
+  // names, else nothing in focus, ADR 0005's rule presetting the rest; with no session open, the terminal's own directory
+  // (`--cwd`) is the workspace chosen on the local environment, as `/new` has always started there.
+  const cardOpening = (): CardOpening => {
+    if (opened) return { focus: { kind: "session", environmentId: opened.environmentId, sessionId: opened.sessionId } };
+    const named = props.flags.environment === undefined ? undefined : findEnvironment(known, props.flags.environment);
+    const focus: NewSessionFocus = named ? { kind: "environment", environmentId: named.environmentId } : { kind: "none" };
+    if (!rememberedLocal || !localView || !isFullPath(props.flags.workspace)) return { focus };
+    return { focus, chips: { workspace: { environmentId: localView.environmentId, request: { kind: "directory", path: props.flags.workspace } } } };
+  };
+
   // `/new`: a session on the open one's environment, in its workspace (a `session` request naming it, so the environment
-  // shares its workspace as it has it, #325), on its account and model; with none open, on the header's environment in
-  // the `--cwd` directory. It opens once the environment has it, so its stream is never asked for before it exists.
+  // shares its workspace as it has it, #325), on its account and model; with none open, the new-session card (#334). Either
+  // opens once the environment has it, so its stream is never asked for before it exists.
   const newSession = () => {
-    const environment = opened ? views.find((v) => v.environmentId === opened.environmentId) : current;
+    if (!opened) return rail.newSession({ ...cardOpening(), opens: true });
+    const environment = views.find((v) => v.environmentId === opened.environmentId);
     if (!environment || isPlaceholder(environment)) return say("There is no environment to start a session on: /pair one first.");
     const sessionId = props.newSessionId?.() ?? crypto.randomUUID();
     const summary = projection?.summary;
-    const workspace: WorkspaceRequest = opened ? { kind: "session", sessionId: opened.sessionId } : { kind: "directory", path: props.flags.workspace };
-    const where = opened ? (summary?.workspace.path ?? "the open session's workspace") : props.flags.workspace;
+    const where = summary?.workspace.path ?? "the open session's workspace";
     say(`Starting a session on ${nameOf(environment)} in ${where}…`);
     void runtime.commands
-      .dispatch(environment.environmentId, "sessions.create", {
+      .startSession(environment.environmentId, {
         id: sessionId,
-        workspace,
+        workspace: { kind: "session", sessionId: opened.sessionId },
         ...(summary?.accountId && { account: summary.accountId }),
         ...(summary?.model && { model: summary.model }),
       })
-      .then((answer) => {
+      .then(({ answer }) => {
         if (!answer.ok) return say(`No session was started: ${answer.error.message}`);
         open({ environmentId: environment.environmentId, sessionId });
         say(`A new session on ${nameOf(environment)} in ${answer.result?.summary.workspace.path ?? where}.`);
@@ -1289,7 +1304,7 @@ export const App = (props: AppProps) => {
     keymap,
     presentation,
     startingService,
-    current,
+    opening: cardOpening,
     workspace: props.flags.workspace,
     // The slash forms act on the open session first.
     inHand: opened ?? undefined,
@@ -1891,6 +1906,13 @@ export const App = (props: AppProps) => {
         update({ card: { kind: "none" } });
         if (message) forkRewind.fork(message);
       },
+      // Ctrl+D on the workspace step: the known directory under the cursor, off the list on this terminal (#334).
+      "picker.hide": () => {
+        if (card.kind !== "picker") return false;
+        const row = rowAt(card.picker);
+        if (row?.hide === undefined) return say("Only a directory the environment's sessions use can be hidden from this list.");
+        row.hide();
+      },
       "row.rewind": () => {
         const row = onRow();
         if (!row) return false;
@@ -2109,6 +2131,10 @@ export const App = (props: AppProps) => {
         ? "steer or queue a message"
         : "message the agent";
   const steers = session.provider?.steering === true;
+  // The open session's environment badge and workspace, read-only in the header (#334): the summary as the list has it
+  // until its stream has it.
+  const openSummary = projection?.summary ?? openRow?.summary;
+  const openBadge = opened ? badges.get(opened.environmentId) : undefined;
   const popup = composer.popup;
   const searchScope = composer.state.search ? (scopes[composer.state.search.scope]?.name ?? "everywhere") : undefined;
 
@@ -2116,8 +2142,9 @@ export const App = (props: AppProps) => {
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Header
         current={(opened && viewOf(opened.environmentId)) || current}
+        {...(openBadge && { badge: openBadge })}
         startingService={startingService}
-        workspace={projection?.summary ? `${projection.summary.title} · ${projection.summary.workspace.path}` : props.flags.workspace}
+        workspace={openSummary ? `${openSummary.title} · ${workspaceLabel(openSummary.workspace)}` : props.flags.workspace}
       />
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
         {showRail && (

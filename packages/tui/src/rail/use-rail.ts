@@ -8,21 +8,10 @@ import { badgesOf } from "./badge.js";
 import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
 import { groupHeading, headingOver, isFolded, isSelectable, railLines, rowKey, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
-import {
-  cwdPicker,
-  groupPicker,
-  restorePicker,
-  searchPicker,
-  setWorkspacePicker,
-  snoozePicker,
-  snoozeTyped,
-  startPicker,
-  tagPicker,
-  titleOf,
-  whenBack,
-  type RailActs,
-} from "./pickers.js";
+import { newSessionCard, type CardOpening } from "./new-session.js";
+import { groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";
 import { movesFor } from "./reorder.js";
+import { setWorkspacePicker } from "./workspace-step.js";
 
 /**
  * The rail's controller (docs/specs/tui.md, "The rail"): what the cursor is
@@ -50,8 +39,13 @@ export interface RailOptions {
   readonly keymap: Keymap;
   readonly presentation: Presentation;
   readonly startingService: boolean;
-  /** The environment the header is about: where `/cwd` starts a session. */
-  readonly current: EnvironmentView | undefined;
+  /**
+   * What the new-session card opens on from the composer (`/cwd`, and `/new`
+   * with no session open): the open session, else the environment
+   * `--environment` names, else nothing in focus; with no session open, the
+   * terminal's own directory as the workspace on the local environment.
+   */
+  readonly opening: () => CardOpening;
   /** The terminal's workspace (`--cwd`, else the current directory). */
   readonly workspace: string;
   /** The session a slash form acts on before the one under the cursor: the open session, once the transcript opens one. */
@@ -85,6 +79,8 @@ export interface Rail {
   type(text: string): boolean;
   /** A rail slash command. */
   run(command: RailCommand): void;
+  /** Opens the new-session card on `opening` (`/new` with no session open), or says why there is nowhere to start one. */
+  newSession(opening: CardOpening): void;
   /** What the keys do at the cursor, for the line under the composer. */
   readonly hint: string | undefined;
 }
@@ -178,6 +174,15 @@ export const useRail = (options: RailOptions): Rail => {
       say(said);
       hear(runtime.commands.dispatch(environmentId, method, params), done, refused);
     },
+    start: (environmentId, choice, said, done, refused) => {
+      say(said);
+      hear(
+        runtime.commands.startSession(environmentId, choice).then((started) => started.answer),
+        () => done?.(),
+        refused,
+      );
+    },
+    openSession: options.openSession,
     move: (row, name, said) => {
       say(said);
       hear(runtime.commands.moveToGroup(row.environmentId, row.summary.id, name));
@@ -251,7 +256,13 @@ export const useRail = (options: RailOptions): Rail => {
     if (selected.folded !== null) return setFolded(selected.key, !selected.folded);
     const view = views.find((v) => v.environmentId === selected.environmentId);
     if (!view || view.name === null) return say("The environment on this machine has not answered yet: there is nowhere to start a session.");
-    options.open(startPicker(acts, view));
+    options.open(newSessionCard(acts, { focus: { kind: "environment", environmentId: view.environmentId } }));
+  };
+
+  /** The new-session card, on an environment this client knows; none known, and the line says so. */
+  const newSession = (opening: CardOpening) => {
+    if (!views.some((view) => view.name !== null)) return say("There is no environment to start a session on: /pair one first.");
+    options.open(newSessionCard(acts, opening));
   };
 
   const own: Record<RailKey, Handler> = {
@@ -313,9 +324,7 @@ export const useRail = (options: RailOptions): Rail => {
       const open = options.inHand && list.rows.find((row) => row.environmentId === options.inHand?.environmentId && row.summary.id === options.inHand.sessionId);
       const openView = open && views.find((v) => v.environmentId === open.environmentId);
       if (open && openView && open.summary.workspaceMissingSince !== null) return options.open(setWorkspacePicker(acts, openView, open, text));
-      const view = options.current;
-      if (!view || view.name === null) return say("There is no environment to start a session on: /pair one first.");
-      return options.open(cwdPicker(acts, view, text));
+      return newSession({ ...options.opening(), query: text });
     }
     const row = inHand();
     if (!row) return say(`/${name} acts on the session in hand: put the rail's cursor on one first.`);
@@ -359,6 +368,7 @@ export const useRail = (options: RailOptions): Rail => {
     cursor: selected?.key ?? null,
     filter,
     handlers,
+    newSession,
     type(text) {
       if (filter === null) return false;
       // As an update of the filter as it is, so keys that land before the next frame are all kept.

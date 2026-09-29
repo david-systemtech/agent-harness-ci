@@ -26,6 +26,8 @@ export interface PickerRow {
   readonly badge?: Badge;
   /** Why it cannot be chosen now: drawn dim, and said when chosen. */
   readonly absent?: string;
+  /** What `picker.hide` does on it: a known directory taken off the list on this client. None, and the key says it hides nothing here. */
+  readonly hide?: () => void;
   /**
    * What choosing it does: the next picker, nothing when it is done, or
    * `STAYS` when the picker stays as it is, waiting on an answer its own
@@ -37,7 +39,7 @@ export interface PickerRow {
 /** A choice that keeps its picker open as it is: query, cursor and all. */
 export const STAYS = "stays";
 
-/** A chip over a step: environment, account, model, in that order (ADR 0005). */
+/** A chip over a step: environment, account, model, then workspace, in that order (ADR 0005). */
 export interface Chip {
   readonly label: string;
   readonly value: string;
@@ -45,8 +47,10 @@ export interface Chip {
 }
 
 export interface Picker {
-  readonly title: string;
-  readonly chips?: readonly Chip[];
+  /** The title, or what reads it as drawn (a browse step's, which names the directory once it is listed). */
+  readonly title: string | (() => string);
+  /** The chips over the rows, or what reads them as drawn (presets that arrive while the card is up). */
+  readonly chips?: readonly Chip[] | (() => readonly Chip[]);
   /** Printable keys go into the query. */
   readonly typed: boolean;
   /** What to type, while the query is empty. */
@@ -102,7 +106,9 @@ export const PickerCard = (props: { readonly picker: Picker; readonly hint: stri
   const rows = picker.rows(picker.query);
   const cursor = Math.min(Math.max(picker.cursor, 0), Math.max(rows.length - 1, 0));
   const note = picker.note?.(picker.query);
-  const room = Math.max(1, props.height - 3 - (picker.chips ? 1 : 0) - (note ? 1 : 0));
+  const title = typeof picker.title === "function" ? picker.title() : picker.title;
+  const chips = typeof picker.chips === "function" ? picker.chips() : picker.chips;
+  const room = Math.max(1, props.height - 3 - (chips ? 1 : 0) - (note ? 1 : 0));
   // Scrolled as little as keeps the cursor in sight, from where it was (the rail's rule).
   const scrolled = useRef(0);
   let top = scrolled.current;
@@ -113,11 +119,11 @@ export const PickerCard = (props: { readonly picker: Picker; readonly hint: stri
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text bold wrap="truncate-end">
-        {picker.title} <Text dimColor>{props.hint}</Text>
+        {title} <Text dimColor>{props.hint}</Text>
       </Text>
-      {picker.chips && (
+      {chips && (
         <Text wrap="truncate-end">
-          {picker.chips.map((chip, i) => (
+          {chips.map((chip, i) => (
             <Text key={chip.label}>
               {i > 0 && <Text dimColor> · </Text>}
               <Text dimColor>{chip.label} </Text>

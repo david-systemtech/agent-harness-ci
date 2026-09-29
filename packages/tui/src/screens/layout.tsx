@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
+import type { Badge } from "../rail/badge.js";
 import { headingState, nameOf } from "../view.js";
 
 /**
@@ -14,8 +15,14 @@ import { headingState, nameOf } from "../view.js";
 /** Under this many columns the rail is hidden beside the pane; `rail/rail.tsx` draws it. */
 export const RAIL_MIN_COLUMNS = 100;
 
-export const Header = (props: { readonly current: EnvironmentView | undefined; readonly startingService: boolean; readonly workspace: string }) => {
-  const { current } = props;
+/**
+ * The header: the product, the environment it is about with its state, and
+ * the workspace. With a session open it is the session's environment, drawn
+ * with the environment's badge in its colour, then the session's title and
+ * its workspace (kind, directory name, a worktree's branch), read-only.
+ */
+export const Header = (props: { readonly current: EnvironmentView | undefined; readonly badge?: Badge; readonly startingService: boolean; readonly workspace: string }) => {
+  const { current, badge } = props;
   const state = current && headingState(current, props.startingService);
   return (
     <Box height={1}>
@@ -23,8 +30,19 @@ export const Header = (props: { readonly current: EnvironmentView | undefined; r
         <Text bold>{PRODUCT_NAME}</Text>
         <Text dimColor> · </Text>
         {current ? (
-          <Text color={current.phase === "ready" ? "green" : "yellow"}>
-            ● {nameOf(current)} {state ?? "ready"}
+          <Text>
+            {badge ? (
+              <Text color={badge.colour}>
+                {badge.icon}
+                {badge.abbreviation}
+              </Text>
+            ) : (
+              <Text color={current.phase === "ready" ? "green" : "yellow"}>●</Text>
+            )}
+            <Text color={current.phase === "ready" ? "green" : "yellow"}>
+              {" "}
+              {nameOf(current)} {state ?? "ready"}
+            </Text>
           </Text>
         ) : (
           <Text dimColor>no environment</Text>

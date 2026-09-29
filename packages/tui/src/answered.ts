@@ -70,6 +70,7 @@ export const SCREEN_KEYS = [
   "composer.withdrawLast",
   "app.prompt.back",
   "picker.branch",
+  "picker.hide",
   "row.rewind",
   "row.fork",
   "row.rewindUndo",
