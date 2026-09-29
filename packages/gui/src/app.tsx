@@ -1,4 +1,4 @@
-import type { Runtime } from "@agent-harness/client-runtime";
+import type { Clock, Runtime } from "@agent-harness/client-runtime";
 import { DEFAULT_THEME } from "@agent-harness/contracts";
 import { useLayoutEffect } from "react";
 import { Frame } from "./frame/frame.js";
@@ -12,6 +12,8 @@ export interface AppProps {
   readonly runtime: Runtime;
   /** The window's presentation, opened on the platform's documents. */
   readonly presentation: Presentation;
+  /** The platform's clock, the runtime's own. */
+  readonly clock: Clock;
   /** Whether the keys' `Mod` is ⌘ (macOS) or Ctrl (everywhere else). */
   readonly macOS: boolean;
 }
@@ -22,10 +24,10 @@ export interface AppProps {
  * (the preset's, until the window reads a theme of its own), its keys
  * dispatched through the GUI column of the shared action list.
  */
-export const App = ({ runtime, presentation, macOS }: AppProps) => {
+export const App = ({ runtime, presentation, clock, macOS }: AppProps) => {
   useLayoutEffect(() => paintTheme(document.documentElement, DEFAULT_THEME, osLadder(window)), []);
   return (
-    <WindowProvider runtime={runtime} presentation={presentation}>
+    <WindowProvider runtime={runtime} presentation={presentation} clock={clock}>
       <KeyDispatch macOS={macOS}>
         <Frame />
       </KeyDispatch>

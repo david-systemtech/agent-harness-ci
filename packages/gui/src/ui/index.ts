@@ -6,6 +6,7 @@
 export { Button, type ButtonProps, type ButtonTone } from "./button.js";
 export { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "./context-menu.js";
 export { Dialog, DialogClose, DialogContent, DialogTrigger, type DialogContentProps } from "./dialog.js";
+export { Fold, type FoldProps } from "./fold.js";
 export { Input } from "./input.js";
 export { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./menu.js";
 export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./popover.js";

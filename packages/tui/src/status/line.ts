@@ -1,6 +1,5 @@
-import type { SessionProjection, UsageGauge } from "@agent-harness/client-runtime";
+import { classifyTool, describeActivity, type ActivityCounts, type SessionProjection, type ToolCategory, type UsageGauge } from "@agent-harness/client-runtime";
 import type { ContainmentLevel, HandoffRecommendation, Mode, ModelUsage, UsageWindow } from "@agent-harness/contracts";
-import { classifyTool, describeActivity, type ActivityCounts, type ToolCategory } from "../transcript/format.js";
 
 /**
  * What the status line says, as words and colours (docs/specs/tui.md,

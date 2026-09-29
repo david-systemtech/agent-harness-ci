@@ -1,7 +1,7 @@
+import { oneLine } from "@agent-harness/client-runtime";
 import { Box, Text } from "ink";
 import { describeDenylistMatch, type PromptOpenedPayload, type PromptQuestion } from "@agent-harness/contracts";
 import { choiceRows, currentQuestion, isQuestion, type CardState } from "../cards/prompt.js";
-import { oneLine } from "../transcript/format.js";
 
 /**
  * The permission, question and plan card on screen (docs/specs/tui.md,

@@ -1,4 +1,4 @@
-import { render, type RenderResult } from "@testing-library/react";
+import { act, render, type RenderResult } from "@testing-library/react";
 import { userEvent, type UserEvent } from "@testing-library/user-event";
 import { createRuntime, type Runtime } from "@agent-harness/client-runtime";
 import { fakeShell, inMemoryPlatform, manualClock, type FakeShell, type InMemoryDocumentStore, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
@@ -39,6 +39,8 @@ export interface RenderedApp {
   readonly user: UserEvent;
   readonly view: RenderResult;
   environment(name: string): EnvironmentHandle;
+  /** Opens the `index`th session the script lists on `name` (from 0) in the pane, as presentation holds it. */
+  open(name: string, index?: number): void;
   /**
    * Closes the window, then opens it again on the same storage, as a
    * relaunch does: a new runtime and presentation over the same documents
@@ -76,7 +78,7 @@ const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, 
     if (outcome.status !== "paired") throw new Error(`The harness could not pair ${name}: ${JSON.stringify(outcome)}.`);
   }
   const presentation = await openPresentation(platform.documents, platform.reportError);
-  const view = render(<App runtime={runtime} presentation={presentation} macOS={macOS} />);
+  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} macOS={macOS} />);
   return {
     world,
     clock,
@@ -87,6 +89,10 @@ const mount = async ({ world, clock, shell, macOS, documents, secrets }: Mount, 
     user: userEvent.setup(),
     view,
     environment: (name) => world.environment(name),
+    open(name, index = 0) {
+      const environment = world.environment(name);
+      act(() => presentation.set("paneLayout", { session: { environmentId: environment.environmentId, sessionId: environment.sessionId(index) } }));
+    },
     async remount() {
       view.unmount();
       await presentation.close();
