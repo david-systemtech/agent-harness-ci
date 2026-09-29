@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunInjection",
+  "type": "object",
+  "properties": {
+    "answer": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "description": "Whether runs receive credentials (the forge variables and credential helper, and the key managers' block): allow or deny."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The id of the routine (or bot, as the policy's actorKind says) whose own injection it is."
+    }
+  },
+  "required": [
+    "answer",
+    "id"
+  ],
+  "description": "A run's own credential injection: its routine's or bot's allow or deny, which outranks its account's entry and the environment's value."
+}

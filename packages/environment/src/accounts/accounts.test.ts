@@ -17,6 +17,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, signedInAs, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
+import { updateSettings } from "../../test/shelf.js";
 import { scriptedSignIn } from "../../test/signin.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
@@ -298,6 +299,7 @@ describe("accounts.add", () => {
     const adopted = await adoptAmbient(client);
     const added = (await applied(client, "accounts.add", { label: "Second" })).account;
     expect(existsSync(added.directory.path)).toBe(true);
+    await updateSettings(client, { "credentials.injectionByAccount": { [added.id]: "deny" } });
     // The sign-in went to David's login again.
     t.adapter.setStatus(statusBy(ambient, { [added.directory.path]: DAVID }));
     const outcome = await signIn.finish(added.id);
@@ -310,6 +312,8 @@ describe("accounts.add", () => {
       { type: "account.directory-deleted", payload: { accountId: added.id, directory: added.directory.path } },
     ]);
     expect(notices(t).at(-1)).toEqual({ accountId: added.id, change: "removed", warning: expect.stringContaining(`already added as ${DAVID}`) });
+    // Its injection entry goes with it (#367).
+    expect(await client.request("settings.get", { keys: ["credentials.injectionByAccount"] })).toEqual({ values: { "credentials.injectionByAccount": {} } });
     expect(snapshotOf(ambient)).toEqual(before);
   });
 
@@ -402,6 +406,29 @@ describe("accounts.remove", () => {
     expect((await command(client, "accounts.remove", { accountId: kept.id })).receipt).toMatchObject({ status: "rejected", reason: "not_found" });
     // Its label is free again.
     expect((await applied(client, "accounts.add", { label: "Kept" })).account.label).toBe("Kept");
+  });
+
+  it("drops the account's entry from credentials.injectionByAccount in its own transaction, as the command's settings.updated, and leaves the others' (#367)", async () => {
+    const t = await start();
+    const client = await t.client();
+    const kept = (await applied(client, "accounts.add", { label: "Kept" })).account;
+    const removed = (await applied(client, "accounts.add", { label: "Removed" })).account;
+    await updateSettings(client, { "credentials.injectionByAccount": { [kept.id]: "allow", [removed.id]: "deny" } });
+    const head = t.env.log.head();
+
+    const commandId = randomUUID();
+    const answer = await client.request("accounts.remove", { commandId, accountId: removed.id });
+    expect(answer.receipt.status).toBe("accepted");
+
+    expect(await client.request("settings.get", { keys: ["credentials.injectionByAccount"] })).toEqual({ values: { "credentials.injectionByAccount": { [kept.id]: "allow" } } });
+    const updated = t.env.log.readStream({ kind: "settings", id: t.env.id }, head);
+    expect(updated.map((event) => [event.type, event.payload, event.commandId])).toEqual([
+      ["settings.updated", { values: { "credentials.injectionByAccount": { [kept.id]: "allow" } } }, commandId],
+    ]);
+    // An account with no entry leaves the setting as it is.
+    const after = t.env.log.head();
+    await applied(client, "accounts.remove", { accountId: (await applied(client, "accounts.add", { label: "Unlisted" })).account.id });
+    expect(t.env.log.readStream({ kind: "settings", id: t.env.id }, after)).toEqual([]);
   });
 
   it("at the next start removes what a recorded deletion or an uncommitted add left, and keeps a removed account's directory", async () => {

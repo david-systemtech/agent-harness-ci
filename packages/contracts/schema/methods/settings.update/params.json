@@ -430,6 +430,32 @@
             "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
           },
           "description": "browser.internalHosts: the internal hosts, as host patterns, that the headless browser and web_read may reach; loopback, private, link-local, CGNAT and unique-local addresses and .local, .internal and .lan names are refused unless listed, and cloud metadata addresses always. Preset localhost, 127.0.0.1 and ::1."
+        },
+        "credentials.injection": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "credentials.injection: whether runs on this environment receive credentials (the forge variables and credential helper, and the key managers' block), unless an account's entry or a routine's own injection says otherwise. Preset allow."
+        },
+        "credentials.injectionByAccount": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "description": "Whether runs receive credentials (the forge variables and credential helper, and the key managers' block): allow or deny."
+          },
+          "description": "credentials.injectionByAccount: by account id, allow or deny, which outranks credentials.injection for that account's runs and terminals and is outranked by a routine's own injection. An account not listed takes the environment's value; an account's entry is dropped when the account is removed. Preset empty."
         }
       },
       "additionalProperties": false,

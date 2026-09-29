@@ -68,7 +68,7 @@ export const forgeRejected = {
 };
 
 export const setupSchemaFixtures: Record<string, Fixtures> = {
-  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "browser", "permissions", "appearance"], invalid: ["key-manager", "Permissions", ""] },
+  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "key-manager", "browser", "permissions", "appearance"], invalid: ["memory-bank", "Permissions", ""] },
   "setup/action.json": {
     valid: ["restore", "check-again", "set-up-this-machine", "start-service", "import-again", "try-again", "write-it-myself", "start-over", "revise"],
     invalid: ["Restore", "reboot", "try again", ""],
@@ -138,7 +138,7 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
 
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
-    params: { valid: [{}, { step: "permissions" }, { step: "forges" }], invalid: [{ step: "key-manager" }, { step: "" }, { step: ["permissions"] }] },
+    params: { valid: [{}, { step: "permissions" }, { step: "forges" }, { step: "key-manager" }], invalid: [{ step: "memory-bank" }, { step: "" }, { step: ["permissions"] }] },
     result: {
       valid: [
         { results: [] },
