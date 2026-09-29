@@ -13,7 +13,10 @@ import { errorSchema } from "./errors.js";
  * log lines, captured output, error text) and checked on what it sends out
  * for the user (an issue's or a pull request's body, a memory draft); never
  * to content at the event log's append, since a secret the model or the user
- * handles on their own is outside the registry.
+ * handles on their own is outside the registry. The browser's redaction
+ * reads them too (browser spec, "Model-boundary hygiene"), on what a page
+ * reports before a tool answers with it, beside the shapes a page shows that
+ * they lack.
  */
 
 /** The shape rules' ids, in the order they are checked. */
