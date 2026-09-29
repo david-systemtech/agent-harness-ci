@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionLayer",
+  "type": "string",
+  "enum": [
+    "user",
+    "team-bank",
+    "project",
+    "session",
+    "persona",
+    "always-on"
+  ],
+  "description": "A layer of a run's standing instructions, in the order the text holds them: user (the orientation block, then owned instructions), team-bank, project, session, persona (a bot's), always-on (always-on skills)."
+}

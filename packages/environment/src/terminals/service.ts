@@ -11,6 +11,7 @@ import type { Clock } from "../serve/clock.js";
 import { isDirectory } from "../serve/files.js";
 import type { CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
+import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { requireSessionWorkspace, sessionWorkspace } from "../workspace/session.js";
 import { PtyUnavailableError } from "./pty.js";
 import { createTerminals, type Terminals, type TerminalsOptions } from "./terminals.js";
@@ -23,7 +24,9 @@ import { createTerminals, type Terminals, type TerminalsOptions } from "./termin
  * transaction and acts on the terminal once the transaction has committed,
  * so nothing is typed, resized, closed or started for a command that did
  * not. None appends an event: output never enters the log, and neither does
- * anything else a terminal does. A session's deletion closes its terminals
+ * anything else a terminal does, but the open tells the availability
+ * watcher what it found of the session's workspace (#328), which marks the
+ * session gone or back. A session's deletion closes its terminals
  * (session-state spec, "Deletion": an obligation on this workstream,
  * triggered by `session.deleted`); a restore brings none back.
  */
@@ -31,6 +34,8 @@ import { createTerminals, type Terminals, type TerminalsOptions } from "./termin
 export interface TerminalServiceOptions extends Omit<TerminalsOptions, "clock"> {
   readonly log: EventLog;
   readonly clock: Clock;
+  /** Told what `terminals.open` found of the session's workspace, gone or there (#328). */
+  readonly availability: Pick<AvailabilityWatcher, "found">;
 }
 
 export interface TerminalService {
@@ -110,7 +115,10 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
           }),
         };
       }
-      if (!isDirectory(cwd)) {
+      // What it found of the workspace marks the session once the command has committed, refused or not (#328).
+      const there = isDirectory(cwd);
+      afterCommit(context, () => options.availability.found(sessionId, cwd, there ? "present" : "missing"));
+      if (!there) {
         return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is not a directory on this machine.`, { path: cwd }) };
       }
       try {

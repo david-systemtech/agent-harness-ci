@@ -1,6 +1,6 @@
 # Service install: manual checklist
 
-The per-platform half of `agent-harness service` (tickets #113 and #338). The
+The per-platform half of `agent-harness service` (tickets #113, #338 and #341). The
 automated tests render each definition, the launcher entry and the shim from
 fixtures, run the `sh` entry and shim against scripted versions, and stub the
 service manager; these steps prove them against the real one. Run each as an
@@ -72,6 +72,20 @@ the shim, written `agent-harness` below, once its folder is on the PATH.
 11. `agent-harness service uninstall`. `schtasks /Query /TN agent-harness` finds nothing, nothing answers on port 7433, `service-task.xml`, `launcher-entry.cmd` and `bin\agent-harness.cmd` do not exist, and the data directory keeps `versions`, `service-state.json`, `launcher-version` and the environment's files.
 12. On an account whose user name has a non-ASCII character, install twice and force the second install's rerun to fail (end the task between the CLI's checks): the put-back decodes `schtasks /Query /XML` by dropping NULs, which damages non-ASCII characters, so record whether the previous task came back intact.
 
+## The handover (every platform)
+
+The launcher hands over to the active version's launcher once that version has
+held through its watch, at the first idle, by exiting with code 75; the service
+manager starts the launcher entry again (systemd's and launchd's restart on a
+non-zero exit, the Windows entry's own loop, since Task Scheduler's
+restart-on-failure is not relied on), and the entry falls back to the old
+launcher after three starts of the new one that did not confirm. Run it on each
+platform with two stand-in versions, A and B: a second copy of the stand-in whose
+`packages/cli/package.json` names a higher version.
+
+1. Install from A and start it. Stop the service, copy B into `versions/B` and write its empty `.complete` last, set `activeVersion` to B in `service-state.json`, and start the service. The log says `B carries another launcher than this one's A` and, at the first ask the environment answers idle (at once, or ten minutes later after recent activity), `handing over to the launcher of B`, `stopping: draining B` and B's exit; the service manager starts the entry again (on Windows the log says `the launcher exited with code 75, so it starts again in 5 s`), and B's launcher says `confirmed the handover from the launcher of A`. `service status` says `Launcher version: B`, `launcher-version` names B, and `launcher-handover` and `launcher-handover-starts` are gone. Record how long the service manager took to start the entry again.
+2. Stop the service, put `launcher-version` back to A and `launcherVersion` in `service-state.json` to A, and make B's launcher fail: in `versions/B/packages/cli/dist/main.js`, make the `launch` branch exit 1 at once. Start the service. A hands over; the entry starts B's launcher three times (`launcher-handover-starts` reads 1, 2, 3), then logs `the launcher of B was started 3 times without confirming that its child passed the gate, so the launcher of A starts again`; A logs `the handover to the launcher of B failed` and runs B's environment on. `service status` shows `Failed handover: to the launcher of B at …`, and A asks nothing more. Record the time from the first handover to A running again.
+
 ## Headless Linux (the install script)
 
 **Blocked until a release publishes an artefact.** The script looks for a
@@ -91,18 +105,26 @@ there, and a container runs `agent-harness serve` directly instead.
 
 ## Container (the image and `scripts/compose.yaml`)
 
-The repository's `Dockerfile` and the install script's compose file
-(`scripts/compose.yaml`, #141) run the environment as the image's non-root
-user, `agent-harness` (uid and gid 10001), on named volumes that start owned
-by that user. `test/container.test.ts` reads both as text; these steps prove
-them against a real Docker (or Podman) on a Linux host. No release publishes
-the image yet, so build it from a checkout. Record the result in the pull
-request that changes either file, or list the section as not run.
+The repository's `Dockerfile` and the published compose file
+(`scripts/compose.yaml`, #141, #349) run the environment as the image's
+non-root user, `agent-harness` (uid and gid 10001), on named volumes that
+start owned by that user. `test/container.test.ts` reads both as text, and
+`packages/cli/src/update-snapshot.test.ts` runs the host-side updater's
+`update snapshot`, `restore` and `discard` on a temporary data directory;
+these steps prove them against a real Docker (or Podman) on a Linux host.
+No release publishes the image yet, so build it from a checkout and name it
+with `AGENT_HARNESS_IMAGE` (the compose file's default is the release's
+image, which the release workflow writes in). Every `docker compose` below
+is `AGENT_HARNESS_IMAGE=agent-harness docker compose -f scripts/compose.yaml`.
+Record the result in the pull request that changes either file or those
+verbs, or list the section as not run.
 
 1. `docker build -t agent-harness .` from the checkout succeeds: `node-pty` compiles in the build stage, the `--prod` reinstall drops the devDependencies without asking, and `docker run --rm agent-harness --version` prints the version.
-2. `docker compose -f scripts/compose.yaml up -d`, then `docker compose -f scripts/compose.yaml exec environment id`: uid and gid 10001, not 0. The logs show the discovery address, not the root refusal.
-3. `docker compose -f scripts/compose.yaml exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
-4. `docker compose -f scripts/compose.yaml exec environment agent-harness pair` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`.
+2. `docker compose up -d` on fresh volumes, then `docker compose exec environment id`: uid and gid 10001, not 0. `docker compose logs environment` shows the discovery address, not the root refusal, and after it a pairing link, an ASCII QR and a code, since no client has paired yet.
+3. `docker compose exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
+4. `docker compose exec environment agent-harness pair --data-dir /data` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`. After that exchange, `docker compose restart` and `docker compose logs environment`: the new start prints the discovery address and no pairing.
 5. `setup.check` from that client answers Permissions and Your machines done (under Docker's default seccomp profile only `off` is offered, and the containment default's preset is `off`).
-6. `docker compose -f scripts/compose.yaml exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
-7. With a run under way, `docker compose -f scripts/compose.yaml stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
+6. `docker compose exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
+7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
+8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
+9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.

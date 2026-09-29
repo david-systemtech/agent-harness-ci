@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "keyManagers.references.browse result",
+  "type": "object",
+  "properties": {
+    "names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The names under the path, in the key manager's order: a folder's, or a mount's, ending in /. Never a value."
+    }
+  },
+  "required": [
+    "names"
+  ]
+}

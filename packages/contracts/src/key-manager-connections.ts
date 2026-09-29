@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { HTTP_ORIGIN } from "./forge.js";
-import { KeyManagerConnectionId, KeyManagerProvider } from "./key-managers.js";
+import { KeyManagerConnectionId, KeyManagerProvider, type KeyManagerReference } from "./key-managers.js";
 import { EnvironmentId, Timestamp } from "./primitives.js";
 
 /**
@@ -272,6 +272,62 @@ export const KeyManagerConnectionRecord = z
       "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id.",
   });
 export type KeyManagerConnectionRecord = z.infer<typeof KeyManagerConnectionRecord>;
+
+// References ------------------------------------------------------------------
+
+/**
+ * Where a reference's value sits, on one line for a person to read (#370):
+ * OpenBao's mount and path with the key, a Doppler name with its project
+ * and config, 1Password's `op://` reference, a Bitwarden key with its
+ * secret id. Never the value.
+ */
+export const referenceLocator = (reference: KeyManagerReference): string => {
+  switch (reference.provider) {
+    case "openbao":
+      return `${reference.mount}/${reference.path} (key ${reference.key})`;
+    case "doppler": {
+      const scope = [reference.project === undefined ? null : `project ${reference.project}`, reference.config === undefined ? null : `config ${reference.config}`].filter((part) => part !== null);
+      return scope.length === 0 ? reference.name : `${reference.name} (${scope.join(", ")})`;
+    }
+    case "onepassword":
+      return `op://${reference.vault}/${reference.item}/${reference.field}`;
+    case "bitwarden":
+      return `${reference.key} (${reference.secretId})`;
+  }
+};
+
+/** A reference as a person reads it (key-managers spec, "References and resolution"): the provider, the connection's label and the locator. */
+export const KeyManagerReferenceDisplay = z
+  .object({
+    provider: KeyManagerProvider,
+    label: KeyManagerLabel.nullable().meta({ description: "The label of the connection the reference is read through; null when this environment holds no connection by its id." }),
+    locator: z.string().min(1).meta({
+      description:
+        "Where the value sits, on one line: OpenBao's mount and path with the key (personal/harness/forge-github (key token)), a Doppler name with its project and config, 1Password's op:// reference, a Bitwarden key with its secret id. Never the value.",
+    }),
+  })
+  .meta({ description: "A key-manager reference as a person reads it: the provider, the connection's label and the locator, never the value." });
+export type KeyManagerReferenceDisplay = z.infer<typeof KeyManagerReferenceDisplay>;
+
+/** The display form of `reference`, read through the connection labelled `label`, or null for one this environment does not hold. */
+export const displayReference = (reference: KeyManagerReference, label: string | null): KeyManagerReferenceDisplay => ({
+  provider: reference.provider,
+  label,
+  locator: referenceLocator(reference),
+});
+
+/** What holds a reference to a key-manager connection: a forge account whose credential is one (ADR 0020). */
+export const KEY_MANAGER_REFERENCE_HOLDERS = ["forge-account"] as const;
+
+/** A holder of a reference, as a connection's removal names it. */
+export const KeyManagerReferenceHolder = z
+  .object({
+    kind: z.enum(KEY_MANAGER_REFERENCE_HOLDERS).meta({ description: "What holds the reference: forge-account." }),
+    id: z.string().min(1).meta({ description: "The holder's id: a forge account's." }),
+    name: z.string().min(1).meta({ description: "What people know the holder by: a forge account's origin." }),
+  })
+  .meta({ description: "Something holding a reference to a key-manager connection, as the connection's removal names it: its kind, id and name." });
+export type KeyManagerReferenceHolder = z.infer<typeof KeyManagerReferenceHolder>;
 
 // The certificate preview ------------------------------------------------------
 

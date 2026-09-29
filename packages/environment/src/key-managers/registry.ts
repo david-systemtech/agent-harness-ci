@@ -1,4 +1,4 @@
-import type { KeyManagerReference } from "@agent-harness/contracts";
+import type { KeyManagerReference, KeyManagerReferenceProblem } from "@agent-harness/contracts";
 import type { ScrubRelease } from "../scrub/registry.js";
 
 /**
@@ -11,9 +11,11 @@ import type { ScrubRelease } from "../scrub/registry.js";
  * is cached: every call reads again, and a read that fails answers no value,
  * never an earlier one.
  *
- * The registry itself, its connections and its providers, is #91's (#370
- * fills this seam). Until then the environment holds no key-manager
- * connection, and every reference is unavailable.
+ * The environment's registry is `references.ts` over its connections (#370);
+ * the forge is its first caller, and banks (#90), routine endpoints (#92)
+ * and the skills `secret` readiness check (#89) call the same resolve. A
+ * ForgeService made without one holds no key-manager connection, and every
+ * reference is unavailable.
  */
 
 export interface ReferenceRequest {
@@ -24,12 +26,15 @@ export interface ReferenceRequest {
   readonly purpose: string;
 }
 
+/** Why a reference answered no value, as every caller answers it on the wire: `credential_source_unavailable`, `reference_not_found` or `reference_denied`. */
+export type ReferenceRefusal = KeyManagerReferenceProblem["code"];
+
 /** What a reference resolved to. */
 export type ReferenceResolution =
   /** The value, registered for scrubbing until `release` is called. */
   | { readonly outcome: "resolved"; readonly value: string; readonly release: ScrubRelease }
-  /** No value: no connection holds the reference, it is not signed in, or the key manager answered none; one line saying which. */
-  | { readonly outcome: "unavailable"; readonly message: string };
+  /** No value, with the refusal a caller answers and one line saying why. */
+  | { readonly outcome: "unavailable"; readonly code: ReferenceRefusal; readonly message: string };
 
 export interface KeyManagerRegistry {
   /** Reads `request.reference` now. */
@@ -40,6 +45,7 @@ export interface KeyManagerRegistry {
 export const noKeyManagerConnections: KeyManagerRegistry = {
   resolve: async ({ reference }) => ({
     outcome: "unavailable",
+    code: "credential_source_unavailable",
     message: `No key-manager connection ${reference.connectionId} is on this environment: connect the key manager in Set up, Key manager, or give the forge account another credential.`,
   }),
 };

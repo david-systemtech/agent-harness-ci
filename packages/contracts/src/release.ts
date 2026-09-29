@@ -19,51 +19,6 @@ export const ReleaseVersion = z.string().regex(RELEASE_VERSION_PATTERN).meta({
 });
 export type ReleaseVersion = z.infer<typeof ReleaseVersion>;
 
-/** A release version's parts: its three numbers, its prerelease identifiers (none for a release), its build metadata left out. */
-const partsOf = (version: string): { readonly numbers: readonly string[]; readonly prerelease: readonly string[] } => {
-  const core = version.split("+", 1)[0] ?? "";
-  const dash = core.indexOf("-");
-  const numbers = (dash === -1 ? core : core.slice(0, dash)).split(".");
-  return { numbers, prerelease: dash === -1 ? [] : core.slice(dash + 1).split(".") };
-};
-
-const NUMERIC = /^\d+$/;
-
-/** Two digit strings without leading zeros, compared as numbers of any length. */
-const compareNumbers = (a: string, b: string): number => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
-
-/** Two prerelease identifiers: numbers numerically and below any alphanumeric one, which compare in ASCII order. */
-const compareIdentifiers = (a: string, b: string): number => {
-  const [numericA, numericB] = [NUMERIC.test(a), NUMERIC.test(b)];
-  if (numericA && numericB) return compareNumbers(a, b);
-  if (numericA !== numericB) return numericA ? -1 : 1;
-  return a < b ? -1 : a > b ? 1 : 0;
-};
-
-/**
- * Two release versions by SemVer precedence: below zero when `a` comes
- * before `b`, above when after, zero when they are equal in precedence
- * (build metadata is ignored). A prerelease comes before its release; its
- * identifiers compare one by one, and a longer set comes after its prefix.
- * Both must be release versions (`ReleaseVersion`).
- */
-export const compareReleaseVersions = (a: string, b: string): number => {
-  const [left, right] = [partsOf(a), partsOf(b)];
-  for (let index = 0; index < 3; index++) {
-    const order = compareNumbers(left.numbers[index] ?? "0", right.numbers[index] ?? "0");
-    if (order !== 0) return order;
-  }
-  if (left.prerelease.length === 0 || right.prerelease.length === 0) return right.prerelease.length - left.prerelease.length;
-  for (let index = 0; index < Math.min(left.prerelease.length, right.prerelease.length); index++) {
-    const order = compareIdentifiers(left.prerelease[index] ?? "", right.prerelease[index] ?? "");
-    if (order !== 0) return order;
-  }
-  return left.prerelease.length - right.prerelease.length;
-};
-
-/** Whether a release version has a prerelease part: only the beta channel follows one. */
-export const isPrerelease = (version: string): boolean => partsOf(version).prerelease.length > 0;
-
 /** The release version a release's tag names (`v0.5.0`), or null for a tag that is not `v` and a release version. */
 export const releaseVersionOfTag = (tag: string): string | null => {
   const version = tag.startsWith("v") ? tag.slice(1) : null;

@@ -31,6 +31,8 @@ import {
   RoutineUpdatedPayload,
 } from "./routines.js";
 import { SessionId } from "./sessions.js";
+import { SettingsChangedNoticePayload } from "./settings.js";
+import { StepResult } from "./setup.js";
 import { SkillsUpdatedPayload } from "./skills.js";
 import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
@@ -64,9 +66,12 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * was removed (#365, #366: the key-manager connections' own events); a
  * routine changed, a routine's result was delivered to the clients or could
  * not be delivered to its webhook, or a webhook endpoint was set or removed
- * (#519: the routines' notices); the skill set changed, by a command or
- * a read that found the own directory changed (#494); so every connected
- * client learns of it whatever else it is subscribed to.
+ * (#519: the routines' notices); settings changed, with every
+ * `settings.updated` (#391); a Set up step's result changed from the one
+ * its result cache held, carrying the result (#569: ADR 0031's `setup`
+ * subscription); the skill set changed, by a command or a read that
+ * found the own directory changed (#494); so every connected client learns
+ * of it whatever else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.started",
@@ -102,11 +107,13 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "routine.delivery-failed",
   "routine.endpoint-set",
   "routine.endpoint-removed",
+  "settings.changed",
+  "setup.result-changed",
   "skills.updated",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), and skills.updated (the skill set changed; a client reads skills.get again).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), and skills.updated (the skill set changed; a client reads skills.get again).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -242,6 +249,16 @@ const RoutineDelivered = describedNotice("routine.delivered", RoutineDeliveredPa
 const RoutineDeliveryFailed = describedNotice("routine.delivery-failed", RoutineDeliveryFailedPayload, "A routine's result could not be delivered to a webhook endpoint: which, and why.");
 const RoutineEndpointSet = describedNotice("routine.endpoint-set", RoutineEndpointSetPayload, "A webhook endpoint was made or replaced: its name, URL and secret kind.");
 const RoutineEndpointRemoved = describedNotice("routine.endpoint-removed", RoutineEndpointRemovedPayload, "A webhook endpoint was removed.");
+const SettingsChanged = describedNotice(
+  "settings.changed",
+  SettingsChangedNoticePayload,
+  "Settings changed on the environment, in the transaction of the settings.updated that changed them: the keys, whose values a client reads again.",
+);
+const SetupResultChanged = describedNotice(
+  "setup.result-changed",
+  StepResult,
+  "A Set up step's check answered a result that differs from the one the environment's result cache held, in anything but when it was checked, or the step's first: the result, which replaces that step's in environment.subscribe's snapshot. A result that only refreshes when it was checked is not noticed.",
+);
 const SkillsUpdated = describedNotice(
   "skills.updated",
   SkillsUpdatedPayload,
@@ -288,6 +305,8 @@ export const EnvironmentNotice = z
     RoutineDeliveryFailed,
     RoutineEndpointSet,
     RoutineEndpointRemoved,
+    SettingsChanged,
+    SetupResultChanged,
     SkillsUpdated,
   ])
   .meta({

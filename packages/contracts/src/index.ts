@@ -19,6 +19,7 @@ export * from "./forge-accounts.js";
 export * from "./forge-gh.js";
 export * from "./frames.js";
 export * from "./git-credential.js";
+export * from "./instructions.js";
 export * from "./key-managers.js";
 export * from "./key-manager-connections.js";
 export * from "./launcher.js";
@@ -67,7 +68,6 @@ export {
 export type { MintedPairing } from "./methods/access.js";
 export {
   AliasIdentityMismatchError,
-  CredentialSourceUnavailableError,
   ForgeAccountMissingError,
   ForgeOwner,
   ForgeUnreachableError,
@@ -75,6 +75,7 @@ export {
   KindUnsupportedError,
   MAX_FORGE_ALIASES,
   NotAForgeError,
+  NotAPullRequestError,
   VerificationFailedError,
 } from "./methods/forge.js";
 export {
@@ -121,4 +122,5 @@ export * from "./update-route.js";
 export * from "./update-settings.js";
 export * from "./updates.js";
 export * from "./usage.js";
+export * from "./workspaces.js";
 export * from "./write-commands.js";

@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync,
 import { basename, dirname, join, resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
-import { syncDirectory, syncFile, writeFileDurably } from "../launch/durable.js";
+import { syncDirectory, syncTree, writeFileDurably } from "../launch/durable.js";
 import { LAUNCHER_VERSION_FILE, writeLauncherVersion } from "../launch/launcher-version.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "../launch/state.js";
 import { isComplete, VERSION_CLI_ENTRY, VERSION_SENTINEL, versionDirectory, versionNode, VERSIONS_DIRECTORY } from "../launch/versions.js";
@@ -63,16 +63,6 @@ const sameFolder = (a: string, b: string): boolean => {
   } catch {
     return false;
   }
-};
-
-/** Puts every file and folder under `dir`, and `dir` itself, on disk; links are left as they are. */
-const syncTree = (dir: string): void => {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) syncTree(path);
-    else if (entry.isFile()) syncFile(path);
-  }
-  syncDirectory(dir);
 };
 
 /** The version install names, and how to take back what it did to put it there. */
@@ -162,9 +152,11 @@ const keep = (path: string): (() => void) => {
  * Names `version` active and the launcher's: in the service state and in the
  * launcher version file, durably. A state already there keeps the update it
  * records as pending, which the launcher rolls back at its next start, and
- * its active version becomes the previous one; its watch ends, since the
- * version it watched no longer runs. A state that cannot be used is
- * replaced. Answers how to put both files back as they were.
+ * the version staged for the next, and its active version becomes the
+ * previous one; its watch ends, since the version it watched no longer runs,
+ * and a failed handover is forgotten, since install chose the launcher. A
+ * state that cannot be used is replaced. Answers how to put both files back
+ * as they were.
  */
 export const nameVersion = (dataDir: string, version: string): (() => void) => {
   const putBack = [keep(join(dataDir, SERVICE_STATE_FILE)), keep(join(dataDir, LAUNCHER_VERSION_FILE))];
@@ -180,8 +172,19 @@ export const nameVersion = (dataDir: string, version: string): (() => void) => {
           launcherVersion: version,
           previousVersion: read.state.activeVersion === version ? read.state.previousVersion : read.state.activeVersion,
           watchDeadline: null,
+          watchedUpdateId: null,
+          failedHandover: null,
         }
-      : { activeVersion: version, previousVersion: null, launcherVersion: version, pendingUpdate: null, watchDeadline: null };
+      : {
+          activeVersion: version,
+          previousVersion: null,
+          launcherVersion: version,
+          pendingUpdate: null,
+          watchDeadline: null,
+          watchedUpdateId: null,
+          stagedVersion: null,
+          failedHandover: null,
+        };
   try {
     writeServiceState(dataDir, next);
     writeLauncherVersion(dataDir, version);

@@ -1,3 +1,4 @@
+import { CONTAINMENT_LEVELS, presetPermissionSettings } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntimeWithSeams } from "./internal.js";
 import { noticeEvent } from "../test/events.js";
@@ -157,6 +158,18 @@ describe("requests.call", () => {
   });
 });
 
+/** What permissions.settings.get answers on an environment nobody has changed, containment unavailable everywhere but off. */
+const PERMISSIONS_REPORT = {
+  values: presetPermissionSettings(),
+  containment: {
+    levels: CONTAINMENT_LEVELS.map((level) => ({ level, available: level === "off", reason: level === "off" ? null : "No mechanism here.", cause: level === "off" ? null : "binary_missing" })),
+    mechanism: null,
+    container: { declared: false, detected: false },
+  },
+  isRoot: false,
+  denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 },
+};
+
 /** An `updates.status` answer: an environment under its launcher with nothing pending. */
 const UPDATES_STATUS = {
   version: "0.1.0",
@@ -297,6 +310,33 @@ describe("the request cache", () => {
     await flush();
     expect([asked(), statuses]).toEqual([2, 6]);
     expect(status.read()).toMatchObject({ result: UPDATES_STATUS, error: null });
+  });
+
+  it("fetches settings.get and permissions.settings.get again on settings.changed, and no other query, well inside the five minutes (#391)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let settings = 0;
+    let permissions = 0;
+    let values: Record<string, unknown> = { "sessions.autoSettleOnMerge": false };
+    wire.answer("settings.get", () => {
+      settings++;
+      return { result: { values } };
+    });
+    wire.answer("permissions.settings.get", () => {
+      permissions++;
+      return { result: PERMISSIONS_REPORT };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const cached = runtime.requests.cached(id, "settings.get", {});
+    cached.subscribe(() => undefined);
+    runtime.requests.cached(id, "permissions.settings.get", {}).subscribe(() => undefined);
+    await flush();
+    expect([asked(), settings, permissions]).toEqual([1, 1, 1]);
+
+    values = { "sessions.autoSettleOnMerge": true };
+    environment?.event(noticeEvent(1, wire.environmentId, "settings.changed", { keys: ["sessions.autoSettleOnMerge"] }));
+    await flush();
+    expect([asked(), settings, permissions]).toEqual([1, 2, 2]);
+    expect(cached.read()).toMatchObject({ result: { values: { "sessions.autoSettleOnMerge": true } }, error: null });
   });
 
   it("fetches skills.get again on skills.updated, and no other query (#494)", async () => {

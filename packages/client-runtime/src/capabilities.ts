@@ -26,8 +26,17 @@ import { SHELL_MEMBERS, hasShellMember, type Shell, type ShellMember } from "./s
  */
 export type CapabilityName = KnownCapabilityFlag | MethodName | ShellMember;
 
-/** Registered methods that need a flag as well as their scope. None yet; a workstream that gates a method adds it here. */
-export const METHOD_FLAGS: Partial<Readonly<Record<MethodName, KnownCapabilityFlag>>> = {};
+/** The registered methods whose names start with `prefix`, each gated by `flag`. */
+const gatedByPrefix = (prefix: string, flag: KnownCapabilityFlag): Partial<Record<MethodName, KnownCapabilityFlag>> =>
+  Object.fromEntries(Object.keys(registry).flatMap((name) => (name.startsWith(prefix) ? [[name, flag]] : [])));
+
+/**
+ * Registered methods that need a flag as well as their scope; a workstream
+ * that gates a method adds it here. Every `forge.*` method needs `forge`
+ * (#320): without it the environment holds no forge accounts, and a client
+ * shows Forges absent with the reason (forge spec, "Wire methods").
+ */
+export const METHOD_FLAGS: Partial<Readonly<Record<MethodName, KnownCapabilityFlag>>> = gatedByPrefix("forge.", "forge");
 
 export type AbsentReason = "unsupported" | "scope" | "unreachable" | "not-ready" | "no-shell";
 
@@ -48,7 +57,7 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.deepLinks.onOpen": `open ${PRODUCT_NAME} links`,
   "shell.webView": "embed a browser",
   "shell.preview": "show a preview",
-  "shell.installer": "run the desktop installer",
+  "shell.installer.bundledServer": "hand its local environment the server it carries",
   "shell.update": "update itself",
   "shell.service": "install, start or check the local environment's service",
   "shell.clipboard": "use the clipboard",
@@ -58,7 +67,11 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.http": "reach an environment over HTTP from outside the page",
   "shell.network": "declare the addresses its window may connect to",
   "shell.system": "tell which machine and user it runs as",
+  "shell.gh": "read the gh signed in on this computer",
 };
+
+/** The line a shell member's absence is said with. */
+export const noShellMessage = (member: ShellMember): string => `This client cannot ${SHELL_MEMBER_PURPOSE[member]}: its shell has no ${member}.`;
 
 const isShellMember = (name: string): name is ShellMember => (SHELL_MEMBERS as readonly string[]).includes(name);
 const isFlag = (name: string): name is KnownCapabilityFlag => (CAPABILITY_FLAG_LIST as readonly string[]).includes(name);
@@ -66,7 +79,7 @@ const isFlag = (name: string): name is KnownCapabilityFlag => (CAPABILITY_FLAG_L
 /** The answer for `name` on the connection `record` (undefined when there is none), with the platform's `shell`. */
 export const answerCapability = (name: CapabilityName, record: ConnectionRecord | undefined, shell: Shell | undefined): CapabilityAnswer => {
   if (isShellMember(name)) {
-    return hasShellMember(shell, name) ? PRESENT : absent("no-shell", `This client cannot ${SHELL_MEMBER_PURPOSE[name]}: its shell has no ${name}.`);
+    return hasShellMember(shell, name) ? PRESENT : absent("no-shell", noShellMessage(name));
   }
   if (!record) return absent("unreachable", "This client has no connection to that environment.");
   if (record.environmentId === LOCAL_PLACEHOLDER_ID) {
