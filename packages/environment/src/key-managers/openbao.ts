@@ -2,7 +2,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import type { KeyManagerLoginPolicy, KeyManagerTokenInformation } from "@agent-harness/contracts";
 import { policyWrites } from "./policy-writes.js";
-import type { ConnectionProvider, ListAnswer, LoginFailure, ProviderFailure, SignInTarget, WriteAnswer, WriteCheckAnswer } from "./provider.js";
+import type { ConnectionProvider, ListAnswer, LoginFailure, MintAnswer, ProviderFailure, RenewAnswer, SignInTarget, WriteAnswer, WriteCheckAnswer } from "./provider.js";
 import { sameValue } from "./same-value.js";
 
 /**
@@ -30,6 +30,12 @@ import { sameValue } from "./same-value.js";
  * nothing else is: every value is read again. A list is OpenBao's
  * (`?list=true`), under `metadata/` on version 2; with no mount, the KV
  * mounts the UI endpoint names.
+ *
+ * A run token (#368) is created with the login's token at
+ * `auth/token/create`, or at its token role's `auth/token/create/<role>`,
+ * with its policies, time to live, display name and metadata, renewable; it
+ * renews itself at `auth/token/renew-self` and revokes itself as a login
+ * does, the `default` policy it holds letting it.
  *
  * Whether a login may write a secret (#371) is its capabilities on the
  * secret's path, as `sys/capabilities-self` answers them: `create` (or
@@ -410,6 +416,25 @@ export const createOpenBaoProvider = (): ConnectionProvider => {
       const reply = await call(target, "POST", "auth/token/revoke-self", { token });
       if (reply.outcome !== "answered") return reply;
       return reply.status >= 200 && reply.status <= 299 ? { outcome: "revoked" } : refusal(target, reply.status, reply.body);
+    },
+
+    async mint(target, token, { policies, ttlSeconds, displayName, metadata, tokenRole }, signal): Promise<MintAnswer> {
+      const body = { policies: [...policies], ttl: `${ttlSeconds}s`, display_name: displayName, meta: { ...metadata }, renewable: true };
+      const reply = await call(target, "POST", tokenRole === null ? createPath(null) : `auth/token/create/${encodeURIComponent(tokenRole)}`, { token, body, signal });
+      if (reply.outcome !== "answered") return reply;
+      if (reply.status < 200 || reply.status > 299) return readRefusal(target, "mint a run token", reply.status, reply.body, signal);
+      const auth = isRecord(reply.body) ? reply.body["auth"] : undefined;
+      const minted = isRecord(auth) ? auth["client_token"] : undefined;
+      return typeof minted === "string" && minted !== "" ? { outcome: "minted", token: minted } : unreachable(target, "its token creation answered no token");
+    },
+
+    async renew(target, token, incrementSeconds, signal): Promise<RenewAnswer> {
+      const reply = await call(target, "POST", "auth/token/renew-self", { token, body: { increment: `${incrementSeconds}s` }, signal });
+      if (reply.outcome !== "answered") return reply;
+      if (reply.status < 200 || reply.status > 299) return refusal(target, reply.status, reply.body, signal);
+      const auth = isRecord(reply.body) ? reply.body["auth"] : undefined;
+      const lease = isRecord(auth) ? auth["lease_duration"] : undefined;
+      return { outcome: "renewed", ttlSeconds: typeof lease === "number" && Number.isInteger(lease) && lease >= 0 ? lease : 0 };
     },
 
     async read(target, token, reference, signal) {
