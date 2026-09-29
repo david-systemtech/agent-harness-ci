@@ -89,6 +89,29 @@ export const KeyManagerPolicy = z
   .meta({ description: "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds." });
 export type KeyManagerPolicy = z.infer<typeof KeyManagerPolicy>;
 
+/**
+ * Whether a policy of the login can write (key-managers spec, "Providers";
+ * ADR 0028's warning): `yes` when its text grants `create`, `update`,
+ * `patch` or `delete` on a path outside `auth/`, `sys/`, `cubbyhole/` and
+ * `identity/`; `no` when it grants none there; `possibly` when the login
+ * may not read its text, or it could not be read.
+ */
+export const KEY_MANAGER_POLICY_WRITES = ["yes", "no", "possibly"] as const;
+export const KeyManagerPolicyWrites = z.enum(KEY_MANAGER_POLICY_WRITES).meta({
+  description:
+    "Whether a login's policy can write: yes (its text grants create, update, patch or delete on a path outside auth/, sys/, cubbyhole/ and identity/), no (it grants none there) or possibly (its text could not be read with the login).",
+});
+export type KeyManagerPolicyWrites = z.infer<typeof KeyManagerPolicyWrites>;
+
+/** One of the login's policies, as its lookup names it, and whether it can write. */
+export const KeyManagerLoginPolicy = z
+  .object({
+    name: KeyManagerPolicy,
+    writes: KeyManagerPolicyWrites,
+  })
+  .meta({ description: "One of the login's policies, as its lookup names it (never root), and whether it can write, read from its text where the login may." });
+export type KeyManagerLoginPolicy = z.infer<typeof KeyManagerLoginPolicy>;
+
 /** Where Move keeps the harness's secrets on a connection: for OpenBao, a KV mount and one project segment, as `personal/harness`. */
 export const KeyManagerBasePath = segments(
   "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount.",
@@ -224,6 +247,9 @@ export const KeyManagerConnectionRecord = z
     mount: KeyManagerMount.nullable().meta({ description: "Where its auth method is mounted; null for a provider other than OpenBao." }),
     username: KeyManagerUsername.nullable().meta({ description: "The username of a userpass login; null for any other." }),
     tokenRole: KeyManagerTokenRole.nullable().meta({ description: "The token role run tokens are created against; null for none." }),
+    policies: z.array(KeyManagerLoginPolicy).nullable().meta({
+      description: "The login's policies from its lookup, each flagged when it can write, as the last verification read them; null until one has.",
+    }),
     ticks: z.array(KeyManagerPolicy).nullable().meta({
       description: "The policies runs receive, ticked from the login's: preset to every one at the first sign-in; null until then, unless a copy carried them.",
     }),
@@ -231,16 +257,47 @@ export const KeyManagerConnectionRecord = z
     injects: z.boolean().meta({ description: "Whether runs receive this connection's variables: at most one connection per provider does, the first signed in while none does; signing out stops it." }),
     status: KeyManagerStatus,
     tokenInformation: KeyManagerTokenInformation.nullable().meta({ description: "What the login's lookup said of its token; null while it is not signed in." }),
-    canMint: z.boolean().nullable().meta({ description: "Whether the login can mint run tokens; null until a verification has read its capabilities." }),
+    canMint: z.boolean().nullable().meta({
+      description: "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them.",
+    }),
+    verifiedAt: Timestamp.nullable().meta({
+      description: "When the connection was last verified, whatever that found; null until it has been. It moves with every verification, where the status's since-time moves only when the status changes.",
+    }),
     copiedFrom: KeyManagerCopiedFrom.nullable().meta({ description: "The environment it was copied from; null for one added here." }),
     importedFrom: KeyManagerImportedFrom.nullable().meta({ description: "The id the state import's source gave it; null for one not imported." }),
     createdAt: Timestamp.meta({ description: "When the connection was added." }),
   })
   .meta({
     description:
-      "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the ticked policies, base path and whether it injects; its status, token information and whether it can mint; where it came from, and when it was added. Never a secret or a token id.",
+      "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path and whether it injects; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id.",
   });
 export type KeyManagerConnectionRecord = z.infer<typeof KeyManagerConnectionRecord>;
+
+// The certificate preview ------------------------------------------------------
+
+/**
+ * A certificate as the preview reads it from a key manager's TLS handshake
+ * (key-managers spec, "Providers"): the chain's anchor, the issuer walked up
+ * to or else the leaf, which a person accepts to pin it as the connection's
+ * CA.
+ */
+export const KeyManagerCertificate = z
+  .object({
+    pem: KeyManagerCa.meta({ description: "The certificate as PEM: what add or update pins as the connection's CA once a person accepts it." }),
+    sha256Fingerprint: z
+      .string()
+      .regex(/^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$/)
+      .meta({ description: "Its SHA-256 fingerprint: 32 bytes in upper-case hex, joined by colons." }),
+    subject: z.string().meta({ description: "Its subject, one line (CN=agent-harness test CA)." }),
+    names: z.array(z.string().min(1)).meta({ description: "The DNS names and IP addresses its subject alternative names hold, in its order; empty for none." }),
+    expiresAt: Timestamp.meta({ description: "When it stops being valid." }),
+    selfSigned: z.boolean().meta({ description: "Whether it signs itself: a root, rather than an intermediate or a leaf a CA issued." }),
+  })
+  .meta({
+    description:
+      "The certificate a key manager's chain is anchored on, read from its TLS handshake with verification off: the issuer walked up to, else the leaf, as PEM, with its SHA-256 fingerprint, subject, names, expiry and whether it signs itself.",
+  });
+export type KeyManagerCertificate = z.infer<typeof KeyManagerCertificate>;
 
 // Events ------------------------------------------------------------------------
 
@@ -305,6 +362,30 @@ export const KeyManagerConnectionUpdatedPayload = z
   .meta({ description: "key-manager.connection.updated: a connection's label, address, CA or token role changed; each field present only when it did." });
 export type KeyManagerConnectionUpdatedPayload = z.infer<typeof KeyManagerConnectionUpdatedPayload>;
 
+export const KeyManagerConnectionPoliciesSetPayload = z
+  .object({
+    ...connectionPart,
+    ticks: z.array(KeyManagerPolicy).meta({ description: "The policies runs receive from now on: a subset of the login's, in the order its lookup names them." }),
+  })
+  .meta({ description: "key-manager.connection.policies-set: a person ticked which of the login's policies runs receive." });
+export type KeyManagerConnectionPoliciesSetPayload = z.infer<typeof KeyManagerConnectionPoliciesSetPayload>;
+
+export const KeyManagerConnectionVerifiedPayload = z
+  .object({
+    ...connectionPart,
+    status: KeyManagerStatus.meta({
+      description: "Where the verification found the connection: signed in, or credential-rejected, expired, unreachable, sealed or certificate-rejected; a status of the kind it had keeps its since-time.",
+    }),
+    tokenInformation: KeyManagerTokenInformation.nullable().meta({ description: "What the login's lookup says of its token; as it was known when the verification could not look it up." }),
+    policies: z.array(KeyManagerLoginPolicy).nullable().meta({ description: "The login's policies with their write flags; as they were known when the verification could not read them." }),
+    canMint: z.boolean().nullable().meta({ description: "Whether the login can mint run tokens; as it was known when the verification could not read its capabilities." }),
+  })
+  .meta({
+    description:
+      "key-manager.connection.verified: a verification found the connection's status, token information, policies or whether it can mint changed, and what it found, whole; recorded as system:key-manager with no command id. A verification that finds nothing new appends nothing.",
+  });
+export type KeyManagerConnectionVerifiedPayload = z.infer<typeof KeyManagerConnectionVerifiedPayload>;
+
 export const KeyManagerConnectionRemovedPayload = z
   .object(connectionPart)
   .meta({ description: "key-manager.connection.removed: the environment no longer holds the connection; its credential is deleted." });
@@ -320,5 +401,7 @@ export const KEY_MANAGER_EVENT_PAYLOADS = {
   "key-manager.connection.signed-in": KeyManagerConnectionSignedInPayload,
   "key-manager.connection.signed-out": KeyManagerConnectionSignedOutPayload,
   "key-manager.connection.updated": KeyManagerConnectionUpdatedPayload,
+  "key-manager.connection.policies-set": KeyManagerConnectionPoliciesSetPayload,
+  "key-manager.connection.verified": KeyManagerConnectionVerifiedPayload,
   "key-manager.connection.removed": KeyManagerConnectionRemovedPayload,
 } as const;

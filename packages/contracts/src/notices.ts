@@ -13,10 +13,12 @@ import {
 } from "./forge-accounts.js";
 import {
   KeyManagerConnectionAddedPayload,
+  KeyManagerConnectionPoliciesSetPayload,
   KeyManagerConnectionRemovedPayload,
   KeyManagerConnectionSignedInPayload,
   KeyManagerConnectionSignedOutPayload,
   KeyManagerConnectionUpdatedPayload,
+  KeyManagerConnectionVerifiedPayload,
 } from "./key-manager-connections.js";
 import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
@@ -49,9 +51,10 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * (#136); a forge account was added, updated, made primary, verified,
  * taught a capability, refused by git or removed, or an origin had no forge
  * account (#310: the ForgeService's own events, which its store is kept
- * from); a key-manager connection was added, signed in, signed out, updated
- * or removed (#365: the key-manager connections' own events); so every
- * connected client learns of it whatever else it is subscribed to.
+ * from); a key-manager connection was added, signed in, signed out,
+ * updated, had its policies ticked, was verified with something changed, or
+ * was removed (#365, #366: the key-manager connections' own events); so
+ * every connected client learns of it whatever else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.started",
@@ -79,11 +82,13 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "key-manager.connection.signed-in",
   "key-manager.connection.signed-out",
   "key-manager.connection.updated",
+  "key-manager.connection.policies-set",
+  "key-manager.connection.verified",
   "key-manager.connection.removed",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -203,6 +208,16 @@ const KeyManagerConnectionAdded = describedNotice(
 const KeyManagerConnectionSignedIn = describedNotice("key-manager.connection.signed-in", KeyManagerConnectionSignedInPayload, "A key-manager connection's sign-in ended, and how.");
 const KeyManagerConnectionSignedOut = describedNotice("key-manager.connection.signed-out", KeyManagerConnectionSignedOutPayload, "A key-manager connection was signed out, and awaits a sign-in.");
 const KeyManagerConnectionUpdated = describedNotice("key-manager.connection.updated", KeyManagerConnectionUpdatedPayload, "A key-manager connection's label, address, CA or token role changed.");
+const KeyManagerConnectionPoliciesSet = describedNotice(
+  "key-manager.connection.policies-set",
+  KeyManagerConnectionPoliciesSetPayload,
+  "Which of a key-manager connection's policies runs receive was ticked.",
+);
+const KeyManagerConnectionVerified = describedNotice(
+  "key-manager.connection.verified",
+  KeyManagerConnectionVerifiedPayload,
+  "A verification of a key-manager connection found its status, token information, policies or whether it can mint changed.",
+);
 const KeyManagerConnectionRemoved = describedNotice("key-manager.connection.removed", KeyManagerConnectionRemovedPayload, "A key-manager connection was removed.");
 
 /**
@@ -237,6 +252,8 @@ export const EnvironmentNotice = z
     KeyManagerConnectionSignedIn,
     KeyManagerConnectionSignedOut,
     KeyManagerConnectionUpdated,
+    KeyManagerConnectionPoliciesSet,
+    KeyManagerConnectionVerified,
     KeyManagerConnectionRemoved,
   ])
   .meta({

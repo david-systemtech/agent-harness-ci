@@ -4,7 +4,10 @@ import {
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
   KEY_MANAGER_EVENT_PAYLOADS,
+  KEY_MANAGER_POLICY_WRITES,
+  KeyManagerCertificate,
   KeyManagerConnectionRecord,
+  KeyManagerLoginPolicy,
   KeyManagerCredential,
   KeyManagerTokenInformation,
   eventTypeEntry,
@@ -25,16 +28,30 @@ const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
 const approle = { method: "approle", roleId: "role-id-for-tests", secretId: "secret-id-for-tests" } as const;
 
 describe("the key-manager connection methods", () => {
-  it("have one scope each: the list at read, add, signIn, update, signOut and remove as admin commands", () => {
+  it("have one scope each: the list at read; add, signIn, update, setPolicies, signOut and remove as admin commands; verify and the certificate preview as admin queries", () => {
     const owned = methods.filter((m) => m.name.startsWith("keyManagers."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "keyManagers.list": ["query", "read"],
       "keyManagers.connections.add": ["command", "admin"],
       "keyManagers.connections.signIn": ["command", "admin"],
       "keyManagers.connections.update": ["command", "admin"],
+      "keyManagers.connections.setPolicies": ["command", "admin"],
       "keyManagers.connections.signOut": ["command", "admin"],
       "keyManagers.connections.remove": ["command", "admin"],
+      "keyManagers.connections.verify": ["query", "admin"],
+      "keyManagers.certificate.preview": ["query", "admin"],
     });
+  });
+
+  it("verify takes one connection or none for all, and answers the records; setPolicies takes the ticks; the preview takes an address and answers the anchor, or unreachable naming the address", () => {
+    expect(registry["keyManagers.connections.verify"].params.safeParse({}).success).toBe(true);
+    expect(registry["keyManagers.connections.verify"].params.safeParse({ connectionId }).success).toBe(true);
+    expect(Object.keys(registry["keyManagers.connections.verify"].result.shape)).toEqual(["connections"]);
+    expect(Object.keys(registry["keyManagers.connections.setPolicies"].params.shape)).toEqual(["commandId", "connectionId", "ticks"]);
+    expect(registry["keyManagers.connections.setPolicies"].params.safeParse({ commandId, connectionId, ticks: ["root"] }).success).toBe(false);
+    expect(Object.keys(registry["keyManagers.certificate.preview"].params.shape)).toEqual(["address"]);
+    expect(Object.keys(KeyManagerCertificate.shape)).toEqual(["pem", "sha256Fingerprint", "subject", "names", "expiresAt", "selfSigned"]);
+    expect(registry["keyManagers.certificate.preview"].errors.map((member) => member.shape.code.value)).toEqual(["unreachable"]);
   });
 
   it("add takes id, provider, label, address, CA, method, mount, username, token role, ticks, base path, where it came from, and an optional credential", () => {
@@ -95,17 +112,26 @@ describe("the connection record", () => {
       "mount",
       "username",
       "tokenRole",
+      "policies",
       "ticks",
       "basePath",
       "injects",
       "status",
       "tokenInformation",
       "canMint",
+      "verifiedAt",
       "copiedFrom",
       "importedFrom",
       "createdAt",
     ]);
     expect(Object.keys(KeyManagerTokenInformation.shape)).toEqual(["displayName", "policies", "ttlSeconds", "renewable", "expiresAt"]);
+  });
+
+  it("flags each of the login's policies as writing, not, or possibly when its text could not be read, and never holds root", () => {
+    expect(KeyManagerLoginPolicy.parse({ name: "agent-read", writes: "no" })).toEqual({ name: "agent-read", writes: "no" });
+    expect(KEY_MANAGER_POLICY_WRITES).toEqual(["yes", "no", "possibly"]);
+    expect(KeyManagerLoginPolicy.safeParse({ name: "root", writes: "yes" }).success).toBe(false);
+    expect(KeyManagerLoginPolicy.safeParse({ name: "agent-read", writes: true }).success).toBe(false);
   });
 });
 
@@ -125,12 +151,14 @@ describe("an address", () => {
 });
 
 describe("the key-manager connection events", () => {
-  it("are the five on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
+  it("are the seven on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
     expect(Object.keys(KEY_MANAGER_EVENT_PAYLOADS)).toEqual([
       "key-manager.connection.added",
       "key-manager.connection.signed-in",
       "key-manager.connection.signed-out",
       "key-manager.connection.updated",
+      "key-manager.connection.policies-set",
+      "key-manager.connection.verified",
       "key-manager.connection.removed",
     ]);
     for (const type of Object.keys(KEY_MANAGER_EVENT_PAYLOADS)) {
