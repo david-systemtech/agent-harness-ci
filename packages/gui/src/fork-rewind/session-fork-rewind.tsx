@@ -77,9 +77,14 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
   const openInPane = useOpenInPane();
   // What this pane has on its way: a second of each meanwhile would only fork twice, or be refused.
   const underWay = useRef(new Set<"fork" | "rewind" | "undo">());
+  /**
+   * Starts `work` unless one of its kind is on its way, when the press does nothing at all: the line saying what the first
+   * waits for stays. Started, the pane's line is cleared first, as a new action's is.
+   */
   const once = (what: "fork" | "rewind" | "undo", work: () => Promise<void>) => {
     if (underWay.current.has(what)) return;
     underWay.current.add(what);
+    say(undefined);
     void work().finally(() => underWay.current.delete(what));
   };
 
@@ -119,7 +124,6 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
     forkAt(message) {
       const verb = runs.verbs.fork;
       if (verb.status === "absent") return sayUnder(message.messageId, refused("Not forked", verb));
-      say(undefined);
       once("fork", async () => {
         const { sessionId: forked, answer } = await runtime.commands.fork(environmentId, sessionId, { anchor: message.messageId });
         if (!answer.ok) return sayUnder(message.messageId, `Not forked: ${answer.error.message}`);
@@ -135,7 +139,6 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
     rewindTo(message) {
       if (!stops && offer.rewind.status === "absent") return sayUnder(message.messageId, refused("Not rewound", offer.rewind));
       const workspace = projection.summary?.workspace.path;
-      say(undefined);
       once("rewind", async () => {
         // The stop only when the rewind was offered as one: a run gone live since the offer was drawn is not stopped unasked.
         const options = stops
@@ -147,7 +150,6 @@ export const SessionForkRewindProvider = ({ environmentId, sessionId, children }
     undo() {
       const verb = runs.verbs.undoRewind;
       if (verb.status === "absent") return say(verb.reason === "no_rewind" ? verb.message : refused("Not undone", verb));
-      say(undefined);
       once("undo", async () => {
         // What this window typed goes first: the environment puts back the draft from before the rewind only while the draft is the rewind's.
         runtime.drafts.flush();

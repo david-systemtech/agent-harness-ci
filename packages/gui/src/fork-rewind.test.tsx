@@ -295,6 +295,10 @@ describe("Stop and rewind here", () => {
     await waitFor(() => expect(sent(env, "runs.interrupt")).toEqual([expect.objectContaining({ runId })]));
     await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe("Stopping the run; the rewind to Add the tests follows once it has ended."));
     expect(sent(env, "sessions.rewind")).toEqual([]);
+    // A second press while the first waits does nothing: no second stop, and the line saying what it waits for stays.
+    await app.user.click(within(await actionsOn(app, transcript, "Add the tests")).getByRole("button", { name: "Stop and rewind here" }));
+    expect(lineUnder(transcript, "Add the tests")).toBe("Stopping the run; the rewind to Add the tests follows once it has ended.");
+    expect(env.requests("runs.interrupt")).toHaveLength(1);
 
     env.endRun(session, runId, { reason: "interrupted" });
     await waitFor(() => expect(sent(env, "sessions.rewind")).toEqual([expect.objectContaining({ sessionId: session, messageId: env.messageId(session, "Add the tests") })]));
