@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "instructions.preview result",
+  "type": "object",
+  "properties": {
+    "parts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "layer": {
+            "type": "string",
+            "enum": [
+              "user",
+              "team-bank",
+              "project",
+              "session",
+              "persona",
+              "always-on"
+            ],
+            "description": "A layer of a run's standing instructions, in the order the text holds them: user (the orientation block, then owned instructions), team-bank, project, session, persona (a bot's), always-on (always-on skills)."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the part is, within its layer: orientation for the orientation block, else the id of the thing it renders."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The part's title, as a client heads it: Orientation for the orientation block."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The part's text, as the composed text holds it."
+          }
+        },
+        "required": [
+          "layer",
+          "id",
+          "title",
+          "text"
+        ],
+        "description": "A part of the composed text: its layer, its id, its title and its text."
+      },
+      "description": "The parts of the text, in the order it holds them."
+    },
+    "text": {
+      "type": "string",
+      "description": "The composed text a run would be handed now: its parts, each two line breaks apart."
+    },
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "enum": [
+            "system-prompt-append",
+            "developer-instructions",
+            "prompt",
+            "none"
+          ],
+          "description": "The instruction channel of the account's adapter: none is handed no text."
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "layer": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "team-bank",
+                  "project",
+                  "session",
+                  "persona",
+                  "always-on"
+                ],
+                "description": "A layer of a run's standing instructions, in the order the text holds them: user (the orientation block, then owned instructions), team-bank, project, session, persona (a bot's), always-on (always-on skills)."
+              },
+              "characters": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The characters the layer holds in the text: its parts, with the two line breaks between each two of them."
+              },
+              "parts": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What the part is, within its layer: orientation for the orientation block, else the id of the thing it renders."
+                    },
+                    "version": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The version of what the part renders, where it has one (a catalogue entry's); null where it has none."
+                    },
+                    "characters": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "The part's length in characters."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version",
+                    "characters"
+                  ],
+                  "description": "A part of a layer as the manifest names it: its id, its version, and its length in characters."
+                },
+                "description": "The layer's parts, in the order the text holds them."
+              }
+            },
+            "required": [
+              "layer",
+              "characters",
+              "parts"
+            ],
+            "description": "A layer of the composed text: which, the characters it holds there, and its parts."
+          },
+          "description": "The layers the text holds, in their fixed order; a layer that gave nothing, or whose parts were all left out, is not listed."
+        },
+        "alwaysOn": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "origin": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "repository"
+                          },
+                          "repository": {
+                            "type": "string",
+                            "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                            "description": "The identity of the repository the member was read from: its source's, or the trusted repository's."
+                          },
+                          "path": {
+                            "description": "The member's folder in that repository, from its root; . when the root is itself the skill.",
+                            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "repository",
+                          "path"
+                        ],
+                        "description": "The repository the member was read from, by its identity, and the member's folder there."
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "manifest"
+                          },
+                          "repository": {
+                            "type": "string",
+                            "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                            "description": "The identity of the repository the manifest says the member was copied from."
+                          },
+                          "path": {
+                            "description": "The member's folder in that repository, as the manifest names it.",
+                            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                            "type": "string"
+                          },
+                          "commit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{4,64}$",
+                                "description": "The commit the member was copied at, as the manifest names it: its object name, full or abbreviated."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "licence": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The licence the manifest names, an SPDX identifier where it gives one; null when it names none."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "repository",
+                          "path",
+                          "commit",
+                          "licence"
+                        ],
+                        "description": "What a provenance manifest beside the member names: the repository and folder it was copied from, the commit and the licence."
+                      }
+                    ],
+                    "description": "Where a member comes from, which the readiness overlay is keyed by (repository identity and folder path): the repository it was read from, or what a provenance manifest beside a copy names."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the skill comes from, as its member's origin: null for one of the own directory with no provenance manifest, or of a repository with no identity."
+              },
+              "commit": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+                    "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)."
+              }
+            },
+            "required": [
+              "name",
+              "origin",
+              "commit"
+            ],
+            "description": "An always-on skill the composition appended: its name, its origin and the commit it was read at."
+          },
+          "description": "The always-on skills the text holds, in the order it holds them."
+        },
+        "skillSetFingerprint": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fingerprint of the run's skill set; null while none is resolved for it."
+        },
+        "unreadRegistries": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The registries the orientation block could not read in time, each rendered as could not be read; empty when every one was read."
+        },
+        "leftOut": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "layer": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "team-bank",
+                  "project",
+                  "session",
+                  "persona",
+                  "always-on"
+                ],
+                "description": "A layer of a run's standing instructions, in the order the text holds them: user (the orientation block, then owned instructions), team-bank, project, session, persona (a bot's), always-on (always-on skills)."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What the part is, within its layer: orientation for the orientation block, else the id of the thing it renders."
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "channel-none"
+                ],
+                "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text)."
+              }
+            },
+            "required": [
+              "layer",
+              "id",
+              "reason"
+            ],
+            "description": "A part the layers gave that the text does not hold, and why."
+          },
+          "description": "The parts the layers gave that the text does not hold, each with why."
+        }
+      },
+      "required": [
+        "channel",
+        "layers",
+        "alwaysOn",
+        "skillSetFingerprint",
+        "unreadRegistries",
+        "leftOut"
+      ],
+      "description": "What a composition of standing instructions holds: the channel, per layer its parts' ids, versions and characters, the always-on skills with origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why."
+    }
+  },
+  "required": [
+    "parts",
+    "text",
+    "manifest"
+  ]
+}
