@@ -1,5 +1,7 @@
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
+import { QueueStrip } from "../queue/queued.js";
+import { SessionQueueProvider } from "../queue/session-queue.js";
 import { PaneLine } from "../session/pane-line.js";
 import { Transcript } from "../transcript/transcript.js";
 import { usePresentation } from "../window-context.js";
@@ -7,8 +9,9 @@ import { usePresentation } from "../window-context.js";
 /**
  * The session pane region (docs/specs/gui.md, "A session pane"): one session
  * pane, showing the session presentation holds for it (`paneLayout`), or
- * saying none is open. The pane holds its one line, which the composer
- * draws and whatever acts on the session from the pane says through.
+ * saying none is open. The pane holds its one line and its session's queue
+ * for what it draws: the transcript with the queued messages after their
+ * turns, the strip over the composer that counts them, and the composer.
  */
 export const SessionPaneRegion = () => {
   const [layout] = usePresentation("paneLayout");
@@ -22,10 +25,13 @@ export const SessionPaneRegion = () => {
       ) : (
         <section aria-label="Session pane" className="flex min-h-0 flex-1 flex-col">
           <PaneLine key={`${session.environmentId} ${session.sessionId}`}>
-            <SlashCommands>
-              <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
-              <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
-            </SlashCommands>
+            <SessionQueueProvider environmentId={session.environmentId} sessionId={session.sessionId}>
+              <SlashCommands>
+                <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
+                <QueueStrip />
+                <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
+              </SlashCommands>
+            </SessionQueueProvider>
           </PaneLine>
         </section>
       )}
