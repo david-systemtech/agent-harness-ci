@@ -116,6 +116,7 @@ import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
 import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
 import { createIdentityPasses } from "../workspace/identity-passes.js";
+import { setWorkspaceMethods } from "../workspace/set-workspace.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
 import { workspaceRoots } from "../workspace/roots.js";
@@ -703,8 +704,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
 
-  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at and the identity passes carry (#329).
+  // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
+  // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
   const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
+  const autoMemory = createAutoMemory(autoMemoryRoot);
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -986,6 +989,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
+    // A missing session given another workspace (#328), from a request the create's resolver serves.
+    ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
     // Fork, rewind and the subagent transcript (#137), beside the session commands.
     ...forkRewindMethods({
@@ -1184,7 +1189,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const identityPasses = createIdentityPasses({
     log,
     forgeAccounts,
-    autoMemory: createAutoMemory(autoMemoryRoot),
+    autoMemory,
     ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
   }).start();
   closers.push(() => identityPasses.stop());

@@ -1739,6 +1739,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       void pool.stop(event.streamId, "rewound");
       return;
     }
+    if (event.type === "session.workspace-set") {
+      // The kept process runs in the workspace that went: the next run starts cold in the new one, resuming the conversation (#328).
+      void pool.stop(event.streamId, "moved");
+      return;
+    }
     if (event.type !== "session.deleted") return;
     dropAdoptions(event.streamId);
     const entry = live.get(event.streamId);
