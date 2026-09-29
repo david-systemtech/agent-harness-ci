@@ -27,7 +27,6 @@ import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-regi
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { createScrubRegistry, type ScrubRegistry } from "../src/scrub/registry.js";
-import { managedGh } from "../src/forge/gh.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ContainmentProbe } from "../src/permissions/containment-probe.js";
 import { absentProbe } from "./containment.js";
@@ -72,7 +71,8 @@ export interface TestEnvironmentOptions {
    * How the environment's director runs sign-ins, each part over the
    * helper's preset: a spawn that refuses (so no test ever starts a real
    * binary; `fakeSignInSpawner` scripts one), `TEST_BUNDLED_CLAUDE` as the
-   * bundled binary, no managed tool, and a host environment of a PATH alone.
+   * bundled binary, the Managed tools registry's `claude` (none on the
+   * preset's empty PATH), and a host environment of a PATH alone.
    */
   readonly signInProcess?: EnvironmentOptions["signInProcess"];
   /** How long a status or model probe may take; preset: the environment's. */
@@ -126,8 +126,14 @@ export interface TestEnvironmentOptions {
   readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
   /** How long a forge call and a forge account's verification may take; preset: the environment's ten seconds. */
   readonly forgeTimeoutMs?: EnvironmentOptions["forgeTimeoutMs"];
-  /** The environment's own `gh` (`test/fake-gh.ts` puts a fake one on a PATH); preset: a PATH with no `gh`, so a test never runs a real one. */
-  readonly gh?: EnvironmentOptions["gh"];
+  /**
+   * How the Managed tools registry probes, each part over the helper's
+   * preset: a login shell whose PATH has nothing on it (`test/fake-tools.ts`
+   * and `test/fake-gh.ts` put fake tools on one of their own), a package
+   * owner that owns nothing, and a host environment of that PATH alone, so
+   * a test never runs a real tool, shell or package manager.
+   */
+  readonly managedTools?: EnvironmentOptions["managedTools"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's own, over its connections. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
@@ -155,7 +161,7 @@ export interface TestEnvironmentOptions {
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
 export const NO_RELEASE_SOURCE = { origin: "http://127.0.0.1:1", kind: "forgejo", repository: "david/agent-harness" } as const;
 
-/** A PATH with nothing on it: where a test environment looks for `gh` unless the test gives it one. */
+/** A PATH with nothing on it: where a test environment looks for its managed tools unless the test gives it one. */
 export const EMPTY_PATH = "/nonexistent/agent-harness-test-path";
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
@@ -320,7 +326,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
-    gh: options.gh ?? managedGh({ hostEnv: { PATH: EMPTY_PATH } }),
+    managedTools: { readPath: async () => EMPTY_PATH, packageOwner: async () => ({ kind: "none" }), hostEnv: { PATH: EMPTY_PATH }, ...options.managedTools },
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
     ...(options.vault !== undefined && { vault: options.vault }),
@@ -330,7 +336,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
-    signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
+    signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;
   try {

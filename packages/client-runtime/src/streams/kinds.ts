@@ -340,6 +340,10 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "routine.endpoint-set":
       case "routine.endpoint-removed":
         return data;
+      // A probe changing managed-tool rows (#373) changes no status: tools.list's cache is the key-managers workstream's
+      // client-runtime part (#384).
+      case "tools.updated":
+        return data;
       // Settings changed (#391): the status holds none of them; the request cache fetches settings.get and
       // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
       case "settings.changed":

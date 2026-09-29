@@ -148,7 +148,7 @@ export {
   type ClaudeAdapter,
   type ClaudeAdapterOptions,
 } from "./adapters/claude/index.js";
-export { claudeFallback, claudeSignInProgram, claudeVerificationUrl, findManagedClaude, type ClaudeSignInOptions } from "./adapters/claude/signin.js";
+export { claudeFallback, claudeSignInProgram, claudeVerificationUrl, type ClaudeSignInOptions } from "./adapters/claude/signin.js";
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
 export {
   ATTENDED_DEFAULT_MODE,

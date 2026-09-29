@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManagedTool",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "bao",
+            "vault",
+            "doppler",
+            "op",
+            "bws",
+            "gh"
+          ],
+          "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "What a row calls the tool."
+        },
+        "minimum": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+          "description": "The oldest version the harness works with."
+        },
+        "verify": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[^\\s\\p{Cc}]+$"
+          },
+          "description": "The command that proves the tool works, as the fixed arguments after its name."
+        },
+        "requiredFor": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "key-manager"
+                },
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "openbao",
+                    "doppler",
+                    "onepassword",
+                    "bitwarden"
+                  ],
+                  "description": "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager)."
+                }
+              },
+              "required": [
+                "kind",
+                "provider"
+              ],
+              "description": "Required while a connection of the provider injects; any tool for the provider satisfies it (bao or vault for OpenBao)."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "forge-gh"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "Required while a forge account reads its token from the environment's gh."
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "minimum",
+        "verify",
+        "requiredFor"
+      ],
+      "description": "A tool that can be required, with its minimum and its verify command."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "bao",
+            "vault",
+            "doppler",
+            "op",
+            "bws",
+            "gh"
+          ],
+          "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "What a row calls the tool."
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+              "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The oldest version the harness works with; null for none."
+        },
+        "verify": {
+          "anyOf": [
+            {
+              "minItems": 1,
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[^\\s\\p{Cc}]+$"
+              },
+              "description": "The command that proves the tool works, as the fixed arguments after its name."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requiredFor": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "never"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "Never required: shown for the person's own use."
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "minimum",
+        "verify",
+        "requiredFor"
+      ],
+      "description": "A tool that is never required, shown for the person's own use."
+    }
+  ],
+  "description": "A managed tool as the table declares it: its name, label, minimum, verify command and when it is required."
+}

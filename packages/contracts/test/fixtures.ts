@@ -14,6 +14,7 @@ import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
+import { managedToolMethodFixtures, managedToolSchemaFixtures, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
@@ -538,6 +539,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...instructionMethodFixtures,
   ...forgeMethodFixtures,
   ...keyManagerMethodFixtures,
+  ...managedToolMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
   ...workspaceMethodFixtures,
@@ -802,6 +804,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
+      toolsUpdatedNotice.valid,
       { type: "environment.renamed", payload: { name: "MNL" } },
       { type: "environment.icon-set", payload: { icon: "nas" } },
       { type: "environment.colour-set", payload: { colour: "amber" } },
@@ -829,6 +832,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "settings.changed", payload: { values: { "appearance.theme": null } } },
       { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
       { type: "setup.result-changed", payload: { step: "forges" } },
+      toolsUpdatedNotice.invalid,
       { type: "environment.renamed", payload: { name: "" } },
       { type: "environment.icon-set", payload: { icon: "phone" } },
       { type: "environment.colour-set", payload: { colour: "#ffbf00" } },
@@ -936,6 +940,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...instructionSchemaFixtures,
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
+  ...managedToolSchemaFixtures,
   ...skillSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,

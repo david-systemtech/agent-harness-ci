@@ -24,6 +24,7 @@ import {
 } from "./key-manager-connections.js";
 import { KeyManagerMovedPayload, KeyManagerStoredValueDeletedPayload } from "./key-manager-moves.js";
 import { DrainStarted } from "./lifecycle.js";
+import { ToolsUpdatedPayload } from "./managed-tools.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
 import {
@@ -75,8 +76,9 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * `settings.updated` (#391); a Set up step's result changed from the one
  * its result cache held, carrying the result (#569: ADR 0031's `setup`
  * subscription); the skill set changed, by a command or a read that
- * found the own directory changed (#494); the environment was renamed, or
- * took an icon or a colour (#323, whose three commands append them); so
+ * found the own directory changed (#494); a probe changed managed-tool rows
+ * (#373: the Managed tools registry's notice); the environment was renamed,
+ * or took an icon or a colour (#323, whose three commands append them); so
  * every connected client learns of it whatever else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
@@ -119,13 +121,14 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "settings.changed",
   "setup.result-changed",
   "skills.updated",
+  "tools.updated",
   "environment.renamed",
   "environment.icon-set",
   "environment.colour-set",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager) and key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), and environment.renamed, environment.icon-set and environment.colour-set (the environment's name, icon or colour changed; a client redraws its badge).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager) and key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list), and environment.renamed, environment.icon-set and environment.colour-set (the environment's name, icon or colour changed; a client redraws its badge).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -221,7 +224,7 @@ const UsageUpdated = z
   })
   .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
 
-/** A forge, key-manager, routine or look event as a notice: its type and its payload, described. */
+/** A forge, key-manager, routine, managed-tools or look event as a notice: its type and its payload, described. */
 const describedNotice = <const T extends string, P extends z.ZodObject>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
@@ -287,6 +290,7 @@ const SkillsUpdated = describedNotice(
   SkillsUpdatedPayload,
   "The skill set changed: a command changed it, or a read found the own directory changed.",
 );
+const ToolsUpdated = describedNotice("tools.updated", ToolsUpdatedPayload, "A probe of the managed tools changed rows: those rows as they are now.");
 const EnvironmentRenamed = describedNotice("environment.renamed", EnvironmentRenamedPayload, "The environment was renamed: its new name.");
 const EnvironmentIconSet = describedNotice("environment.icon-set", EnvironmentIconSetPayload, "The environment took another icon.");
 const EnvironmentColourSet = describedNotice("environment.colour-set", EnvironmentColourSetPayload, "The environment took another colour.");
@@ -337,6 +341,7 @@ export const EnvironmentNotice = z
     SettingsChanged,
     SetupResultChanged,
     SkillsUpdated,
+    ToolsUpdated,
     EnvironmentRenamed,
     EnvironmentIconSet,
     EnvironmentColourSet,
