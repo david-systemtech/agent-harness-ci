@@ -251,6 +251,7 @@ describe("a deleted session", () => {
     "diffs.session": { sessionId },
     "sessions.subagentTranscript": { sessionId, agentId: "a1b2c3" },
     "permissions.prompts.list": { sessionId },
+    "skills.get": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */
