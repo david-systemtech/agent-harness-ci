@@ -9,6 +9,6 @@
  */
 export { cssVariables, windowBackground } from "./css.js";
 export { derive, type Clamp, type DerivedTheme, type Ladder, type Rule } from "./derive.js";
-export { contrastRatio, cssColour, hueDistance, inGamut, toHex, type Oklch } from "./oklch.js";
+export { contrastRatio, cssColour, hueDistance, inGamut, readCssColour, toHex, type Oklch } from "./oklch.js";
 export { ANSI_COLOURS, TERMINAL_ROLES, type AnsiColour, type TerminalRole } from "./terminal.js";
 export { LADDERS, TOKEN_NAMES, type LadderName, type TokenName } from "./tokens.js";

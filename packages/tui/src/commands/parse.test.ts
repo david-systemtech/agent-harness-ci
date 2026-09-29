@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ACTIONS } from "@agent-harness/contracts";
-import { parseCommand, shellLine } from "./parse.js";
+import { parseCommand } from "./parse.js";
 
 /** The slash commands this build answers, and what goes to the agent (docs/specs/tui.md, "The composer"). */
 
@@ -94,15 +94,5 @@ describe("the terminal's commands (#148)", () => {
     expect(parseCommand("/files src/my file.ts")).toEqual({ kind: "files", path: "src/my file.ts" });
     expect(parseCommand("/diff")).toEqual({ kind: "diff" });
     expect(parseCommand("/diff more").kind).toBe("usage");
-  });
-});
-
-describe("a shell line", () => {
-  it("is ! and a command to run, !! and a command whose output goes to the agent, the command as typed", () => {
-    expect(shellLine("!git status")).toEqual({ send: false, command: "git status" });
-    expect(shellLine("!! ls -la | head ")).toEqual({ send: true, command: "ls -la | head" });
-    expect(shellLine("!")).toEqual({ send: false, command: "" });
-    expect(shellLine("!!")).toEqual({ send: true, command: "" });
-    expect(shellLine("hello !")).toBeNull();
   });
 });

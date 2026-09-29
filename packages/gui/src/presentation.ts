@@ -32,10 +32,10 @@ export interface PaneLayout {
 
 /**
  * The panes a session pane's side column holds (docs/specs/gui.md, "The
- * seven panes and the grid"): this build's; the terminal, documents, the
- * preview and the browser dock join them.
+ * seven panes and the grid"): this build's, in the spec's order; documents,
+ * the preview and the browser dock join them.
  */
-export const SIDE_PANES = ["files", "diff", "tasks"] as const;
+export const SIDE_PANES = ["terminal", "files", "diff", "tasks"] as const;
 export type SidePane = (typeof SIDE_PANES)[number];
 
 /**

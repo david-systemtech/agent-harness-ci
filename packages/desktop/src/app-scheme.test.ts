@@ -55,6 +55,15 @@ describe("the app scheme", () => {
     }
   });
 
+  it("refuses the text of a <style> element a script adds: no nonce, hash or 'unsafe-inline' admits one, so the terminal pane puts xterm.js's stylesheets through the CSSOM", async () => {
+    const { electron } = await start();
+    const policy = directives((await electron.protocol.load("agent-harness://app/")).headers.get("content-security-policy"));
+    // `style-src-elem` and `style-src-attr` would each stand in for `style-src` on their own; neither is sent.
+    expect(Object.keys(policy).filter((name) => name.startsWith("style-src"))).toEqual(["style-src"]);
+    expect(policy["style-src"]).toEqual(["agent-harness://app"]);
+    expect(policy["style-src"]?.filter((source) => /^'(unsafe-inline|unsafe-hashes|nonce-|sha(256|384|512)-)/.test(source))).toEqual([]);
+  });
+
   it("answers 404 for a file the build lacks, a path climbing out of it, and any host but app", async () => {
     const { electron, platform } = await start();
     writeFileSync(join(dirname(platform.paths.renderer), "secret.txt"), "not the renderer's");
