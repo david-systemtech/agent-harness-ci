@@ -299,6 +299,25 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: UPDATES_STATUS, error: null });
   });
 
+  it("fetches skills.get again on skills.updated, and no other query (#494)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    const view = { ownDirectory: "/home/david/.local/state/agent-harness/skills/own", sources: [], choices: [], accountId: "claude-max", members: [] };
+    wire.answer("skills.get", () => {
+      reads++;
+      return { result: view };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const skills = runtime.requests.cached(id, "skills.get", {});
+    skills.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+    environment?.event(noticeEvent(1, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(skills.read()).toMatchObject({ result: view, error: null });
+  });
+
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
     const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
     const cached = runtime.requests.cached(id, "groups.list", {});

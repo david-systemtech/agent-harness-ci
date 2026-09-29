@@ -268,6 +268,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "key-manager.connection.verified":
       case "key-manager.connection.removed":
         return data;
+      // The skill set changing (#494) changes no status: the request cache reads skills.get again.
+      case "skills.updated":
+        return data;
     }
   },
   encode: (data) => data,

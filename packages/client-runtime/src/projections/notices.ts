@@ -35,7 +35,8 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * routine's client-notice delivery (ADR 0008) is owed: no event on the
  * environment's stream carries it yet (#92). A key manager's failed
  * verification (ADR 0011) is `key-manager.connection.verified` (#366), whose
- * row is the client runtime's key-manager part (#384).
+ * row is the client runtime's key-manager part (#384). `skills.updated`
+ * (#494) raises none: it refreshes the cached `skills.get`.
  */
 
 export interface EnvironmentNoticeContext {
@@ -162,6 +163,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "key-manager.connection.policies-set":
         case "key-manager.connection.verified":
         case "key-manager.connection.removed":
+          return;
+        // The skill set changed (#494): the request cache reads skills.get again, and the Skills pane shows it.
+        case "skills.updated":
           return;
       }
     },
