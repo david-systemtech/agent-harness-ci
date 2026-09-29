@@ -224,6 +224,7 @@ import {
   HeadlessExecutable,
   HeadlessLimits,
 } from "./browser-settings.js";
+import { CredentialInjection, CredentialInjectionByAccount, InjectionAnswer } from "./credential-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -777,6 +778,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/mount.json", title: "KeyManagerMount", schema: KeyManagerMount },
   { path: "key-managers/username.json", title: "KeyManagerUsername", schema: KeyManagerUsername },
   { path: "key-managers/token-role.json", title: "KeyManagerTokenRole", schema: KeyManagerTokenRole },
+  { path: "key-managers/injection-answer.json", title: "InjectionAnswer", schema: InjectionAnswer },
   { path: "key-managers/ca.json", title: "KeyManagerCa", schema: KeyManagerCa },
   { path: "key-managers/policy.json", title: "KeyManagerPolicy", schema: KeyManagerPolicy },
   { path: "key-managers/policy-writes.json", title: "KeyManagerPolicyWrites", schema: KeyManagerPolicyWrites },
@@ -1013,6 +1015,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/browser.headless.executable.json", title: "HeadlessExecutable", schema: HeadlessExecutable },
   { path: "settings/keys/browser.headless.limits.json", title: "HeadlessLimits", schema: HeadlessLimits },
   { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
+  { path: "settings/keys/credentials.injection.json", title: "CredentialInjection", schema: CredentialInjection },
+  { path: "settings/keys/credentials.injectionByAccount.json", title: "CredentialInjectionByAccount", schema: CredentialInjectionByAccount },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },

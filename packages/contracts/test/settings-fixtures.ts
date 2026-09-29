@@ -41,6 +41,11 @@ const browserPresets = {
   "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
   "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
 };
+/** The injection keys (#367) at their presets: every value set holds them too. */
+const credentialPresets = {
+  "credentials.injection": "allow",
+  "credentials.injectionByAccount": {},
+};
 /** A theme other than the preset: an orange accent (ADR 0023's example). */
 const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
 const presets = {
@@ -55,6 +60,7 @@ const presets = {
   ...updatePresets,
   "appearance.theme": DEFAULT_THEME,
   ...browserPresets,
+  ...credentialPresets,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -67,6 +73,8 @@ const changed = {
   "appearance.theme": ember,
   "browser.devSites": ["*.myapp.test"],
   "browser.reach": { "claude-max": { chrome: { environmentId: commandId, chromeId: null } } },
+  "credentials.injection": "deny",
+  "credentials.injectionByAccount": { "claude-max": "allow" },
 };
 
 const idleSpans: Fixtures = {
@@ -89,6 +97,8 @@ const patches: Fixtures = {
     { "updates.pinnedVersion": "v0.4.2" },
     { "browser.headless.limits": { maxContexts: 0, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 } },
     { "browser.blockedSites": ["*.paypal.com"] },
+    { "credentials.injection": "inherit" },
+    { "credentials.injectionByAccount": { "claude-max": "inherit" } },
     { theme: "invalid-theme" },
     { "appearance.theme": "Ember" },
     { "appearance.theme": { name: "Ember" } },
@@ -109,8 +119,10 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
       "permissions.defaultCeiling",
       "updates.channel",
       "appearance.theme",
+      "credentials.injection",
+      "credentials.injectionByAccount",
     ],
-    invalid: ["theme", "updates.theme", "appearance.mode", ""],
+    invalid: ["theme", "updates.theme", "appearance.mode", "credentials.injectionByRoutine", ""],
   },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
   "settings/idle-span.json": idleSpans,
@@ -118,8 +130,13 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
   "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
   "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
+  "settings/keys/credentials.injection.json": { valid: ["allow", "deny"], invalid: ["inherit", "Allow", null, true] },
+  "settings/keys/credentials.injectionByAccount.json": {
+    valid: [{}, { "claude-max": "deny", [commandId]: "allow" }],
+    invalid: [{ "claude-max": "inherit" }, { "claude-max": null }, { "": "deny" }, ["deny"], "deny", null],
+  },
   "settings/settings-values.json": {
-    valid: [presets, { ...permissionPresets, ...updatePresets, ...browserPresets, ...changed }],
+    valid: [presets, { ...permissionPresets, ...updatePresets, ...browserPresets, ...credentialPresets, ...changed }],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "invalid-theme" }, changed],
   },
   "settings/settings-patch.json": patches,

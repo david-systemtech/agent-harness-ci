@@ -1135,6 +1135,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       updates: () => updates.machineHolds(channelChecks.status().newest),
       hostUpdater: () => hostUpdater.holds(),
       forge,
+      keyManagerConnections,
       clock,
       look: () => look.read(),
     }),
