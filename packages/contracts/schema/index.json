@@ -1135,6 +1135,10 @@
       "title": "KeyManagerConnectionBasePathSetPayload"
     },
     {
+      "path": "key-managers/events/key-manager.connection.injected-set.json",
+      "title": "KeyManagerConnectionInjectedSetPayload"
+    },
+    {
       "path": "key-managers/events/key-manager.connection.verified.json",
       "title": "KeyManagerConnectionVerifiedPayload"
     },
@@ -4155,6 +4159,22 @@
       "title": "keyManagers.connections.setBasePath error"
     },
     {
+      "path": "methods/keyManagers.connections.setInjected/params.json",
+      "title": "keyManagers.connections.setInjected params"
+    },
+    {
+      "path": "methods/keyManagers.connections.setInjected/result.json",
+      "title": "keyManagers.connections.setInjected result"
+    },
+    {
+      "path": "methods/keyManagers.connections.setInjected/response.json",
+      "title": "keyManagers.connections.setInjected response"
+    },
+    {
+      "path": "methods/keyManagers.connections.setInjected/error.json",
+      "title": "keyManagers.connections.setInjected error"
+    },
+    {
       "path": "methods/keyManagers.connections.signOut/params.json",
       "title": "keyManagers.connections.signOut params"
     },
@@ -5966,6 +5986,16 @@
       "result": "methods/keyManagers.connections.setBasePath/result.json",
       "response": "methods/keyManagers.connections.setBasePath/response.json",
       "error": "methods/keyManagers.connections.setBasePath/error.json"
+    },
+    {
+      "name": "keyManagers.connections.setInjected",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.connections.setInjected/params.json",
+      "result": "methods/keyManagers.connections.setInjected/result.json",
+      "response": "methods/keyManagers.connections.setInjected/response.json",
+      "error": "methods/keyManagers.connections.setInjected/error.json"
     },
     {
       "name": "keyManagers.connections.signOut",

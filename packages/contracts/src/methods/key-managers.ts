@@ -51,6 +51,10 @@ import { commandParams, defineMethod } from "../method.js";
  * connection's login and answer whether a reference resolves, and the names
  * under a path, never a value.
  *
+ * Injection (#368): `keyManagers.connections.setInjected`, an `admin`
+ * command, moves which connection of a provider runs receive the variables
+ * of.
+ *
  * Move (#371): `keyManagers.connections.setBasePath`, an `admin` command;
  * `keyManagers.move.list`, a `read` query; and `keyManagers.move`, a
  * prepared `admin` command that hears from the key manager and each item's
@@ -376,6 +380,23 @@ export const keyManagersConnectionsSetBasePath = defineMethod({
     connectionId: KeyManagerConnectionId,
     basePath: KeyManagerBasePath,
   }),
+  result: connectionResult,
+  errors: [],
+});
+
+/**
+ * Makes the connection the one of its provider whose variables every
+ * provider process and terminal receives (`key-manager.connection.injected-set`;
+ * key-managers spec, "The connection record"; #368): at most one connection
+ * per provider injects, the first signed in until this moves it, and the
+ * one it replaces serves references only. Each session's next run gets a
+ * fresh process. The connection injecting already changes nothing.
+ */
+export const keyManagersConnectionsSetInjected = defineMethod({
+  name: "keyManagers.connections.setInjected",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ connectionId: KeyManagerConnectionId }),
   result: connectionResult,
   errors: [],
 });
