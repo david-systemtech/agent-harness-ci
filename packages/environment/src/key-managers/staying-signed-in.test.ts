@@ -5,7 +5,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeOpenBao, type FakeLogin, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list } from "../../test/key-manager-connections.js";
+import { PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, signIn, token, verify } from "../../test/key-manager-connections.js";
 import { create } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
@@ -155,5 +155,46 @@ describe("a login the environment made", () => {
     expect(stopped.receipt.status).toBe("accepted");
     await eventually(() => expect([held, first].map((token) => bao.live(token))).toEqual([false, false]));
     expect(bao.live(bao.minted[1] ?? "")).toBe(true);
+  });
+});
+
+describe("a token a person gave", () => {
+  it("is renewed up to its maximum life but never logged into again: at its end the connection is expired, and signing in again is its only fix", async () => {
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600 });
+    // Thirty minutes to live, and fifty-seven at most.
+    bao.token(PERSON_TOKEN, { policies: ["default", "minter"], ttlSeconds: 30 * 60, explicitMaxTtlSeconds: 57 * 60 });
+    const connection = await added(client, { address: bao.address, ca: bao.ca, credential: token() });
+    const recordOf = async () => (await list(client)).find((each) => each.id === connection.id);
+    const statusOf = async () => (await recordOf())?.status;
+
+    t.clock.advance(20 * MINUTE);
+    await eventually(() => expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE)]));
+    t.clock.advance(20 * MINUTE);
+    await eventually(() => expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE), after(40 * MINUTE)]));
+    t.clock.advance(16 * MINUTE);
+    // The fifteen-minute verification under way by now has settled, the token alive, so the next is a quarter of an hour off.
+    await eventually(async () => expect(await recordOf()).toMatchObject({ status: { kind: "signed-in" }, verifiedAt: after(56 * MINUTE) }));
+
+    t.clock.advance(MINUTE);
+
+    await eventually(async () =>
+      expect(await statusOf()).toEqual({
+        kind: "expired",
+        since: after(57 * MINUTE),
+        message: "The token this connection signed in with expired at 2026-09-24 00:57 UTC, the end of its life: sign in again with a new token in Set up, Key manager.",
+      }),
+    );
+    t.clock.advance(60 * MINUTE);
+    const [still] = await verify(client, connection.id);
+    expect(still?.status.kind).toBe("expired");
+    expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE), after(40 * MINUTE)]);
+    // Nothing was logged into, with a third of its life left or past its end.
+    expect(bao.minted).toEqual([]);
+    expect(bao.requests.filter((request) => request.path.includes("login"))).toEqual([]);
+
+    bao.token("another-person-token-for-tests", { policies: ["default", "minter"], ttlSeconds: 30 * 60 });
+    const again = await signIn(client, { connectionId: connection.id, credential: token("another-person-token-for-tests") });
+
+    expect(again.result?.connection.status.kind).toBe("signed-in");
   });
 });
