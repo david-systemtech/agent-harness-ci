@@ -1,6 +1,7 @@
 import {
   endWords,
   oneLine,
+  promptsIn,
   turnFacts,
   type AssistantEntry,
   type PromptEntry,
@@ -12,18 +13,31 @@ import type { RunSummary } from "@agent-harness/contracts";
 import { useState } from "react";
 import { classes } from "../ui/classes.js";
 import { Fold } from "../ui/index.js";
+import { ForkedRow } from "../fork-rewind/forked.js";
+import { MessageVerbs } from "../fork-rewind/message-verbs.js";
+import { UndoOnFold } from "../fork-rewind/rewound.js";
 import { usePresentation } from "../window-context.js";
 import { CallCard, CallsRow } from "./calls.js";
 import { Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
 import { StreamingText } from "./streaming-text.js";
 
-/** What the transcript knows of its rows beyond the projection: what arrived while it watched, and how long each running call has been quiet. */
+/**
+ * What the transcript knows of its rows beyond the projection: what arrived
+ * while it watched, how long each running call has been quiet, and whether
+ * the rows are the session's own to act on.
+ */
 export interface RowFacts {
   /** Whether the entry at `sequence` arrived while the transcript was watching, rather than being there when it opened. */
   arrived(sequence: number): boolean;
   /** How long a running call has said nothing, in milliseconds. */
   quietMs(toolCallId: string): number;
+  /**
+   * The rows are the session's own transcript (#403): each user message
+   * offers Fork and Rewind. False where rows are only read: what a rewind
+   * cut, a subagent's transcript.
+   */
+  readonly verbs: boolean;
 }
 
 /** One row of the transcript, drawn by its kind. */
@@ -31,7 +45,13 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
   const { arrived } = facts;
   switch (row.kind) {
     case "user":
-      return <UserMessage entry={row.entry} />;
+      return facts.verbs ? (
+        <MessageVerbs entry={row.entry}>
+          <UserMessage entry={row.entry} focusable />
+        </MessageVerbs>
+      ) : (
+        <UserMessage entry={row.entry} />
+      );
     case "assistant":
       return row.entry.kind === "assistant-thinking" ? (
         <Reasoning entry={row.entry} arrived={arrived(row.entry.sequence)} />
@@ -66,21 +86,55 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
         </p>
       );
     case "rewound":
-      // The fold at the rewind point is #403's to draw; what the rewind cut stays out of the transcript until then.
-      return null;
+      return <RewoundFold row={row} facts={facts} />;
     case "forked":
-      // A fork's first row, naming its source and opening it, is #403's to draw.
-      return null;
+      return <ForkedRow entry={row.entry} />;
   }
+};
+
+/**
+ * What a rewind cut (docs/specs/gui.md, "The rewound fold"; ADR 0022; #403):
+ * one fold at the rewind point, "Rewound: <prompt> · N prompts cut", shut
+ * until opened. Open, a line saying files are not restored, then the cut
+ * rows dim and only to read (a fold an earlier rewind made among them a fold
+ * again). Beside it, on the session's own transcript, Undo rewind while it
+ * is the latest rewind and no run has started since.
+ */
+const RewoundFold = ({ row, facts }: { readonly row: Extract<TranscriptRow, { kind: "rewound" }>; readonly facts: RowFacts }) => {
+  const [open, setOpen] = useState(false);
+  const cut = promptsIn(row.rows);
+  const read: RowFacts = { ...facts, verbs: false };
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <Fold
+        className="flex-1"
+        open={open}
+        onOpenChange={setOpen}
+        summary={<Marked text={`Rewound: ${oneLine(row.entry.text, 160)} · ${cut} ${cut === 1 ? "prompt" : "prompts"} cut`} />}
+      >
+        <div role="group" aria-label="What the rewind cut" className="flex flex-col gap-3 border-l border-hairline pl-3 opacity-60">
+          <p className="text-[0.85em] text-ink-muted">Files are not restored: a rewind takes back the conversation, never what the agent changed.</p>
+          {row.rows.map((inner) => (
+            <TranscriptRowView key={inner.id} row={inner} facts={read} />
+          ))}
+        </div>
+      </Fold>
+      {facts.verbs && <UndoOnFold row={row} />}
+    </div>
+  );
 };
 
 /**
  * A message David sent, on the right: its text, and each attachment by name
  * and size (the log records what was attached, never its bytes, so a sent
- * picture is named, not drawn).
+ * picture is named, not drawn). Focusable where it has actions to reveal.
  */
-const UserMessage = ({ entry }: { readonly entry: UserMessageEntry }) => (
-  <article aria-label="Your message" className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-lg bg-wash-user px-3 py-2 text-ink">
+const UserMessage = ({ entry, focusable = false }: { readonly entry: UserMessageEntry; readonly focusable?: boolean }) => (
+  <article
+    aria-label="Your message"
+    tabIndex={focusable ? 0 : undefined}
+    className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-lg bg-wash-user px-3 py-2 text-ink outline-none focus-visible:outline-2 focus-visible:outline-beam"
+  >
     {entry.attachments.length > 0 && (
       <ul className="flex flex-wrap justify-end gap-1.5 text-[0.85em] text-ink-muted">
         {entry.attachments.map((attachment, index) => (

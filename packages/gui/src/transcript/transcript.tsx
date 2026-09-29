@@ -149,7 +149,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const [liveFrom, setLiveFrom] = useState<number | null>(null);
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
   const quietMs = useQuietCalls(projection);
-  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs };
+  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, verbs: true };
   const follow = useFollow();
   const find = useFindBar(follow.column, follow.stop);
   const name = environments.find((environment) => environment.environmentId === environmentId)?.name ?? THIS_MACHINE;

@@ -116,8 +116,8 @@ export const TasksPane = ({ environmentId, sessionId }: TasksPaneProps) => {
   );
 };
 
-/** Nothing arrives while an agent's transcript is read, and none of its calls is timed: it is read once, as it stood. */
-const AS_READ: RowFacts = { arrived: () => false, quietMs: () => 0 };
+/** Nothing arrives while an agent's transcript is read, none of its calls is timed, and nothing in it is forked or rewound: it is read once, as it stood. */
+const AS_READ: RowFacts = { arrived: () => false, quietMs: () => 0, verbs: false };
 
 interface AgentTranscriptProps {
   readonly environmentId: string;
