@@ -29,6 +29,10 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * `signin.updated`, `signin.executable-chosen`, `environment.started` and
  * `usage.updated` (#136) raise none: the sign-in flow shows its own state, a
  * start is the connection's phase, and plan usage is `projections.usage`'s.
+ * Nor do `environment.renamed`, `environment.icon-set` and
+ * `environment.colour-set` (#323): the connection descriptor takes them, so
+ * `projections.environments` redraws the badge, and a change another client
+ * made is no news to announce.
  * An update's pending, started and cancelled notices (#335) raise none:
  * they change the card and About, which follow `updates.status` as the
  * request cache fetches it again on every update notice (#344). A
@@ -142,6 +146,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "signin.updated":
         case "signin.executable-chosen":
         case "usage.updated":
+          return;
+        // The environment's name, icon and colour (#323): the descriptor takes them (`streams.ts`), and the badge redraws.
+        case "environment.renamed":
+        case "environment.icon-set":
+        case "environment.colour-set":
           return;
         // An update's other steps change the card and About, which follow `updates.status` in the request cache (#344).
         case "environment.update-pending":

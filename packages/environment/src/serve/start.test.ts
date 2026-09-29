@@ -31,6 +31,7 @@ import {
   type StartupStep,
   type UserCheck,
 } from "../index.js";
+import { presetColour } from "../look/look.js";
 
 const posix = process.platform !== "win32";
 const { version: packageVersion } = JSON.parse(
@@ -164,12 +165,15 @@ const tree = (root: string): string[] =>
 
 describe("discovery and health", () => {
   it("answer who the environment is, and that it is ready once started", async () => {
-    const env = await start({ name: "desk" });
+    const env = await start({ name: "desk", platform: "win32", containerDetector: { inContainer: () => false } });
     const discovery = await getJson(env.address, DISCOVERY_PATH);
     expect(discovery.status).toBe(200);
     expect(DiscoveryDocument.parse(discovery.body)).toEqual({
       environmentId: env.id,
       environmentName: "desk",
+      // Its icon and colour (#323), which until set are the platform's and a hash of its id's.
+      environmentIcon: "desktop",
+      environmentColour: presetColour(env.id),
       harnessVersion: packageVersion,
       protocolVersion: PROTOCOL_VERSION,
       capabilities: ["forge", "keyManagers", "managedTools", "setup"],
@@ -326,8 +330,9 @@ describe("the environment record and the signing key", () => {
     expect((await getJson(second.address, DISCOVERY_PATH)).body).toMatchObject({ environmentId: first.id });
   });
 
-  it("names a new environment after the machine unless told otherwise", async () => {
-    expect((await start()).name).toBe(hostname());
+  it("names a new environment for the machine's hostname's first label unless told otherwise", async () => {
+    expect((await start({ hostname: "desk.tail1234.ts.net" })).name).toBe("desk");
+    expect(hostname().startsWith((await start()).name)).toBe(true);
   });
 
   it("refuses an empty name before writing a record", async () => {

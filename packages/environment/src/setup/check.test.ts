@@ -22,6 +22,7 @@ const holding: StateCheckers = {
   "your-machines.release-channel": () => true,
   "your-machines.updates": () => true,
   "your-machines.host-updater": () => true,
+  "your-machines.named": () => true,
   "forges.present": () => true,
   "forges.identity": () => true,
   "forges.reads": () => true,

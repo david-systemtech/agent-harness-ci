@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { environmentLookFields } from "./discovery.js";
 import { EventEnvelope } from "./envelope.js";
 import { ContractError, WireError, invalidParams, type IssueInput } from "./errors.js";
 import { CapabilityFlags, ProtocolVersion } from "./flags.js";
@@ -63,6 +64,7 @@ export const HelloFrame = z
     capabilities: CapabilityFlags,
     environmentId: EnvironmentId,
     environmentName: z.string(),
+    ...environmentLookFields,
     clientSessionId: ClientSessionId,
     scopes: ScopeSet,
     ceiling: Ceiling,
@@ -70,7 +72,7 @@ export const HelloFrame = z
   })
   .meta({
     description:
-      "From the environment, in reply to a valid auth: what the environment is and what this client session may do.",
+      "From the environment, in reply to a valid auth: what the environment is (its id, name, icon and colour) and what this client session may do.",
   });
 export type HelloFrame = z.infer<typeof HelloFrame>;
 

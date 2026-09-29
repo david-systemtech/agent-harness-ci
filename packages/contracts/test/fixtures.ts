@@ -13,6 +13,7 @@ import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
+import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
 import { managedToolMethodFixtures, managedToolSchemaFixtures, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
@@ -210,6 +211,19 @@ export const validFrames: Record<FrameType, readonly object[]> = {
       ceiling: "bypassPermissions",
       serverTime: at,
     },
+    {
+      type: "hello",
+      protocolVersion: 1,
+      capabilities: [],
+      environmentId: uuid,
+      environmentName: "MNL",
+      environmentIcon: "server",
+      environmentColour: "teal",
+      clientSessionId: "cs-1",
+      scopes: ["read"],
+      ceiling: "plan",
+      serverTime: at,
+    },
   ],
   request: [
     { type: "request", id: "1", method: "environment.status", params: {} },
@@ -394,10 +408,18 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.subscribe": {
     params: { valid: [{ afterSequence: 0 }, { afterSequence: 1200 }], invalid: [{}, { afterSequence: -1 }] },
     result: {
-      valid: [...validStatuses.map((status) => ({ status })), { status: validStatuses[0], setup: [] }, { status: validStatuses[0], setup: [forgeRejected] }],
+      valid: [
+        ...validStatuses.map((status) => ({ status })),
+        { status: validStatuses[0], environment: validLook },
+        { status: validStatuses[0], setup: [] },
+        { status: validStatuses[0], setup: [forgeRejected] },
+        { status: validStatuses[0], environment: validLook, setup: [forgeRejected] },
+      ],
       invalid: [
         {},
         ...invalidStatuses.map((status) => ({ status })),
+        { status: validStatuses[0], environment: { ...validLook, colour: "#008080" } },
+        { status: validStatuses[0], environment: { name: "MNL" } },
         { status: validStatuses[0], setup: [{ ...forgeRejected, state: "pending" }] },
         { status: validStatuses[0], setup: forgeRejected },
       ],
@@ -506,6 +528,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
     },
     result: { valid: [{ events: [] }, { events: [validEnvelope] }], invalid: [{ events: [{}] }, {}] },
   },
+  ...lookMethodFixtures,
   ...sessionMethodFixtures,
   ...runMethodFixtures,
   ...providerMethodFixtures,
@@ -693,6 +716,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: [
       validDiscovery,
       { ...validDiscovery, capabilities: ["terminal"], authPolicy: "tailnet", readiness: "ready" },
+      { ...validDiscovery, environmentIcon: "nas", environmentColour: "amber" },
     ],
     invalid: [
       without(validDiscovery, "environmentId"),
@@ -731,6 +755,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "environment.update-started",
       "environment.update-failed",
       "environment.update-cancelled",
+      "environment.renamed",
+      "environment.icon-set",
+      "environment.colour-set",
       "account.updated",
       "signin.updated",
       "signin.executable-chosen",
@@ -754,6 +781,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.update-started", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "cap" } },
       { type: "environment.update-failed", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline", rolledBack: true } },
       { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "requested" } },
+      { type: "environment.renamed", payload: { name: "MNL" } },
+      { type: "environment.icon-set", payload: { icon: "nas" } },
+      { type: "environment.colour-set", payload: { colour: "amber" } },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
       {
         type: "signin.updated",
@@ -789,6 +819,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.update-started", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "now" } },
       { type: "environment.update-failed", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline" } },
       { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "superseded" } },
+      { type: "environment.renamed", payload: { name: "" } },
+      { type: "environment.icon-set", payload: { icon: "phone" } },
+      { type: "environment.colour-set", payload: { colour: "#ffbf00" } },
       { type: "environment.draining", payload: { drainingSince: "soon", trigger: "signal" } },
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
@@ -910,6 +943,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...managedToolSchemaFixtures,
   ...skillSchemaFixtures,
   ...themeSchemaFixtures,
+  ...lookSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...workspaceSchemaFixtures,

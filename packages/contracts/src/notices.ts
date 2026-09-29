@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
+import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
 import {
   ForgeAccountAddedPayload,
@@ -55,7 +56,9 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * from one harness version to another (appended by the settle after the
  * restart, #344); it began to drain (appended by the lifecycle ticket,
  * #112); an update became pending, began, failed or was withdrawn (the
- * update coordinator: the launcher-update spec's notices, #335); an account
+ * update coordinator: the launcher-update spec's notices, #335); it was
+ * renamed, or took an icon or a colour (#323, whose three commands append
+ * them, so every client redraws its badge); an account
  * changed (the account store, #134), appended once the change has committed;
  * the sign-in changed state, carrying the sign-in (the sign-in director,
  * #135); the executable sign-ins run was chosen, once per environment and
@@ -88,6 +91,10 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.update-started",
   "environment.update-failed",
   "environment.update-cancelled",
+  // The environment's name, icon and colour (#323): a client redraws its badge.
+  "environment.renamed",
+  "environment.icon-set",
+  "environment.colour-set",
   "account.updated",
   "signin.updated",
   "signin.executable-chosen",
@@ -165,6 +172,18 @@ const EnvironmentUpdateFailed = z
 const EnvironmentUpdateCancelled = z
   .object({ type: z.literal("environment.update-cancelled"), payload: UpdateCancelledPayload })
   .meta({ description: "A pending update was withdrawn before its drain." });
+
+const EnvironmentRenamed = z
+  .object({ type: z.literal("environment.renamed"), payload: EnvironmentRenamedPayload })
+  .meta({ description: "The environment was renamed: its new name, which every client's badge takes." });
+
+const EnvironmentIconSet = z
+  .object({ type: z.literal("environment.icon-set"), payload: EnvironmentIconSetPayload })
+  .meta({ description: "The environment took another icon, which every client's badge takes." });
+
+const EnvironmentColourSet = z
+  .object({ type: z.literal("environment.colour-set"), payload: EnvironmentColourSetPayload })
+  .meta({ description: "The environment took another colour, which every client's badge takes." });
 
 const AccountUpdated = z
   .object({
@@ -308,6 +327,9 @@ export const EnvironmentNotice = z
     EnvironmentUpdateStarted,
     EnvironmentUpdateFailed,
     EnvironmentUpdateCancelled,
+    EnvironmentRenamed,
+    EnvironmentIconSet,
+    EnvironmentColourSet,
     AccountUpdated,
     SignInUpdated,
     SignInExecutableChosen,

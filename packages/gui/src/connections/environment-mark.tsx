@@ -9,7 +9,7 @@ import { EnvironmentColour } from "@agent-harness/contracts";
  */
 export const EnvironmentMark = ({ view }: { readonly view: EnvironmentView }) => {
   const colour = EnvironmentColour.safeParse(view.colour);
-  const named = [view.icon, colour.success ? colour.data : null].filter((part): part is string => part !== null);
+  const named = [view.icon, colour.success ? colour.data : null].filter((part) => part !== null);
   if (named.length === 0) return null;
   return (
     <span

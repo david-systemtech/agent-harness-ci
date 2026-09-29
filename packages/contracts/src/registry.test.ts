@@ -56,6 +56,9 @@ describe("the method registry", () => {
       "environment.subscribe": "read",
       "environment.drain": "admin",
       "environment.rebuildProjections": "admin",
+      "environment.rename": "admin",
+      "environment.setIcon": "admin",
+      "environment.setColour": "admin",
       "access.pairings.create": "admin",
       "access.sessions.list": "admin",
       "access.sessions.revoke": "admin",
@@ -202,6 +205,9 @@ describe("the method registry", () => {
     expect(methods.filter((m) => m.kind === "command").map((m) => m.name)).toEqual([
       "environment.drain",
       "environment.rebuildProjections",
+      "environment.rename",
+      "environment.setIcon",
+      "environment.setColour",
       "access.pairings.create",
       "access.sessions.revoke",
       "access.sessions.refresh",
@@ -341,6 +347,9 @@ describe("the method registry", () => {
       | "environment.subscribe"
       | "environment.drain"
       | "environment.rebuildProjections"
+      | "environment.rename"
+      | "environment.setIcon"
+      | "environment.setColour"
       | "access.pairings.create"
       | "access.sessions.list"
       | "access.sessions.revoke"

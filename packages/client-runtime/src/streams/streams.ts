@@ -5,7 +5,7 @@ import { writable, type Observable } from "../observable.js";
 import type { Platform } from "../platform.js";
 import { createAttacher, liveStream, type LiveStream } from "./attach.js";
 import { createRetention, createStreamCache, streamDocument } from "./cache.js";
-import { environmentKind, listKind, sessionKind, type EnvironmentData, type ListData, type SessionData } from "./kinds.js";
+import { ENVIRONMENT_LOOK_NOTICES, environmentKind, listKind, sessionKind, type EnvironmentData, type ListData, type SessionData } from "./kinds.js";
 import { createSessionHandles, sessionView, type HeldSession, type SessionHandle } from "./session-handles.js";
 import { createSkew } from "./skew.js";
 import { cachedStream, type StreamState } from "./stream.js";
@@ -138,7 +138,11 @@ export const createStreams = (options: StreamsOptions): Streams => {
     wanted,
     changed: published,
     // What an event means beyond its stream (the notices it raises, the caches it refreshes) is the runtime's composition's (`internal.ts`).
-    applied: (stream, event, news) => options.applied?.(stream.environmentId, stream.name, event, news),
+    applied(stream, event, news) {
+      if (ENVIRONMENT_LOOK_NOTICES.has(event.type)) describe(stream);
+      options.applied?.(stream.environmentId, stream.name, event, news);
+    },
+    snapshotted: (stream) => describe(stream),
     ended(stream) {
       const sessionId = stream.name.slice("session.".length);
       const session = held(stream.environmentId, sessionId);
@@ -151,6 +155,18 @@ export const createStreams = (options: StreamsOptions): Streams => {
         .catch(report);
     },
   });
+
+  /**
+   * The connection descriptor takes the environment's name, icon and colour
+   * as its own stream says them now (#323), after a snapshot or one of their
+   * notices: never from the cache, which `hello` is newer than. A replay
+   * moves it through each value in turn to where the environment stands.
+   */
+  const describe = (stream: LiveStream<unknown>): void => {
+    if (stream.name !== "environment") return;
+    const look = (stream.value.read() as StreamState<EnvironmentData>).data?.look;
+    if (look !== undefined && Object.keys(look).length > 0) seams.describe(stream.environmentId, look);
+  };
 
   /** Puts what the cache holds for `stream` in it, unless it holds something already. */
   const restore = async <D>(stream: LiveStream<D>): Promise<void> => {

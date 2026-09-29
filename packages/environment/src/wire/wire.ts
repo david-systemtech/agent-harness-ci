@@ -7,6 +7,7 @@ import {
   peekProtocolVersion,
   type ByeFrame,
   type CapabilityFlags,
+  type EnvironmentLook,
   type Frame,
   type HelloFrame,
 } from "@agent-harness/contracts";
@@ -37,7 +38,8 @@ const CLOSE_GRACE_MS = 1000;
 const CLOSE = { bye: 1000, goingAway: 1001, protocolError: 1002, unsupportedData: 1003 } as const;
 
 export interface WireOptions {
-  readonly environment: { readonly id: string; readonly name: string };
+  /** The environment's id, and its name, icon and colour, read as each `hello` is sent: a rename shows in the next (#323). */
+  readonly environment: { readonly id: string; look(): EnvironmentLook };
   /** The capability flags, read as each `hello` is sent: `self-update` comes and goes with the host-side updater's polls (#348). */
   readonly capabilities: () => CapabilityFlags;
   readonly clientSessions: SocketSessions;
@@ -207,12 +209,15 @@ export const createWire = (options: WireOptions): Wire => {
     socket.phase = "authenticated";
     socket.clientSession = clientSession;
     clientSessions.socketOpened(clientSession.id, { socketId: socket.id, remoteAddress: socket.remoteAddress });
+    const look = options.environment.look();
     const hello: HelloFrame = {
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
       capabilities: [...options.capabilities()],
       environmentId: options.environment.id,
-      environmentName: options.environment.name,
+      environmentName: look.name,
+      environmentIcon: look.icon,
+      environmentColour: look.colour,
       clientSessionId: clientSession.id,
       scopes: [...clientSession.scopes],
       ceiling: clientSession.ceiling,

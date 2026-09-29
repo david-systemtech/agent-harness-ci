@@ -74,6 +74,15 @@ describe("the status line", () => {
     expect(await within(line).findByRole("button", { name: "Containment: ◐ workspace (default)" })).toBeTruthy();
   });
 
+  it("draws the environment's badge as a dot in its colour's token, whatever icon it names, until the window draws the icons", async () => {
+    await opened([desk({ hello: { environmentIcon: "laptop", environmentColour: "teal" } })]);
+    const line = await screen.findByRole("region", { name: "Status line" });
+    const dot = within(line).getByText("desk").previousElementSibling as HTMLElement;
+    expect(dot.textContent).toBe("●");
+    expect(dot.style.color).toBe("var(--environment-teal)");
+    expect(lineText()).not.toContain("laptop");
+  });
+
   it("says what a session with no run yet goes out as: the default account and model", async () => {
     await opened([desk({ sessions: [{ title: "Receipts" }] })]);
     const line = await screen.findByRole("region", { name: "Status line" });

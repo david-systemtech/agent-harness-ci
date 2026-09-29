@@ -127,16 +127,17 @@ const useSecondTicks = (clock: Clock, elapsed: number | undefined): void => {
 };
 
 /**
- * The environment's badge: its icon (a dot until it has one) in its colour's
- * token (ADR 0023: the colour is a name, drawn with the theme's token for it),
- * then its name.
+ * The environment's badge: its icon in its colour's token (ADR 0023: the
+ * colour is a name, drawn with the theme's token for it), then its name.
+ * The environment names its icon (#323: `laptop`, `server`), and the window
+ * draws none of the ten yet (#675), so the badge is a dot in the colour.
  */
 const EnvironmentBadge = ({ view }: { readonly view: EnvironmentView | undefined }) => {
   const colour = environmentColour(view?.colour ?? null);
   return (
     <span className="flex shrink-0 items-center gap-1 pr-1 font-medium text-ink">
       <span aria-hidden="true" style={colour === undefined ? undefined : { color: colour }} className={colour === undefined ? "text-cyan" : undefined}>
-        {view?.icon ?? "●"}
+        ●
       </span>
       <span>{view?.name ?? THIS_MACHINE}</span>
     </span>

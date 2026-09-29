@@ -195,6 +195,24 @@ describe("the environment stream kind", () => {
     const started = kind.apply(draining, noticeEvent(3, "env", "environment.started", { harnessVersion: "0.2.0", protocolVersion: 1 }));
     expect(started.status).toEqual(status);
     // A notice this client does not know changes nothing.
-    expect(kind.apply(started, noticeEvent(4, "env", "environment.renamed", { name: "desk" }))).toBe(started);
+    expect(kind.apply(started, noticeEvent(4, "env", "environment.retired", { reason: "moved" }))).toBe(started);
+  });
+
+  it("holds the look a snapshot gave and each field a notice set since, a snapshot or not before it, and stores it (#323)", () => {
+    const kind = environmentKind();
+    const held = kind.fromSnapshot({ sequence: 1, status, environment: { name: "desk", icon: "server", colour: "teal" } });
+    expect(held.look).toEqual({ name: "desk", icon: "server", colour: "teal" });
+    const renamed = kind.apply(held, noticeEvent(2, "env", "environment.renamed", { name: "MNL" }));
+    const coloured = kind.apply(renamed, noticeEvent(3, "env", "environment.colour-set", { colour: "amber" }));
+    expect(coloured).toEqual({ status, look: { name: "MNL", icon: "server", colour: "amber" }, setup: [] });
+    expect(kind.decode(JSON.parse(JSON.stringify(kind.encode(coloured))))).toEqual(coloured);
+
+    // From an environment from before the look: none in the snapshot, and a stored document with none reads as none.
+    expect(kind.fromSnapshot({ sequence: 1, status }).look).toEqual({});
+    expect(kind.decode({ status, setup: [] }).look).toEqual({});
+    // A look this build cannot read (a newer environment's icon) is none, and the rest of the snapshot still reads.
+    expect(kind.fromSnapshot({ sequence: 1, status, environment: { name: "desk", icon: "phone", colour: "teal" } })).toEqual({ status, look: {}, setup: [] });
+    // Replayed from nothing, a notice sets its field alone.
+    expect(kind.apply(kind.empty(), noticeEvent(1, "env", "environment.icon-set", { icon: "nas" }))).toEqual({ status: null, look: { icon: "nas" }, setup: [] });
   });
 });

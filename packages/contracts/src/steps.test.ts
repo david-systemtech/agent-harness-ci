@@ -338,7 +338,7 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys and the three session keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348)", () => {
+  it("gives the Your machines entry the five update keys and the three session keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348), and that it is named (#323)", () => {
     expect(machines.writes).toEqual([
       "updates.autoUpdate",
       "updates.channel",
@@ -362,6 +362,18 @@ describe("the step registry", () => {
         actions: ["update"],
       },
       { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["check-again"] },
+      { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
+    ]);
+  });
+
+  it("gives the Your machines entry the environment's name, icon and colour as state it writes, each through its own command (#323)", () => {
+    expect(machines.writesState).toEqual([
+      { method: "environment.rename", parts: ["name"] },
+      { method: "environment.setIcon", parts: ["icon"] },
+      { method: "environment.setColour", parts: ["colour"] },
+    ]);
+    expect(stepShapeProblems([{ ...machines, writesState: [{ method: "environment.setName", parts: ["name"] }] }])).toEqual([
+      "your-machines: writes state through environment.setName, which is not a method",
     ]);
   });
 
@@ -448,10 +460,10 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices and settings.updated, Forges on every forge.account.* event, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
-      ["your-machines", ["environment.update-*", "settings.updated"]],
+      ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
       ["forges", ["forge.account.*"]],
       ["browser", []],
       ["permissions", ["settings.updated", "denylist.changed"]],

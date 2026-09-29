@@ -3,12 +3,14 @@ import type { SessionSummary } from "@agent-harness/contracts";
 
 /**
  * The environment badge every rail row carries (ADR 0005; docs/specs/tui.md,
- * "The rail"): the environment's colour and icon and a two-letter
- * abbreviation of its name. Name, icon and colour are the environment's
- * (ADR 0005); until the workspace-picker workstream serves icon and colour
- * they are null, so the badge takes a filled circle and a colour of the
- * terminal's own by the environment's place in the list. Badge colours are
- * data, not theme (ADR 0023).
+ * "The rail"): a glyph, a colour and a two-letter abbreviation of the
+ * environment's name. Name, icon and colour are the environment's (ADR
+ * 0005), and it serves them now (#323), but its icon and colour are names
+ * (`laptop`, `amber`) that the terminal UI has yet to map onto its own
+ * colours and to stop drawing an icon for (#327): until then the badge
+ * keeps a filled circle and a colour of the terminal's own by the
+ * environment's place in the list, whatever the environment sends. Badge
+ * colours are data, not theme (ADR 0023).
  */
 
 export interface Badge {
@@ -54,7 +56,7 @@ const candidatesOf = (name: string | null): string[] => {
 };
 
 /** The badge of every environment listed, by id: an abbreviation taken by one listed earlier is replaced by the next free one. */
-export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" | "name" | "icon" | "colour">[]): ReadonlyMap<string, Badge> => {
+export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" | "name">[]): ReadonlyMap<string, Badge> => {
   const taken = new Set<string>();
   const badges = new Map<string, Badge>();
   views.forEach((view, index) => {
@@ -62,9 +64,9 @@ export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" |
     const abbreviation = candidates.find((c) => !taken.has(c)) ?? candidates[0] ?? "??";
     taken.add(abbreviation);
     badges.set(view.environmentId, {
-      icon: view.icon ? ([...view.icon][0] ?? DEFAULT_ICON) : DEFAULT_ICON,
+      icon: DEFAULT_ICON,
       abbreviation,
-      colour: view.colour ?? BADGE_COLOURS[index % BADGE_COLOURS.length] ?? "cyan",
+      colour: BADGE_COLOURS[index % BADGE_COLOURS.length] ?? "cyan",
     });
   });
   return badges;

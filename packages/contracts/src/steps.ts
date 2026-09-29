@@ -250,7 +250,9 @@ export const STEP_REGISTRY = [
     // managed outside, whether the host-side updater polled in the last hour (#348); its checks reach the release
     // channel, so its budget is a network call's. An update's notices and a settings change re-run it, and so does each
     // check of the release channel as it ends, which appends nothing and the environment names to its scheduler (#679).
-    // The rest of its check (the discovery URL reachable and ready, the name) is Set up's (#88).
+    // The environment's name, icon and colour are state it writes through their three commands, whose notices re-run it
+    // too, and its line says the environment is named (ADR 0025's "named"), which holds from the first start since each
+    // has its default (#323). The rest of its check (the discovery URL reachable and ready) is Set up's (#88).
     id: "your-machines",
     home: "environments.machines",
     writes: [
@@ -262,6 +264,11 @@ export const STEP_REGISTRY = [
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
       "sessions.transcriptCompactAfterDays",
+    ],
+    writesState: [
+      { method: "environment.rename", parts: ["name"] },
+      { method: "environment.setIcon", parts: ["icon"] },
+      { method: "environment.setColour", parts: ["colour"] },
     ],
     checks: [
       { key: "updates.autoUpdate", check: anyValidValue("updates.autoUpdate") },
@@ -290,12 +297,13 @@ export const STEP_REGISTRY = [
         holds: "No host-side updater manages this environment's updates, or it polled in the last hour.",
         actions: ["check-again"],
       },
+      { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
     ],
     links: [{ row: "environments.service" }],
     skippable: false,
     budget: "network",
     cadence: { minutes: 60 },
-    triggers: ["environment.update-*", "settings.updated"],
+    triggers: ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"],
   },
   {
     // The Forges step (forge spec, "The Forges step"; ADR 0020, ADR 0032, ADR 0033; #319), at home on the Access band's
