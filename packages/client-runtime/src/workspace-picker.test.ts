@@ -123,6 +123,19 @@ describe("projections.knownDirectories", () => {
     await expect(runtime.knownDirectories.hide(desk.env.id, "/nowhere/it/was/used")).rejects.toThrow(RangeError);
   });
 
+  it("forgets an environment's hidden directories with the environment", async () => {
+    const { desk, laptop, runtime } = await twoEnvironments();
+    const mistake = directory();
+    await create(runtime, desk, { kind: "directory", path: mistake });
+    await create(runtime, laptop, { kind: "directory", path: mistake });
+    await runtime.knownDirectories.hide(desk.env.id, mistake);
+    await runtime.knownDirectories.hide(laptop.env.id, mistake);
+
+    await runtime.connections.remove(desk.env.id);
+
+    expect(runtime.preferences.read().hiddenDirectories).toEqual({ [laptop.env.id]: { [mistake]: MANUAL_CLOCK_START } });
+  });
+
   it("is derived from the session list and stored nowhere: offline it reads from the list's cache, less what this client hid", async () => {
     const documents = inMemoryDocuments();
     const platform = inMemoryPlatform({ documents });
