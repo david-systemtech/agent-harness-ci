@@ -229,7 +229,7 @@ describe("the auto-memory key (#329)", () => {
     for (const id of sessions) await adapter.stopProcess(id);
   });
 
-  it("keys a repository whose git directory lies elsewhere, and a submodule, by that git directory, as git names its main worktree, so its checkout and worktrees share one", async () => {
+  it("keys a repository whose git directory lies elsewhere, and a submodule, by that git directory, so its checkout and worktrees share one", async () => {
     const adapter = adapterWith({ autoMemoryRoot: "/data/auto-memory" });
     const root = tempDir("agent-harness-separate-");
     const checkout = join(root, "checkout");
@@ -238,8 +238,8 @@ describe("the auto-memory key (#329)", () => {
     git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
     const linked = join(root, "linked");
     git(checkout, "worktree", "add", "-q", "-b", "feature", linked);
-    // What git lists as the main worktree, which the environment records as a worktree's repository.
-    const main = git(linked, "worktree", "list", "--porcelain").split("\n")[0]?.replace(/^worktree /, "") as string;
+    const made = join(root, "made");
+    git(checkout, "worktree", "add", "-q", "-b", "feature-2", made);
     // A submodule, whose git directory lies in its superproject's, and a worktree of it.
     const library = join(root, "library");
     git(root, "init", "-q", library);
@@ -254,7 +254,9 @@ describe("the auto-memory key (#329)", () => {
     const workspaces: RunInput["workspace"][] = [
       { kind: "directory", path: checkout },
       { kind: "directory", path: linked },
-      { kind: "worktree", path: "/data/worktrees/git-directory-0a1b2c3d4e5f/feature-2", repository: main, branch: "feature-2" },
+      // One the environment made, keyed by its own files whichever path git gave as its repository: git 2.39 lists
+      // the git directory as the main worktree here, and a git that lists the checkout must not split the key.
+      { kind: "worktree", path: made, repository: checkout, branch: "feature-2" },
       { kind: "directory", path: submodule },
       { kind: "directory", path: submoduleLinked },
       { kind: "directory", path: superproject },

@@ -77,22 +77,28 @@ const commonDirectory = (gitDir: string): string => {
   return isAbsolute(named) ? named : resolve(gitDir, named);
 };
 
-/**
- * The main checkout (or bare repository) of the repository holding
- * `workspace`, or null for none: a worktree's recorded repository; for a
- * directory, the innermost repository found from its path up, read from the
- * files git keeps (no git runs), a linked worktree's main checkout for one
- * of its worktrees; none for a scratch workspace, in which nothing is a
- * checkout. The trust gate's key (#500) reads the same derivation.
- */
-export const mainCheckout = (workspace: Workspace): string | null => {
-  if (workspace.kind === "worktree") return workspace.repository;
-  if (workspace.kind === "scratch") return null;
-  for (let directory = workspace.path; ; directory = dirname(directory)) {
+/** The main checkout of the innermost repository holding `path`, found from `path` up; null when no repository holds it. */
+const checkoutAbove = (path: string): string | null => {
+  for (let directory = path; ; directory = dirname(directory)) {
     const checkout = checkoutAt(directory);
     if (checkout !== undefined) return checkout;
     if (dirname(directory) === directory) return null;
   }
+};
+
+/**
+ * The main checkout (or bare repository) of the repository holding
+ * `workspace`, or null for none, read from the files git keeps (no git
+ * runs): the innermost repository found from the workspace's path up, a
+ * worktree's (the environment's or the user's) through its `.git` file; for
+ * a worktree the environment made whose directory is gone, the repository
+ * it recorded. None for a scratch workspace, in which nothing is a
+ * checkout. The trust gate's key (#500) reads the same derivation.
+ */
+export const mainCheckout = (workspace: Workspace): string | null => {
+  if (workspace.kind === "scratch") return null;
+  const checkout = checkoutAbove(workspace.path);
+  return workspace.kind === "worktree" ? (checkout ?? workspace.repository) : checkout;
 };
 
 /** A place's key: its identity, else its main checkout, else its workspace path; null for a scratch workspace, which shares one directory. */
