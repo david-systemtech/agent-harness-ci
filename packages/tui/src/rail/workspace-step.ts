@@ -390,7 +390,7 @@ const branchStep = (place: StepPlace, repository: string, back: Picker): Picker 
       const { path, problem, repository: read } = answer.result;
       if (problem !== null) return PROBLEM_LINES[problem](path, where);
       if (read === null) return `${path} is in no git repository on ${where}.`;
-      return read.branchesTruncated ? `Only the ${WORKSPACES_INSPECT_BRANCH_CAP} most recently committed branches are listed: type another's name.` : undefined;
+      return read.branchesTruncated ? `Only the ${WORKSPACES_INSPECT_BRANCH_CAP.toLocaleString("en")} most recently committed branches are listed: type another's name.` : undefined;
     },
   });
   return step;
@@ -439,7 +439,7 @@ const repositoryStep = (place: StepPlace, back: Picker): Picker => {
 /** What the workspace step is, beside its place. */
 export interface WorkspaceStepOptions {
   readonly title: string | (() => string);
-  /** The request preset: the cursor starts on its row, and a `session` preset has a row of its own. */
+  /** The request preset: its row comes first, where the cursor starts, and a `session` preset has a row of its own. */
   readonly preset?: WorkspaceRequest | null;
   /** Rows after the workspace's own: the card's chips to change. */
   readonly more?: (back: Picker) => readonly PickerRow[];
@@ -473,12 +473,12 @@ export const workspaceStep = (place: StepPlace, options: WorkspaceStepOptions): 
       const directory = (path: string) => chosen({ kind: "directory", path });
       const matches = (path: string) => path.toLowerCase().includes(needle.toLowerCase());
       const listed = place.known();
-      const rows = acts.runtime.projections.sessionList.read().rows;
-      const preset = options.preset;
-      const shared = preset?.kind === "session" ? rows.find((row) => row.environmentId === view.environmentId && row.summary.id === preset.sessionId.toLowerCase()) : undefined;
+      const sessions = acts.runtime.projections.sessionList.read().rows;
+      const sharing = options.preset?.kind === "session" ? options.preset : undefined;
+      const shared = sharing && sessions.find((row) => row.environmentId === view.environmentId && row.summary.id === sharing.sessionId.toLowerCase());
       const session: PickerRow[] =
-        preset && shared && matches(shared.summary.workspace.path)
-          ? [{ key: "session", text: `Where ${titleOf(shared)} works`, detail: shared.summary.workspace.path, choose: chosen(preset) }]
+        sharing && shared && matches(shared.summary.workspace.path)
+          ? [{ key: "session", text: `Where ${titleOf(shared)} works`, detail: shared.summary.workspace.path, choose: chosen(sharing) }]
           : [];
       const known = listed
         .filter((known) => matches(known.path))
@@ -498,8 +498,7 @@ export const workspaceStep = (place: StepPlace, options: WorkspaceStepOptions): 
       const exact = [...known, ...here].some((row) => row.text === needle);
       const typedRow: PickerRow[] = needle === "" || exact ? [] : [{ key: "typed", text: needle, detail: "typed", choose: directory(needle) }];
       const take: Take = { text: (path) => `Work in ${path}`, choose: (path, from) => place.choose({ kind: "directory", path }, from) };
-      return [
-        ...typedRow,
+      const rows: PickerRow[] = [
         ...session,
         ...known,
         ...here,
@@ -508,12 +507,13 @@ export const workspaceStep = (place: StepPlace, options: WorkspaceStepOptions): 
         { key: "scratch", text: "Scratch", detail: "a directory of the session's own", choose: chosen({ kind: "scratch" }) },
         ...(options.more?.(step) ?? []),
       ];
+      // With nothing typed the preset's row comes first, where the cursor starts: a directory listed later (another
+      // client's session) goes after it, never under the cursor.
+      const preset = rows.findIndex((row) => row.key === presetKey(options.preset));
+      return [...typedRow, ...(needle === "" && preset > 0 ? [rows[preset] as PickerRow, ...rows.filter((_, i) => i !== preset)] : rows)];
     },
   });
-  // The cursor starts on the preset's row.
-  const key = presetKey(options.preset);
-  const cursor = key === undefined ? -1 : step.rows(step.query).findIndex((row) => row.key === key);
-  return cursor > 0 ? { ...step, cursor } : step;
+  return step;
 };
 
 /** Takes a known directory off the step's list on this client, until a session uses it again (`hiddenDirectories`). */

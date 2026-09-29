@@ -131,7 +131,11 @@ const environmentStep = (acts: RailActs, opening: CardOpening, back: Picker | un
           ...(unusable !== null ? { absent: unusable } : { choose: () => newSessionCard(acts, { ...opening, chips: { ...opening.chips, environmentId: id }, query: "" }) }),
         };
       }),
-    note: () => (projection.read().environment.value === null ? "No environment can start a session now: each says why." : undefined),
+    note: () => {
+      const { value, options } = projection.read().environment;
+      if (options.length === 0) return "No environment is known here: /pair one first.";
+      return value === null ? "No environment can start a session now: each says why." : undefined;
+    },
   });
   const at = step.rows(step.query).findIndex((row) => row.key === `environment:${current}`);
   return at > 0 ? { ...step, cursor: at } : step;
@@ -139,7 +143,7 @@ const environmentStep = (acts: RailActs, opening: CardOpening, back: Picker | un
 
 type Projection = Observable<NewSessionView>;
 
-/** The environment's accounts: one not signed in greyed with its status; the one chosen is the account chip, on the card again. */
+/** The environment's accounts, each with its login or, not signed in, its status (the environment refuses a create on one); the one chosen is the account chip, on the card again. */
 const accountStep = (acts: RailActs, view: EnvironmentView, projection: Projection, chips: NewSessionChips, back: Picker, reopen: (chips: NewSessionChips) => Picker): Picker => {
   const accounts = acts.runtime.projections.accounts(view.environmentId);
   const step = pickerOf({

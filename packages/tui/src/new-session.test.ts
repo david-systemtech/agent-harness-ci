@@ -425,6 +425,19 @@ describe("from the composer", () => {
     await app.waitFor("agent-harness · ●DE desk ready · New session · directory harness");
   });
 
+  it("keeps the cursor on the preset's row when a directory another client starts a session in arrives while the card is up", async () => {
+    const app = await launch({ flags: { workspace: "/home/seth/code/harness" } });
+    await run(app, "/new");
+    await app.waitFor("/home/seth/code/harness this directory");
+    // Another client works in a new directory: it is the most recently used, listed ahead of the rest.
+    const other = await app.runtime().commands.startSession(DESK_ID, { workspace: { kind: "directory", path: "/srv/elsewhere" } });
+    expect(other.answer.ok).toBe(true);
+    await app.waitFor("/srv/elsewhere");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => sent(app, "desk", "sessions.create").length === 2, "the card's create sent");
+    expect(params(sent(app, "desk", "sessions.create")[1])).toMatchObject({ workspace: { kind: "directory", path: "/home/seth/code/harness" } });
+  });
+
   it("opens the card on /cwd on the environment --environment names, its presets there", async () => {
     const app = await launch({ flags: { workspace: "/home/seth/code/harness", environment: "laptop" } });
     await run(app, "/cwd");
