@@ -35,6 +35,11 @@ describe("Markdown from a Readability article", () => {
     expect(articleMarkdown(article(`<ol><li>First</li><ul><li>Under it</li></ul><li>Second</li></ol>`, null))).toBe("1. First\n   - Under it\n2. Second");
   });
 
+  it("leaves out a script, a style or a noscript written straight inside a list", () => {
+    const content = `<ol><li>First</li><script>var tracked = 1;</script><style>li { color: red; }</style><noscript>Turn on scripts.</noscript><li>Second</li></ol>`;
+    expect(articleMarkdown(article(content, null))).toBe("1. First\n2. Second");
+  });
+
   it("keeps tables, the first row as the header, a pipe in a cell escaped and a short row filled out", () => {
     const markdown = articleMarkdown(
       article(

@@ -205,6 +205,8 @@ class Converter {
 
   private block(element: Element): Block[] {
     const name = element.localName;
+    // What no reader sees stays out wherever it sits, a list's own children included.
+    if (SKIPPED.has(name)) return [];
     const heading = /^h([1-6])$/.exec(name);
     if (heading) {
       const text = this.oneLine(element);

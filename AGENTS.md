@@ -40,7 +40,10 @@ See `docs/agents/domain.md`.
 ## Building
 
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
-`theme` (the seed-to-token maths, on contracts alone), `tui`, `gui` (the
+`theme` (the seed-to-token maths, on contracts alone), `browser` (what
+runs in every browser, the extension's pages and a page's isolated world as
+much as the environment's jsdom: on contracts alone, with no Node built-in and
+no environment code), `tui`, `gui` (the
 desktop window's renderer, a React app whose bundle runs in a browser tab
 too), `desktop` (the Electron shell that carries the `gui` build), and `cli`,
 the `agent-harness` binary). Node 24 or later: the LTS
@@ -68,6 +71,10 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   which jsdom lacks, is `fake-indexeddb` in the tests that need it. `pnpm --filter @agent-harness/gui build` writes its static bundle to
   `packages/gui/dist/` with Vite; never serve it or open it in a browser on
   the shared agent box.
+- The browser package's tests run under Node and parse their pages with jsdom
+  (`packages/browser/test/pages.ts`; the fixtures in `test/fixtures/` are
+  served pages, trimmed, their values faked), and are type-checked by
+  `packages/browser/tsconfig.test.json`, which has the DOM's types.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency
   whose package downloads its binary the first time Node requires it, never
   on install, so CI and the agent box hold none. Its tests drive the main
