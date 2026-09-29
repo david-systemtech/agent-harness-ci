@@ -838,12 +838,18 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         }
       });
       const verifiedAt = clock.now().toISOString();
-      // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
-      const taken = !closed && recordFound(connectionId, subject, checked);
-      if (taken) verifiedTimes.set(connectionId, verifiedAt);
-      if (checked.outcome !== "verified" || !checked.fresh) return;
-      if (taken) holdLogin(connectionId, checked.login);
-      else await letGo(connectionId, checked.login);
+      let taken = false;
+      try {
+        // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
+        taken = !closed && recordFound(connectionId, subject, checked);
+        if (taken) verifiedTimes.set(connectionId, verifiedAt);
+      } finally {
+        // A login the verification made is held once what it found is recorded; otherwise, a failed write included, it is let go.
+        if (checked.outcome === "verified" && checked.fresh) {
+          if (taken) holdLogin(connectionId, checked.login);
+          else void letGo(connectionId, checked.login);
+        }
+      }
     } catch (error) {
       console.error(`Verifying the key-manager connection ${connectionId} failed:`, error);
     }

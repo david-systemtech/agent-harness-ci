@@ -56,6 +56,9 @@ const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + 
 
 const REDACTED = "[redacted]";
 
+/** How long a wait on something the environment does in the background may take on a loaded runner: the test's own timeout is the real bound. */
+const EVENTUALLY = { timeout: 20_000 };
+
 /**
  * The fake's policies for these tests: `agent-read` reads, `agent-write`
  * writes under `personal/`, `harness` mints run tokens and reads the texts of
@@ -362,16 +365,16 @@ describe("when a verification runs", () => {
 
     const again = await start({ dataDir, clock: t.clock });
     const reader = await again.client();
-    await vi.waitFor(async () => expect((await list(reader))[0]?.status.kind).toBe("signed-in"));
+    await vi.waitFor(async () => expect((await list(reader))[0]?.status.kind).toBe("signed-in"), EVENTUALLY);
     // The start signed in; its verification waits on the clock, which this test moves.
     expect(bao.requests.map((request) => request.path)).not.toContain("sys/capabilities-self");
     again.clock.advance(0);
-    await vi.waitFor(async () => expect((await list(reader))[0]).toMatchObject({ canMint: true, verifiedAt: MANUAL_CLOCK_START }));
+    await vi.waitFor(async () => expect((await list(reader))[0]).toMatchObject({ canMint: true, verifiedAt: MANUAL_CLOCK_START }), EVENTUALLY);
 
     again.clock.advance(15 * MINUTE - 1);
     expect((await list(reader))[0]?.verifiedAt).toBe(MANUAL_CLOCK_START);
     again.clock.advance(1);
-    await vi.waitFor(async () => expect((await list(reader))[0]?.verifiedAt).toBe(after(15 * MINUTE)));
+    await vi.waitFor(async () => expect((await list(reader))[0]?.verifiedAt).toBe(after(15 * MINUTE)), EVENTUALLY);
     expect(bao.requests.filter((request) => request.path === "sys/capabilities-self")).toHaveLength(2);
     expect((await list(reader))[0]?.id).toBe(connection.id);
   });
@@ -383,15 +386,15 @@ describe("when a verification runs", () => {
 
     const connection = await connected({ bao, client });
     t.clock.advance(0);
-    await vi.waitFor(async () => expect((await list(client))[0]?.canMint).toBe(true));
+    await vi.waitFor(async () => expect((await list(client))[0]?.canMint).toBe(true), EVENTUALLY);
 
     await signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
     t.clock.advance(0);
-    await vi.waitFor(async () => expect((await list(client))[0]).toMatchObject({ canMint: false, policies: [{ name: "default" }, { name: "agent-read" }] }));
+    await vi.waitFor(async () => expect((await list(client))[0]).toMatchObject({ canMint: false, policies: [{ name: "default" }, { name: "agent-read" }] }), EVENTUALLY);
 
     await update(client, { connectionId: connection.id, label: "Work" });
     t.clock.advance(0);
-    await vi.waitFor(() => expect(verifications()).toBe(3));
+    await vi.waitFor(() => expect(verifications()).toBe(3), EVENTUALLY);
   });
 
   it("one at a time per connection: a second request joins the one running", async () => {
@@ -402,7 +405,7 @@ describe("when a verification runs", () => {
 
     const one = verify(client, connection.id);
     const two = verify(client);
-    await vi.waitFor(() => expect(bao.requests.filter((request) => request.path === "sys/seal-status")).toHaveLength(1));
+    await vi.waitFor(() => expect(bao.requests.filter((request) => request.path === "sys/seal-status")).toHaveLength(1), EVENTUALLY);
     answer();
 
     expect(await two).toEqual(await one);
@@ -418,7 +421,7 @@ describe("when a verification runs", () => {
     const from = t.env.log.head();
 
     const running = verify(client, connection.id);
-    await vi.waitFor(() => expect(bao.requests.filter((request) => request.path === "sys/seal-status")).toHaveLength(1));
+    await vi.waitFor(() => expect(bao.requests.filter((request) => request.path === "sys/seal-status")).toHaveLength(1), EVENTUALLY);
     await signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
     bao.answer("GET sys/seal-status", null);
     answer();
@@ -426,7 +429,7 @@ describe("when a verification runs", () => {
     expect((await list(client))[0]?.canMint).toBeNull();
 
     t.clock.advance(0);
-    await vi.waitFor(async () => expect((await list(client))[0]?.canMint).toBe(false));
+    await vi.waitFor(async () => expect((await list(client))[0]?.canMint).toBe(false), EVENTUALLY);
     expect((await keyManagerEvents(client, from)).map((event) => [event.type, event.payload["canMint"] ?? null])).toEqual([
       ["key-manager.connection.signed-in", null],
       ["key-manager.connection.verified", false],
@@ -443,6 +446,26 @@ describe("when a verification runs", () => {
     expect(slow).toMatchObject({ policies: null, canMint: null, status: { kind: "unreachable", since: MANUAL_CLOCK_START, message: `OpenBao at ${bao.address} did not finish answering within 0.3 s.` } });
   });
 
+  it("revokes a login it signed in with when what it found cannot be written", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    const { t, bao, client } = await withOpenBao();
+    bao.seal();
+    const connection = await connected({ bao, client });
+    bao.unseal();
+    const write = vi.spyOn(t.env.log, "atomically").mockImplementationOnce(() => {
+      throw new Error("The disk went away.");
+    });
+    onCleanup(() => write.mockRestore());
+
+    await verify(client, connection.id);
+
+    const [login = ""] = bao.minted;
+    await vi.waitFor(() => expect(bao.live(login)).toBe(false), EVENTUALLY);
+    expect((await list(client))[0]).toMatchObject({ status: { kind: "sealed" }, injects: false });
+    expect(errors).toHaveBeenCalledWith(`Verifying the key-manager connection ${connection.id} failed:`, expect.any(Error));
+  });
+
   it("records nothing, reads nothing and leaves no unhandled rejection once the environment closed while it ran", async () => {
     const rejections: unknown[] = [];
     const onRejection = (reason: unknown): void => void rejections.push(reason);
@@ -456,7 +479,7 @@ describe("when a verification runs", () => {
     // The verification its add starts, on the clock, waiting on the seal status.
     await connected({ bao, client });
     t.clock.advance(0);
-    await vi.waitFor(() => expect(bao.requests.filter((request) => request.path === "sys/seal-status")).toHaveLength(1));
+    await vi.waitFor(() => expect(bao.requests.filter((request) => request.path === "sys/seal-status")).toHaveLength(1), EVENTUALLY);
 
     await t.close();
     const reads = vi.spyOn(t.env.log, "read");

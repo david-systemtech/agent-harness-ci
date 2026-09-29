@@ -77,8 +77,8 @@ export const createVerificationSchedule = (options: ScheduleOptions): Verificati
       .then(() => {
         // This verification is the one that was due: the schedule starts again from its end.
         cancel(connectionId);
-        // Queued behind one that outlasted the close: the event log may be closed too.
-        return closed ? undefined : options.verifyNow(connectionId);
+        // Queued behind one that outlasted the close, the event log may be closed too; queued behind one that outlasted the credential, nothing is left to verify.
+        return closed || subjectOf(connectionId) === null ? undefined : options.verifyNow(connectionId);
       })
       .finally(() => {
         if (runs.get(connectionId)?.done === done) runs.delete(connectionId);
