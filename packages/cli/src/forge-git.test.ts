@@ -1,17 +1,22 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { registry } from "@agent-harness/contracts";
+import { describe, expect, it, vi } from "vitest";
 import { fileVault, VAULT_FILE } from "../../environment/src/serve/vault.js";
 import { useCleanups } from "../../environment/test/cleanups.js";
+import { end, runCommand, say, type CommandResult } from "../../environment/test/fake-adapter.js";
 import { startFakeForge } from "../../environment/test/fake-forge.js";
 import { startFakeOpenBao } from "../../environment/test/fake-openbao.js";
-import { DAVID, TOKEN, added, list, verify } from "../../environment/test/forge.js";
-import { startTestEnvironment } from "../../environment/test/helper.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added, list, pasted, update, verify } from "../../environment/test/forge.js";
+import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { hostileMachineGit } from "../../environment/test/hostile-git.js";
 import { ROLE_ID, SECRET_ID, added as keyManagerAdded, approle, move, setBasePath } from "../../environment/test/key-manager-connections.js";
+import { sessionIn } from "../../environment/test/terminals.js";
+import type { WireClient } from "../../environment/test/wire-client.js";
 
 /**
  * The harness's git through the real helper, end to end (forge spec,
@@ -170,4 +175,112 @@ describe("the harness's git through agent-harness git-credential", () => {
     expect(forge.gitRequests.filter((request) => request.status === 200).every((request) => request.username === DAVID.login)).toBe(true);
     expect(hostile.asked()).toEqual([]);
   });
+});
+
+describe("git in a run's provider process, through agent-harness git-credential (#315)", () => {
+  /** How long the whole test may take: a dozen helper runs from source on a loaded runner. */
+  const E2E_MS = 180_000;
+
+  /**
+   * What a Claude process inherits from the machine, as the fake's command
+   * runs in it: the hostile home, whose global configuration names the
+   * hanging helper and askpass, and git's own process-only configuration,
+   * two entries the run's are numbered after; prompts off, as the
+   * 2026-09-18 check runs git.
+   */
+  const machine = (): Record<string, string> => ({
+    HOME: process.env["HOME"] ?? "",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: "user.name",
+    GIT_CONFIG_VALUE_0: "test",
+    GIT_CONFIG_KEY_1: "user.email",
+    GIT_CONFIG_VALUE_1: "test@example.com",
+  });
+
+  const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
+
+  /** Runs `command` as the session's next run's shell tool, in its process's spawn environment over the machine's; answers what it printed. */
+  const inRun = async (t: TestEnvironment, client: WireClient, sessionId: string, command: string): Promise<CommandResult> => {
+    let result: CommandResult | undefined;
+    t.adapter.nextScripts.push(async function* (controls) {
+      result = yield* runCommand(controls, command, { env: machine() });
+      yield say(`git exited ${String(result.code)}`);
+      yield end();
+    });
+    const before = ended(t, sessionId).length;
+    const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: command }));
+    if (answer.result === undefined) throw new Error(`runs.start was refused: ${JSON.stringify(answer.receipt)}`);
+    await vi.waitFor(() => expect(ended(t, sessionId)).toHaveLength(before + 1), { timeout: 60_000 });
+    if (result === undefined) throw new Error("The run's command did not run.");
+    return result;
+  };
+
+  /** Commits a new file in the clone and pushes it. */
+  const landing = (name: string): string => `cd bank && echo '${name}' > ${name}.md && git add ${name}.md && git commit --quiet -m '${name}' && git push --quiet origin main`;
+
+  it(
+    "clones and pushes with the forge account, never asking the machine's helper, a fresh process after a slug or credential change does too, and a stopped process's secret gets quit=1",
+    async () => {
+      const hostile = hostileMachineGit(tempDir, onCleanup);
+      const forge = await startFakeForge();
+      onCleanup(() => forge.close());
+      const bare = forge.gitRepository("david/bank", { private: true, files: { "BANK.md": "# bank\n" } });
+      for (const token of [TOKEN, OTHER_TOKEN]) {
+        forge.user(token, DAVID);
+        forge.gitCredential(DAVID.login, token);
+      }
+      const t = await startTestEnvironment({ forgeFetch: forge.fetch, harnessCommand: cliCommand });
+      onCleanup(() => t.close());
+      const client = await t.client();
+      const account = await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
+      const sessionId = await sessionIn(client, tempDir());
+
+      // The command reads the forge's variables as the model does: the primary's URL, the slug's kind.
+      const cloned = await inRun(t, client, sessionId, `test "$FORGE_HOME_KIND" = forgejo && git clone --quiet "$FORGE_URL/david/bank.git" bank && ${landing("first-memory")}`);
+      expect(cloned, cloned.stderr).toMatchObject({ code: 0 });
+
+      await update(client, { forgeAccountId: account.id, slug: "house" });
+      const afterSlug = await inRun(t, client, sessionId, `test -n "$FORGE_HOUSE_TOKEN" && test -z "$FORGE_HOME_TOKEN" && ${landing("after-the-slug")}`);
+      expect(afterSlug, afterSlug.stderr).toMatchObject({ code: 0 });
+
+      await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+      const afterCredential = await inRun(t, client, sessionId, landing("after-the-credential"));
+      expect(afterCredential, afterCredential.stderr).toMatchObject({ code: 0 });
+
+      const processes = t.adapter.processesOf(sessionId);
+      expect(processes).toHaveLength(3);
+      const supplied = await Promise.all(processes.map((process) => process.supplied));
+      expect(supplied.map((env) => env["GIT_CONFIG_VALUE_1"]?.endsWith(" git-credential home") ?? false)).toEqual([true, false, false]);
+      expect(supplied.map((env) => env["FORGE_HOUSE_TOKEN"] ?? null)).toEqual([null, TOKEN, OTHER_TOKEN]);
+      expect(git(bare, "log", "--format=%s", "main").trim().split("\n")).toEqual(["after-the-credential", "after-the-slug", "first-memory", "first"]);
+      // Each push's first request went without a credential; git asked the helper once the forge refused it, and pushed as the forge account.
+      const authenticated = forge.gitRequests.filter((request) => request.status === 200 && request.username !== null);
+      expect(authenticated.length).toBeGreaterThan(0);
+      expect(authenticated.every((request) => request.username === DAVID.login)).toBe(true);
+      expect(hostile.asked()).toEqual([]);
+
+      // Where the helper cannot reach the environment at all, as from inside a Linux sandbox's own network, it answers from the slug's token.
+      forge.gitCredential("x-access-token", OTHER_TOKEN);
+      const cutOff = await inRun(t, client, sessionId, `AGENT_HARNESS_ADDRESS=127.0.0.1:1 git ls-remote "$FORGE_HOUSE_URL/david/bank.git" main`);
+      expect(cutOff, cutOff.stderr).toMatchObject({ code: 0 });
+      expect(forge.gitRequests.at(-1)).toMatchObject({ username: "x-access-token", status: 200 });
+      expect(hostile.asked()).toEqual([]);
+
+      // The pool stops the process: git in what it was spawned with is refused at once.
+      const [, , last] = supplied;
+      const stopped = await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId });
+      expect(stopped.receipt.status).toBe("accepted");
+      const refused = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+        execFile("git", ["ls-remote", `${forge.origin}/david/bank.git`], { env: { PATH: process.env["PATH"], ...machine(), ...last }, timeout: 60_000 }, (error, _stdout, stderr) =>
+          resolve({ code: error === null ? 0 : typeof error.code === "number" ? error.code : null, stderr }),
+        );
+      });
+      expect(refused.code).not.toBe(0);
+      expect(refused.stderr).toContain("told us to quit");
+      expect(refused.stderr).toContain("Set up, Forges");
+      expect(hostile.asked()).toEqual([]);
+    },
+    E2E_MS,
+  );
 });
