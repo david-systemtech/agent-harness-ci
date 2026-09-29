@@ -92,6 +92,7 @@ export {
   type ActiveRun,
   type AdapterHost,
   type AdapterHostOptions,
+  type InstructionTarget,
   type StagedAttachments,
 } from "./adapter/host.js";
 export { PROCESS_STOP_TIMEOUT_MS, STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
@@ -102,17 +103,20 @@ export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } f
 export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";
 export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.js";
 export {
-  composeInstructions,
   noAutoAnswer,
   noToolServers,
-  orientationPlaceholder,
   presetPolicy,
+  undecidedTrust,
   type AutoAnswer,
   type ClientTool,
   type AutoAnswerRequest,
+  type ComposedInstructions,
   type InstructionComposer,
-  type InstructionLayers,
+  type InstructionPart,
   type InstructionScope,
+  type RunTrust,
+  type TrustDecision,
+  type TrustKey,
   type PolicyRequest,
   type PolicySeam,
   type PromptAutoAnswer,
@@ -121,6 +125,16 @@ export {
   type ToolServerFactory,
   type ToolServerScope,
 } from "./adapter/seams.js";
+export {
+  composeInstructions,
+  instructionsDigest,
+  type InstructionLayers,
+  type LayerPart,
+  type LayerSeam,
+  type OrientationAnswer,
+  type OrientationSeam,
+} from "./instructions/composer.js";
+export { instructionMethods, type InstructionMethodsOptions } from "./instructions/methods.js";
 export { capability, requireCapability, unsupported } from "./adapter/capabilities.js";
 export {
   CLAUDE_DESCRIPTOR,

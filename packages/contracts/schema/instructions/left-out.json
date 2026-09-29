@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionLeftOut",
+  "type": "object",
+  "properties": {
+    "layer": {
+      "type": "string",
+      "enum": [
+        "user",
+        "team-bank",
+        "project",
+        "session",
+        "persona",
+        "always-on"
+      ],
+      "description": "A layer of a run's standing instructions, in the order the text holds them: user (the orientation block, then owned instructions), team-bank, project, session, persona (a bot's), always-on (always-on skills)."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the part is, within its layer: orientation for the orientation block, else the id of the thing it renders."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "channel-none"
+      ],
+      "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text)."
+    }
+  },
+  "required": [
+    "layer",
+    "id",
+    "reason"
+  ],
+  "description": "A part the layers gave that the text does not hold, and why."
+}

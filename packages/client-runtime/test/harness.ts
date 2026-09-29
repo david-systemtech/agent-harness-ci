@@ -3,6 +3,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { originOf } from "../src/connections/address.js";
 import { createRuntimeWithSeams, type InternalOptions, type RuntimeWithSeams } from "../src/internal.js";
 import type { Runtime } from "../src/runtime.js";
+import type { Observable } from "../src/observable.js";
 import type { GrantReader, HttpFetch, Platform, WebSocketFactory } from "../src/platform.js";
 import { globalFetch, globalWebSocket } from "../src/testing/in-memory-platform.js";
 
@@ -26,6 +27,20 @@ export const until = async (condition: () => boolean, what: string): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
 };
+
+/**
+ * The first value of `observable` that `condition` holds for: the one it has now, else the first it changes to. Waits on
+ * the change itself, with no deadline of its own, so a loaded runner is bounded by the test's timeout alone.
+ */
+export const holds = <T>(observable: Observable<T>, condition: (value: T) => boolean): Promise<T> =>
+  new Promise((resolve) => {
+    if (condition(observable.read())) return resolve(observable.read());
+    const stop = observable.subscribe((value) => {
+      if (!condition(value)) return;
+      stop();
+      resolve(value);
+    });
+  });
 
 /** A grant reader over the environment's grant file, as a desktop's shell or the terminal UI reads it. */
 export const grantReader = (t: TestEnvironment): GrantReader => ({ read: async () => t.grant() });

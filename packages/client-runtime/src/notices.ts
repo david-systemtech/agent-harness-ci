@@ -1,3 +1,4 @@
+import type { StepId } from "@agent-harness/contracts";
 import { uuidv7 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock } from "./platform.js";
@@ -25,7 +26,9 @@ export const NOTICE_LIMIT = 100;
  * restarts), `account` (an account changed in a way worth saying: the
  * environment's warning, or its sign-in status), `prompt-parked` (a run
  * waits for a person's answer) and `prompt-resolved` (a prompt this client
- * was told of was settled with nobody answering it); and the outbox's (#128):
+ * was told of was settled with nobody answering it), `forge` (a forge
+ * account needs attention: a capability failed, a new problem, git refused
+ * its credential, or an origin had none, #320); and the outbox's (#128):
  * `command-rejected` (the environment refused a command, by its receipt or
  * an error) and `command-dropped` (a command left the outbox unsent,
  * whatever dropped it: seven days without reaching its environment, a run
@@ -40,9 +43,16 @@ export type NoticeKind =
   | "account"
   | "prompt-parked"
   | "prompt-resolved"
+  | "forge"
   | "command-rejected"
   | "command-dropped";
-export type NoticeAction = ConnectionAction;
+
+/**
+ * A Set up step on the notice's environment, for a notice that step answers:
+ * `setup.forges` on a forge notice (#320). The renderer opens the step there.
+ */
+export type StepAction = `setup.${StepId}`;
+export type NoticeAction = ConnectionAction | StepAction;
 
 /** The session, run and prompt a notice is about, for a renderer to open: a prompt's notices carry one. */
 export interface NoticeSubject {
@@ -67,7 +77,7 @@ export interface Notice {
   readonly kind: NoticeKind;
   /** One line for people, the same in every renderer. */
   readonly message: string;
-  /** What David can do about it, a name the renderer maps to a call: `re-pair`, `update-client`, `update-environment`, `service.start`. */
+  /** What David can do about it, a name the renderer maps to a call: `re-pair`, `update-client`, `update-environment`, `service.start`, or a Set up step to open on its environment (`setup.forges`). */
   readonly action: NoticeAction | null;
   /** What it is about, when it is about a session: a prompt's notices name the session, run and prompt. */
   readonly about: NoticeSubject | null;

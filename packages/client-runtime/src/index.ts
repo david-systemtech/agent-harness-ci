@@ -34,6 +34,7 @@ export {
   type ShellDeepLinks,
   type ShellDialogs,
   type ShellFile,
+  type ShellGh,
   type ShellInstaller,
   type ShellMember,
   type ShellNetwork,
@@ -61,7 +62,10 @@ export {
 } from "./connections/records.js";
 export type { Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
-export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject } from "./notices.js";
+export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject, type StepAction } from "./notices.js";
+export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
+export type { Forges, HandOverParams } from "./forges.js";
+export type { CopyOutcome, CopyReport, CopyTarget } from "./copies.js";
 export {
   pairingDeepLink,
   parsePairingInput,
@@ -74,6 +78,7 @@ export {
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
 export type { EnvironmentView } from "./projections/environments.js";
+export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
 export {
   COMMAND_EXPIRY_MS,
   type AcceptedReceipt,
@@ -131,9 +136,11 @@ export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type Cli
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
+  ByRepositoryHeading,
   HeadingMember,
   ListFreshness,
   MergedGroupHeading,
+  NoRepositoryHeading,
   RepositoryHeading,
   SessionListView,
   SessionRow,
