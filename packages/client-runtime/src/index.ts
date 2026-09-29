@@ -92,6 +92,21 @@ export {
 } from "./desktop-update.js";
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
+export type {
+  AccountChip,
+  AccountPresetReason,
+  EnvironmentChip,
+  EnvironmentOption,
+  EnvironmentPresetReason,
+  ModelChip,
+  ModelPresetReason,
+  NewSessionChips,
+  NewSessionContext,
+  NewSessionFocus,
+  NewSessionView,
+  WorkspaceChip,
+  WorkspacePresetReason,
+} from "./projections/new-session.js";
 export {
   SETUP_AGE_TICK_MS,
   SETUP_CHECK_TIMEOUT_MS,
@@ -116,6 +131,8 @@ export {
   type RejectedReceipt,
   type RewindAnswer,
   type RewindOptions,
+  type StartSessionAnswer,
+  type StartSessionChoice,
 } from "./outbox/outbox.js";
 export { DRAFT_DEBOUNCE_MS, type Drafts } from "./outbox/drafts.js";
 export {
