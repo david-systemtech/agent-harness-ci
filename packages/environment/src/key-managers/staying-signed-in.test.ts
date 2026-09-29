@@ -27,6 +27,9 @@ const MINUTE = 60_000;
 /** The manual clock's start, moved on by `ms`, as a timestamp. */
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
 
+/** Moves the clock on to `minutes` past its start. */
+const advanceTo = (t: TestEnvironment, minutes: number): void => t.clock.advance(Date.parse(after(minutes * MINUTE)) - t.clock.now().getTime());
+
 /** Waits for something the environment does in the background, with the test's own timeout as the real bound: never a short wall-clock budget. */
 const eventually = (assertion: () => void): Promise<void> => vi.waitFor(assertion, { timeout: WAIT_MS });
 
@@ -155,6 +158,75 @@ describe("a login the environment made", () => {
     expect(stopped.receipt.status).toBe("accepted");
     await eventually(() => expect([held, first].map((token) => bao.live(token))).toEqual([false, false]));
     expect(bao.live(bao.minted[1] ?? "")).toBe(true);
+  });
+});
+
+describe("after a re-login", () => {
+  /**
+   * Two sessions whose processes were given run tokens five minutes in, from
+   * a login of an hour renewed at forty minutes to the end of its ninety,
+   * and signed in again at sixty; processes idle for ten hours.
+   */
+  const reloggedIn = async (options: { readonly tokenRole?: string } = {}) => {
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 90 * 60 }, { processIdleMinutes: () => 600 });
+    bao.role("runs", { orphan: true });
+    const connection = await added(client, { address: bao.address, ca: bao.ca, credential: approle(), ...(options.tokenRole !== undefined && { tokenRole: options.tokenRole }) });
+    const [first = ""] = bao.minted;
+    const [one, other] = [await create(client), await create(client)];
+    t.clock.advance(5 * MINUTE);
+    for (const session of [one, other]) await runTo(t, client, session.id);
+    const [held, otherHeld] = [await tokenOf(t, one.id), await tokenOf(t, other.id)];
+    t.clock.advance(35 * MINUTE);
+    await eventually(() => expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]));
+    t.clock.advance(20 * MINUTE);
+    await eventually(() => expect(bao.minted).toHaveLength(2));
+    await eventually(async () => expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE)));
+    return { t, bao, client, connection, first, second: bao.minted[1] ?? "", one, other, held, otherHeld };
+  };
+
+  it("without a token role, gives a session's next run a fresh process with a run token of the new login, while a live process keeps its own and renews it until the old login is revoked", async () => {
+    const { t, bao, client, first, second, one, other, held, otherHeld } = await reloggedIn();
+    expect([held, otherHeld].map((run) => bao.issued(run)?.parent)).toEqual([first, first]);
+
+    const renewed = bao.renewals(otherHeld).length;
+    // Its twenty-minute renewal, five minutes after the re-login.
+    t.clock.advance(5 * MINUTE);
+    await eventually(() => expect(bao.renewals(otherHeld)).toHaveLength(renewed + 1));
+    expect(bao.renewals(otherHeld).at(-1)).toBe(after(65 * MINUTE));
+    await runTo(t, client, one.id, "After the re-login");
+
+    expect(t.adapter.processesOf(one.id)).toHaveLength(2);
+    const fresh = await tokenOf(t, one.id);
+    expect(bao.issued(fresh)?.parent).toBe(second);
+    await eventually(() => expect(bao.live(held)).toBe(false));
+    expect(t.adapter.processesOf(other.id)).toHaveLength(1);
+    expect([otherHeld, first].map((token) => bao.live(token))).toEqual([true, true]);
+
+    await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: other.id });
+
+    await eventually(() => expect([otherHeld, first].map((token) => bao.live(token))).toEqual([false, false]));
+    const keys = t.adapter.runs.map((run) => run.input.processEnvironment.key);
+    for (const token of [...bao.minted, ...bao.created]) for (const key of keys) expect(key).not.toContain(token);
+  });
+
+  it("with a token role, keeps the login generation out of the key: a session's next run is served by its live process, whose run token outlives the old login", async () => {
+    const { t, bao, client, first, one, held } = await reloggedIn({ tokenRole: "runs" });
+    expect(bao.issued(held)).toMatchObject({ parent: null, role: "runs" });
+
+    await runTo(t, client, one.id, "After the re-login");
+
+    expect(t.adapter.processesOf(one.id)).toHaveLength(1);
+    const [before, afterwards] = t.adapter.runs.filter((run) => run.input.sessionId === one.id).map((run) => run.input.processEnvironment.key);
+    expect(afterwards).toBe(before);
+    // Past the old login's ninety minutes, on its twenty-minute renewals.
+    for (const minutes of [65, 85]) {
+      const renewed = bao.renewals(held).length;
+      advanceTo(t, minutes);
+      await eventually(() => expect(bao.renewals(held)).toHaveLength(renewed + 1));
+    }
+    advanceTo(t, 100);
+    expect(bao.live(first)).toBe(false);
+    expect(bao.live(held)).toBe(true);
   });
 });
 
