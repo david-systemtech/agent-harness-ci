@@ -10,7 +10,7 @@ import type { MoveSource, MoveSourceItem } from "../src/key-managers/moves.js";
  */
 export interface ScriptedMoveSource {
   readonly source: MoveSource;
-  /** Makes item `id` hold `value` as its stored value, known by `name`, its entry `forge-<entry>`. */
+  /** Makes item `id` hold `value` as its stored value, known as `scripted <entry>`, its entry `forge-<entry>`. */
   hold(id: string, value: string, entry: string): void;
   /** Makes item `id`'s swaps refuse with `error` from now on; null to let them take. */
   failSwap(id: string, error: WireError | null): void;

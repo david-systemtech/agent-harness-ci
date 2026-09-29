@@ -14,13 +14,13 @@ import {
   type ResultOf,
   type WireError,
 } from "@agent-harness/contracts";
-import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, MethodContext, MethodHandler, PreparedCommand } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { moveTarget } from "./base-path.js";
-import type { HeldLogin, KeyManagerConnections } from "./connections.js";
+import { KEY_MANAGER_ACTOR, type HeldLogin, type KeyManagerConnections } from "./connections.js";
 import { leftBehind } from "./move-store.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ProviderFailure } from "./provider.js";
 import type { KeyManagerRegistry } from "./registry.js";
@@ -57,9 +57,6 @@ import { sameValue } from "./same-value.js";
  *   `key-manager.stored-value-deleted` as `system:key-manager` for each it
  *   deletes (`move-store.ts`).
  */
-
-/** The environment's own deletions' actor. */
-const KEY_MANAGER_ACTOR = formatActor({ kind: "system", id: "key-manager" });
 
 /** An item a Move source holds a stored value for. */
 export interface MoveSourceItem {
@@ -196,11 +193,11 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
       // On the wall clock, never the environment's, which a test may hold still.
       const written = await login.provider.write(login.target, login.token, { reference, value: stored.value, fields, overwrite }, AbortSignal.timeout(budgetMs));
       if (written.outcome === "exists") {
-        const message = `A different value is at ${named} already: nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored value. Move it with overwrite to replace that value.`;
+        const message = `A different value is at ${named} already: nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token. Move it with overwrite to replace that value.`;
         return { result: failed(ref, "write", false, { code: "conflict", message, data: { reason: "target_exists", connectionId, reference } }), event: null };
       }
       if (written.outcome !== "written") {
-        const message = `${said(written.message)} Nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored value.`;
+        const message = `${said(written.message)} Nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token.`;
         return { result: failed(ref, "write", false, { code: WRITE_CODES[written.outcome], message, data: { connectionId } }), event: null };
       }
       const leftCopy = `The copy written to ${named} and the stored token of the ${ITEM_KINDS[source.kind]} ${item.name} are both left in place.`;

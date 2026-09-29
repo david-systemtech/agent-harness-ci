@@ -222,7 +222,7 @@ describe("keyManagers.move", () => {
         written: false,
         error: {
           code: "conflict",
-          message: `A different value is at OpenBao at personal/harness/forge-home (key token) already: nothing was written, and the forge account ${account.origin} keeps its stored value. Move it with overwrite to replace that value.`,
+          message: `A different value is at OpenBao at personal/harness/forge-home (key token) already: nothing was written, and the forge account ${account.origin} keeps its stored token. Move it with overwrite to replace that value.`,
           data: { reason: "target_exists", connectionId: connection.id, reference },
         },
       },

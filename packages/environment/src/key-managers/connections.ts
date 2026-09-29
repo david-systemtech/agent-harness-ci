@@ -883,7 +883,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           else void letGo(connectionId, checked.login);
         }
       }
-      if (taken && checked.outcome === "verified" && held.record.basePath === null) {
+      if (taken && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null) {
         // On the wall clock, never the environment's, which a test may hold still.
         const suggested = await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs));
         if (!closed) suggestions.set(connectionId, suggested);
