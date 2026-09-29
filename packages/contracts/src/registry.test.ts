@@ -389,6 +389,7 @@ describe("the method registry", () => {
       | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
+      | "instructions.preview"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"

@@ -10,6 +10,7 @@ import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, 
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
+import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
@@ -504,6 +505,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...setupMethodFixtures,
   ...permissionMethodFixtures,
   ...accountMethodFixtures,
+  ...instructionMethodFixtures,
   ...forgeMethodFixtures,
   ...keyManagerMethodFixtures,
   ...usageMethodFixtures,
@@ -883,6 +885,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...setupSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
+  ...instructionSchemaFixtures,
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
   ...skillSchemaFixtures,

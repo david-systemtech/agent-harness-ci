@@ -47,6 +47,8 @@ describe("the recording fake shell", () => {
     shell.answer("http", async (url) => ({ status: 200, json: async () => ({ asked: url }) }));
     shell.answer("system", async () => ({ platform: "darwin", architecture: "arm64", hostname: "laptop", user: "david" }));
     shell.answer("dialogs.openFileContents", async () => [{ name: "notes.txt", size: 2, bytes: new Uint8Array([104, 105]) }]);
+    expect(await shell.gh.token("github.com")).toBeUndefined();
+    shell.answer("gh.token", async (host) => (host === "github.com" ? "token-for-tests" : undefined));
 
     expect(await shell.service.status()).toEqual({ installed: false, running: false, ready: false });
     expect(await shell.clipboard.readImage()).toEqual({ bytes: new Uint8Array([137, 80, 78, 71]), mediaType: "image/png" });
@@ -54,6 +56,13 @@ describe("the recording fake shell", () => {
     expect(await shell.system()).toEqual({ platform: "darwin", architecture: "arm64", hostname: "laptop", user: "david" });
     expect(await shell.dialogs.openFileContents({ multiple: true })).toEqual([{ name: "notes.txt", size: 2, bytes: new Uint8Array([104, 105]) }]);
     expect(shell.calls).toContainEqual(["dialogs.openFileContents", { multiple: true }]);
+    expect(await shell.gh.token("github.com")).toBe("token-for-tests");
+    expect(await shell.gh.token("ghe.example.com")).toBeUndefined();
+    expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([
+      ["gh.token", "github.com"],
+      ["gh.token", "github.com"],
+      ["gh.token", "ghe.example.com"],
+    ]);
     expect(shell.calls.filter(([member]) => member === "service.status")).toHaveLength(2);
     expect(shell.calls).toContainEqual(["http", "http://desk.test:7433/api/pair", { method: "POST" }]);
   });

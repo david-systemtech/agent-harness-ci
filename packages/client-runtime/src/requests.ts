@@ -1,4 +1,5 @@
 import {
+  FORGE_EVENT_PAYLOADS,
   isCommand,
   isMethodName,
   registry,
@@ -161,10 +162,12 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
  * the environment's sign-in, which a client attending it follows for its
  * verification URL and its end (#147); every step of an update (pending,
  * started, updated, failed, cancelled) `updates.status`, which the card and
- * About follow (#344); and settings changing (`settings.changed`, appended
- * with every `settings.updated`, #391) the settings, read through
- * `settings.get` and, for the permission keys and the containment the
- * status line shows, `permissions.settings.get`.
+ * About follow (#344); every `forge.account.*` event the forge accounts
+ * (#320), a missing origin (`forge.origin-missing`) changing none of them;
+ * and settings changing (`settings.changed`, appended with every
+ * `settings.updated`, #391) the settings, read through `settings.get` and,
+ * for the permission keys and the containment the status line shows,
+ * `permissions.settings.get`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -174,6 +177,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
+  "forge.accounts.list": Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account.")),
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
 };

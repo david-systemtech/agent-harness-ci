@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
+  RunInstructionsComposedPayload,
   SESSION_STREAM_KIND,
   lowerMode,
   type AdapterCapabilityFlag,
@@ -15,6 +16,7 @@ import {
   type PromptOpenedPayload,
   type ProviderProcess,
   type RunEndedPayload,
+  type RunActorKind,
   type RunPolicy,
   type RunStartedPayload,
   type SessionTitleSetPayload,
@@ -88,17 +90,20 @@ import type {
   RunEnd,
   UsageReading,
 } from "./contract.js";
+import { composeInstructions, instructionsDigest } from "../instructions/composer.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
-  composeInstructions,
   noAutoAnswer,
   noToolServers,
   presetPolicy,
+  undecidedTrust,
+  type ComposedInstructions,
   type InstructionComposer,
+  type InstructionScope,
   type PolicySeam,
   type PromptAutoAnswer,
   type ToolGateRule,
@@ -157,6 +162,21 @@ import {
  * person through the same broker, as a prompt of the run's; the host hands
  * the answer to the gate that asked and never to the adapter's
  * `answerPrompt`, since the adapter did not raise it.
+ *
+ * Standing instructions (skills-instructions spec, "Standing instructions
+ * and the composer"; ADR 0009): a run launched is live from its launch, and
+ * its instructions are composed before its adapter is asked for anything,
+ * the launch awaiting the composer, so a layer may read state that takes
+ * time. Once composed, `run.instructions.composed` (the manifest and the
+ * text's digest) is appended, after `run.started` and `run.policy.resolved`
+ * and before any event of the provider's; then the adapter's `createRun`.
+ * While it composes, no provider process is begun for it: an interrupt, a
+ * read-now or a stop ends it there, as the host's, `interrupted`, with what
+ * it was launched with back in the environment's queue; a message sent to
+ * it is the environment's to hold, for the run after it; a mode set on it is
+ * the mode its adapter is handed. A composition that fails ends it `error`.
+ * An account whose adapter's instruction channel is `none` is handed no
+ * text at all, the run's own included.
  */
 
 /** An unattended run's projection when the host has no denylist to read. */
@@ -175,6 +195,7 @@ export interface AdapterHostOptions {
    */
   readonly accounts: HostAccounts;
   readonly toolServers?: ToolServerFactory;
+  /** Composes each run's standing instructions, and `instructions.preview`'s; preset: the composer with no layer filled (`instructions/composer.ts`). */
   readonly instructions?: InstructionComposer;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
@@ -237,6 +258,9 @@ export interface StagedAttachments {
   readonly attachments: readonly AttachmentData[];
 }
 
+/** What `instructions.preview` composes for: a session's next run, or a new session's first on an account and a workspace. */
+export type InstructionTarget = { readonly sessionId: string } | { readonly accountId: string; readonly workspace: Workspace };
+
 /** A live run as the host reports it. */
 export interface ActiveRun {
   readonly runId: string;
@@ -278,8 +302,20 @@ export interface AdapterHost {
   liveRun(runId: string): LiveRunFacts | null;
   /** Whether the run ended here with its `run.ended` not in the log (two appends failed): the recovery sweep (#120) records it at the next start. */
   unrecorded(runId: string): boolean;
-  /** Starts a run its command committed: through its adapter, its events consumed from here on. */
+  /**
+   * Starts a run its command committed: live at once, its instructions
+   * composed and recorded (`run.instructions.composed`), then through its
+   * adapter, its events consumed from there on.
+   */
   launch(run: PlannedRun): void;
+  /**
+   * What a run would be handed now (`instructions.preview`): composed as a
+   * launch composes it, for a run a client starts, on the session's next run
+   * or on the first run of a new session of `accountId` in `workspace`.
+   * Refused `not_found` for a session not here or deleted (kind `session`),
+   * and for an account the environment does not hold (kind `account`).
+   */
+  previewInstructions(target: InstructionTarget): Promise<ComposedInstructions>;
   /**
    * Stages on disk the attachments of a message about to be queued, inside
    * the command that queues it and before it answers, so its receipt means
@@ -432,13 +468,14 @@ export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "e
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
- * which disposes the run and stops its process for `stop`'s reason, and
- * records the end as its own, or as `actor`'s under `commandId` when a
- * person's command ended it.
+ * which disposes the run and stops its process for `stop`'s reason (null
+ * leaves the session's process be: the run never reached it), and records
+ * the end as its own, or as `actor`'s under `commandId` when a person's
+ * command ended it.
  */
 type EndedBy =
   | { readonly by: "adapter" }
-  | { readonly by: "host"; readonly stop: ProcessStopReason; readonly actor?: string; readonly commandId?: string };
+  | { readonly by: "host"; readonly stop: ProcessStopReason | null; readonly actor?: string; readonly commandId?: string };
 
 /** One live run. */
 interface LiveRun {
@@ -454,6 +491,8 @@ interface LiveRun {
   /** Its containment, as its adapter was handed it and the gate rules under it: its policy's, fixed for the run. */
   readonly containment: RunContainment;
   run: AdapterRun | undefined;
+  /** Set from its launch until its adapter is asked for it: its instructions are being composed, and no provider process is begun for it. */
+  composing: boolean;
   /**
    * Set once the host ends it, synchronously and first thing in `finish`,
    * before any await or append, so a second end (the adapter's end racing a
@@ -731,12 +770,21 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * environment's queue, and the interrupt's promise (`LiveRun.interruption`)
    * settles once it has, which a read-now and a withdraw wait on (#228). An
    * interrupt the adapter cannot make ends the run as the host's,
-   * `interrupted`, and disposes it, and settles the promise after.
+   * `interrupted`, and disposes it, and settles the promise after. A run
+   * still composing its instructions has reached no provider: it ends here
+   * at once, as the host's, `interrupted`, what it was launched with the
+   * environment's queue again, and no provider process is begun for it.
    */
   const interruptRun = (entry: LiveRun): Promise<void> => {
     const run = entry.run;
     if (entry.interruption !== null) return entry.interruption;
-    if (run === undefined) return Promise.resolve();
+    if (run === undefined) {
+      if (entry.composing && !entry.ended) {
+        entry.interrupting = true;
+        finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: null });
+      }
+      return Promise.resolve();
+    }
     entry.interrupting = true;
     let settle!: () => void;
     entry.interruption = new Promise<void>((resolve) => (settle = resolve));
@@ -904,7 +952,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       denyWaiters(entry.runId, closesPrompts ? RUN_ENDED_MESSAGE : STOPPED_MESSAGE);
       if (ended.by === "host") {
         safely(() => entry.run?.dispose(), (e) => console.error(`Disposing run ${entry.runId} failed:`, e));
-        void pool.stop(entry.sessionId, ended.stop);
+        if (ended.stop !== null) void pool.stop(entry.sessionId, ended.stop);
         dropAdoptions(entry.sessionId);
       } else {
         safely(() => entry.run?.release(), (e) => console.error(`Releasing run ${entry.runId} failed:`, e));
@@ -1195,13 +1243,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   });
 
   /**
-   * Registers a run and starts consuming it; the run's own events are
-   * appended by then. `create` is everything that can fail on the way to the
-   * live run (the seams, the adapter's `createRun`): a throw ends the run
-   * `error`, one microtask on, so that when the run was launched after a
-   * command's commit its end is heard after the command's own events.
+   * Registers a run: admitted to the run registry and the session's live
+   * run, not yet on a process. `composing` while its instructions are
+   * composed (`launch`).
    */
-  const begin = (plan: PlannedRun, create: (entry: LiveRun) => AdapterRun, launchedWith: readonly PromptMessage[] = []): void => {
+  const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean): LiveRun => {
     const { descriptor } = plan.account;
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
     const entry: LiveRun = {
@@ -1215,6 +1261,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       mode: plan.mode,
       containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
       run: undefined,
+      composing,
       ended: false,
       unrecorded: false,
       running: false,
@@ -1229,9 +1276,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // Admitted first: a drain that refuses it leaves no live entry behind.
     registry.start(plan.runId);
     live.set(plan.sessionId, entry);
-    pool.begin(plan.sessionId, descriptor.provider, plan.runId);
+    return entry;
+  };
+
+  /**
+   * Puts a registered run on its session's process and starts consuming it;
+   * the run's own events are appended by then. `create` is what can fail on
+   * the way to the live run (the seams, the adapter's `createRun`): a throw
+   * ends the run `error`, one microtask on, so that when the run was
+   * launched after a command's commit its end is heard after the command's
+   * own events.
+   */
+  const attach = (entry: LiveRun, create: () => AdapterRun): void => {
+    entry.composing = false;
+    pool.begin(entry.sessionId, entry.descriptor.provider, entry.runId);
     try {
-      entry.run = create(entry);
+      entry.run = create();
       entry.received = true;
     } catch (error) {
       queueMicrotask(() => finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, { by: "host", stop: "failed" }));
@@ -1239,6 +1299,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     void consume(entry, entry.run);
   };
+
+  /** Registers a run and starts it at once, on its session's process: a turn the provider opened, adopted. */
+  const begin = (plan: PlannedRun, create: () => AdapterRun): void => attach(register(plan, [], false), create);
 
   /** The adapter that serves an account's runs. */
   const adapterOf = (account: AccountFacts): Adapter => {
@@ -1264,6 +1327,55 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
+  /** What a run's instructions are composed for: its session, account, workspace and trust, who started it, and its account's channel. */
+  const instructionScope = (run: {
+    readonly sessionId: string | null;
+    readonly account: AccountFacts;
+    readonly workspace: Workspace;
+    readonly repositoryIdentity: string | null;
+    readonly origin: RunActorKind;
+  }): InstructionScope => ({
+    sessionId: run.sessionId,
+    accountId: run.account.id,
+    workspace: run.workspace,
+    // The trust gate (#500) records decisions: until then every repository is undecided.
+    trust: undecidedTrust(run.workspace, run.repositoryIdentity),
+    origin: run.origin,
+    bot: null,
+    // The always-on layer (#507) fills a run's extra names.
+    alwaysOn: [],
+    channel: run.account.descriptor.instructionChannel,
+  });
+
+  /**
+   * Composes a live run's instructions and records them
+   * (`run.instructions.composed`: the manifest and the text's digest, never
+   * the text). Null when the run ended meanwhile (an interrupt, a stop, its
+   * session deleted, the environment closing), or when composing or
+   * recording failed, which ends it `error` here: either way no provider
+   * process is begun for it.
+   */
+  const composeFor = async (entry: LiveRun, scope: InstructionScope): Promise<ComposedInstructions | null> => {
+    try {
+      const composed = await instructions(scope);
+      if (entry.ended) return null;
+      const payload: RunInstructionsComposedPayload = RunInstructionsComposedPayload.parse({
+        runId: entry.runId,
+        manifest: composed.manifest,
+        digest: instructionsDigest(composed.text),
+      });
+      append(entry.sessionId, entry.runId, HOST_ACTOR, [{ type: "run.instructions.composed", payload }]);
+      return composed;
+    } catch (error) {
+      console.error(`Composing the instructions of run ${entry.runId} failed; it ends without starting:`, error);
+      if (!entry.ended) {
+        const message = `The run's standing instructions could not be composed: ${messageOf(error)}`;
+        finish(entry, { type: "end", reason: "error", error: { message, code: null } }, { by: "host", stop: null });
+      }
+      return null;
+    }
+  };
+
   const launch = (plan: PlannedRun): void => {
     const prompt: PromptMessage[] = [
       ...keptAnswers(plan.runId),
@@ -1272,36 +1384,47 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
       }),
     ];
-    const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
-    begin(plan, (entry) => {
-      // At a workspace level the directories it may write in are there before the provider is.
-      if (entry.containment.level !== "off") directories.make(plan.sessionId);
-      const run = adapterOf(plan.account).createRun(
-        {
-          sessionId: plan.sessionId,
-          runId: plan.runId,
-          account: { id: plan.account.id, directory: plan.account.directory, ...(plan.account.label !== undefined && { label: plan.account.label }) },
-          workspace: plan.workspace,
-          repositoryIdentity: plan.repositoryIdentity,
-          model: plan.model,
-          effort: plan.effort,
-          mode: plan.mode,
-          ceiling: plan.policy.mode.ceiling,
-          // The composed instructions, then what the run appends after them (a completions request's, #138), never in their place.
-          instructions: [instructions(scope), plan.appendedInstructions].filter((part): part is string => part !== null && part.trim() !== "").join("\n\n"),
-          target: plan.target,
-          toolServers: toolServers({ ...scope, runId: plan.runId, clientTools: plan.clientTools }),
-          trusted: false,
-          containment: entry.containment,
-          denylist: runDenylist(plan.policy.attended),
-          prompt,
-        },
-        contextFor(entry),
-      );
-      // The adapter has them: nothing need keep their bytes now. Had it thrown, the host would hold them again (`requeueUnread`).
-      for (const message of prompt) unstage(message.messageId);
-      return run;
-    }, prompt);
+    const entry = register(plan, prompt, true);
+    const scope = instructionScope({ ...plan, origin: plan.actor.kind });
+    const start = (composed: ComposedInstructions): void =>
+      attach(entry, () => {
+        // At a workspace level the directories it may write in are there before the provider is.
+        if (entry.containment.level !== "off") directories.make(plan.sessionId);
+        // The composed text, then what the run appends after it (a completions request's, #138), never in its place; no
+        // text at all through a channel of kind none.
+        const handed = scope.channel.kind === "none" ? [] : [composed.text, plan.appendedInstructions];
+        const run = adapterOf(plan.account).createRun(
+          {
+            sessionId: plan.sessionId,
+            runId: plan.runId,
+            account: { id: plan.account.id, directory: plan.account.directory, ...(plan.account.label !== undefined && { label: plan.account.label }) },
+            workspace: plan.workspace,
+            repositoryIdentity: plan.repositoryIdentity,
+            model: plan.model,
+            effort: plan.effort,
+            // Its policy's, or the mode set on it while it composed.
+            mode: entry.mode,
+            ceiling: plan.policy.mode.ceiling,
+            instructions: handed.filter((part): part is string => part !== null && part.trim() !== "").join("\n\n"),
+            target: plan.target,
+            toolServers: toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools }),
+            trusted: false,
+            containment: entry.containment,
+            denylist: runDenylist(plan.policy.attended),
+            prompt,
+          },
+          contextFor(entry),
+        );
+        // The adapter has them: nothing need keep their bytes now. Had it thrown, the host would hold them again (`requeueUnread`).
+        for (const message of prompt) unstage(message.messageId);
+        return run;
+      });
+    void composeFor(entry, scope).then(
+      (composed) => {
+        if (composed !== null && !entry.ended) safely(() => start(composed), (error) => console.error(`Starting run ${entry.runId} failed:`, error));
+      },
+      (error: unknown) => console.error(`Ending run ${entry.runId}, whose instructions could not be composed, failed:`, error),
+    );
   };
 
   /**
@@ -1793,6 +1916,28 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    async previewInstructions(target) {
+      let run: { readonly sessionId: string | null; readonly accountId: string | null; readonly workspace: Workspace; readonly repositoryIdentity: string | null };
+      if ("sessionId" in target) {
+        const sessionId = target.sessionId.toLowerCase();
+        const session = readSessionFacts(log, reader, sessionId);
+        if (session === null || session.deleted) {
+          throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
+        }
+        run = { sessionId, accountId: session.account ?? accounts.defaultId(), workspace: session.workspace, repositoryIdentity: session.repositoryIdentity };
+      } else {
+        // A new session's repository identity is read when it is made; until then it has none.
+        run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null };
+      }
+      const { accountId } = run;
+      const facts = accountId === null ? null : accounts.facts(accountId);
+      if (facts === null) {
+        const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
+        throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
+      }
+      // As a run a client starts would be composed: with no extra always-on names.
+      return instructions(instructionScope({ ...run, account: facts, origin: "client" }));
+    },
     continueSession(sessionId) {
       if (closing || changingMode.has(sessionId)) return;
       const current = live.get(sessionId);
@@ -1826,9 +1971,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (sessionId !== null) heldAttachments.set(send.message.messageId, { sessionId, attachments: send.message.attachments });
       if (send.heldBy === "environment") return;
       const entry = byRunId(send.runId);
-      if (entry === undefined || entry.ended) {
-        // Its run ended before the send was handed on, and that end took back only what was on the log then: the
-        // provider never had this one, so the environment holds it (ADR 0022: nothing is lost).
+      // Its run ended before the send was handed on, and that end took back only what was on the log then; or its run is
+      // still composing its instructions, with no provider yet to hold anything. Either way the provider never had this
+      // one, so the environment holds it, and the run after reads it (ADR 0022: nothing is lost).
+      if (entry === undefined || entry.ended || entry.run === undefined) {
         if (!closing && sessionId !== null) requeue(sessionId, send.runId, [send.message.messageId]);
         return;
       }
@@ -1846,7 +1992,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
     interrupt(runId) {
       const entry = byRunId(runId);
-      if (entry === undefined || entry.ended || entry.run === undefined) return;
+      if (entry === undefined || entry.ended || (entry.run === undefined && !entry.composing)) return;
       // A person's interrupt after a read-now is the last word: the run ends interrupted by them, and no run of the queue starts.
       entry.readNow = null;
       if (!entry.interrupting) void interruptRun(entry);
@@ -1904,6 +2050,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
     setMode(runId, mode) {
       const entry = byRunId(runId);
+      // A run still composing its instructions is handed the mode when its adapter is asked for it.
+      if (entry?.composing === true) entry.mode = mode;
       const run = entry?.run;
       if (entry === undefined || run === undefined) return;
       const failed = (error: unknown) => console.error(`Changing the mode of run ${runId} failed; it keeps ${entry.mode} until its session's next run:`, error);

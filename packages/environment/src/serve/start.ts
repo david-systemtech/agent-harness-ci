@@ -48,6 +48,7 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
@@ -286,6 +287,7 @@ export interface EnvironmentOptions {
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
+    /** Composes each run's standing instructions; preset: the composer with no layer filled (`instructions/composer.ts`). */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
@@ -956,6 +958,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...instructionMethods({ host }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
     // The routine store's commands and list (#521), on each routine's own stream.
