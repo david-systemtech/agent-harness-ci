@@ -334,7 +334,10 @@ export interface EnvironmentOptions {
   readonly gh?: ManagedGh;
   /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
-  /** How long one verification of a key-manager connection, or one certificate preview, may take (#366). Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds. */
+  /**
+   * How long one verification of a key-manager connection, one certificate preview (#366), or one reference's read or a
+   * path's list (#370) may take. Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds.
+   */
   readonly keyManagerTimeoutMs?: number;
   /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
