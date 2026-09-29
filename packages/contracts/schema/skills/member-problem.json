@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillMemberProblem",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "name",
+        "description"
+      ],
+      "description": "What is wrong: name (neither its frontmatter name nor its folder's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What is wrong, for people: the names tried and why each fails."
+    }
+  },
+  "required": [
+    "kind",
+    "message"
+  ],
+  "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+}

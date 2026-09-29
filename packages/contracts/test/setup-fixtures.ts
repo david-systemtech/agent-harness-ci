@@ -27,13 +27,35 @@ const needsAttention = {
   checkedAt: "2026-09-25T08:00:00.000Z",
 };
 
+const timedOut = {
+  step: "your-machines",
+  state: "needs-attention",
+  reason: "could not check: timed out after 5 s",
+  failing: ["your-machines.release-channel"],
+  actions: ["check-again"],
+  checkedAt: "2026-09-25T09:00:00.000Z",
+  lastGood: { state: "done", reason: "The environment runs as a non-root user.", checkedAt: "2026-09-25T08:00:00.000Z" },
+};
+const skipped = {
+  step: "account",
+  state: "skipped",
+  reason: "No account is added.",
+  failing: [],
+  actions: [],
+  checkedAt: "2026-09-25T08:00:00.000Z",
+};
+
 export const setupSchemaFixtures: Record<string, Fixtures> = {
   "setup/registered-step-id.json": { valid: ["account", "your-machines", "permissions", "appearance"], invalid: ["forges", "Permissions", ""] },
   "setup/action.json": { valid: ["restore", "check-again", "set-up-this-machine"], invalid: ["Restore", "reboot", ""] },
   "setup/step-state.json": { valid: ["done", "needs-attention", "skipped"], invalid: ["needs attention", "pending", ""] },
   "setup/step-result.json": {
-    valid: [done, needsAttention],
+    valid: [done, needsAttention, timedOut, skipped, { ...timedOut, step: "account", lastGood: { state: "skipped", reason: skipped.reason, checkedAt: skipped.checkedAt } }],
     invalid: [
+      { ...timedOut, lastGood: { ...timedOut.lastGood, state: "needs-attention" } },
+      { ...timedOut, lastGood: { state: "done", reason: "The environment runs as a non-root user." } },
+      { ...timedOut, lastGood: { ...timedOut.lastGood, reason: "" } },
+      { ...timedOut, lastGood: "The environment runs as a non-root user." },
       { ...done, reason: "" },
       { ...done, state: "pending" },
       { ...needsAttention, actions: ["reboot"] },
@@ -47,6 +69,6 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
     params: { valid: [{}, { step: "permissions" }], invalid: [{ step: "forges" }, { step: "" }, { step: ["permissions"] }] },
-    result: { valid: [{ results: [] }, { results: [done, needsAttention] }], invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }] },
+    result: { valid: [{ results: [] }, { results: [done, needsAttention, timedOut] }], invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }] },
   },
 };

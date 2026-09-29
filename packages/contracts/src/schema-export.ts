@@ -362,7 +362,18 @@ import {
   PromptQuestionOption,
 } from "./prompts.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
-import { REPOSITORY_IDENTITY_CASES } from "./repository-identity.js";
+import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
+import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
+import {
+  SkillInvocation,
+  SkillMemberProblem,
+  SkillMemberWarning,
+  SkillName,
+  SkillRuleIssueParams,
+  SkillSourceFolder,
+  SkillSourceUrl,
+} from "./skill-rules.js";
+import { GitCommit, SkillLayer, SkillMember, SkillOrigin, SkillSource, SkillSourceBranch, SkillSourceFollow, SkillSourceId } from "./skills.js";
 
 /**
  * The JSON Schema export: every schema in the package as a draft 2020-12
@@ -622,6 +633,22 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
+  { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "skills/name.json", title: "SkillName", schema: SkillName },
+  { path: "skills/source-url.json", title: "SkillSourceUrl", schema: SkillSourceUrl },
+  { path: "skills/source-folder.json", title: "SkillSourceFolder", schema: SkillSourceFolder },
+  { path: "skills/rule-issue-params.json", title: "SkillRuleIssueParams", schema: SkillRuleIssueParams },
+  { path: "skills/invocation.json", title: "SkillInvocation", schema: SkillInvocation },
+  { path: "skills/member-problem.json", title: "SkillMemberProblem", schema: SkillMemberProblem },
+  { path: "skills/member-warning.json", title: "SkillMemberWarning", schema: SkillMemberWarning },
+  { path: "skills/origin.json", title: "SkillOrigin", schema: SkillOrigin },
+  { path: "skills/layer.json", title: "SkillLayer", schema: SkillLayer },
+  { path: "skills/member.json", title: "SkillMember", schema: SkillMember },
+  { path: "skills/source-id.json", title: "SkillSourceId", schema: SkillSourceId },
+  { path: "skills/git-commit.json", title: "GitCommit", schema: GitCommit },
+  { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
+  { path: "skills/follow.json", title: "SkillSourceFollow", schema: SkillSourceFollow },
+  { path: "skills/source.json", title: "SkillSource", schema: SkillSource },
   { path: "theme/theme.json", title: "Theme", schema: Theme },
   { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
   { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },
@@ -866,6 +893,55 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
       "The identity is https:// + host + / + path.",
     ].join(" "),
     cases: REPOSITORY_IDENTITY_CASES.map(({ note, remote, forgeAccounts = [], identity }) => ({ note, remote, forgeAccounts, identity })),
+  },
+  {
+    path: "cases/skill-name.json",
+    title: "Skill name",
+    description: [
+      "The skill-name rule, checkSkillName in the contracts package (skills spec, \"Name\"; the Agent Skills rule).",
+      "Each case gives a name and the reason the rule refuses it, or null when it takes it.",
+      "The rule, checking in this order: character, any character but a-z, 0-9 and -; length, not 1 to 64 characters; leading_hyphen; trailing_hyphen; doubled_hyphen.",
+      "A refusal on the wire is an invalid_params issue at the field whose params are {rule: skill-name, reason}.",
+    ].join(" "),
+    cases: SKILL_NAME_CASES,
+  },
+  {
+    path: "cases/skill-member.json",
+    title: "Skill member",
+    description: [
+      "Reading a member, readSkillMember in the contracts package (skills spec, \"The skill set\" and \"Name\").",
+      "Each case gives a member's frontmatter as parsed and its folder, and what the reading answers: name, description, invocation and userInvocable, and each problem and warning by its kind.",
+      "The folder is {kind: folder, name}, the member's own folder, or, for a folder that is itself one skill, {kind: root, sourceFolderSegment, repositorySegment}: the source folder's last segment (null for .) and the repository's last path segment (null for none).",
+      "The name is the frontmatter name when it is text the skill-name rule takes; else the first of the folder names (the folder's; for a root, the source folder's segment, then the repository's) the rule takes; else null, with a name problem.",
+      "A frontmatter name that is present but not taken is a frontmatter-name-invalid warning when a folder name is used; a name unlike the folder the member is in (for a root, the source folder's segment, else the repository's) is a name-unlike-folder warning.",
+      "The description is a frontmatter description that is text with more than white space, trimmed; else null, with a description problem, after any name problem.",
+      "The invocation is slash-only exactly when disable-model-invocation is true, else model+slash; userInvocable is false exactly when user-invocable is false.",
+    ].join(" "),
+    cases: SKILL_MEMBER_CASES,
+  },
+  {
+    path: "cases/skill-source-url.json",
+    title: "Skill source URL",
+    description: [
+      "The source URL rule, checkSourceUrl in the contracts package (skills spec, \"Skill sources\").",
+      "Each case gives a URL and the reason the rule refuses it, or null when it takes it.",
+      "It takes https://, ssh:// and git's scp form [user@]host:path, whose host has a dot, is localhost or is a bracketed IPv6 literal, as the repository identity rule reads it (cases/repository-identity.json), naming a repository that has an identity.",
+      "It refuses, checking in this order: malformed, empty; leading_hyphen, a URL beginning with -; scheme, any scheme but https and ssh, or git's <transport>:: syntax (local_path for file://); malformed, white space or a control character; local_path, text the repository identity rule reads as a local path; credential, userinfo in https or a password in an ssh:// or scp user; query, a ?; fragment, a #; leading_hyphen, a user, host or scp path beginning with -; malformed, a bare host:port/path, a host or port no URL holds, or a path under two segments once empty ones and one .git are dropped.",
+      "A refusal on the wire is an invalid_params issue at the field whose params are {rule: source-url, reason}.",
+    ].join(" "),
+    cases: SOURCE_URL_CASES,
+  },
+  {
+    path: "cases/skill-source-folder.json",
+    title: "Skill source folder",
+    description: [
+      "The source folder rule, checkSourceFolder in the contracts package (skills spec, \"Skill sources\").",
+      "Each case gives a folder, the folder normalised (null when refused) and the reason the rule refuses it (null when it takes it).",
+      "It takes . for the repository's root and relative paths, normalised: \\ read as /, empty and . segments dropped, and . when none remain.",
+      "It refuses, checking in this order: empty; malformed, a control character; absolute, a path beginning with / or \\ or a Windows drive letter and colon; parent, any .. segment.",
+      "A refusal on the wire is an invalid_params issue at the field whose params are {rule: source-folder, reason}.",
+    ].join(" "),
+    cases: SOURCE_FOLDER_CASES,
   },
 ];
 

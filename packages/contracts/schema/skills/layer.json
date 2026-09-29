@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillLayer",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "source"
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+        }
+      },
+      "required": [
+        "kind",
+        "sourceId"
+      ],
+      "description": "A tracked source's current snapshot."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "own"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "The environment's own skills directory, or its commands directory."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "repository"
+        },
+        "root": {
+          "type": "string",
+          "enum": [
+            ".claude/skills",
+            ".agents/skills"
+          ],
+          "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+        },
+        "directory": {
+          "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "root",
+        "directory"
+      ],
+      "description": "A trusted repository's own skills."
+    }
+  ],
+  "description": "The layer a member lies in: a source, the own directory, or a trusted repository's .claude/skills or .agents/skills."
+}

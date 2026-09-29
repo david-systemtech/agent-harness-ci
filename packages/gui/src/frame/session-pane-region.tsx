@@ -1,5 +1,6 @@
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
+import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
 import { PaneLine } from "../session/pane-line.js";
@@ -37,7 +38,8 @@ const NoSessionOpen = () => {
  * pane, showing the session presentation holds for it (`paneLayout`), or
  * saying none is open. The pane holds its one line and its session's queue
  * for what it draws: the transcript with the queued messages after their
- * turns, the strip over the composer that counts them, and the composer.
+ * turns, the strip over the composer that counts them, the parked prompt's
+ * card, and the composer.
  */
 export const SessionPaneRegion = () => {
   const [layout] = usePresentation("paneLayout");
@@ -53,6 +55,7 @@ export const SessionPaneRegion = () => {
               <SlashCommands>
                 <Transcript environmentId={session.environmentId} sessionId={session.sessionId} />
                 <QueueStrip />
+                <PromptCard environmentId={session.environmentId} sessionId={session.sessionId} />
                 <Composer environmentId={session.environmentId} sessionId={session.sessionId} />
               </SlashCommands>
             </SessionQueueProvider>

@@ -36,6 +36,14 @@ const fakeForge = async (): Promise<FakeForge> => {
 /** Long enough for git and the fake forge on a loaded runner; far shorter than the hostile programs hang. */
 const PROMPTLY_MS = 10_000;
 
+/**
+ * The test that moves the manual clock on by eight days runs every timer the
+ * environment has over them, among them 11,520 minute sweeps that each write
+ * in a transaction: about a second on an idle machine, and past the preset 30
+ * seconds on a throttled CI runner (#596).
+ */
+const EIGHT_DAYS_OF_TIMERS_MS = 120_000;
+
 describe("the harness's git on an origin no forge account covers", () => {
   it("clones a public repository anonymously, never asking the machine's helper or askpass", async () => {
     const hostile = hostileMachineGit(tempDir, onCleanup);
@@ -103,6 +111,8 @@ describe("the harness's git on an origin no forge account covers", () => {
     expect(second).toBe("2026-09-25T00:00:00.000Z");
     expect(t.env.forge.missingOrigins()).toEqual([{ origin: forge.origin, operation: "clone a bank the next day", recordedAt: second }]);
 
+    // The client goes first: the wire would ping it every fifteen seconds of the week, 40,320 times.
+    await client.close();
     t.clock.advance(7 * 24 * 60 * 60_000 - 1);
     expect(t.env.forge.missingOrigins()).toHaveLength(1);
     t.clock.advance(1);
@@ -110,9 +120,9 @@ describe("the harness's git on an origin no forge account covers", () => {
 
     await refuse("clone a bank a week on");
     expect(t.env.forge.missingOrigins()).toHaveLength(1);
-    await added(client, { url: forge.origin, kind: "forgejo" });
+    await added(await t.client(), { url: forge.origin, kind: "forgejo" });
     expect(t.env.forge.missingOrigins()).toEqual([]);
-  });
+  }, EIGHT_DAYS_OF_TIMERS_MS);
 });
 
 describe("the harness's git on an origin a forge account covers", () => {

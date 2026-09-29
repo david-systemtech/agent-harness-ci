@@ -7,6 +7,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, forgeEvents, gitHost, pasted, remove, saidBack, update, verify, type RouteAnswer } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { WAIT_MS } from "../../test/wire-client.js";
 
 /**
  * The credential route (forge spec, "The helper and the credential route";
@@ -142,10 +143,12 @@ describe("the credential route", () => {
     const account = await added(client, { url: forge.origin, kind: "forgejo" });
     const secret = t.env.forge.secrets.mint([account.id], "a test's git");
     onCleanup(secret.release);
-    // The add's own verification, which the environment's clock starts.
+    // The add's own verification, which the environment's clock starts, joined and so waited for until it is recorded:
+    // one still running when the log is read from here would record after the erase (#595).
     t.clock.advance(0);
+    await verify(client, account.id);
     const identityCalls = () => forge.requests.filter((request) => request.path === "/api/v1/user").length;
-    await vi.waitFor(() => expect(identityCalls()).toBe(2));
+    expect(identityCalls()).toBe(2);
     const before = t.env.log.head();
 
     const erased = await ask(t.address, secret.value, { ...getFor(account), action: "erase" });
@@ -154,7 +157,8 @@ describe("the credential route", () => {
     expect(events.map((event) => [event.type, event.payload, event.actor])).toEqual([
       ["forge.account.git-rejected", { forgeAccountId: account.id, origin: forge.origin }, { kind: "system", id: "forge" }],
     ]);
-    await vi.waitFor(() => expect(identityCalls()).toBe(3));
+    // The verification the erase starts finds nothing new and records nothing: its request is waited for, as long as a frame is.
+    await vi.waitFor(() => expect(identityCalls()).toBe(3), { timeout: WAIT_MS });
     expect(GitCredentialAnswer.parse((await ask(t.address, secret.value, getFor(account))).body).password).toBe(TOKEN);
 
     const outside = await ask(t.address, secret.value, { action: "erase", slug: "github", protocol: "https", host: "github.com" });

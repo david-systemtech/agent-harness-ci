@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillSourceFollow",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "branch"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+              "description": "A branch a skill source follows, as git takes a branch name: 1 to 255 characters with no white space, control character or any of ~ ^ : ? * [ \\, no .. or @{, no empty segment, none beginning with . or ending with .lock, no trailing / or ., not @, and not beginning with -."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The branch; null for the remote's default branch, the one its HEAD names."
+        }
+      },
+      "required": [
+        "kind",
+        "branch"
+      ],
+      "description": "A branch the source syncs from, at start, every six hours and on Pull now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "pinned"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+          "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+        }
+      },
+      "required": [
+        "kind",
+        "commit"
+      ],
+      "description": "A commit the source is pinned to: it never syncs until it is unpinned."
+    }
+  ],
+  "description": "What a skill source follows: a branch (null for the remote's default), or a pinned commit, which never syncs."
+}
