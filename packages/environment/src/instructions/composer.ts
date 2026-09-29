@@ -15,8 +15,9 @@ import type { ComposedInstructions, InstructionComposer, InstructionPart, Instru
  * environment, whoever started it, from the layers in their fixed order,
  * general to specific:
  *
- * 1. the user layer: the orientation block (its seam, which #380's renderer
- *    fills), then owned instructions (#505);
+ * 1. the user layer: the orientation block (its seam, which the
+ *    OrientationRenderer fills, `orientation.ts`), then owned instructions
+ *    (#505);
  * 2. the team bank's (its seam, which #90's renderer fills);
  * 3. the project's, which Claude loads natively under trust beside the
  *    appended text, so nothing is added here (#500 gives an adapter without
@@ -59,7 +60,7 @@ export type LayerSeam = (scope: InstructionScope) => readonly LayerPart[] | Prom
 
 /** The seams the composer's layers read; each preset gives nothing. */
 export interface InstructionLayers {
-  /** The orientation block, first in the user layer (#380's renderer; #318's forges section until it lands). */
+  /** The orientation block, first in the user layer (the OrientationRenderer's seam, `orientation.ts`). */
   readonly orientation?: OrientationSeam;
   /** The team bank's lines (#90's renderer). */
   readonly teamBank?: LayerSeam;
