@@ -3,7 +3,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { after } from "../test/environments.js";
 import { noticeEvent } from "../test/events.js";
 import { subscription, type Scripted } from "../test/scripted.js";
-import { attentionResult, doneResult } from "../test/setup.js";
+import { attentionResult, doneResult, skippedResult } from "../test/setup.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
@@ -22,7 +22,7 @@ import { fakeShell, inMemoryPlatform, manualClock, type InMemoryDocumentStore } 
 const STATUS: EnvironmentStatus = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false };
 
 /** A runtime paired with one scripted environment offering `capabilities` (preset `setup`), its environment stream held by the test. */
-const paired = async (options: { readonly capabilities?: readonly string[] } = {}) => {
+const paired = async (options: { readonly capabilities?: readonly string[]; readonly skewMs?: number } = {}) => {
   const clock = manualClock();
   const wire: FakeWire = fakeWire({ clock, name: "desk", capabilities: [...(options.capabilities ?? ["setup"])] });
   wire.answer("sessions.subscribe", () => undefined);
@@ -32,7 +32,7 @@ const paired = async (options: { readonly capabilities?: readonly string[] } = {
   onTestFinished(() => runtime.close());
   await runtime.start();
   const adding = runtime.connections.add({ link: wire.link });
-  await wire.server.accept();
+  await wire.server.accept({ serverTime: new Date(clock.now().getTime() + (options.skewMs ?? 0)).toISOString() });
   (await subscription(wire, "sessions.subscribe")).synchronized(0);
   const environment: Scripted = await subscription(wire, "environment.subscribe");
   return { clock, wire, platform, runtime, env: wire.environmentId, environment, adding };
@@ -339,5 +339,48 @@ describe("an environment this client cannot reach", () => {
     expect(setup.read().reach).toEqual({ status: "reachable" });
     expect(held(again.runtime, env).map((row) => row.stale)).toEqual([false, false]);
     expect(checksSent(wire)).toEqual([]);
+  });
+});
+
+describe("each result's age", () => {
+  const MINUTE = 60_000;
+
+  /** Each registered step's id, its result's age and whether that is older than the step's cadence. */
+  const ages = (runtime: Runtime, env: string) =>
+    runtime.projections.setup(env).read().steps.flatMap((step) => (step.result === null ? [] : [[step.id, step.result.ageMs, step.result.olderThanCadence]]));
+
+  it("is counted on the environment's clock, and passes the step's cadence as that time passes, with no event", async () => {
+    const { runtime, clock, env, environment, adding } = await paired({ skewMs: 10 * MINUTE });
+    // Checked ten minutes ago as the environment tells the time, which runs ten minutes ahead of this client's.
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), skippedResult("forges")] });
+    environment.synchronized(3);
+    await adding;
+    onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
+    await flush();
+    expect(ages(runtime, env)).toEqual([
+      ["account", 10 * MINUTE, false],
+      ["forges", 10 * MINUTE, false],
+    ]);
+
+    // Forges' cadence is fifteen minutes (its forge accounts' status); Account's the hour.
+    clock.advance(5 * MINUTE + 1);
+    await flush();
+    expect(ages(runtime, env)).toEqual([
+      ["account", 15 * MINUTE + 1, false],
+      ["forges", 15 * MINUTE + 1, true],
+    ]);
+    // Past its cadence, the age keeps being counted, a minute at a time.
+    clock.advance(MINUTE);
+    await flush();
+    expect(ages(runtime, env)).toEqual([
+      ["account", 16 * MINUTE + 1, false],
+      ["forges", 16 * MINUTE + 1, true],
+    ]);
+    clock.advance(44 * MINUTE);
+    await flush();
+    expect(ages(runtime, env)).toEqual([
+      ["account", 60 * MINUTE + 1, true],
+      ["forges", 60 * MINUTE + 1, true],
+    ]);
   });
 });

@@ -246,7 +246,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   };
   const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
   // Set up (#570): each environment's results from its own stream and this client's checks through the request path.
-  const setup = createSetup({ clock: platform.clock, records: registry.list, environments: made.environments, call });
+  const setup = createSetup({ clock: platform.clock, records: registry.list, environments: made.environments, call, now: (environmentId) => made.now(environmentId) });
   registry.seams.onForget((environmentId) => setup.forget(environmentId));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>
