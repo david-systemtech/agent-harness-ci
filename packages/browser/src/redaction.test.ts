@@ -1,6 +1,6 @@
-// @vitest-environment jsdom
 import { SHAPE_RULES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { pageOf } from "../test/pages.js";
 import { TOKEN_SHAPES, redactTokens, redactedFieldValue, secretField } from "./index.js";
 
 /**
@@ -112,6 +112,7 @@ describe("the fields whose values are never read", () => {
   });
 
   it("takes a form element as it is, by its type and its autocomplete attribute", () => {
+    const document = pageOf("<!doctype html><title>Fields</title>");
     const input = document.createElement("input");
     input.type = "password";
     expect(secretField(input)).toBe("password");

@@ -1,0 +1,51 @@
+<!-- A plain article, written for these tests: a blog post served through Cloudflare (its JavaScript detections script), with an analytics pixel in a noscript element, an invisible reCAPTCHA v3 badge and a comment form with a captcha field. None of it is a challenge the page shows, and the page is no shell. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Keeping a homelab's backups honest</title>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-TESTS"></script>
+  <script src="https://www.google.com/recaptcha/api.js?render=site-key-for-tests"></script>
+</head>
+<body>
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-TESTS" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+  <header><nav><a href="/">Home</a> <a href="/archive">Archive</a> <a href="/about">About</a></nav></header>
+  <main>
+    <article>
+      <h1>Keeping a homelab's backups honest</h1>
+      <p class="byline">By a tester, 29 September 2026</p>
+      <p>A backup nobody has restored is a hope, not a backup. This post walks through the monthly drill that turns one into the other: pick a snapshot at random, restore it somewhere harmless, and compare what came back with what should have.</p>
+      <h2>The drill</h2>
+      <ol>
+        <li>Choose a snapshot older than a week, so the drill also proves retention works.</li>
+        <li>Restore it into a scratch directory on a machine that is not the source.</li>
+        <li>Compare checksums of a sample of files against the live copies.</li>
+      </ol>
+      <p>The comparison is the part people skip. A restore that finishes without errors can still bring back empty files if the source was already corrupt when the snapshot ran.</p>
+      <h2>What to record</h2>
+      <table>
+        <thead><tr><th>Field</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Snapshot age</td><td>Retention is part of the promise.</td></tr>
+          <tr><td>Restore time</td><td>It sets how long an outage lasts.</td></tr>
+        </tbody>
+      </table>
+      <pre><code class="language-sh">restic restore latest --target /tmp/drill --include /srv/photos</code></pre>
+      <p>Write the result down with the date. Next month's drill compares against it, and a restore that got slower is the first sign of a disk on its way out.</p>
+    </article>
+    <section id="comments">
+      <h2>Comments</h2>
+      <form class="comment-form" action="/comments" method="post">
+        <label for="comment">Your comment</label>
+        <textarea id="comment" name="comment"></textarea>
+        <label for="captcha">What is three plus four?</label>
+        <input id="captcha" name="captcha_answer" type="text">
+        <button type="submit">Post</button>
+      </form>
+    </section>
+  </main>
+  <footer><p>Written on a homelab, served through a tunnel.</p></footer>
+  <div class="grecaptcha-badge" data-style="bottomright"><div class="grecaptcha-logo"><iframe title="reCAPTCHA" width="256" height="60" src="https://www.google.com/recaptcha/api2/anchor?ar=1&amp;k=site-key-for-tests&amp;co=origin-for-tests&amp;hl=en&amp;v=version-for-tests&amp;size=invisible&amp;cb=tests"></iframe></div></div>
+  <script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'ray-for-tests',t:'time-for-tests'};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.visibility='hidden';document.body.appendChild(a);c()}})();</script>
+</body>
+</html>

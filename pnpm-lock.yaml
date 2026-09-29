@@ -53,6 +53,10 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
+    devDependencies:
+      jsdom:
+        specifier: ^30.1.1
+        version: 30.1.1
 
   packages/cli:
     dependencies:
