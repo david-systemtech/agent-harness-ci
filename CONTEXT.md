@@ -336,6 +336,10 @@ _Avoid_: prompt library, house rules, system prompt (the whole thing the provide
 The one-time, per-repository decision that lets a repository's own skills, instructions and hooks load into runs on this environment.
 _Avoid_: allowlist, safe mode, workspace trust
 
+**Trust key**:
+What a trust decision is recorded under: the session's repository identity, else its repository's main checkout path, else its workspace path, the same key auto memory uses; a scratch workspace has none and is never asked about. A key whose host later becomes a verified forge alias is read on that forge account's canonical host.
+_Avoid_: trust id, trusted path, project key
+
 **Bank**:
 A git-backed, self-describing collection of memories (a `BANK.md` manifest naming its kind, purpose, entities, orientation facts and landing) that an environment attaches to accounts and repositories and lands changes to through the forge.
 _Avoid_: memory store, knowledge base, vault (the key manager)
