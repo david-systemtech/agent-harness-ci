@@ -953,6 +953,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           releaseChannel: () => channelChecks.releaseChannelHolds(),
           updates: () => updates.machineHolds(channelChecks.status().newest),
           hostUpdater: () => hostUpdater.holds(),
+          forge,
+          clock,
         }),
       },
     }),

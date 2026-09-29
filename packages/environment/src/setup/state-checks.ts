@@ -1,8 +1,11 @@
 import { denylistPresets, type ContainmentReport } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
+import type { ForgeService } from "../forge/forge-service.js";
+import { forgesStateChecks } from "../forge/step-checks.js";
 import { readDenylist, readDenylistChangedBy } from "../permissions/denylist-store.js";
 import { readPermissionsReport } from "../permissions/methods.js";
 import { containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type StateCheckAnswer } from "../permissions/step-checks.js";
+import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import type { StateCheckers } from "./check.js";
 
@@ -10,14 +13,15 @@ import type { StateCheckers } from "./check.js";
  * How this environment answers every state check the step registry names
  * (#141): the Your machines step's not-root line, release channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
- * updater's poll (#348), and the Permissions step's
- * three checks, each read when it runs.
+ * updater's poll (#348), the Forges step's seven (#319), and the
+ * Permissions step's three checks, each read when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
  * denylist from its read model beside the presets for this environment's
  * data directory, the release channel from its checks (`updates/checks.ts`),
- * the updates from the update coordinator (`updates/coordinator.ts`), and
- * the host-side updater's poll from its record (`updates/host-updater.ts`).
+ * the updates from the update coordinator (`updates/coordinator.ts`), the
+ * host-side updater's poll from its record (`updates/host-updater.ts`), and
+ * the forge accounts from the ForgeService (`forge/step-checks.ts`).
  */
 
 export interface StateChecksOptions {
@@ -34,6 +38,10 @@ export interface StateChecksOptions {
   readonly updates: () => StateCheckAnswer;
   /** Whether updates are not managed outside, or the host-side updater polled in the last hour (#348). */
   readonly hostUpdater: () => StateCheckAnswer;
+  /** The ForgeService, whose forge accounts the Forges step checks. */
+  readonly forge: ForgeService;
+  /** The environment's clock: a forge token's expiry is read against it. */
+  readonly clock: Clock;
 }
 
 export const environmentStateChecks = (options: StateChecksOptions): StateCheckers => {
@@ -45,6 +53,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,
     "your-machines.host-updater": options.hostUpdater,
+    ...forgesStateChecks({ forge: options.forge, clock: options.clock }),
     "permissions.containment": () => {
       const { values, containment } = report();
       return containmentDefaultHolds(values["permissions.containment.default"], containment);
