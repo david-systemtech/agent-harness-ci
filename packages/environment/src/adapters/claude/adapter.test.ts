@@ -1519,6 +1519,28 @@ describe("the process environment (#307)", () => {
     expect(fake.queries).toHaveLength(2);
     expect([before.supplied.count, after.supplied.count]).toEqual([1, 1]);
   });
+
+  it("asks nothing of it for a run interrupted before its process spawned", async () => {
+    const adapter = adapterWith();
+    fake.stored.set(PROVIDER_SESSION, [
+      { type: "user", uuid: "p1", message: { role: "user", content: "First" } },
+      { type: "assistant", uuid: "a1", message: { role: "assistant", content: [] } },
+      { type: "user", uuid: "p2", message: { role: "user", content: "Second" } },
+    ]);
+    let read: () => void = () => undefined;
+    const reading = new Promise<void>((resolve) => (read = resolve));
+    hooks.sdk = { query: fake.query, getSessionMessages: async (id: string, options: unknown) => (await reading, fake.getSessionMessages(id, options)) };
+    const { environment, supplied } = supplying({ HARNESS_TEST_TOKEN: "token-for-tests" });
+    const run = adapter.createRun(runInput({ processEnvironment: environment, target: { kind: "fork", providerSessionId: PROVIDER_SESSION, atMessageId: "p2" } }), contextWith());
+    const events = drain(run);
+
+    await run.interrupt();
+    read();
+
+    expect(ends(await events)).toEqual([expect.objectContaining({ reason: "interrupted" })]);
+    await vi.waitFor(() => expect(port).toEqual(["exited"]));
+    expect(supplied.count).toBe(0);
+  });
 });
 
 describe("the recorded signed-out stream through the adapter", () => {

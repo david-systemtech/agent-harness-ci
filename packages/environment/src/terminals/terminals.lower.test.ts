@@ -163,6 +163,22 @@ describe("a terminal as a holder of its session's process environment (#307)", (
     expect(pty.spawned).toEqual([]);
   });
 
+  it("starts its shell without it, saying so, when it cannot be had", async () => {
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { pty, terminals } = setUp(0, {
+      processEnvironment: () => {
+        throw new Error("The session could not be read.");
+      },
+    });
+
+    terminals.open(request());
+
+    const [child] = (await spawned(pty)) as [FakeProcess];
+    expect(child.options.env).toEqual({ TERM: "xterm-256color", PATH: "/usr/bin", HOME: "/home/david", LANG: "C.UTF-8", SHELL: "/bin/zsh" });
+    expect(String(loud.mock.calls[0]?.[0])).toContain("could not be supplied");
+    loud.mockRestore();
+  });
+
   it("releases what it was supplied when its shell cannot start", async () => {
     const { pty, terminals, asked } = holding({ HARNESS_TEST_TOKEN: "token-for-tests" });
     pty.failNext = "posix_spawnp failed";

@@ -366,10 +366,11 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         exit: undefined,
       };
       open.set(request.id, terminal);
-      const environment = options.processEnvironment?.(request.sessionId);
+      const environment = options.processEnvironment;
       if (environment === undefined) start(terminal, request, {});
       else {
-        void environment.supply().then(
+        // Built and asked in one step, so a failure to build it is a failure to supply it, and the shell still starts.
+        void (async () => environment(request.sessionId).supply())().then(
           (supplied) => {
             terminal.release = supplied.release;
             // Closed while it was supplied: nothing starts, and what came is released.

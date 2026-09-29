@@ -621,13 +621,13 @@ export class ClaudeProcess implements TurnControl {
       // account's directory, whose credentials have no refresh token: the login is refreshed in the account's own first.
       if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") await this.#deps.freshLogin(input.account);
       const resumePoint = await this.#resumePoint(input);
-      // Asked once for this spawn (#307); the pool releases it as it lets the process go.
-      const supplied = await input.processEnvironment.supply();
+      // Asked once for this spawn (#307), and not for one that will not happen; the pool releases it as it lets the process go.
+      const supplied = this.closed || turn.ended ? null : await input.processEnvironment.supply();
       options = buildRunOptions({
         // In the mode it has now, read after the wait: a change made while it was being prepared applies to the spawn.
         run: { ...input, mode: this.#applied.mode },
         hostEnv: this.#deps.hostEnv,
-        supplied: supplied.variables,
+        supplied: supplied?.variables ?? {},
         configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
         pluginDirectory: this.#deps.pluginDirectory(input),

@@ -63,7 +63,11 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * `createRun` for a session with none starts one, the next reuses it, and
  * `stopProcess` stops it; the records say which process each run went to.
  * A script holds the process with background work through the run
- * context's port (`backgroundTask`).
+ * context's port (`backgroundTask`). A process is spawned with its run's
+ * process environment (#307), supplied once and reported on its record
+ * (`supplied`), and a run whose key differs lets it go for a fresh one, as
+ * Claude's adapter does; a script runs a command in what its process was
+ * supplied (`runCommand`).
  *
  * Accounts (#134): the status probe answers per account directory and can
  * be changed mid-test (`setStatus`), every read is recorded
