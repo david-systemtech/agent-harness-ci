@@ -125,7 +125,7 @@ const accessible = async (path: string): Promise<boolean> => {
 };
 
 /** Whether `path` is a directory now; a `stat` that fails is none. */
-const isDirectory = async (path: string): Promise<boolean> => {
+export const isDirectory = async (path: string): Promise<boolean> => {
   try {
     return (await stat(path)).isDirectory();
   } catch {

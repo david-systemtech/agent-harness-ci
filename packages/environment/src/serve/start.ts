@@ -109,6 +109,7 @@ import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
+import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
 import { createIdentityPasses } from "../workspace/identity-passes.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
@@ -457,6 +458,8 @@ export interface EnvironmentHandle {
   readonly keyManagerConnections: KeyManagerConnections;
   /** The workspaces' in-process seams (#329). */
   readonly workspaces: {
+    /** For a repository identity, the directory a session on it works from here, else scratch: what a routine's move (#92) and hand-off re-resolve through. */
+    readonly checkoutIndex: CheckoutIndex;
     /** Settles once this start's resolved identity pass, run once the wire is open, has run: what a test waits on before reading what it left. */
     readonly identityPass: Promise<void>;
   };
@@ -1182,7 +1185,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log,
     forge,
     keyManagerConnections,
-    workspaces: { identityPass: identityPasses.resolved },
+    workspaces: { checkoutIndex: createCheckoutIndex(log), identityPass: identityPasses.resolved },
     close,
   };
 };

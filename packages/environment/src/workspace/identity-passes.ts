@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import {
   ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
@@ -11,6 +10,7 @@ import {
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { AutoMemory } from "./auto-memory.js";
 import { readRepositoryIdentity } from "./identity.js";
+import { isDirectory } from "./resolver.js";
 
 /**
  * The identity passes (workspace-picker spec, "Repository identity",
@@ -91,15 +91,6 @@ export const onCanonicalHost = (identity: string, forgeAccounts: readonly ForgeA
   if (host === undefined || path === undefined) return identity;
   const account = forgeAccountOnHost(host, forgeAccounts);
   return account === null ? identity : `https://${forgeOriginHost(account.origin)}/${path}`;
-};
-
-/** Whether there is a directory at `path` now. */
-const isDirectory = async (path: string): Promise<boolean> => {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
 };
 
 export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPasses => {
