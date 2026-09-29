@@ -1,3 +1,4 @@
+import { writable, type Writable } from "@agent-harness/client-runtime";
 import {
   ACTIONS,
   actionById,
@@ -5,9 +6,10 @@ import {
   isCommandId,
   type ActionCondition,
   type ActionContext,
+  type ActionId,
   type KeyActionId,
 } from "@agent-harness/contracts";
-import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { chordOfEvent, chordOfKey, type PressedKey } from "./chords.js";
 
 /**
@@ -25,6 +27,10 @@ import { chordOfEvent, chordOfKey, type PressedKey } from "./chords.js";
  * action takes is left to the page. Keys the column writes `off` are not
  * bound. Remaps and the switch that turns Esc's stop on are
  * the Keyboard shortcuts pane's.
+ *
+ * The window also lists every action wired in it, a key's and a slash
+ * command's alike, with whether it can be done now (`useWindowAction`,
+ * `useEveryWiredAction`): what the command palette lists and runs.
  */
 
 /** An action the GUI column wires to keys in its context. */
@@ -75,9 +81,30 @@ interface Region {
   readonly conditions: { current: Conditions };
 }
 
+/**
+ * Whether a wired action can be done now, as the command palette draws it:
+ * present, or absent with the one line that says why (a capability's or a
+ * session verb's answer, as the runtime words it).
+ */
+export type Offer = { readonly status: "present" } | { readonly status: "absent"; readonly message: string };
+
+const PRESENT: Offer = { status: "present" };
+
+/** An action the window has wired, as the command palette lists and runs it. */
+export interface WiredAction {
+  readonly id: ActionId;
+  readonly offer: Offer;
+  /** Whether the condition its keys are answered under holds now where it is wired; true for one answered under none. */
+  holds(): boolean;
+  /** Does it as its first key does; a slash command as if typed bare. */
+  run(): void;
+}
+
 interface Dispatch {
   readonly holders: Holders;
   readonly macOS: boolean;
+  /** Every action wired in the window now, in the order wired. */
+  readonly wired: Writable<readonly WiredAction[]>;
 }
 
 const DispatchContext = createContext<Dispatch | null>(null);
@@ -105,7 +132,7 @@ const newRegion = (context: ActionContext, parent: Region | null): Region => ({ 
  * wherever the focus is.
  */
 export const KeyDispatch = ({ macOS, children }: { readonly macOS: boolean; readonly children: ReactNode }) => {
-  const dispatch = useMemo<Dispatch>(() => ({ holders: holdersOf(macOS), macOS }), [macOS]);
+  const dispatch = useMemo<Dispatch>(() => ({ holders: holdersOf(macOS), macOS, wired: writable<readonly WiredAction[]>([]) }), [macOS]);
   const window = useMemo(() => newRegion("anywhere", null), []);
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -148,18 +175,72 @@ export const KeyContext = ({ context, conditions = {}, children }: { readonly co
   );
 };
 
+const useDispatch = (): Dispatch => {
+  const dispatch = use(DispatchContext);
+  if (dispatch === null) throw new Error("A window's action is wired inside its KeyDispatch, which lists them.");
+  return dispatch;
+};
+
+const ALWAYS = () => true;
+
+/**
+ * Lists the action `id` among the window's wired actions for as long as the
+ * component is mounted, with whether it can be done now (`offer`, present
+ * unless given) and whether its keys' condition holds (`holds`): the command
+ * palette lists it, drawn dim with the offer's line while it is absent, and
+ * runs it with `run`.
+ */
+export const useWindowAction = (id: ActionId, run: () => void, offer: Offer = PRESENT, holds: () => boolean = ALWAYS): void => {
+  const { wired } = useDispatch();
+  const latest = useRef({ run, holds });
+  useLayoutEffect(() => {
+    latest.current = { run, holds };
+  });
+  const absent = offer.status === "absent" ? offer.message : undefined;
+  useEffect(() => {
+    const action: WiredAction = {
+      id,
+      offer: absent === undefined ? PRESENT : { status: "absent", message: absent },
+      holds: () => latest.current.holds(),
+      run: () => latest.current.run(),
+    };
+    wired.update((list) => [...list, action]);
+    return () => wired.update((list) => list.filter((other) => other !== action));
+  }, [wired, id, absent]);
+};
+
+/** Every action wired in the window now, in the order wired, followed. */
+export const useEveryWiredAction = (): readonly WiredAction[] => {
+  const { wired } = useDispatch();
+  return useSyncExternalStore(wired.subscribe, wired.read);
+};
+
+/** Whether the window's `Mod` is ⌘ (macOS) or Ctrl. */
+export const useMacOS = (): boolean => useDispatch().macOS;
+
+/** Whether a key pressed is one the GUI column binds to the action `id` on this platform. */
+export const useIsKeyOf = (id: KeyActionId): ((event: PressedKey) => boolean) => {
+  const dispatch = useDispatch();
+  const context = actionById(id)?.context;
+  return (event) => {
+    const chord = chordOfEvent(event, dispatch.macOS);
+    return context !== undefined && chord !== undefined && (dispatch.holders.get(holderKey(context, chord)) ?? []).some((binding) => binding.id === id);
+  };
+};
+
 /**
  * Wires the action `id` to `run` for as long as the component is mounted:
  * the nearest region of the action's context runs it on the keys the GUI
- * column binds there, and `run` may decline a key (`false`). Throws when no
- * region of that context holds the component, since then no key could reach
- * it.
+ * column binds there, and `run` may decline a key (`false`). It is listed
+ * among the window's wired actions too, with `offer` (`useWindowAction`),
+ * its condition asked of that region. Throws when no region of that context
+ * holds the component, since then no key could reach it.
  */
-export const useKeyAction = (id: KeyActionId, run: KeyActionRun): void => {
-  const context = actionById(id)?.context;
+export const useKeyAction = (id: KeyActionId, run: KeyActionRun, offer?: Offer): void => {
+  const action = actionById(id);
   let region = use(RegionContext);
-  while (region !== null && region.context !== context) region = region.parent;
-  if (region === null) throw new Error(`${id} is answered in the ${context ?? "unknown"} context, and no region of it holds this component.`);
+  while (region !== null && region.context !== action?.context) region = region.parent;
+  if (region === null) throw new Error(`${id} is answered in the ${action?.context ?? "unknown"} context, and no region of it holds this component.`);
   const latest = useRef(run);
   useLayoutEffect(() => {
     latest.current = run;
@@ -171,4 +252,6 @@ export const useKeyAction = (id: KeyActionId, run: KeyActionRun): void => {
       if (region.wired.get(id) === wired) region.wired.delete(id);
     };
   }, [region, id]);
+  const when = action?.gui.status === "wired" ? action.gui.when : undefined;
+  useWindowAction(id, () => void latest.current(0), offer, () => when === undefined || region.conditions.current[when]?.() === true);
 };

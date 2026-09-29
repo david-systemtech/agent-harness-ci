@@ -7,6 +7,7 @@ const root = join(import.meta.dirname, "..");
 interface Manifest {
   name: string;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
 }
@@ -29,10 +30,11 @@ const runtimeDependencies = (m: Manifest): string[] => [
 ];
 
 describe("the workspace", () => {
-  it("holds the contracts, environment, client runtime, theme, terminal UI and GUI packages and the CLI", () => {
+  it("holds the contracts, environment, client runtime, theme, terminal UI, GUI and desktop packages and the CLI", () => {
     expect(manifests.map((m) => m.name).sort()).toEqual([
       "@agent-harness/client-runtime",
       "@agent-harness/contracts",
+      "@agent-harness/desktop",
       "@agent-harness/environment",
       "@agent-harness/gui",
       "@agent-harness/theme",
@@ -58,7 +60,7 @@ describe("the workspace", () => {
 
   it("gives the environment no runtime dependency on a client package or the CLI", () => {
     const deps = runtimeDependencies(manifest("@agent-harness/environment"));
-    expect(deps.filter((d) => /^(@agent-harness\/(client-runtime|tui|gui|web)|agent-harness)$/.test(d))).toEqual([]);
+    expect(deps.filter((d) => /^(@agent-harness\/(client-runtime|tui|gui|web|desktop)|agent-harness)$/.test(d))).toEqual([]);
   });
 
   it("gives the terminal UI no runtime dependency on the environment or the CLI", () => {
@@ -71,6 +73,34 @@ describe("the workspace", () => {
     const deps = runtimeDependencies(manifest("@agent-harness/gui"));
     expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme"]);
     expect(deps.filter((d) => d === "electron" || d.startsWith("@electron/"))).toEqual([]);
+  });
+
+  it("gives the desktop the GUI's build to carry and the runtime's shell interface to implement, and neither the environment nor the CLI to import", () => {
+    const workspace = new Set(manifests.map((m) => m.name));
+    const deps = runtimeDependencies(manifest("@agent-harness/desktop"));
+    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual([
+      "@agent-harness/client-runtime",
+      "@agent-harness/contracts",
+      "@agent-harness/gui",
+      "@agent-harness/theme",
+    ]);
+  });
+
+  it("keeps the desktop a leaf: no package depends on it, so nothing of Electron reaches the GUI, the runtime or the environment", () => {
+    const dependents = manifests.filter((m) => [...runtimeDependencies(m), ...Object.keys(m.devDependencies ?? {})].includes("@agent-harness/desktop"));
+    expect(dependents.map((m) => m.name)).toEqual([]);
+    for (const name of ["@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme", "@agent-harness/environment"]) {
+      expect(runtimeDependencies(manifest(name)).filter((d) => d === "electron" || d.startsWith("@electron/"))).toEqual([]);
+    }
+  });
+
+  it("takes Electron as tooling, a devDependency as Electron's packagers expect, whose install scripts never run, so no install downloads its binary", () => {
+    const desktop = manifest("@agent-harness/desktop");
+    expect(Object.keys(desktop.devDependencies ?? {})).toContain("electron");
+    expect(runtimeDependencies(desktop)).not.toContain("electron");
+    const built = /^onlyBuiltDependencies:\n((?:[ \t]+- .*\n?)*)/m.exec(readFileSync(join(root, "pnpm-workspace.yaml"), "utf8"))?.[1] ?? "";
+    expect(built).toContain("node-pty");
+    expect(built).not.toMatch(/\belectron\b/);
   });
 
   it("ships the terminal UI in the CLI's artefact, so one install gives serve and tui (ADR 0004)", () => {

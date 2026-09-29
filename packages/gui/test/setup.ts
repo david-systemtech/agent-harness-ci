@@ -47,3 +47,10 @@ if (typeof HTMLElement === "function") {
   fillLayout();
   fillPointerCapture();
 }
+
+/** Scrolling into view, which cmdk asks of the row it highlights: jsdom lays nothing out, so nothing scrolls. */
+const fillScrollIntoView = (): void => {
+  Element.prototype.scrollIntoView = () => undefined;
+};
+
+if (typeof Element === "function") fillScrollIntoView();

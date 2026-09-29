@@ -91,3 +91,26 @@ export const chordOfEvent = (event: PressedKey, macOS: boolean): string | undefi
   else if (!chorded && [...key].length === 1 && !/^[a-z ]$/i.test(key)) modifiers.delete("Shift");
   return chordOf(modifiers, keyName(key));
 };
+
+/** macOS's symbols for the modifiers, in the order its menus draw them. */
+const MAC_MODIFIERS: readonly (readonly [Modifier, string])[] = [
+  ["Ctrl", "⌃"],
+  ["Alt", "⌥"],
+  ["Shift", "⇧"],
+  ["Mod", "⌘"],
+];
+
+/**
+ * A key the GUI column writes, as a person reads it on this platform: on
+ * macOS its modifiers as the system's symbols before the key (`⇧⌘N`),
+ * elsewhere `Mod` as Ctrl (`Ctrl+Shift+N`).
+ */
+export const keyLabel = (written: string, macOS: boolean): string => {
+  const at = written.lastIndexOf("+", written.length - 2);
+  const names = at < 0 ? [] : written.slice(0, at).split("+");
+  const key = written.slice(at + 1);
+  if (!macOS) return [...names.map((name) => (name === "Mod" ? "Ctrl" : name)), key].join("+");
+  return `${MAC_MODIFIERS.filter(([name]) => names.includes(name))
+    .map(([, symbol]) => symbol)
+    .join("")}${key}`;
+};

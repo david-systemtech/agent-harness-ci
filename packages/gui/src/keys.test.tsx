@@ -3,6 +3,7 @@ import { userEvent } from "@testing-library/user-event";
 import type { KeyActionId } from "@agent-harness/contracts";
 import { useRef, useState } from "react";
 import { describe, expect, it } from "vitest";
+import { keyLabel } from "./keys/chords.js";
 import { KeyContext, KeyDispatch, useKeyAction } from "./keys/key-dispatch.js";
 
 /**
@@ -177,3 +178,11 @@ describe("keys from the GUI column", () => {
     expect(document.activeElement).not.toBe(box);
   });
 });
+
+describe("a key as a person reads it", () => {
+  it("is the column's key with Mod as Ctrl off macOS, and the system's symbols in its menus' order on macOS", () => {
+    expect(["Mod+K", "Mod+Shift+\\", "Shift+Enter", "↑", "Mod++"].map((key) => keyLabel(key, false))).toEqual(["Ctrl+K", "Ctrl+Shift+\\", "Shift+Enter", "↑", "Ctrl++"]);
+    expect(["Mod+K", "Mod+Shift+\\", "Shift+Enter", "Ctrl+Alt+J", "Mod++"].map((key) => keyLabel(key, true))).toEqual(["⌘K", "⇧⌘\\", "⇧Enter", "⌃⌥J", "⌘+"]);
+  });
+});
+

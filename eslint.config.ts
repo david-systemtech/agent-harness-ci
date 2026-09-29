@@ -11,8 +11,6 @@ const clientPackageNames = ["client-runtime", "tui", "gui", "web"];
 const clientPackages = clientPackageNames.map((p) => `packages/${p}/**/*.{ts,tsx}`);
 /** The renderers: every client package but the runtime they render from. */
 const rendererPackages = clientPackageNames.filter((p) => p !== "client-runtime").map((p) => `packages/${p}/**/*.{ts,tsx}`);
-/** One alternation over every client package name, for the import bans below. */
-const anyClient = clientPackageNames.join("|");
 
 /** Every script's extension, TypeScript's and JavaScript's. */
 const scripts = "{ts,tsx,mts,cts,js,jsx,mjs,cjs}";
@@ -38,6 +36,8 @@ const nodeBuiltins = `node:.*|(${builtinModules.map((name) => name.replace(/[.*+
 
 /** Why the environment imports no client and not the CLI. */
 const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
+/** Every client package the environment may not import: the client packages and the desktop shell. */
+const environmentForbids = [...clientPackageNames, "desktop"];
 
 /** `no-restricted-imports` refusing every import whose specifier matches `regex`. */
 const forbidImports = (regex: string, message: string): Linter.RulesRecord => ({
@@ -59,9 +59,10 @@ export default defineConfig([
     rules: { "agent-harness/no-client-organisation-state": "error" },
   },
 
-  // ADR 0004, lint (b): the desktop shell interface carries no session, run or group type.
+  // ADR 0004, lint (b): the desktop shell interface carries no session, run or group type, and nor does the desktop
+  // package that implements it, its tests included (docs/specs/gui.md, "The desktop shell").
   {
-    files: ["packages/client-runtime/src/shell.ts", "packages/client-runtime/src/shell/**/*.ts"],
+    files: ["packages/client-runtime/src/shell.ts", "packages/client-runtime/src/shell/**/*.ts", `packages/desktop/**/*.${scripts}`],
     rules: { "agent-harness/no-session-types-in-shell": "error" },
   },
 
@@ -108,10 +109,10 @@ export default defineConfig([
   {
     files: ["packages/environment/**/*.ts"],
     rules: {
-      ...forbidImports(`^(@agent-harness/(${anyClient})|agent-harness)(/|$)`, environmentOnly),
+      ...forbidImports(`^(@agent-harness/(${environmentForbids.join("|")})|agent-harness)(/|$)`, environmentOnly),
       // A relative path into a client's or the CLI's folder is the same import, its tests included, however it is spelled:
       // the rule resolves it against the importing file, which no pattern over the specifier can.
-      "agent-harness/no-relative-import-into": ["error", { root: import.meta.dirname, packages: [...clientPackageNames, "cli"], because: environmentOnly }],
+      "agent-harness/no-relative-import-into": ["error", { root: import.meta.dirname, packages: [...environmentForbids, "cli"], because: environmentOnly }],
     },
   },
   {
@@ -119,6 +120,15 @@ export default defineConfig([
     rules: forbidImports(
       "^(@agent-harness/environment|agent-harness)(/|$)",
       "A renderer is a pure client: it renders from the client runtime and runs no environment.",
+    ),
+  },
+  // The desktop's tests fake Electron: the `electron` package downloads its binary when Node first requires it, and the
+  // entry (`src/main.ts`) requires it, so neither is imported by a test or its helpers.
+  {
+    files: [`packages/desktop/**/*.test.${scripts}`, `packages/desktop/test/**/*.${scripts}`],
+    rules: forbidImports(
+      "^electron(/|$)|(^|/)main(\\.js)?$",
+      "A desktop test fakes Electron (test/fake-electron.ts): importing it, or the entry that does, downloads Electron's binary.",
     ),
   },
   // Its tests read files and build under Node; its source runs in a browser tab, so it takes no Electron and no Node either.

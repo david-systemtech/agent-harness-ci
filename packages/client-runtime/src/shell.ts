@@ -202,7 +202,8 @@ export interface ShellClipboard {
 /**
  * The renderer's side of the desktop's network lockdown (docs/specs/gui.md,
  * "The desktop shell"): Chromium cancels a WebSocket to any address the
- * renderer has not declared.
+ * renderer has not declared, loopback aside, where this machine's environment
+ * listens.
  */
 export interface ShellNetwork {
   /**
