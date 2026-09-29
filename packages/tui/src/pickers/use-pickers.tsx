@@ -1,50 +1,51 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import type { EnvironmentView, RequestAnswer, Runtime, SessionProjection } from "@agent-harness/client-runtime";
 import {
-  AccountLabel,
+  BETWEEN_ENVIRONMENTS,
+  addAccount as addAccountOn,
+  adminCall,
+  cancelSignIn as cancelSignInOn,
+  fallbackOf,
+  followedSignIn,
+  handOff as handOffOnto,
+  handedOffAlreadyWords,
+  handingOffWords,
+  labelProblem,
+  modelsOf,
+  sendSignInCode,
+  sessionModeOf,
+  setSessionContainment,
+  setSessionMode,
+  signInEnd,
+  startSignIn as startSignInOf,
+  startingAccount,
+  type EnvironmentView,
+  type RunChoice,
+  type Runtime,
+  type SessionProjection,
+} from "@agent-harness/client-runtime";
+import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
   MODES,
   compareModes,
   isSettingsRowId,
-  lowerMode,
   settingForm,
   type AccountRecord,
-  type CommandMethodName,
-  type CommandReceipt,
   type ContainmentLevel,
   type KeyActionId,
   type Mode,
   type ParamsOf,
-  type ResultOf,
   type SettingsKey,
 } from "@agent-harness/contracts";
 import { LinesCard } from "../screens/transcript.js";
 import type { Opened } from "../session/use-session.js";
 import { useFollow } from "../session/use-session.js";
 import { meterCells } from "../status/line.js";
-import type { RunChoice } from "../status/use-status.js";
 import { wrap, type Line, type Span } from "../transcript/lines.js";
 import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Question } from "../view.js";
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
-import {
-  BETWEEN_ENVIRONMENTS,
-  accountRows,
-  containmentRows,
-  effortRows,
-  fallbackOf,
-  modeFooter,
-  modeRows,
-  modelRows,
-  modelsOf,
-  reviewLines,
-  signInEnd,
-  startingAccount,
-  usageLines,
-  type Panel,
-  type PanelRow,
-} from "./panel.js";
+import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, usageLines, type Panel, type PanelRow } from "./panel.js";
 import { describeKey, editorKeys, editorRows, noKeysLine, noRowLine, parseTyped, valueWords, writerOf } from "./settings.js";
 
 /**
@@ -175,14 +176,9 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   const accountList = (): readonly AccountRecord[] => accounts?.read().value ?? [];
 
-  /** The sign-in the card follows: its account's, from when the card started it on. */
-  const followed = (card: Extract<Panel, { kind: "signin" }>) => {
-    const held = signIn?.read().result?.signIn;
-    // Until the start answers, the sign-in the card started is not known from an earlier one of the account.
-    if (!held || card.accountId === null || card.sending === "start" || held.accountId !== card.accountId) return undefined;
-    if (card.startedAt !== null && Date.parse(held.startedAt) < Date.parse(card.startedAt)) return undefined;
-    return held;
-  };
+  /** The sign-in the card follows: its account's, from when the card started it on (the runtime's rule, #402). */
+  const followed = (card: Extract<Panel, { kind: "signin" }>) =>
+    followedSignIn(signIn?.read().result?.signIn, { accountId: card.accountId, startedAt: card.startedAt, starting: card.sending === "start" });
 
   // A sign-in this card follows that ends closes it, and its end is said in one line.
   const followedNow = panel?.kind === "signin" ? followed(panel) : undefined;
@@ -192,17 +188,6 @@ export const usePickers = (host: PickersHost): Pickers => {
     host.close(isSignIn);
     host.say(ending);
   }, [ending]);
-
-  /** An `admin` command as a direct request: its result (none from a retry answered by its stored receipt), or the line saying why not. */
-  const admin = async <N extends CommandMethodName>(
-    call: () => Promise<RequestAnswer<N>>,
-  ): Promise<{ readonly ok: true; readonly result: ResultOf<N> | undefined } | { readonly ok: false; readonly line: string }> => {
-    const answer = await call();
-    if (!answer.ok) return { ok: false, line: answer.error.message };
-    const { receipt, result } = answer.result as { readonly receipt: CommandReceipt; readonly result?: ResultOf<N> };
-    if (receipt.status === "rejected") return { ok: false, line: receipt.error.message };
-    return { ok: true, result };
-  };
 
   /** The line a capability the connection lacks gives, or undefined when it has it. */
   const lacking = (environmentId: string, method: "accounts.add" | "accounts.signin.start" | "settings.update"): string | undefined => {
@@ -216,33 +201,27 @@ export const usePickers = (host: PickersHost): Pickers => {
     const absent = lacking(environmentId, "accounts.signin.start");
     if (absent !== undefined) return host.say(`Cannot sign ${account.label} in on ${nameFor(environmentId)}: ${absent}`);
     host.open({ kind: "signin", environmentId, label: account.label, accountId: account.id, startedAt: null, sending: "start", text: "", error: null });
-    void admin(() => runtime.requests.call(environmentId, "accounts.signin.start", { commandId: host.newCommandId(), accountId: account.id })).then((answer) => {
+    void startSignInOf(runtime, environmentId, account, host.newCommandId()).then((answer) => {
       if (!answer.ok) {
         host.close(isSignIn);
-        return host.say(`${account.label} was not signed in: ${answer.line}`);
+        return host.say(answer.line);
       }
-      host.change((card) => (card.kind === "signin" && card.accountId === account.id ? { ...card, sending: null, startedAt: answer.result?.signIn.startedAt ?? null } : card));
+      host.change((card) => (card.kind === "signin" && card.accountId === account.id ? { ...card, sending: null, startedAt: answer.startedAt } : card));
     });
   };
 
   const addAccount = (card: Extract<Panel, { kind: "signin" }>) => {
     const label = card.text.trim();
-    if (!AccountLabel.safeParse(label).success) {
-      return host.change((c) => (c.kind === "signin" ? { ...c, error: "A label is one line of up to 200 characters, with no space at either end." } : c));
-    }
+    const problem = labelProblem(label);
+    if (problem !== undefined) return host.change((c) => (c.kind === "signin" ? { ...c, error: problem } : c));
     host.change((c) => (c.kind === "signin" ? { ...c, label, sending: "add", error: null } : c));
-    void admin(() => runtime.requests.call(card.environmentId, "accounts.add", { commandId: host.newCommandId(), label })).then((answer) => {
-      if (!answer.ok) return host.change((c) => (c.kind === "signin" ? { ...c, sending: null, error: `Not added: ${answer.line}` } : c));
-      const result = answer.result;
-      if (!result) {
+    void addAccountOn(runtime, card.environmentId, label, host.newCommandId(), nameFor(card.environmentId)).then((added) => {
+      if (added.kind === "refused") return host.change((c) => (c.kind === "signin" ? { ...c, sending: null, error: added.line } : c));
+      if (added.kind === "added") {
         host.close(isSignIn);
-        return host.say(`${label} was added on ${nameFor(card.environmentId)}; /account shows it.`);
+        return host.say(added.line);
       }
-      if (!result.signIn.started) {
-        host.close(isSignIn);
-        return host.say(`${label} was added on ${nameFor(card.environmentId)}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}`);
-      }
-      host.change((c) => (c.kind === "signin" ? { ...c, accountId: result.account.id, sending: null, text: "" } : c));
+      host.change((c) => (c.kind === "signin" ? { ...c, accountId: added.account.id, sending: null, text: "" } : c));
     });
   };
 
@@ -250,19 +229,14 @@ export const usePickers = (host: PickersHost): Pickers => {
     const code = card.text.trim();
     if (code === "" || card.accountId === null) return;
     host.change((c) => (c.kind === "signin" ? { ...c, sending: "code", error: null } : c));
-    void admin(() => runtime.requests.call(card.environmentId, "accounts.signin.code", { commandId: host.newCommandId(), accountId: card.accountId as string, code })).then((answer) =>
-      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(answer.ok ? { text: "" } : { error: `The code was not taken: ${answer.line}` }) } : c)),
+    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((refused) =>
+      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(refused === undefined ? { text: "" } : { error: refused }) } : c)),
     );
   };
 
   const cancelSignIn = (card: Extract<Panel, { kind: "signin" }>) => {
     if (card.accountId === null) return;
-    const name = nameFor(card.environmentId);
-    void admin(() => runtime.requests.call(card.environmentId, "accounts.signin.cancel", { commandId: host.newCommandId(), accountId: card.accountId as string })).then((answer) => {
-      if (!answer.ok) return host.say(`The sign-in of ${card.label} was not cancelled: ${answer.line}`);
-      const ended = answer.result ? signInEnd(answer.result.signIn, card.label, name) : undefined;
-      host.say(ended ?? `The sign-in of ${card.label} was cancelled.`);
-    });
+    void cancelSignInOn(runtime, card.environmentId, { id: card.accountId, label: card.label }, host.newCommandId(), nameFor(card.environmentId)).then(host.say);
   };
 
   // Hand-off and the session's own settings.
@@ -272,44 +246,30 @@ export const usePickers = (host: PickersHost): Pickers => {
     if (environmentId !== opened.environmentId) return host.say(`Not handed off to ${nameFor(environmentId)}: ${BETWEEN_ENVIRONMENTS}.`);
     const sessionId = opened.sessionId;
     const from = sessionName();
-    if (account.id === sessionAccount()) return host.say(`${from} runs on ${account.label} already.`);
+    if (account.id === sessionAccount()) return host.say(handedOffAlreadyWords(from, account));
     host.close();
-    host.say(`Handing ${from} off to ${account.label}…`);
-    // A session cannot change its account (runs.start takes none): the hand-off onto another account is a fork on it, which
-    // the runtime makes (`commands.fork`), carrying the source's draft onto it once the fork is accepted.
-    void runtime.commands.fork(environmentId, sessionId, { account: account.id }).then(({ sessionId: id, answer }) => {
-      if (!answer.ok) return host.say(`Not handed off: ${answer.error.message}`);
-      setForks((held) => new Map(held).set(keyOf({ environmentId, sessionId: id }), account.id));
-      host.openSession({ environmentId, sessionId: id });
-      host.say(`Handed off to ${account.label}: a new session forked from ${from} runs on it; ${from} stays as it is.`);
+    host.say(handingOffWords(from, account));
+    // A session cannot change its account (runs.start takes none): the hand-off is the runtime's fork onto it (#402).
+    void handOffOnto(runtime, environmentId, sessionId, account, from).then((handed) => {
+      if (!handed.ok) return host.say(handed.line);
+      setForks((held) => new Map(held).set(keyOf({ environmentId, sessionId: handed.sessionId }), account.id));
+      host.openSession({ environmentId, sessionId: handed.sessionId });
+      host.say(handed.line);
     });
   };
 
   const setMode = (target: Opened, mode: Mode) => {
-    const name = sessionName();
     asked.current.set(keyOf(target), mode);
-    void runtime.commands.dispatch(target.environmentId, "permissions.mode.set", { sessionId: target.sessionId, mode }).then((answer) => {
+    void setSessionMode(runtime, target.environmentId, target.sessionId, mode, sessionName()).then((set) => {
       if (asked.current.get(keyOf(target)) === mode) asked.current.delete(keyOf(target));
-      if (!answer.ok) return host.say(`The mode was not set: ${answer.error.message}`);
-      const resolved = answer.result?.mode;
-      if (!resolved) return host.say(`Mode: ${mode}.`);
-      const live = answer.result?.live ? " The running turn has it too." : "";
-      if (!resolved.clamped) return host.say(`Mode: ${resolved.effective}.${resolved.effective === "bypassPermissions" ? ` ${BYPASS_SENTENCE}` : ""}${live}`);
-      const why = resolved.clampReason === "unavailable" ? `its account cannot use ${resolved.requested}` : `clamped to this connection's ceiling (${resolved.ceiling})`;
-      host.say(`Asked for ${resolved.requested}; ${name} has ${resolved.effective}: ${why}.${live}`);
+      host.say(set.line);
     });
   };
 
   const setContainment = (target: Opened, level: ContainmentLevel) => {
-    const name = sessionName();
-    void runtime.commands.dispatch(target.environmentId, "permissions.containment.set", { sessionId: target.sessionId, level }).then((answer) => {
-      if (!answer.ok) {
-        const reason = answer.error.code === "containment_unavailable" && typeof answer.error.data?.["reason"] === "string" ? answer.error.data["reason"] : answer.error.message;
-        return host.say(answer.error.code === "containment_unavailable" ? `${level} cannot be enforced on ${nameFor(target.environmentId)}: ${reason}` : `Containment was not set: ${reason}`);
-      }
-      const effective = answer.result?.containment.effective ?? level;
-      setLevels((held) => new Map(held).set(keyOf(target), effective));
-      host.say(`Containment: ${effective}, from the next run of ${name}.`);
+    void setSessionContainment(runtime, target.environmentId, target.sessionId, level, { session: sessionName(), environment: nameFor(target.environmentId) }).then((set) => {
+      if (set.ok) setLevels((held) => new Map(held).set(keyOf(target), set.level));
+      host.say(set.line);
     });
   };
 
@@ -334,14 +294,14 @@ export const usePickers = (host: PickersHost): Pickers => {
       host.say(`${key} is ${valueWords(value)}.`);
     };
     if (writer === "settings.update") {
-      void admin(() => runtime.requests.call(environmentId, "settings.update", { commandId, values: values as ParamsOf<"settings.update">["values"] })).then(saved);
+      void adminCall(() => runtime.requests.call(environmentId, "settings.update", { commandId, values: values as ParamsOf<"settings.update">["values"] })).then(saved);
       return;
     }
     if (writer === "updates.settings.set") {
-      void admin(() => runtime.requests.call(environmentId, "updates.settings.set", { commandId, values: values as ParamsOf<"updates.settings.set">["values"] })).then(saved);
+      void adminCall(() => runtime.requests.call(environmentId, "updates.settings.set", { commandId, values: values as ParamsOf<"updates.settings.set">["values"] })).then(saved);
       return;
     }
-    void admin(() =>
+    void adminCall(() =>
       runtime.requests.call(environmentId, "permissions.settings.set", {
         commandId,
         values: values as ParamsOf<"permissions.settings.set">["values"],
@@ -389,12 +349,12 @@ export const usePickers = (host: PickersHost): Pickers => {
   };
 
   /** The session's mode as the status line says it: the summary's, else the attended default, acceptEdits lowered to the ceiling. */
-  const sessionMode = (ceiling: Mode | null): Mode => projection?.summary?.mode ?? lowerMode("acceptEdits", ceiling ?? "acceptEdits");
+  const sessionMode = (ceiling: Mode | null): Mode => sessionModeOf(projection?.summary?.mode, ceiling);
   const modeCursor = (card: Extract<Panel, { kind: "modes" }>): number => card.cursor ?? Math.max(0, MODES.indexOf(sessionMode(modes?.read().ceiling ?? null)));
 
   const containmentView = () => {
     const read = permissions?.read().result;
-    const own = opened ? levels.get(keyOf(opened)) : undefined;
+    const own = projection?.containment ?? (opened ? levels.get(keyOf(opened)) : undefined);
     return { report: read?.containment, own, fallback: read?.values["permissions.containment.default"] };
   };
   const containmentCursor = (card: Extract<Panel, { kind: "containment" }>): number => {
