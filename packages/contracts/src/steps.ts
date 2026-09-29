@@ -150,8 +150,7 @@ export interface Step {
   /**
    * On a skippable step, the one of its state checks that holds when
    * something is set up here: when it fails, the step answers skipped with
-   * that check's line and runs no other check (#308). A person's own skip is
-   * the Set up specification's (#88).
+   * that check's line and runs no other check (#308).
    */
   readonly skip?: string;
   /** How long `setup.check` awaits the step's checks before answering that they timed out, in seconds (ADR 0031). */

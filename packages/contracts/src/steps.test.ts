@@ -25,9 +25,10 @@ import {
  * the milestone-1 order, link only to steps of it, write state only through
  * registered methods, confirm only keys they write, and name their state
  * checks for themselves (#141); each declares its check's budget and its
- * cadence, one under the hour with its reason, and only a skippable step a
- * skip check, one of its own (ADR 0031; #308). The Permissions entry names every settings
- * key the permissions spec writes and the denylist's four sections. Each
+ * cadence, one other than the hour with its reason, and only a skippable
+ * step a skip check, one of its own (ADR 0031; #308). The Permissions entry
+ * names every settings key the permissions spec writes and the denylist's
+ * four sections. Each
  * check is a plain function over the tables, so each failure it exists to
  * catch is shown failing on a table broken on purpose.
  */
@@ -285,7 +286,7 @@ describe("the step registry", () => {
     ]);
   });
 
-  it("fails an entry with no budget, a budget outside ADR 0031's three, no cadence, a cadence of no whole minutes, or a cadence under the hour with no reason", () => {
+  it("fails an entry with no budget, a budget outside ADR 0031's three, no cadence, a cadence of no whole minutes, or a cadence other than the hour with no reason", () => {
     expect(stepShapeProblems([{ ...appearance, budgetSeconds: undefined, cadence: undefined }])).toEqual(["appearance: declares no budget", "appearance: declares no cadence"]);
     expect(stepShapeProblems([{ ...appearance, budgetSeconds: 7 }])).toEqual(["appearance: a budget of 7 s is not 5, 10 or 30 s"]);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 0.5 } }])).toEqual(["appearance: a cadence of 0.5 minutes is no whole number of minutes"]);
