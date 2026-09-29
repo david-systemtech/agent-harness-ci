@@ -2,7 +2,7 @@ import { constants, mkdirSync, rmSync } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { ContractError, invalidParams, type Workspace, type WorkspaceProblem, type WorkspaceRequest } from "@agent-harness/contracts";
+import { ContractError, invalidParams, type ForgeAccountOrigins, type Workspace, type WorkspaceProblem, type WorkspaceRequest } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Undo } from "../serve/methods.js";
 import { sessionNotFound, type Refusal } from "../sessions/decider.js";
@@ -93,6 +93,8 @@ export interface WorkspaceResolverOptions extends Omit<WorkspaceSettings, "roots
   /** The data directory (absolute), reserved outside its workspace roots. */
   readonly dataDir: string;
   readonly roots: WorkspaceRoots;
+  /** This environment's forge accounts with their verified aliases, as the identity rule reads them now (#329); preset: none. */
+  readonly forgeAccounts?: () => readonly ForgeAccountOrigins[];
 }
 
 /** What each problem says of the directory at `path`. */
@@ -189,13 +191,12 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions): Work
   };
 
   /**
-   * The identity of the repository holding `path`; none when git gives none,
-   * the create going on without one. No forge accounts yet, so no alias is
-   * mapped: the forge service (#87) and the identity passes (#329) give the
-   * rule this environment's verified aliases.
+   * The identity of the repository holding `path`, a verified alias's host
+   * mapped to its forge account's canonical host; none when git gives none,
+   * the create going on without one.
    */
   const identityAt = (path: string): Promise<string | null> =>
-    readRepositoryIdentity(path, { forgeAccounts: [], ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }) });
+    readRepositoryIdentity(path, { forgeAccounts: options.forgeAccounts?.() ?? [], ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }) });
 
   const directory = async (requested: string): Promise<Resolution> => {
     const path = recorded(requested);

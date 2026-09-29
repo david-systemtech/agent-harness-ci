@@ -94,6 +94,7 @@ import { createForgeService, type ForgeService } from "../forge/forge-service.js
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
+import { verifiedOrigins } from "../forge/git-helper.js";
 import type { ManagedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -107,6 +108,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { createIdentityPasses } from "../workspace/identity-passes.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
 import { workspaceRoots } from "../workspace/roots.js";
@@ -452,6 +454,11 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /** The workspaces' in-process seams (#329). */
+  readonly workspaces: {
+    /** Settles once this start's resolved identity pass, run once the wire is open, has run: what a test waits on before reading what it left. */
+    readonly identityPass: Promise<void>;
+  };
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -896,7 +903,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -1089,6 +1097,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // The identity passes (#329): sessions with no identity resolved again, past the gate, four git processes at a time; and
+  // every identity on a verified alias's host moved to its canonical host, from here on, as a forge account is added or verified.
+  const identityPasses = createIdentityPasses({
+    log,
+    forgeAccounts,
+    ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+  }).start();
+  closers.push(() => identityPasses.stop());
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
@@ -1164,6 +1180,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log,
     forge,
     keyManagerConnections,
+    workspaces: { identityPass: identityPasses.resolved },
     close,
   };
 };
