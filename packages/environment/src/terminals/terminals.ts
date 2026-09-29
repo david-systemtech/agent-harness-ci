@@ -13,6 +13,7 @@ import { REPLAY_BOUND, formatActor, type EventEnvelope } from "../event-log/even
 import type { ScrubRegistry, ScrubStream } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { FeedSource } from "../wire/subscriptions.js";
+import type { ProcessEnvironment } from "../adapter/contract.js";
 import { nodePty, type Pty, type PtyProcess } from "./pty.js";
 import { createScrollback, type Chunk, type Scrollback } from "./scrollback.js";
 import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
@@ -45,12 +46,23 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * clock, then only its exit code, listed until it is closed: with at most
  * sixteen terminals a session (the command's check), that bounds what the
  * terminals hold.
+ *
+ * A terminal holds its session's process environment (#307), as a provider
+ * process does: asked as the terminal opens, its variables put over the
+ * clean base and under the client's, never into argv, and released once,
+ * as the terminal is closed or its shell exits, whichever comes first. Its
+ * shell starts once they are supplied; what is typed at it before then is
+ * typed once it starts, up to 64 KiB, what comes past that dropped and
+ * said once; and a terminal closed before then exits at once, starts none,
+ * and releases what it is supplied as that comes.
  */
 
 /** How long output is gathered into one chunk, in real milliseconds. */
 export const OUTPUT_GATHER_MS = 5;
 /** The most output gathered into one chunk before it is cut at once. */
 const CHUNK_BYTES = 64 * 1024;
+/** The most typed at a terminal before its shell started that is kept for it; what comes past it is dropped (a chosen default). */
+export const TYPED_AHEAD_BYTES = 64 * 1024;
 /** How long a hung-up shell has to exit before it is killed. */
 export const KILL_GRACE_MS = 3000;
 /** The longest a chunk's tail is held back while it could be the start of a registered value, by the environment's clock (a chosen default). */
@@ -70,6 +82,8 @@ export interface TerminalsOptions {
   readonly shell?: () => ShellCommand;
   /** The clean base under a client's variables. Preset: `baseEnvironment`. */
   readonly baseEnvironment?: () => Record<string, string>;
+  /** The process environment of a session's terminal (#307), asked as it opens. Preset: none, so nothing is supplied and the shell starts at once. */
+  readonly processEnvironment?: (sessionId: string) => ProcessEnvironment;
   /** Preset `OUTPUT_GATHER_MS`; 0 makes each read a chunk at once. */
   readonly gatherMs?: number;
   /** Preset `KILL_GRACE_MS`. */
@@ -136,6 +150,11 @@ interface Terminal {
   readonly scrollback: Scrollback;
   readonly listeners: Set<(event: EventEnvelope) => void>;
   process: PtyProcess | undefined;
+  /** What was typed at it before its shell started, typed once it starts: at most `TYPED_AHEAD_BYTES`, counted in `typedBytes`. */
+  readonly typed: string[];
+  typedBytes: number;
+  /** The release of what its process environment supplied, until it is released. */
+  release: (() => void) | undefined;
   pending: string[];
   pendingBytes: number;
   gathering: ReturnType<typeof setTimeout> | undefined;
@@ -255,8 +274,20 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     terminal.gathering ??= setTimeout(() => flush(terminal), gatherMs);
   };
 
+  /** Releases what the terminal's process environment supplied, once; a failure is logged. */
+  const release = (terminal: Terminal): void => {
+    const supplied = terminal.release;
+    terminal.release = undefined;
+    try {
+      supplied?.();
+    } catch (error) {
+      console.error(`Releasing what terminal ${terminal.id} was supplied failed:`, error);
+    }
+  };
+
   const exited = (terminal: Terminal, exitCode: number, signalNumber: number | null): void => {
     if (terminal.exit !== undefined) return;
+    release(terminal);
     flush(terminal);
     showHeld(terminal);
     if (terminal.killing !== undefined) clearTimeout(terminal.killing);
@@ -270,14 +301,16 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     terminal.forgetting = options.clock.setTimeout(() => terminal.scrollback.clear(), EXITED_SCROLLBACK_MS);
   };
 
-  const start = (terminal: Terminal, request: OpenTerminal): void => {
+  /** Starts the terminal's shell in `supplied`, over the clean base and under the client's variables, and types what was typed at it meanwhile. */
+  const start = (terminal: Terminal, request: OpenTerminal, supplied: Readonly<Record<string, string>>): void => {
     try {
       const command = shell();
-      const env = { ...base(), ...(process.platform === "win32" ? {} : { SHELL: command.file }), ...request.env };
-      const child = pty.spawn(command.file, command.args, { cwd: request.cwd, cols: request.cols, rows: request.rows, env });
+      const env = { ...base(), ...(process.platform === "win32" ? {} : { SHELL: command.file }), ...supplied, ...request.env };
+      const child = pty.spawn(command.file, command.args, { cwd: request.cwd, cols: terminal.cols, rows: terminal.rows, env });
       terminal.process = child;
       child.onData((data) => hear(terminal, data));
       child.onExit(({ exitCode, signal: signalNumber }) => exited(terminal, exitCode, signalNumber ? signalNumber : null));
+      for (const data of terminal.typed.splice(0)) child.write(data);
     } catch (error) {
       // The open was accepted already: the failure is the terminal's end, with cause failed, not a lost throw.
       console.error(`Terminal ${terminal.id} could not start its shell:`, error);
@@ -294,6 +327,13 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     terminal.forgetting?.cancel();
     if (terminal.exit !== undefined) return;
     terminal.closing = cause;
+    release(terminal);
+    if (terminal.process === undefined) {
+      // Its shell never started: it exits now, and whatever it is supplied later is released as it comes.
+      exited(terminal, -1, null);
+      terminal.forgetting?.cancel();
+      return;
+    }
     signal(terminal.process, "SIGHUP");
     terminal.killing = setTimeout(() => signal(terminal.process, "SIGKILL"), killGraceMs);
     terminal.killing.unref?.();
@@ -317,6 +357,9 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         scrollback: createScrollback(),
         listeners: new Set(),
         process: undefined,
+        typed: [],
+        typedBytes: 0,
+        release: undefined,
         pending: [],
         pendingBytes: 0,
         gathering: undefined,
@@ -328,11 +371,38 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         exit: undefined,
       };
       open.set(request.id, terminal);
-      start(terminal, request);
+      const environment = options.processEnvironment;
+      if (environment === undefined) start(terminal, request, {});
+      else {
+        // Built and asked in one step, so a failure to build it is a failure to supply it, and the shell still starts.
+        void (async () => environment(request.sessionId).supply())().then(
+          (supplied) => {
+            terminal.release = supplied.release;
+            // Closed while it was supplied: nothing starts, and what came is released.
+            if (terminal.exit !== undefined) return release(terminal);
+            start(terminal, request, supplied.variables);
+          },
+          (error: unknown) => {
+            console.error(`The process environment of terminal ${terminal.id} could not be supplied; its shell starts without it:`, error);
+            if (terminal.exit === undefined) start(terminal, request, {});
+          },
+        );
+      }
       return infoOf(terminal);
     },
     write(id, data) {
-      open.get(id)?.process?.write(data);
+      const terminal = open.get(id);
+      if (terminal === undefined || terminal.exit !== undefined) return;
+      if (terminal.process !== undefined) return terminal.process.write(data);
+      const bytes = Buffer.byteLength(data, "utf8");
+      if (terminal.typedBytes + bytes > TYPED_AHEAD_BYTES) {
+        // Said at the first write dropped; a count past the bound marks that it has been.
+        if (terminal.typedBytes <= TYPED_AHEAD_BYTES) console.error(`Terminal ${id} was typed at past ${TYPED_AHEAD_BYTES} bytes before its shell started; the rest is dropped.`);
+        terminal.typedBytes = TYPED_AHEAD_BYTES + 1;
+        return;
+      }
+      terminal.typed.push(data);
+      terminal.typedBytes += bytes;
     },
     resize(id, cols, rows) {
       const terminal = open.get(id);
