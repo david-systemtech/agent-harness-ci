@@ -100,6 +100,7 @@ import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { keyManagerMethods } from "../key-managers/methods.js";
+import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -198,8 +199,12 @@ export interface EnvironmentOptions {
   readonly harnessVersion?: string;
   /** The loopback port; preset `DEFAULT_PORT`; 0 picks a free one. */
   readonly port?: number;
-  /** The name a new environment is created with; preset: the machine's hostname. An existing environment keeps its own. */
+  /** The name a new environment is created with; preset: the hostname's first label. An existing environment keeps its own. */
   readonly name?: string;
+  /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
+  readonly hostname?: string;
+  /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
+  readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
   /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
@@ -392,6 +397,7 @@ const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; read
 /** A running environment. */
 export interface EnvironmentHandle {
   readonly id: string;
+  /** Its name now: the record's until `environment.rename` sets another (#323). */
   readonly name: string;
   readonly dataDir: string;
   /** Where the loopback listener is bound. */
@@ -555,6 +561,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       keyManagerConnectionsProjector,
+      lookProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -576,7 +583,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // forge accounts that are gone are deleted, before anything can read them. So do the key-manager connections (#365): each
   // credential the vault holds is registered, and the entries of connections that are gone deleted.
   const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections } = await step("identity", async () => {
-    const name = (options.name ?? hostname()).trim();
+    const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
     const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
@@ -782,9 +789,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => usagePool.close());
 
-  const detector = options.containerDetector ?? processContainerDetector();
+  const inContainer = (options.containerDetector ?? processContainerDetector()).inContainer();
   // A container with no launcher: a host-side updater manages its updates, and it never updates itself (ADR 0007).
-  const updatesManagedOutside = detector.inContainer() && !launcher.present();
+  const updatesManagedOutside = inContainer && !launcher.present();
   // Managed outside, the host-side updater's polls, the last kept in the data directory (#348).
   const hostUpdater = createHostUpdaterPolls({ clock, dataDir, managedOutside: updatesManagedOutside });
   // Under a launcher the environment can update itself to a client's version (ADR 0007); managed outside, while the
@@ -792,12 +799,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // `updates.status` says why. Read as discovery answers and as each hello is sent.
   const flags = (): CapabilityFlags => (launcher.present() || hostUpdater.selfUpdate() ? ["self-update", ...capabilities] : [...capabilities]);
 
+  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
+  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
+  // Its name, icon and colour (#323): the three commands' notices over the record's name and the presets, read where they
+  // are shown, so a rename shows in the next discovery answer, the next hello and the next snapshot.
+  const look = createEnvironmentLook({
+    log,
+    stream: environmentStream,
+    presets: { name: record.name, icon: presetIcon(inContainer, options.platform ?? process.platform), colour: presetColour(record.id) },
+  });
+
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
+    const { name, icon, colour } = look.read();
     const document: DiscoveryDocument = {
       environmentId: record.id,
-      environmentName: record.name,
+      environmentName: name,
+      environmentIcon: icon,
+      environmentColour: colour,
       harnessVersion,
       protocolVersion: PROTOCOL_VERSION,
       capabilities: flags(),
@@ -811,8 +831,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
-  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
-  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
@@ -873,7 +891,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     stream: environmentStream,
     dataDir,
-    environmentName: record.name,
+    environmentName: look.read().name,
     harnessVersion,
     launcher,
     managedOutside: updatesManagedOutside,
@@ -899,7 +917,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
   const table = createMethodTable({
     ...lifecycle.handlers,
-    "environment.subscribe": () => lifecycle.source,
+    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), environment: look.read() }) }),
+    ...look.handlers,
     // The rebuild joins the command's transaction, so it and the receipt commit together.
     "environment.rebuildProjections": () => ({
       aggregate: environmentStream,
@@ -946,6 +965,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           releaseChannel: () => channelChecks.releaseChannelHolds(),
           updates: () => updates.machineHolds(channelChecks.status().newest),
           hostUpdater: () => hostUpdater.holds(),
+          look: () => look.read(),
         }),
       },
     }),
@@ -1010,7 +1030,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
-    environment: record,
+    environment: { id: record.id, look: () => look.read() },
     capabilities: flags,
     clientSessions: socketSessions(clientSessions, accessLog.atomically),
     methods: table,
@@ -1127,7 +1147,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   return {
     id: record.id,
-    name: record.name,
+    get name() {
+      return look.read().name;
+    },
     dataDir,
     address: bound.address,
     addresses: bound.addresses,

@@ -1,4 +1,4 @@
-import { denylistPresets, type ContainmentReport } from "@agent-harness/contracts";
+import { denylistPresets, type ContainmentReport, type EnvironmentLook } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import { readDenylist, readDenylistChangedBy } from "../permissions/denylist-store.js";
 import { readPermissionsReport } from "../permissions/methods.js";
@@ -10,7 +10,7 @@ import type { StateCheckers } from "./check.js";
  * How this environment answers every state check the step registry names
  * (#141): the Your machines step's not-root line, release channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
- * updater's poll (#348), and the Permissions step's
+ * updater's poll (#348) and that the environment is named (#323), and the Permissions step's
  * three checks, each read when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
@@ -34,6 +34,8 @@ export interface StateChecksOptions {
   readonly updates: () => StateCheckAnswer;
   /** Whether updates are not managed outside, or the host-side updater polled in the last hour (#348). */
   readonly hostUpdater: () => StateCheckAnswer;
+  /** The environment's name, icon and colour now (#323). */
+  readonly look: () => EnvironmentLook;
 }
 
 export const environmentStateChecks = (options: StateChecksOptions): StateCheckers => {
@@ -45,6 +47,8 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,
     "your-machines.host-updater": options.hostUpdater,
+    // Named from the first start (ADR 0025's "named"): the record's name, the preset icon and colour stand until set.
+    "your-machines.named": () => (options.look().name.trim() !== "" ? true : { reason: "The environment has no name: rename it." }),
     "permissions.containment": () => {
       const { values, containment } = report();
       return containmentDefaultHolds(values["permissions.containment.default"], containment);

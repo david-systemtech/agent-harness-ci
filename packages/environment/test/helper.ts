@@ -84,6 +84,10 @@ export interface TestEnvironmentOptions {
   /** The harness version the environment runs as; preset: the package's. */
   readonly harnessVersion?: string;
   readonly name?: string;
+  /** The machine's hostname, whose first label names a new environment given no `name`; preset: the machine's. */
+  readonly hostname?: string;
+  /** The operating system an environment's preset icon follows; preset: the machine's. */
+  readonly platform?: NodeJS.Platform;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
   /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
@@ -293,6 +297,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
+    ...(options.hostname !== undefined && { hostname: options.hostname }),
+    ...(options.platform !== undefined && { platform: options.platform }),
     ...(options.harnessVersion !== undefined && { harnessVersion: options.harnessVersion }),
     ...(options.hooks !== undefined && { hooks: options.hooks }),
     ...(options.bindTailnet !== undefined && { bindTailnet: options.bindTailnet }),

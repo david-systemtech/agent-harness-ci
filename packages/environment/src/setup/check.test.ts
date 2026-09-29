@@ -22,6 +22,7 @@ const holding: StateCheckers = {
   "your-machines.release-channel": () => true,
   "your-machines.updates": () => true,
   "your-machines.host-updater": () => true,
+  "your-machines.named": () => true,
   "permissions.containment": () => true,
   "permissions.denylist": () => true,
   "permissions.not-root": () => true,
