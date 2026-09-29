@@ -7,6 +7,7 @@ import { useCleanups } from "../../../test/cleanups.js";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { AdapterEvent, AdapterRun, RunContext, RunInput } from "../../adapter/contract.js";
+import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 import { openEventLog } from "../../event-log/event-log.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../../provider-transcripts/store.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
@@ -224,6 +225,7 @@ const runInput = (directory: string, overrides: Partial<RunInput> = {}): RunInpu
     network: true,
   },
   denylist: null,
+  processEnvironment: EMPTY_PROCESS_ENVIRONMENT,
   prompt: [{ messageId: randomUUID(), text: "Go on", attachments: [] }],
   ...overrides,
 });

@@ -222,8 +222,8 @@ export const createSignInDirector =
     };
 
     /** The managed tool where the PATH has it now. */
-    const managedOnPath = (program: SignInProgram): string => {
-      const found = program.managedTool();
+    const managedOnPath = async (program: SignInProgram): Promise<string> => {
+      const found = await program.managedTool();
       if (found === null) throw new Error(`The managed tool ${program.toolName} chosen for sign-in is no longer on the PATH; run the fallback command in a terminal.`);
       return found;
     };
@@ -234,7 +234,7 @@ export const createSignInDirector =
       if (known !== null) {
         if (known.source === "bundled") return known;
         // The managed tool is found on the PATH each time, as its registry detects it; the recorded path names where it was.
-        return { source: "managed-tool", executable: managedOnPath(program) };
+        return { source: "managed-tool", executable: await managedOnPath(program) };
       }
       let detail: string;
       if (program.bundled === null) detail = "This platform has no bundled binary.";
@@ -243,7 +243,7 @@ export const createSignInDirector =
         if (refused === null) return record(provider, program, { source: "bundled", executable: program.bundled }, null);
         detail = refused;
       }
-      const managed = program.managedTool();
+      const managed = await program.managedTool();
       if (managed === null) throw new Error(`${detail} The managed tool ${program.toolName} is not on the PATH. Run the fallback command in a terminal on this machine.`);
       const refused = await refuses(program, managed, directory);
       if (refused !== null) throw new Error(`${detail} ${refused} Run the fallback command in a terminal on this machine.`);
@@ -270,7 +270,7 @@ export const createSignInDirector =
       }
       const choice = await choosing;
       if (choice.source !== "managed-tool") return choice;
-      return { source: "managed-tool", executable: managedOnPath(sign.program) };
+      return { source: "managed-tool", executable: await managedOnPath(sign.program) };
     };
 
     /** The exit: 0 is the status read through the port, anything else a failure with the CLI's last words. */

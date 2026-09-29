@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
-import { join, resolve as absolutePath } from "node:path";
+import { dirname, join, resolve as absolutePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   BOOTSTRAP_PATH,
   ContractError,
@@ -49,6 +50,8 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
+import { readSessionFacts } from "../runs/run-reads.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -97,7 +100,7 @@ import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
 import { verifiedOrigins } from "../forge/git-helper.js";
-import type { ManagedGh } from "../forge/gh.js";
+import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
@@ -106,6 +109,9 @@ import { keyManagerMethods } from "../key-managers/methods.js";
 import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
+import { managedToolsMethods } from "../managed-tools/methods.js";
+import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
+import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
@@ -153,6 +159,13 @@ import { fileVault, holdVault, VAULT_FILE, type Vault } from "./vault.js";
 export const HARNESS_VERSION: string = (
   JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }
 ).version;
+
+/**
+ * The directory the harness's own code is installed in: the environment
+ * package's. A managed tool found inside it, or inside the bundled binary's
+ * package, is the harness's own and never a person's (ADR 0026).
+ */
+const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
  * The port an environment listens on when none is given. A chosen default, not
@@ -278,14 +291,14 @@ export interface EnvironmentOptions {
    * How the preset director's sign-ins run (#135): the process spawner, the
    * environment a sign-in inherits before the scrub, the bundled binary, the
    * managed tool and the working directory. Preset: `node:child_process`,
-   * this process's environment, the SDK's bundled binary, `claude` on the
-   * PATH, the home directory.
+   * this process's environment, the SDK's bundled binary, the Managed tools
+   * registry's `claude` row (#373), the home directory.
    */
   readonly signInProcess?: {
     readonly spawn?: SignInSpawn;
     readonly hostEnv?: HostEnvironment;
     readonly bundled?: string | null;
-    readonly managedTool?: () => string | null;
+    readonly managedTool?: () => string | null | Promise<string | null>;
     readonly cwd?: string;
   };
   /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
@@ -310,6 +323,8 @@ export interface EnvironmentOptions {
     readonly resolvePolicy?: PolicySeam;
     /** The tool gate's rules; preset: the denylist's (#132, `permissions/denylist-gate.ts`). */
     readonly gateRules?: readonly ToolGateRule[];
+    /** Whether a holder's process environment is supplied at all (#307); preset: `allow`, until #91's setting answers it. */
+    readonly injection?: InjectionSeam;
   };
   /**
    * What this environment can enforce (#133), probed once as the adapter
@@ -319,7 +334,7 @@ export interface EnvironmentOptions {
    */
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub">;
+  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub" | "processEnvironment">;
   /**
    * The resolver `sessions.create` and the completions surface give a new
    * session its workspace through (#321). Preset: the environment's
@@ -348,11 +363,19 @@ export interface EnvironmentOptions {
   /** How long one call to a forge, and one verification of a forge account, may take (#311). Preset: `FORGE_CALL_TIMEOUT_MS`, ADR 0031's ten seconds. */
   readonly forgeTimeoutMs?: number;
   /**
-   * The environment's own `gh`, behind the Managed tools seam the registry
-   * (#91) replaces (#312). Preset: the `gh` on this process's PATH; tests
-   * put a fake one on a PATH of their own.
+   * How the Managed tools registry (#373) probes: where it reads the login
+   * shell's PATH, which the forge's `gh` and the sign-in director's managed
+   * tool are found on too; how it asks which system package owns a tool;
+   * the environment its commands, and `gh`'s, start from. Preset: the
+   * user's login shell (the machine and user Path on Windows), `dpkg -S`
+   * then `rpm -qf` on Linux, this process's environment; tests put fake
+   * tools on a PATH of their own and script the package owner.
    */
-  readonly gh?: ManagedGh;
+  readonly managedTools?: {
+    readonly readPath?: () => Promise<string>;
+    readonly packageOwner?: PackageOwnerLookup;
+    readonly hostEnv?: HostEnvironment;
+  };
   /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
   /**
@@ -516,6 +539,12 @@ export interface EnvironmentHandle {
     readonly leftBehindDeleted: Promise<void>;
   };
   /**
+   * Where the harness's services register what they put into every provider
+   * process and terminal the environment starts (#307): the forge's (#315),
+   * the key managers' (#91). None is registered by default.
+   */
+  readonly processEnvironments: Pick<ProcessEnvironments, "register">;
+  /**
    * The pairing this start minted because the environment is a declared
    * container that no client has paired with yet (ADR 0025; #349): such a
    * container pairs from its own log, so `serve` prints it there, as `pair`
@@ -543,6 +572,14 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
   const host = (listening.find((entry) => entry.interface !== "loopback") ?? listening[0])?.address.host ?? LOOPBACK;
   return formatHostPort(host);
 };
+
+/**
+ * The managed tool `claude` as a sign-in runs it: the path the registry
+ * found, which on Windows is only an `.exe`, since a `.cmd` shim needs a
+ * shell and a sign-in never runs one (claude-adapter spec).
+ */
+const signInExecutable = (path: string | null): string | null =>
+  path === null || (process.platform === "win32" && !path.toLowerCase().endsWith(".exe")) ? null : path;
 
 /**
  * The running user's name from the passwd database, which the denylist reads
@@ -646,6 +683,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const settingsPresets = () => ({ "permissions.containment.default": presetContainmentDefault(containment) }) as const;
   const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) }, settingsPresets());
 
+  // The bundled Claude binary, which runs, sign-ins and the status probe use; its package is the harness's own, never a managed tool.
+  const signInProcess = options.signInProcess ?? {};
+  const bundled = signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable();
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
   // The forge accounts' store (#310) starts in this step too, after the client sessions whose labels a token handed over
@@ -653,8 +693,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // forge accounts that are gone are deleted, before anything can read them. So do the key-manager connections (#365): each
   // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
   // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
-  // connection's removal.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves } = await step("identity", async () => {
+  // connection's removal. The Managed tools registry (#373) is made here too, before the forge, whose gh reads its row.
+  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -679,6 +719,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
       defaultCeiling: () => permissionSettings()["permissions.defaultCeiling"],
     });
+    // The Managed tools registry (#373): its rows are read by the forge's gh and the sign-in director; it probes past the gate.
+    const tools: ManagedTools = createManagedTools({
+      log,
+      clock,
+      environmentId: loaded.id,
+      ownResources: [HARNESS_DIRECTORY, ...(bundled === null ? [] : [dirname(bundled)])],
+      ...options.managedTools,
+    });
+    closers.push(() => tools.close());
     const connections = createKeyManagerConnections({
       log,
       clock,
@@ -707,7 +756,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
       ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
       knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
-      ...(options.gh !== undefined && { gh: options.gh }),
+      gh: managedGh({ row: () => tools.row("gh"), ...(options.managedTools?.hostEnv !== undefined && { hostEnv: options.managedTools.hostEnv }) }),
       keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
       // Where the credential helper asks: the loopback listener, bound after this step.
@@ -726,7 +775,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
     });
     for (const source of options.moveSources ?? [forgeService.moveSource]) keyManagerMoves.register(source);
-    capabilities.push("forge", "keyManagers");
+    capabilities.push("forge", "keyManagers", "managedTools");
     return {
       record: loaded,
       clientSessions: loadedClientSessions,
@@ -737,6 +786,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagers: registry,
       references: keyManagerReferences,
       moves: keyManagerMoves,
+      managedTools: tools,
     };
   });
 
@@ -778,7 +828,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // close ends every run (and so lets go of what each left parked).
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
-  const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
+  // The injection seam is the process environment's; the rest are the host's.
+  const { injection, ...hostSeams } = options.adapterSeams ?? {};
+  const seamServers = hostSeams.toolServers ?? noToolServers;
+  // What the harness's services put into every provider process and terminal (#307): none registered until one does.
+  const processEnvironments = createProcessEnvironments(injection);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -806,8 +860,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     );
     capabilities.push(...containmentFlags(containment));
     const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
-    // The sign-in director (#135): Claude accounts sign in through the bundled binary, else the managed tool `claude`.
-    const signInProcess = options.signInProcess ?? {};
+    // The sign-in director (#135): Claude accounts sign in through the bundled binary, else the managed tool `claude`, the
+    // registry's row (#373).
     const signIn =
       options.signIn ??
       createSignInDirector({
@@ -816,9 +870,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         environmentId: record.id,
         programs: {
           [CLAUDE_PROVIDER]: claudeSignInProgram({
-            bundled: signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable(),
+            bundled,
             ...(signInProcess.hostEnv !== undefined && { hostEnv: signInProcess.hostEnv }),
-            ...(signInProcess.managedTool !== undefined && { managedTool: signInProcess.managedTool }),
+            managedTool: signInProcess.managedTool ?? (async () => signInExecutable((await managedTools.row("claude")).path)),
           }),
         },
         ...(signInProcess.spawn !== undefined && { spawn: signInProcess.spawn }),
@@ -862,6 +916,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       containmentDirectories: sessionDirectories,
+      processEnvironment: processEnvironments.of,
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
@@ -871,7 +926,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
-      ...options.adapterSeams,
+      ...hostSeams,
       // The seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });
@@ -937,8 +992,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
     ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
   });
-  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion. Each
+  // holds its session's process environment as its runs' processes do (#307): the account its runs go through, a client's.
+  const terminalService = createTerminalService({
+    log,
+    clock,
+    scrub,
+    availability,
+    ...options.terminals,
+    processEnvironment: (sessionId) => {
+      const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client" });
+    },
+  });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
@@ -1087,6 +1153,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...instructionMethods({ host }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, options.keyManagerTimeoutMs),
+    ...managedToolsMethods(managedTools),
     // The routine store's commands and list (#521), on each routine's own stream.
     ...routineMethods({
       log,
@@ -1247,6 +1314,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
   const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
   closers.push(() => setupScheduler.stop());
+  // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
+  // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
+  closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
@@ -1271,6 +1341,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The availability watcher's pass (#328): every session's workspace looked at now, past the gate, then hourly.
   const availabilityPasses = availability.start();
   closers.push(() => availabilityPasses.stop());
+  // The managed tools' probe (#373): now, past the gate; again on a client's refresh, at most every fifteen minutes.
+  managedTools.start();
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
@@ -1352,6 +1424,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },
+    processEnvironments,
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {

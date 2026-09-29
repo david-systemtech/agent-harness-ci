@@ -1175,12 +1175,20 @@
       "title": "KeyManagerTargetExistsError"
     },
     {
+      "path": "key-managers/errors/cannot_write.json",
+      "title": "KeyManagerCannotWriteError"
+    },
+    {
       "path": "key-managers/events/key-manager.moved.json",
       "title": "KeyManagerMovedPayload"
     },
     {
       "path": "key-managers/events/key-manager.stored-value-deleted.json",
       "title": "KeyManagerStoredValueDeletedPayload"
+    },
+    {
+      "path": "key-managers/events/key-manager.value-copied.json",
+      "title": "KeyManagerValueCopiedPayload"
     },
     {
       "path": "key-managers/errors/verification_failed.json",
@@ -1205,6 +1213,38 @@
     {
       "path": "key-managers/errors/address_unreachable.json",
       "title": "AddressUnreachableError"
+    },
+    {
+      "path": "managed-tools/name.json",
+      "title": "ManagedToolName"
+    },
+    {
+      "path": "managed-tools/version.json",
+      "title": "ManagedToolVersion"
+    },
+    {
+      "path": "managed-tools/tool.json",
+      "title": "ManagedTool"
+    },
+    {
+      "path": "managed-tools/install-method.json",
+      "title": "ManagedToolInstallMethod"
+    },
+    {
+      "path": "managed-tools/status.json",
+      "title": "ManagedToolStatus"
+    },
+    {
+      "path": "managed-tools/action.json",
+      "title": "ManagedToolAction"
+    },
+    {
+      "path": "managed-tools/row.json",
+      "title": "ManagedToolRow"
+    },
+    {
+      "path": "managed-tools/events/tools.updated.json",
+      "title": "ToolsUpdatedPayload"
     },
     {
       "path": "scrub/shape-rule-id.json",
@@ -4147,6 +4187,34 @@
       "title": "keyManagers.move error"
     },
     {
+      "path": "methods/keyManagers.move.copyValue/params.json",
+      "title": "keyManagers.move.copyValue params"
+    },
+    {
+      "path": "methods/keyManagers.move.copyValue/result.json",
+      "title": "keyManagers.move.copyValue result"
+    },
+    {
+      "path": "methods/keyManagers.move.copyValue/response.json",
+      "title": "keyManagers.move.copyValue response"
+    },
+    {
+      "path": "methods/keyManagers.move.copyValue/error.json",
+      "title": "keyManagers.move.copyValue error"
+    },
+    {
+      "path": "methods/tools.list/params.json",
+      "title": "tools.list params"
+    },
+    {
+      "path": "methods/tools.list/result.json",
+      "title": "tools.list result"
+    },
+    {
+      "path": "methods/tools.list/error.json",
+      "title": "tools.list error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -4944,6 +5012,11 @@
       "path": "data/settings-addresses.json",
       "title": "Settings addresses",
       "schema": "settings/address-row.json"
+    },
+    {
+      "path": "data/managed-tools.json",
+      "title": "Managed tools",
+      "schema": "managed-tools/tool.json"
     }
   ],
   "methods": [
@@ -5862,6 +5935,25 @@
       "result": "methods/keyManagers.move/result.json",
       "response": "methods/keyManagers.move/response.json",
       "error": "methods/keyManagers.move/error.json"
+    },
+    {
+      "name": "keyManagers.move.copyValue",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/keyManagers.move.copyValue/params.json",
+      "result": "methods/keyManagers.move.copyValue/result.json",
+      "response": "methods/keyManagers.move.copyValue/response.json",
+      "error": "methods/keyManagers.move.copyValue/error.json"
+    },
+    {
+      "name": "tools.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/tools.list/params.json",
+      "result": "methods/tools.list/result.json",
+      "error": "methods/tools.list/error.json"
     },
     {
       "name": "settings.get",

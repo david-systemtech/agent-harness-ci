@@ -1,5 +1,3 @@
-import { accessSync, constants, realpathSync, statSync } from "node:fs";
-import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import type { SignInFallback } from "@agent-harness/contracts";
 import type { ProbeResult, SignInProgram } from "../../accounts/signin-seam.js";
 import { CLAUDE_CONFIG_DIR, CLAUDE_LOGIN_ARGV, composeRunEnvironment, type HostEnvironment } from "./credentials.js";
@@ -36,7 +34,7 @@ export { CLAUDE_LOGIN_ARGV, CLAUDE_LOGOUT_ARGV, CLAUDE_STATUS_ARGV } from "./cre
 /** Asks an executable whether it runs `auth login`: the usage line names the command when it does. */
 export const CLAUDE_LOGIN_HELP_ARGV = [...CLAUDE_LOGIN_ARGV, "--help"] as const;
 
-/** The managed tool's name (ADR 0026): the Claude CLI a person installs, found on the PATH. */
+/** The managed tool's name (ADR 0026): the Claude CLI a person installs, the Managed tools registry's `claude` row. */
 export const CLAUDE_TOOL = "claude";
 
 /** Whether a probe's answer says the executable runs `auth login`: it exited 0 and its usage line names the command. */
@@ -78,74 +76,22 @@ export const claudeFallback = (directory: string, executable: string): SignInFal
   };
 };
 
-export interface ManagedToolLookup {
-  readonly hostEnv: HostEnvironment;
-  /** Paths inside the harness's own files, never the managed tool: the bundled binary's package. */
-  readonly exclude?: readonly string[];
-  readonly platform?: string;
-  /** Whether `path` is an executable file; preset: the file system's answer. */
-  readonly isExecutable?: (path: string) => boolean;
-}
-
-const executableFile = (path: string): boolean => {
-  try {
-    if (!statSync(path).isFile()) return false;
-    if (process.platform !== "win32") accessSync(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const real = (path: string): string => {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-};
-
-/**
- * The managed tool `claude` (ADR 0026: detected on the PATH, ignoring any
- * path under the harness's own files): the first executable named `claude`
- * on the host's PATH, `claude.exe` on Windows (a `.cmd` shim needs a shell,
- * which the director never uses); null when there is none.
- */
-export const findManagedClaude = (lookup: ManagedToolLookup): string | null => {
-  const platform = lookup.platform ?? process.platform;
-  const isExecutable = lookup.isExecutable ?? executableFile;
-  const path = lookup.hostEnv["PATH"] ?? lookup.hostEnv["Path"] ?? "";
-  const excluded = (lookup.exclude ?? []).map(real);
-  const name = platform === "win32" ? `${CLAUDE_TOOL}.exe` : CLAUDE_TOOL;
-  for (const directory of path.split(platform === "win32" ? ";" : delimiter)) {
-    // A relative entry would resolve against whatever the service's working directory is.
-    if (directory === "" || !isAbsolute(directory)) continue;
-    const candidate = join(directory, name);
-    if (!isExecutable(candidate)) continue;
-    const resolved = real(candidate);
-    if (excluded.some((own) => resolved === own || resolved.startsWith(`${own}${sep}`))) continue;
-    return candidate;
-  }
-  return null;
-};
-
 export interface ClaudeSignInOptions {
   /** The environment sign-ins inherit, before the scrub; preset: this process's, copied once. */
   readonly hostEnv?: HostEnvironment;
   /** The bundled binary (`bundledExecutable()`); null when this platform has none. */
   readonly bundled: string | null;
-  /** Finds the managed tool; preset: `claude` on the host's PATH, outside the bundled binary's package. */
-  readonly managedTool?: () => string | null;
+  /** The managed tool `claude` where the Managed tools registry found it, outside the harness's own files; null when it has none. */
+  readonly managedTool: () => string | null | Promise<string | null>;
 }
 
 /** Claude's sign-in program: the bundled binary first, the managed tool `claude` when it does not run `auth login`. */
 export const claudeSignInProgram = (options: ClaudeSignInOptions): SignInProgram => {
   const hostEnv: HostEnvironment = { ...(options.hostEnv ?? process.env) };
   const bundled = options.bundled;
-  const managedTool = options.managedTool ?? (() => findManagedClaude({ hostEnv, exclude: bundled === null ? [] : [dirname(bundled)] }));
   return {
     bundled,
-    managedTool,
+    managedTool: options.managedTool,
     argv: CLAUDE_LOGIN_ARGV,
     probeArgv: CLAUDE_LOGIN_HELP_ARGV,
     runsSignIn: runsClaudeLogin,

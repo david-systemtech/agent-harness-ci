@@ -93,6 +93,17 @@ import {
   ProtocolMismatchError,
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
+import {
+  MANAGED_TOOLS,
+  ManagedTool,
+  ManagedToolAction,
+  ManagedToolInstallMethod,
+  ManagedToolName,
+  ManagedToolRow,
+  ManagedToolStatus,
+  ManagedToolVersion,
+  ToolsUpdatedPayload,
+} from "./managed-tools.js";
 import { AccountUsage, HandoffBasis, HandoffReason, HandoffRecommendation, HandoffTrigger, UsageUpdatedPayload, UsageVerdict, UsageWindow } from "./usage.js";
 import {
   AutoSettleAfterIdle,
@@ -379,6 +390,7 @@ import {
 } from "./key-manager-connections.js";
 import {
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
+  KeyManagerCannotWriteError,
   KeyManagerMoveItem,
   KeyManagerMoveItemKind,
   KeyManagerMoveItemRef,
@@ -788,6 +800,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/move-item-result.json", title: "KeyManagerMoveItemResult", schema: KeyManagerMoveItemResult },
   { path: "key-managers/stored-at.json", title: "KeyManagerStoredAt", schema: KeyManagerStoredAt },
   { path: "key-managers/errors/target_exists.json", title: "KeyManagerTargetExistsError", schema: KeyManagerTargetExistsError },
+  { path: "key-managers/errors/cannot_write.json", title: "KeyManagerCannotWriteError", schema: KeyManagerCannotWriteError },
   ...Object.entries(KEY_MANAGER_MOVE_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `key-managers/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -799,6 +812,14 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/certificate_rejected.json", title: "CertificateRejectedError", schema: CertificateRejectedError },
   { path: "errors/provider_unavailable.json", title: "ProviderUnavailableError", schema: ProviderUnavailableError },
   { path: "key-managers/errors/address_unreachable.json", title: "AddressUnreachableError", schema: AddressUnreachableError },
+  { path: "managed-tools/name.json", title: "ManagedToolName", schema: ManagedToolName },
+  { path: "managed-tools/version.json", title: "ManagedToolVersion", schema: ManagedToolVersion },
+  { path: "managed-tools/tool.json", title: "ManagedTool", schema: ManagedTool },
+  { path: "managed-tools/install-method.json", title: "ManagedToolInstallMethod", schema: ManagedToolInstallMethod },
+  { path: "managed-tools/status.json", title: "ManagedToolStatus", schema: ManagedToolStatus },
+  { path: "managed-tools/action.json", title: "ManagedToolAction", schema: ManagedToolAction },
+  { path: "managed-tools/row.json", title: "ManagedToolRow", schema: ManagedToolRow },
+  { path: "managed-tools/events/tools.updated.json", title: "ToolsUpdatedPayload", schema: ToolsUpdatedPayload },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
@@ -1295,6 +1316,17 @@ export const publishedData = (): PublishedData[] => [
     ].join(" "),
     schema: "settings/address-row.json",
     entries: SETTINGS_ADDRESSES.map((address) => ({ address, row: ADDRESS_ROWS[address] })),
+  },
+  {
+    path: "data/managed-tools.json",
+    title: "Managed tools",
+    description: [
+      "The Managed tools table (ADR 0026): every CLI the harness depends on, in the order the registry's rows follow, each with its label, its declared minimum, its verify command as the fixed arguments after its name, and when it is required.",
+      "A tool that can be required has a minimum and a verify command; claude, claude in your terminal, never is, since the harness runs its bundled binary.",
+      "A key-manager tool is required while a connection of its provider injects, and bao or vault satisfies OpenBao; gh is required while a forge account reads its token from gh.",
+    ].join(" "),
+    schema: "managed-tools/tool.json",
+    entries: MANAGED_TOOLS,
   },
 ];
 

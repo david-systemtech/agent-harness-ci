@@ -12,8 +12,9 @@ import type { KeyManagerReferences } from "./references.js";
  * environment stream; verify, the certificate preview and the references'
  * check and browse (#370), `admin` queries; setBasePath, an `admin`
  * command, the items to move at `read`, and the Move, a prepared `admin`
- * command (#371). The rules are the connections', the references', the
- * preview's and the Move's own.
+ * command (#371), with the copy of a value its login cannot write, another
+ * (#372). The rules are the connections', the references', the preview's
+ * and the Move's own.
  */
 export const keyManagerMethods = (connections: KeyManagerConnections, references: KeyManagerReferences, moves: KeyManagerMoves, budgetMs?: number): MethodHandlers => ({
   "keyManagers.list": () => ({ connections: connections.list() }),
@@ -30,4 +31,5 @@ export const keyManagerMethods = (connections: KeyManagerConnections, references
   "keyManagers.references.browse": references.browse,
   "keyManagers.move.list": () => moves.list(),
   "keyManagers.move": moves.move,
+  "keyManagers.move.copyValue": moves.copyValue,
 });

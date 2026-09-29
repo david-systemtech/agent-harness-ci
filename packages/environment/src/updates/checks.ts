@@ -20,7 +20,10 @@ import { readKeptTime, writeKeptTime } from "./kept-time.js";
  * it holds while auto-update is off (switched off, or a version pinned) or
  * a check succeeded in the last 24 hours. When the last one succeeded is
  * kept in the data directory (`RELEASE_CHANNEL_FILE`), so a restart, an
- * update's included, does not make the channel read as unread.
+ * update's included, does not make the channel read as unread. A check
+ * appends nothing, so no trigger the step names hears it: the environment
+ * hears each check that ends through `onChecked` instead, and triggers the
+ * step from it (#679).
  */
 
 /** Where the time of the last check that read the channel is kept, in the data directory. */
@@ -71,6 +74,12 @@ export interface ChannelChecks {
   settingsChanged(): void;
   /** The Your machines step's `your-machines.release-channel`. */
   releaseChannelHolds(): StateCheckAnswer;
+  /**
+   * Hears each check as it ends, whether it read the channel or failed: what
+   * `releaseChannelHolds` answers and the channel's newest may have changed,
+   * and no event says so. Returns the unsubscribe.
+   */
+  onChecked(listener: () => void): () => void;
   /** Schedules the first check and the hourly ones; returns the stop. Called once the wire is open. */
   start(): () => void;
 }
@@ -89,6 +98,7 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
   /** Whether the settings changed while a check was under way, which read them before. */
   let again = false;
   let stopped = false;
+  const listeners = new Set<() => void>();
 
   const once = async (): Promise<void> => {
     const at = clock.now();
@@ -111,6 +121,13 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       lastCheck = { at: at.toISOString(), result: "failed", reason: "unreachable", message: `The check failed: ${message}` };
     }
     status = { ...status, lastCheck };
+    for (const listener of [...listeners]) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("A listener to the release channel's checks threw:", error);
+      }
+    }
   };
 
   /** Runs a check, or answers the one under way. */
@@ -150,6 +167,12 @@ export const createChannelChecks = (options: ChannelChecksOptions): ChannelCheck
       const since = lastSucceededAt === undefined ? "yet" : "in the last 24 hours";
       if (last === null) return { reason: `The release channel has not been read ${since}: the environment reads it two minutes after it starts, then hourly.` };
       return { reason: `The release channel has not been read ${since}: ${last.result === "failed" ? last.message : "no check succeeded."}` };
+    },
+
+    onChecked(listener) {
+      const own = () => listener();
+      listeners.add(own);
+      return () => void listeners.delete(own);
     },
 
     start() {

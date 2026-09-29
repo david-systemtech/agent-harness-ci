@@ -112,6 +112,7 @@ import {
   keyManagersConnectionsVerify,
   keyManagersList,
   keyManagersMove,
+  keyManagersMoveCopyValue,
   keyManagersMoveList,
   keyManagersReferencesBrowse,
   keyManagersReferencesCheck,
@@ -147,6 +148,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
+import { toolsList } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -256,6 +258,8 @@ export const methods = [
   keyManagersReferencesBrowse,
   keyManagersMoveList,
   keyManagersMove,
+  keyManagersMoveCopyValue,
+  toolsList,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,

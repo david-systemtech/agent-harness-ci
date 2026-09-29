@@ -52,10 +52,10 @@ import { worktreeCheckout } from "./workspace.js";
  * `canUseTool` callback are fixed at spawn and belong to the process; a turn
  * (`turn.ts`) is one run. The process serves turns one at a time, as the CLI
  * does, and outlives them: the next run of the conversation attaches to it
- * when it can (same account, same trust, same tool servers, the provider
- * session the run resumes), and a turn the provider opens on its own, a
- * settled background task answered or a queued message read, is a new turn
- * handed to the host's adoption hook.
+ * when it can (same account, same trust, same tool servers, same process
+ * environment key, the provider session the run resumes), and a turn the
+ * provider opens on its own, a settled background task answered or a
+ * queued message read, is a new turn handed to the host's adoption hook.
  *
  * Whose turn the CLI has opened is read from the stream, not assumed: the
  * pinned CLI narrates (`msg_lifecycle_v1` on `init`) and stamps a turn's
@@ -297,6 +297,8 @@ interface SpawnKey {
    * spawn of its own.
    */
   readonly confinement: string;
+  /** The key of the process environment the spawn was supplied from (#307): a run with another key needs a spawn of its own. */
+  readonly environment: string;
 }
 
 /** A run's containment and projected denylist as one comparable value: the parts the options read, in a fixed order. */
@@ -448,6 +450,7 @@ export class ClaudeProcess implements TurnControl {
       bypassAllowed: input.ceiling === "bypassPermissions",
       instructions: input.instructions,
       confinement: confinementOf(input),
+      environment: input.processEnvironment.key,
     };
   }
 
@@ -474,6 +477,8 @@ export class ClaudeProcess implements TurnControl {
     if (key.instructions !== this.#spawn.instructions) return false;
     // So are the sandbox and the deny rules: another level, mechanism or projected denylist is a fresh process's (#140).
     if (key.confinement !== this.#spawn.confinement) return false;
+    // And the variables the harness's services put into it (#307): another key is a fresh process's.
+    if (key.environment !== this.#spawn.environment) return false;
     // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }
@@ -616,10 +621,13 @@ export class ClaudeProcess implements TurnControl {
       // account's directory, whose credentials have no refresh token: the login is refreshed in the account's own first.
       if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") await this.#deps.freshLogin(input.account);
       const resumePoint = await this.#resumePoint(input);
+      // Asked once for this spawn (#307), and not for one that will not happen; the pool releases it as it lets the process go.
+      const supplied = this.closed || turn.ended ? null : await input.processEnvironment.supply();
       options = buildRunOptions({
         // In the mode it has now, read after the wait: a change made while it was being prepared applies to the spawn.
         run: { ...input, mode: this.#applied.mode },
         hostEnv: this.#deps.hostEnv,
+        supplied: supplied?.variables ?? {},
         configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
         pluginDirectory: this.#deps.pluginDirectory(input),

@@ -224,5 +224,5 @@
     "reference",
     "undeleted"
   ],
-  "description": "key-manager.moved: an item's stored value was written to a key manager, read back, and the item swapped to the reference. Never the value."
+  "description": "key-manager.moved: an item's stored value was written to a key manager, or pasted there by a person and verified (verifyOnly), read back, and the item swapped to the reference. Never the value."
 }

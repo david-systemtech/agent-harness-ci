@@ -90,6 +90,8 @@ const targetExists = { code: "conflict", message: "A different value is at perso
 const moved = { item, outcome: "moved", reference, storedValueDeleted: true, message: "Moved to personal/harness/forge-github (key token); the stored token was deleted." };
 const failed = { item, outcome: "failed", step: "write", written: false, error: targetExists };
 const swapFailed = { item, outcome: "failed", step: "swap", written: true, error: { code: "verification_failed", message: "The forge refused the credential.", data: { status: 401 } } };
+const cannotWrite = { code: "cannot_write", message: "The login cannot write personal/harness/forge-github (key token).", data: { connectionId, reference } };
+const cannotWriteFailed = { item, outcome: "failed", step: "write", written: false, error: cannotWrite };
 
 const added = {
   connectionId,
@@ -213,10 +215,18 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
   },
   "key-managers/move-step.json": { valid: ["read", "write", "read-back", "swap"], invalid: ["delete", "", "sign-in"] },
   "key-managers/move-item-result.json": {
-    valid: [moved, { ...moved, storedValueDeleted: false }, failed, swapFailed],
+    valid: [moved, { ...moved, storedValueDeleted: false }, failed, swapFailed, cannotWriteFailed],
     invalid: [{ ...moved, reference: undefined }, { ...failed, step: "delete" }, { ...failed, written: undefined }, { item, outcome: "skipped" }],
   },
   "key-managers/stored-at.json": { valid: [storedAt], invalid: ["", "two\nlines"] },
+  "key-managers/errors/cannot_write.json": {
+    valid: [cannotWrite],
+    invalid: [{ ...cannotWrite, code: "reference_denied" }, { ...cannotWrite, data: { connectionId } }, { ...cannotWrite, data: { reference } }],
+  },
+  "key-managers/events/key-manager.value-copied.json": {
+    valid: [{ connectionId, item, reference, clientSessionId: "cs-1" }],
+    invalid: [{ connectionId, item, reference }, { connectionId, item, reference, clientSessionId: "" }, { item, reference, clientSessionId: "cs-1" }],
+  },
   "key-managers/errors/target_exists.json": {
     valid: [targetExists],
     invalid: [{ ...targetExists, data: { ...targetExists.data, reason: "referenced" } }, { ...targetExists, code: "target_exists" }, { ...targetExists, data: { reason: "target_exists", connectionId } }],
@@ -370,10 +380,20 @@ export const keyManagerMethodFixtures: Record<string, { params: Fixtures; result
   },
   "keyManagers.move": {
     params: {
-      valid: [{ commandId, connectionId, items: "all" }, { commandId, connectionId, items: [item], overwrite: true }],
-      invalid: [{ commandId, connectionId }, { commandId, connectionId, items: [] }, { commandId, connectionId, items: "some" }, { connectionId, items: "all" }],
+      valid: [{ commandId, connectionId, items: "all" }, { commandId, connectionId, items: [item], overwrite: true }, { commandId, connectionId, items: [item], verifyOnly: true }],
+      invalid: [{ commandId, connectionId }, { commandId, connectionId, items: [] }, { commandId, connectionId, items: "some" }, { connectionId, items: "all" }, { commandId, connectionId, items: "all", verifyOnly: 1 }],
     },
-    result: { valid: [{ items: [] }, { items: [moved, failed, swapFailed] }], invalid: [{}, { items: [{ item, outcome: "moved" }] }] },
+    result: { valid: [{ items: [] }, { items: [moved, failed, swapFailed, cannotWriteFailed] }], invalid: [{}, { items: [{ item, outcome: "moved" }] }] },
+  },
+  "keyManagers.move.copyValue": {
+    params: {
+      valid: [{ commandId, connectionId, item }],
+      invalid: [{ commandId, connectionId }, { commandId, connectionId, item: { kind: "session", id: otherId } }, { connectionId, item }, { commandId, connectionId, items: [item] }],
+    },
+    result: {
+      valid: [{ item, reference, value: "token-for-tests" }],
+      invalid: [{ item, reference }, { item, reference, value: "" }, { reference, value: "token-for-tests" }],
+    },
   },
   "keyManagers.references.browse": {
     params: {

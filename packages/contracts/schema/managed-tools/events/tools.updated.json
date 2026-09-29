@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolsUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "tools": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "bao",
+              "vault",
+              "doppler",
+              "op",
+              "bws",
+              "gh"
+            ],
+            "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "What the row calls the tool: claude's is claude in your terminal."
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the name resolved on the login shell's PATH (on Windows, the machine and user Path a new logon composes); null when it is not installed."
+          },
+          "realpath": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The path with every link resolved, which the install method is read from; null when it is not installed."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+                "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version its --version reported within five seconds; null when it is not installed or none was read."
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+                "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tool's declared minimum; null for one that is never required."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "homebrew",
+                  "winget",
+                  "scoop",
+                  "mise",
+                  "asdf",
+                  "npm",
+                  "native",
+                  "apt",
+                  "dnf",
+                  "manual",
+                  "unknown"
+                ],
+                "description": "How a tool was installed: homebrew (a Cellar or Caskroom), winget (WinGet's packages or links), scoop, mise, asdf, npm (a node_modules path), native (claude's native installer, its versions directory), apt (a package dpkg owns), dnf (a package rpm owns), manual (nothing claims it) or unknown (the package owner could not be asked)."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How it was installed; null when it is not installed."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "update-available",
+              "below-minimum",
+              "not-installed",
+              "method-unknown"
+            ],
+            "description": "A managed tool's status: current; update-available (a newer version is known, a badge only); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told)."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "install",
+              "update",
+              "copy"
+            ],
+            "description": "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop)."
+          }
+        },
+        "required": [
+          "tool",
+          "label",
+          "path",
+          "realpath",
+          "version",
+          "minimum",
+          "method",
+          "status",
+          "action"
+        ],
+        "description": "A managed tool as the environment's last probe found it: where, which version against its minimum, how it was installed, its status and its one action."
+      },
+      "description": "The rows that changed, as they are now, in the table's order."
+    }
+  },
+  "required": [
+    "tools"
+  ],
+  "description": "A probe changed managed-tool rows: those rows as they are now."
+}

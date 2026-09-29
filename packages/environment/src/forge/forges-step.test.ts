@@ -5,9 +5,8 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { installFakeGh, type FakeGh, type FakeGhState } from "../../test/fake-gh.js";
 import { DAVID, TOKEN, added, remove, setPrimary } from "../../test/forge.js";
-import { EMPTY_PATH, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
-import { managedGh } from "./gh.js";
 
 /**
  * The Forges step's check (forge spec, "The Forges step"; setup spec,
@@ -74,8 +73,12 @@ describe("the Forges step with no forge account", () => {
   it("answers skipped with forges.present's line, asking no forge and no gh anything", async () => {
     const forge = await fakeForge();
     const gh = fakeGh({ version: "2.63.2" });
-    const t = await start({ forgeFetch: forge.fetch, gh: gh.gh });
-    expect(await checkForges(await t.client())).toEqual({
+    const t = await start({ forgeFetch: forge.fetch, managedTools: gh.managedTools });
+    const client = await t.client();
+    // The Managed tools registry's start probe asks gh its version (#373); the check asks it nothing.
+    await client.request("tools.list", {});
+    const before = gh.calls().length;
+    expect(await checkForges(client)).toEqual({
       step: "forges",
       state: "skipped",
       reason: "No forge account is on this environment.",
@@ -84,7 +87,7 @@ describe("the Forges step with no forge account", () => {
       checkedAt: MANUAL_CLOCK_START,
     });
     expect(forge.requests).toEqual([]);
-    expect(gh.calls()).toEqual([]);
+    expect(gh.calls().slice(before)).toEqual([]);
   });
 });
 
@@ -214,7 +217,7 @@ describe("forges.gh", () => {
     forge.repositories(GH_TOKEN, []);
     const host = forge.origin.replace("http://", "");
     const gh = fakeGh({ version: "2.63.2", accounts: [{ host, login: "david", token: GH_TOKEN }] });
-    const t = await startTestEnvironment({ dataDir, gh: gh.gh });
+    const t = await startTestEnvironment({ dataDir, managedTools: gh.managedTools });
     const client = await t.client();
     await added(client, { url: forge.origin, kind: "github", credential: { kind: "gh", login: "david" } });
     return { t, forge, gh, host, client };
@@ -244,6 +247,9 @@ describe("forges.gh", () => {
     });
 
     gh.set({ version: "2.39.1", accounts: [{ host, login: "david", token: GH_TOKEN }] });
+    // gh's version is the Managed tools registry's row (#373), read again on a refresh fifteen minutes on.
+    t.clock.advance(15 * 60_000);
+    await client.request("tools.list", { refresh: true });
     expect(await checkForges(client)).toMatchObject({
       reason: `The credential of david on ${host} could not be read: Sign in again to give it a new one. gh 2.39.1 on this environment is older than 2.40.0 for david on ${host}: Update gh.`,
       failing: ["forges.identity", "forges.gh"],
@@ -258,7 +264,8 @@ describe("forges.gh", () => {
     const dataDir = `${tempDir()}/data`;
     const first = await withGhSource(dataDir);
     await first.t.close();
-    const t = await start({ dataDir, gh: managedGh({ hostEnv: { PATH: EMPTY_PATH } }) });
+    // The helper's login shell has nothing on its PATH.
+    const t = await start({ dataDir });
     const result = await checkForges(await t.client());
     expect(result).toMatchObject({ state: "needs-attention", failing: ["forges.identity", "forges.gh"] });
     expect(result.reason).toContain(`gh is not installed on this environment for david on ${first.host}: Install gh 2.40.0 or later.`);

@@ -308,11 +308,43 @@ export interface RunDenylist {
 }
 
 /**
+ * What one spawn of a provider process, or one terminal's shell, is
+ * supplied (#307): the variables to put into its environment, and their
+ * release, which its stop calls (a secret minted for it disposed, a token
+ * revoked). Neither is ever written to disk, to the log or into argv.
+ */
+export interface SuppliedVariables {
+  readonly variables: Readonly<Record<string, string>>;
+  release(): void;
+}
+
+/**
+ * The process environment (forge spec, "Per provider process"; #307): the
+ * variables the harness's services put into every provider process and
+ * terminal the environment starts, without an adapter knowing what they
+ * are. A provider process is the environment's, not a run's (ADR 0015), and
+ * serves many runs with an environment fixed at spawn, so a run carries the
+ * environment its process would be spawned with rather than the variables:
+ * `key`, which names what they are and never holds a secret, empty when
+ * nothing is supplied; and `supply`, which answers them. An adapter adds the
+ * key to what its process was spawned with, so a run whose key differs from
+ * its live process's is served by a fresh one, as for changed instructions;
+ * it calls `supply` once per spawn, before the process starts, and layers
+ * the variables over its own scrubbed environment. The host releases them
+ * as the pool stops the process, whatever stops it, or as the session's
+ * next spawn replaces it; a release runs once, and an adapter need not call it.
+ */
+export interface ProcessEnvironment {
+  readonly key: string;
+  supply(): Promise<SuppliedVariables>;
+}
+
+/**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
- * factory's tool servers, the trust decision, and the prompt, which is the
- * messages it starts with in order (queued ones first).
+ * factory's tool servers, the trust decision, the process environment, and
+ * the prompt, which is the messages it starts with in order (queued ones first).
  */
 export interface RunInput {
   readonly sessionId: string;
@@ -335,6 +367,8 @@ export interface RunInput {
   readonly containment: RunContainment;
   /** The denylist to project onto the provider's own rules: set on an unattended run, null on an attended one (#140). */
   readonly denylist: RunDenylist | null;
+  /** What the process that serves the run is given beside the provider's own environment (#307); its key empty, and nothing supplied, while no supplier is registered. */
+  readonly processEnvironment: ProcessEnvironment;
   readonly prompt: readonly PromptMessage[];
 }
 
