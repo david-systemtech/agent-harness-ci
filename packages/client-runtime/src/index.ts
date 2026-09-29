@@ -63,6 +63,7 @@ export type { Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
 export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject } from "./notices.js";
 export {
+  pairingDeepLink,
   parsePairingInput,
   type PairingFailure,
   type PairingFailureReason,

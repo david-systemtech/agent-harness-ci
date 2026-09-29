@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { ShellContent, ShellFile, ShellSystem } from "@agent-harness/client-runtime";
+import type { GrantReader, SecretStore, ShellContent, ShellFile, ShellService, ShellSystem } from "@agent-harness/client-runtime";
 import { optionalCount, optionalFilters, optionalFlag, optionalText, options, text, texts } from "./arguments.js";
 import { isCanvasColour, type CanvasStore } from "./canvas.js";
 import type { Answered, Told } from "./channels.js";
@@ -55,6 +55,9 @@ const readChosen = async (path: string, maxBytes: number | undefined): Promise<S
 
 export interface MemberParts {
   readonly electron: DesktopElectron;
+  readonly secrets: SecretStore;
+  readonly localGrant: GrantReader;
+  readonly service: ShellService;
   readonly platform: DesktopPlatform;
   readonly window: ElectronBrowserWindow;
   readonly canvas: CanvasStore;
@@ -62,7 +65,7 @@ export interface MemberParts {
   readonly links: DeepLinkInbox;
 }
 
-export const shellMembers = ({ electron, platform, window, canvas, network, links }: MemberParts): Members => {
+export const shellMembers = ({ electron, secrets, localGrant, service, platform, window, canvas, network, links }: MemberParts): Members => {
   const { dialog, clipboard } = electron;
   const openFile = async (given: unknown): Promise<string[]> => {
     const chosen = options(given, "The open dialog's options");
@@ -127,5 +130,12 @@ export const shellMembers = ({ electron, platform, window, canvas, network, link
     http: environmentHttp,
     "network.allow": (addresses) => network.allow(texts(addresses, "The addresses")),
     "deepLinks.listen": () => links.listen(window.webContents),
+    "secrets.get": (name) => secrets.get(text(name, "A secret's name")),
+    "secrets.set": (name, secret) => secrets.set(text(name, "A secret's name"), text(secret, "A secret")),
+    "secrets.delete": (name) => secrets.delete(text(name, "A secret's name")),
+    "localGrant.read": () => localGrant.read(),
+    "service.install": () => service.install(),
+    "service.start": () => service.start(),
+    "service.status": () => service.status(),
   };
 };

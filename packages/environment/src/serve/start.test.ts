@@ -9,6 +9,7 @@ import {
   HEALTH_PATH,
   HealthDocument,
   PROTOCOL_VERSION,
+  WIRE_PATH,
   registry,
 } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -130,6 +131,21 @@ const rawStatusLine = (address: Address, text: string) =>
     socket.on("error", reject);
   });
 
+/** Raw bytes to the listener and the first status line back, the connection then let go: for an upgrade, which stays open. */
+const firstStatusLine = (address: Address, text: string) =>
+  new Promise<string>((resolve, reject) => {
+    const socket = connect(address.port, address.host, () => socket.write(text));
+    let data = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      data += chunk;
+      if (!data.includes("\r\n")) return;
+      socket.destroy();
+      resolve(data.split("\r\n")[0] ?? "");
+    });
+    socket.on("error", reject);
+  });
+
 const refusesConnections = (address: Address) =>
   new Promise<boolean>((resolve) => {
     const socket = connect(address.port, address.host);
@@ -225,6 +241,25 @@ describe("binding and the Host check", () => {
     for (const host of ["localhost", `localhost:${port}`, "127.0.0.1", `127.0.0.1:${port}`, "[::1]", `[::1]:${port}`, "::1", "LocalHost"]) {
       expect((await getWithHost(env.address, HEALTH_PATH, host)).status, host).toBe(200);
     }
+  });
+
+  it("upgrades a WebSocket from the desktop's app scheme: the Host is checked, the Origin is not (#395)", async () => {
+    const env = await start();
+    const upgrade = (host: string) =>
+      [
+        `GET ${WIRE_PATH} HTTP/1.1`,
+        `Host: ${host}`,
+        "Origin: agent-harness://app",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        // Any sixteen bytes, base64: RFC 6455 asks no more of the key.
+        `Sec-WebSocket-Key: ${Buffer.from("sixteen bytes!!!").toString("base64")}`,
+        "Sec-WebSocket-Version: 13",
+        "",
+        "",
+      ].join("\r\n");
+    expect(await firstStatusLine(env.address, upgrade(`127.0.0.1:${env.address.port}`))).toBe("HTTP/1.1 101 Switching Protocols");
+    expect(await firstStatusLine(env.address, upgrade("evil.example"))).toMatch(/^HTTP\/1\.1 421 /);
   });
 
   it("refuses the environment's own tailnet name while the tailnet is not bound (binding.test.ts has it bound)", async () => {

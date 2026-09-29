@@ -26,6 +26,13 @@ export const ANSWERED = [
   "network.allow",
   /** The renderer's first `deepLinks.onOpen`: answers the links held for it, and has the rest sent as they come. */
   "deepLinks.listen",
+  "secrets.get",
+  "secrets.set",
+  "secrets.delete",
+  "localGrant.read",
+  "service.install",
+  "service.start",
+  "service.status",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 
