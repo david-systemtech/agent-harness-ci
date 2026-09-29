@@ -364,13 +364,14 @@ describe("the forges section in the orientation block", () => {
       sessionId: session.id,
       accountId: "claude-max",
       workspace,
-      trust: undecidedTrust(workspace, null),
+      trust: undecidedTrust({ workspace, repositoryIdentity: null }),
       origin: "client",
       containment: "off",
       injection: { answer: "allow", level: { kind: "environment" } },
       bot: null,
       alwaysOn: [],
       channel: { kind: "system-prompt-append", maxCharacters: null },
+      nativeProjectInstructions: true,
     };
 
     const rendered = section.render(scope);
