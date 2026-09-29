@@ -5,6 +5,7 @@
  * results for the forge account methods. `fixtures.ts` folds them into the
  * package's fixture table.
  */
+import { freshSummary } from "./session-fixtures.js";
 
 interface Fixtures {
   readonly valid: readonly unknown[];
@@ -17,6 +18,9 @@ const otherId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const environmentId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const at = "2026-09-24T01:02:03.456Z";
 const origin = "https://git.systemtech.dev:5526";
+const sessionId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const pullRequestUrl = `${origin}/david/agent-harness/pulls/309`;
+const linked = { url: pullRequestUrl, state: "open", mergedAt: null, closedAt: null };
 const entry = `forge:${forgeAccountId}:${otherId}`;
 const identity = { login: "david", userId: "42" };
 const stored = { kind: "stored", provenance: "pasted", entry };
@@ -270,6 +274,13 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ code: "unreachable", message: "The forge at https://git.systemtech.dev:5526 could not be reached: ECONNREFUSED.", data: { origin } }],
     invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { origin: "git.systemtech.dev" } }],
   },
+  "errors/not_a_pull_request.json": {
+    valid: [
+      { code: "not_a_pull_request", message: "The URL is no pull request's page on github.com.", data: { origin: "https://github.com" } },
+      { code: "not_a_pull_request", message: "The URL names no forge.", data: { origin: null } },
+    ],
+    invalid: [{ code: "not_a_pull_request", message: "m", data: {} }, { code: "not_a_pull_request", message: "m", data: { origin: "github.com" } }],
+  },
   "errors/verification_failed.json": {
     valid: [{ code: "verification_failed", message: "The forge refused the token.", data: { origin, status: 401 } }],
     invalid: [{ code: "verification_failed", message: "m", data: { origin } }, { code: "verification_failed", message: "m", data: { origin: "nowhere", status: 401 } }, { code: "identity_mismatch", message: "m", data: { origin, status: 401 } }],
@@ -424,6 +435,21 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
     result: {
       valid: [{ owners: [{ login: "david", kind: "user" }] }, { owners: [{ login: "david", kind: "user" }, { login: "systemtech", kind: "organisation" }] }],
       invalid: [{}, { owners: [{ login: "david" }] }, { owners: "david" }],
+    },
+  },
+  "forge.pullRequests.link": {
+    params: { valid: [{ commandId, sessionId, url: pullRequestUrl }, { commandId, sessionId, url: `${pullRequestUrl}/files#diff` }], invalid: [{ commandId, sessionId }, { commandId, sessionId, url: "" }, { sessionId, url: pullRequestUrl }] },
+    result: { valid: [{ summary: freshSummary }, { summary: { ...freshSummary, pullRequests: [linked] } }], invalid: [{}, { summary: { ...freshSummary, pullRequests: [{ ...linked, state: "draft" }] } }] },
+  },
+  "forge.pullRequests.unlink": {
+    params: { valid: [{ commandId, sessionId, url: pullRequestUrl }], invalid: [{ commandId, url: pullRequestUrl }, { commandId, sessionId, url: 309 }] },
+    result: { valid: [{ summary: freshSummary }], invalid: [{}, { summary: null }] },
+  },
+  "forge.pullRequests.refresh": {
+    params: { valid: [{ sessionId }], invalid: [{}, { sessionId: "s-1" }] },
+    result: {
+      valid: [{ pullRequests: [] }, { pullRequests: [linked, { ...linked, state: "merged", mergedAt: at, closedAt: at }] }],
+      invalid: [{}, { pullRequests: [{ ...linked, mergedAt: "yesterday" }] }, { pullRequests: [{ url: pullRequestUrl }] }],
     },
   },
 };

@@ -1108,6 +1108,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   launcher.onQuery((query) => lifecycle.answer(query));
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
+  closers.push(forge.links.start());
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
   // verifications (#366), on the clock, and every fifteen minutes.
   keyManagerConnections.startSigningInAndVerifying();

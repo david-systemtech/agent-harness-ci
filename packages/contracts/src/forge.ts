@@ -520,6 +520,17 @@ export const parsePullRequestUrl = (kind: ForgeKind, url: string): PullRequestRe
   return Number.isSafeInteger(value) ? { origin, owner, repository, number: value } : null;
 };
 
+/**
+ * A pull request's web URL on a forge of `kind`, the page `parsePullRequestUrl`
+ * reads: GitHub's `/<owner>/<repository>/pull/<number>`, Forgejo's and
+ * Gitea's `/<owner>/<repository>/pulls/<number>`, on the reference's origin.
+ * None for the reserved GitLab, whose merge requests nothing reads yet.
+ */
+export const pullRequestUrl = (kind: ForgeKind, reference: PullRequestReference): string | null => {
+  const segment = KIND_RULES[kind].pullRequestSegment;
+  return segment === null ? null : `${reference.origin}/${reference.owner}/${reference.repository}/${segment}/${reference.number}`;
+};
+
 // gh ------------------------------------------------------------------------------
 
 /**

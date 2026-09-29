@@ -45,6 +45,7 @@ import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
 import { detectForge, type Detection } from "./detection.js";
+import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -100,6 +101,8 @@ import { detectForge, type Detection } from "./detection.js";
  *   (`detection.ts`), with the token pages its kind offers; an add without
  *   a kind detects it before the credential goes anywhere. The owners a
  *   forge account may create a repository under are read live, never kept.
+ * - **A session's pull requests** (#317): linked, found at a run's end and
+ *   kept current through the operations (`pull-request-links.ts`).
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -257,6 +260,8 @@ export interface ForgeService extends ForgeOperations {
    * `verification_failed` for a refusal, `unreachable`.
    */
   owners(forgeAccountId: string): Promise<ResultOf<"forge.orgs.list">>;
+  /** A session's pull requests (#317): linked, found at a run's end, and kept current. */
+  readonly links: PullRequestLinks;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -401,6 +406,15 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     readCredential: readHeld,
     verifier,
     originMissing: (origin, operation) => missing.record(origin, operation),
+  });
+
+  const links = createPullRequestLinks({
+    log,
+    clock,
+    reader,
+    accounts: () => listForgeAccounts(reader),
+    pullRequests: operations.pullRequests,
+    repositories: operations.repositories,
   });
 
   /** Holds a stored token's registration again with its forms for the forge account as it is now: a changed login names another Basic-auth form. */
@@ -929,6 +943,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     },
 
     ...operations,
+
+    links,
 
     secrets,
 
