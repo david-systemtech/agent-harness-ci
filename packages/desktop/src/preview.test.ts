@@ -111,7 +111,10 @@ describe("the preview scheme", () => {
   it("refuses a grant that is not bytes with a media type, one too large, and one asked from anything but the app's page", async () => {
     const { shell } = await start();
     await expect(shell().preview.grant({ bytes: "<h1>text</h1>" as unknown as Uint8Array, mediaType: "text/html" })).rejects.toThrow(/bytes/);
-    await expect(shell().preview.grant({ bytes: PAGE, mediaType: "text/html\r\nx-other: 1" })).rejects.toThrow(/media type/);
+    // Nothing that could end the header, next to a parameter's semicolon either.
+    for (const mediaType of ["text/html\r\nx-other: 1", "text/html\r\n;x=1", "text/html;\r\nx=1", "text/html; charset=utf-8\n"]) {
+      await expect(shell().preview.grant({ bytes: PAGE, mediaType })).rejects.toThrow(/media type/);
+    }
     await expect(shell().preview.grant({ bytes: new Uint8Array(8 * 1024 * 1024 + 1), mediaType: "text/html" })).rejects.toThrow(/8 MiB/);
     await expect(shell("agent-harness-preview://aa/").preview.grant({ bytes: PAGE, mediaType: "text/html" })).rejects.toThrow(/the app's own page only/);
   });

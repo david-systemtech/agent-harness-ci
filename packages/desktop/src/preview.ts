@@ -41,8 +41,9 @@ export const PREVIEW_SCHEME_REGISTRATION: SchemeRegistration = {
 
 /**
  * The policy the previewed document runs under: its inline script (with
- * `eval`, which a page an agent wrote may well use) and inline style, and
- * pictures, fonts and media from `data:` and `blob:` URLs it holds itself;
+ * `eval`, which a page an agent wrote may well use) and inline style,
+ * pictures and media from `data:` and `blob:` URLs it holds itself, and
+ * fonts from `data:` URLs;
  * nothing from any host, no connections, no forms, and sandboxed with
  * scripts and without same-origin, as its frame is. No `frame-ancestors`:
  * the app's page frames it from another scheme, and no other page can load
@@ -67,8 +68,8 @@ export const PREVIEWS_KEPT = 16;
 /** The most a grant may hold: the Preview pane grants the 2 MiB `files.read` reads of a file at most, which as UTF-8 again is at most three times as long (a byte that was not UTF-8 read as U+FFFD). */
 const MOST_BYTES = 8 * 1024 * 1024;
 
-/** A media type as a `content-type` header carries it: `type/subtype`, with parameters; nothing that could end the header. */
-const MEDIA_TYPE = /^[\w.+-]+\/[\w.+-]+(\s*;\s*[\w.+-]+=("[^"\r\n]*"|[\w.+-]+))*$/;
+/** A media type as a `content-type` header carries it: `type/subtype`, with parameters, spaced by spaces and tabs alone; nothing that could end the header. */
+const MEDIA_TYPE = /^[\w.+-]+\/[\w.+-]+([ \t]*;[ \t]*[\w.+-]+=("[^"\r\n]*"|[\w.+-]+))*$/;
 
 const answer = (status: number, body: Uint8Array | null, mediaType: string): Response =>
   new Response(body, {
