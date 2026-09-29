@@ -5,6 +5,7 @@ import {
   GITHUB_ORIGIN,
   deriveForgeSlug,
   forgeGitUsername,
+  forgeTokenPages,
   invalidParams,
   normaliseRemote,
   type ErrorOf,
@@ -43,6 +44,7 @@ import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./h
 import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
+import { detectForge, type Detection } from "./detection.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -94,6 +96,10 @@ import { createForgeOperations, type ForgeOperations } from "./operations.js";
  * - **Operations** (#316): repositories, issues, pull requests, releases
  *   and a file on a branch (`operations.ts`), each reading the credential
  *   for itself, and each write teaching its capability.
+ * - **Detection** (#313): which forge a URL is on, asked with no credential
+ *   (`detection.ts`), with the token pages its kind offers; an add without
+ *   a kind detects it before the credential goes anywhere. The owners a
+ *   forge account may create a repository under are read live, never kept.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -237,6 +243,20 @@ export interface ForgeService extends ForgeOperations {
   gitRejected(forgeAccountId: string, origin: ForgeOrigin): void;
   /** The origins a harness operation was refused on that count now, for the Forges step's coverage check: recorded within seven days, and covered by no forge account since. */
   missingOrigins(): MissingOrigin[];
+  /**
+   * Which forge a URL in any form is on (`forge.detect`): its origin, kind
+   * and version, and the token pages with what to grant. `kind_unsupported`
+   * for GitLab, `not_a_forge`, `unreachable`, and `invalid_params` for a URL
+   * that is no remote.
+   */
+  detect(url: string): Promise<ResultOf<"forge.detect">>;
+  /**
+   * The owners the forge account may create a repository under
+   * (`forge.orgs.list`), read from the forge now: `not_found` for one the
+   * environment does not hold, `credential_unavailable`,
+   * `verification_failed` for a refusal, `unreachable`.
+   */
+  owners(forgeAccountId: string): Promise<ResultOf<"forge.orgs.list">>;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -629,17 +649,23 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     throw new ContractError(invalidParams([{ code: "custom", path: ["credential"], message }], message));
   };
 
+  /** The forge a URL in any form names, and the repository path it names there, if any; `invalid_params` for a URL that is no remote. */
+  const remoteOf = (url: string) => {
+    const remote = normaliseRemote(url);
+    if (remote === null) {
+      const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
+      throw new ContractError(invalidParams([{ code: "custom", path: ["url"], message }], message));
+    }
+    return remote;
+  };
+
   /**
    * The forge a URL in any form names, and the repository path it names
    * there, if any; its kind as given, or GitHub for github.com, which alone
    * is known by its name. `invalid_params` otherwise.
    */
   const forgeOf = (url: string, given: ForgeKind | undefined) => {
-    const remote = normaliseRemote(url);
-    if (remote === null) {
-      const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
-      throw new ContractError(invalidParams([{ code: "custom", path: ["url"], message }], message));
-    }
+    const remote = remoteOf(url);
     const kind = given ?? (remote.origin === GITHUB_ORIGIN ? "github" : undefined);
     if (kind === undefined) {
       const message = "Name the forge's kind (github, forgejo or gitea): only github.com is known by its name.";
@@ -648,16 +674,37 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return { origin: remote.origin, kind, path: remote.path };
   };
 
+  /** Why detection found no forge a forge account is added for at `origin`: GitLab's, none, or none that answered. */
+  const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) => {
+    switch (found.outcome) {
+      case "unsupported":
+        return { code: "kind_unsupported", message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`, data: { origin, kind: found.kind } } as const;
+      case "not-a-forge":
+        return {
+          code: "not_a_forge",
+          message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
+          data: { origin },
+        } as const;
+      case "unreachable":
+        return { code: "unreachable", message: found.message, data: { origin } } as const;
+    }
+  };
+
   const add: ForgeAdd = {
     async prepare(params, context) {
       const forgeAccountId = params.forgeAccountId.toLowerCase();
       const given = params.credential;
       const formed = given.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
-      const { origin, kind } = forgeOf(params.url, params.kind);
-      refuseGhOffGitHub(given, kind);
+      const { origin } = remoteOf(params.url);
+      if (params.kind !== undefined) refuseGhOffGitHub(given, params.kind);
       const aliases = aliasOrigins(params.aliases, origin) ?? [];
       const doomed = addRefusal(forgeAccountId, [origin, ...aliases], params.slug);
       if (doomed !== null) return rejecting<"forge.accounts.add">(doomed);
+      // A kind not given is detected before the credential goes anywhere, so a token is never sent to an address of an unknown kind.
+      const found: Detection = params.kind === undefined ? await detectForge(origin, providerOptions) : { outcome: "detected", kind: params.kind, version: null };
+      if (found.outcome !== "detected") return rejecting<"forge.accounts.add">(undetected(origin, found));
+      const { kind } = found;
+      refuseGhOffGitHub(given, kind);
 
       const checked = await check<never>({ target: { id: forgeAccountId, origin, kind, login: null }, given, context, formed, purpose: "add", refuse: () => null, aliases });
       if (checked.rejected !== undefined) return rejecting<"forge.accounts.add">(checked.rejected);
@@ -819,6 +866,32 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         return { origin, identity: found.identity, capabilities: found.capabilities, tokenInformation: found.tokenInformation, problem: found.problem };
       } finally {
         release();
+      }
+    },
+
+    async detect(url) {
+      const { origin } = remoteOf(url);
+      const found = await detectForge(origin, providerOptions);
+      if (found.outcome !== "detected") throw new ContractError(undetected(origin, found));
+      return { origin, kind: found.kind, version: found.version, tokenPages: forgeTokenPages(found.kind, origin) };
+    },
+
+    async owners(forgeAccountId) {
+      const id = forgeAccountId.toLowerCase();
+      const account = liveForgeAccount(reader, id);
+      if (account === null) throw new ContractError(notFound(id));
+      const { origin } = account;
+      const answer = await operations.repositories.owners({ origin, purpose: "list the owners a repository may be created under" });
+      switch (answer.outcome) {
+        case "done":
+          return { owners: answer.value };
+        case "failed":
+          throw new ContractError({ code: "verification_failed", message: answer.message, data: { origin, status: answer.status } });
+        case "unreachable":
+          throw new ContractError({ code: "unreachable", message: answer.message, data: { origin } });
+        case "refused":
+          // Removed while it was asked: nothing serves its origin now.
+          throw new ContractError(answer.error.code === "forge_account_missing" ? notFound(id) : answer.error);
       }
     },
 

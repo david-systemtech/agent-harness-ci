@@ -9,6 +9,7 @@ import {
   type ForgeCapabilityName,
   type ForgeKind,
   type ForgeOrigin,
+  type ForgeOwner,
   type SecretShapedError,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
@@ -73,6 +74,9 @@ import { FORGE_ACTOR, type Verifier } from "./verifier.js";
  *   field and never the value, and nothing reaches the forge.
  * - **Rate limits** an operation meets pause the forge account's
  *   scheduled verifications, as a verification's do.
+ * - **Owners** (#313): the owners a repository may be created under, the
+ *   forge account's user and then its organisations, read from the forge
+ *   with its credential on every call and never kept (ADR 0020).
  */
 
 /** Where an operation acts, and why. */
@@ -131,6 +135,8 @@ export interface ForgeOperations {
     create(request: RepositoryCreationRequest): Promise<ForgeAnswer<ForgeRepository>>;
     /** Reads the content of the file at `path` on the branch `ref`. */
     file(request: RepositoryTarget & { readonly path: string; readonly ref: string }): Promise<ForgeAnswer<ForgeFile>>;
+    /** The owners the forge account may create a repository under: its user, as the forge answers it now, then the organisations it is a member of. */
+    owners(request: ForgeTarget): Promise<ForgeAnswer<ForgeOwner[]>>;
   };
   readonly issues: {
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgeIssue>>;
@@ -169,6 +175,9 @@ export interface ForgeOperationsOptions {
   /** Records that `operation` was refused on `origin` for want of a forge account. */
   readonly originMissing: (origin: ForgeOrigin, operation: string) => void;
 }
+
+/** The most organisations an owner list reads (a chosen default): more than anyone picks from. */
+const MAX_OWNER_ORGANISATIONS = 100;
 
 /** The statuses that refuse a write, or deny a pull-request read, as the capability's: a 404 counts for a write, whose target was just read. */
 const REFUSING_WRITE: ReadonlySet<number> = new Set([401, 403, 404]);
@@ -280,8 +289,8 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     return refused(forgeAccountMissing(origin, `it refused an anonymous read (HTTP ${answer.status})`));
   };
 
-  /** Reaches the target's forge for a write, which needs the forge account serving it. */
-  const write = async <T>(target: ForgeTarget, work: (reached: Writing) => Promise<ForgeAnswer<T>>): Promise<ForgeAnswer<T>> => {
+  /** Reaches the target's forge with the forge account serving it, which a write needs, and so does reading the account's own owners. */
+  const withAccount = async <T>(target: ForgeTarget, work: (reached: Writing) => Promise<ForgeAnswer<T>>): Promise<ForgeAnswer<T>> => {
     const located = locate(target);
     if ("code" in located) return refused(located);
     const { origin, account } = located;
@@ -333,7 +342,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
       },
 
       create: async (request) =>
-        write(request, async (reached) => {
+        withAccount(request, async (reached) => {
           const { provider: forge, origin, token, call, account } = reached;
           const named = organisationOf(request.organisation);
           const organisation = named === undefined || named.toLowerCase() === account.identity?.login.toLowerCase() ? null : named;
@@ -351,6 +360,17 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
         const path = filePathOf(request.path);
         return read(request, ({ provider: forge, origin, token, call }) => forge.file(origin, token, fullName, path, request.ref, call));
       },
+
+      owners: async (request) =>
+        withAccount(request, async ({ provider: forge, origin, token, call }) => {
+          const user = await forge.identity(origin, token, call);
+          if (user.outcome === "unreachable") return user;
+          if (user.outcome === "refused") return { outcome: "failed", status: user.status, message: user.message };
+          const organisations = await forge.organisations(origin, token, MAX_OWNER_ORGANISATIONS, call);
+          if (organisations.outcome !== "done") return organisations;
+          const owners: ForgeOwner[] = [{ login: user.identity.login, kind: "user" }, ...organisations.value.map((login): ForgeOwner => ({ login, kind: "organisation" }))];
+          return { ...organisations, value: owners };
+        }),
     },
 
     issues: {
@@ -363,7 +383,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
         const fullName = fullNameOf(request.repository);
         const secret = secretIn("issue", request);
         if (secret !== null) return refused(secret);
-        return write(request, async (reached) => {
+        return withAccount(request, async (reached) => {
           const { provider: forge, origin, token, call } = reached;
           const target = await forge.repository(origin, token, fullName, call);
           if (target.outcome !== "done") return target;
@@ -395,7 +415,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
         const fullName = fullNameOf(request.repository);
         const secret = secretIn("pull request", request);
         if (secret !== null) return refused(secret);
-        return write(request, async (reached) => {
+        return withAccount(request, async (reached) => {
           const { provider: forge, origin, token, call } = reached;
           const target = await forge.repository(origin, token, fullName, call);
           if (target.outcome !== "done") return target;
@@ -406,7 +426,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
 
       async merge(request) {
         const [fullName, number] = [fullNameOf(request.repository), numberOf(request.number)];
-        return write(request, async (reached) => {
+        return withAccount(request, async (reached) => {
           const { provider: forge, origin, token, call } = reached;
           const target = readPullRequests(reached, "read a pull request", await forge.pullRequest(origin, token, fullName, number, call));
           if (target.outcome !== "done") return target;
