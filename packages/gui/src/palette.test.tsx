@@ -134,6 +134,9 @@ describe("its entries", () => {
       "/containmentSet how contained this session's runs are",
       "/terminalOpen a terminal on the session's environment, in a pane",
       "/filesBrowse the workspace's files, and read one in the pager",
+      "/forkFork this session n prompts back; bare, at the end",
+      // Nothing is said yet, so the rewind a bare /rewind is has nowhere to go: dim with the runtime's reason.
+      "/rewindRewind n prompts, one by default; undo takes the rewind backNo message a run has read to rewind to.",
     ]);
     // Its own keys are not listed: the list's, and the one that opens it.
     expect(within(palette() as HTMLElement).queryByRole("group", { name: "A list to choose from" })).toBeNull();
@@ -222,6 +225,25 @@ describe("choosing an entry", () => {
     const { app } = await opened({}, shell);
     await inComposer(app, "{Control>}k{/Control}/attach{Enter}");
     await waitFor(() => expect(shell.calls.filter(([member]) => member === "dialogs.openFileContents")).toHaveLength(1));
+  });
+
+  it("runs /rewind and /fork as if typed bare: a rewind one prompt back, and a fork of the whole session", async () => {
+    const { app, env, transcript, session } = await opened();
+    for (const text of ["Fix the receipts", "Add the tests"]) {
+      const { runId } = env.startRun(session, text);
+      env.emit(session, "assistant.text", { runId, itemId: `reply-${text}`, text: `Reply to ${text}.`, aborted: false });
+      env.endRun(session, runId);
+      await within(transcript).findByText(`Reply to ${text}.`);
+    }
+    await inComposer(app, "{Control>}k{/Control}/rewind");
+    await waitFor(() => expect(highlighted()).toMatch(/^\/rewind/));
+    await app.user.keyboard("{Enter}");
+    await waitFor(() => expect(sent(env, "sessions.rewind")).toEqual([expect.objectContaining({ sessionId: session, messageId: env.messageId(session, "Add the tests") })]));
+
+    await inComposer(app, "{Control>}k{/Control}");
+    await app.user.click(entry("/fork"));
+    await waitFor(() => expect(sent(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: session })]));
+    expect(sent(env, "sessions.fork")[0]).not.toHaveProperty("atMessageId");
   });
 
   it("moves with ↑ and ↓ past a dim entry, and chooses with Enter where the focus was", async () => {
