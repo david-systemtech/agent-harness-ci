@@ -328,7 +328,8 @@ describe("when the sweep runs", () => {
 
     const answer = await updateSettings(client, { "sessions.autoSettleAfterIdle": { amount: 1, unit: "weeks" } });
 
-    expect(answer.receipt.sequence).toBe(head + 1);
+    // The change and its settings.changed notice (#391), the sweep's settle after the commit.
+    expect(answer.receipt.sequence).toBe(head + 2);
     expect(eventsAfter(t, head).map((event) => [event.type, event.actor])).toEqual([
       ["settings.updated", `client_session:${client.hello.clientSessionId}`],
       ["session.settled", SWEEP_ACTOR],

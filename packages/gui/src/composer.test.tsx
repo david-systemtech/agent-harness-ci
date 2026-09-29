@@ -311,11 +311,12 @@ const WINDOW_COMMANDS = [
   "/handoffMove this conversation to another account, or start it fresh there",
   "/accountSwitch the account this session's next run uses, or add one",
   "/containmentSet how contained this session's runs are",
+  "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
 ];
 
-/** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it. */
-const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7]];
+/** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[8]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {

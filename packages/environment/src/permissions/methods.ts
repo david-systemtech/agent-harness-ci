@@ -4,7 +4,6 @@ import {
   BYPASS_SENTENCE,
   ContractError,
   PERMISSION_SETTINGS_KEYS,
-  SETTINGS_STREAM_KIND,
   invalidParams,
   type ContainmentReport,
   type Mode,
@@ -14,7 +13,6 @@ import {
   type ContainmentLevel,
   type SessionContainmentSetPayload,
   type SessionModeSetPayload,
-  type SettingsUpdatedPayload,
 } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import { byClientSession, type AccessLog } from "../auth/access-log.js";
@@ -26,6 +24,7 @@ import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import type { SessionModeClamp } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import { recordSettingsChange, settingsStream } from "../settings/changes.js";
 import { presetContainmentDefault, unenforceable } from "./containment.js";
 import { readPermissionSettings, readSessionContainment, readStoredContainmentDefault } from "./permissions-store.js";
 import { denylistCounts, readDenylist } from "./denylist-store.js";
@@ -177,11 +176,12 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
      * was stored is stored even when it equals the preset, so an explicit
      * choice does not follow the probe afterwards. The values that
      * change are the settings stream's `settings.updated` (the command's
-     * aggregate), and the access log's `settings.changed` in the same
-     * transaction.
+     * aggregate) with the environment notice `settings.changed` beside it
+     * (`settings/changes.ts`), and the access log's `settings.changed` in the
+     * same transaction.
      */
     "permissions.settings.set": (params, context) => {
-      const aggregate = { kind: SETTINGS_STREAM_KIND, id: options.environmentId };
+      const aggregate = settingsStream(options.environmentId);
       const held = settings();
       const asked = params.values;
       const containment = asked["permissions.containment.default"];
@@ -205,8 +205,8 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       if (firstBypass) accessLog.record(context.tx, "bypass.acknowledged", { setting: "permissions.unattended.mode", sentence: BYPASS_SENTENCE }, attribution);
       const changed = Object.fromEntries(keys.map((key) => [key, next[key]]));
       accessLog.record(context.tx, "settings.changed", { area: "permissions", keys, values: changed }, attribution);
-      const updated: SettingsUpdatedPayload = { values: changed };
-      return { aggregate, result: { values }, events: [{ type: "settings.updated", payload: updated }] };
+      recordSettingsChange(log, options.environmentId, changed, context);
+      return { aggregate, result: { values } };
     },
   };
 };

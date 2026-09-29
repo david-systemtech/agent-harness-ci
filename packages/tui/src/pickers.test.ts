@@ -647,7 +647,7 @@ describe("/settings by row (#389)", () => {
     await app.press(KEY.esc);
     await command(app, "/settings secrets");
     await app.waitFor(
-      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, environments.machines, environments.service.",
+      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, environments.machines, environments.service, appearance.theme.",
     );
   });
 });

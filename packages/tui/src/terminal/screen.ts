@@ -1,4 +1,5 @@
 import xterm from "@xterm/headless";
+import { xtermFull, xtermText, type TextScreen } from "@agent-harness/client-runtime";
 import { TERMINAL_SCROLLBACK } from "@agent-harness/contracts";
 import { colourOf, sameStyle, type Span } from "../transcript/lines.js";
 
@@ -29,11 +30,10 @@ export interface ScreenModes {
   readonly bracketedPaste: boolean;
 }
 
-export interface Screen {
+/** The pane's screen, which a one-off's output is read through too (the client runtime's `TextScreen`). */
+export interface Screen extends TextScreen {
   cols(): number;
   rows(): number;
-  /** Takes `data` in; settles once the emulator has. */
-  write(data: string): Promise<void>;
   /** Starts again from nothing (a full reset: the screen, the scrollback, the modes), then takes `data` in. */
   reset(data?: string): Promise<void>;
   resize(cols: number, rows: number): void;
@@ -41,14 +41,9 @@ export interface Screen {
   view(options?: { readonly cursor?: boolean }): readonly (readonly Span[])[];
   /** Every line the main buffer holds, the oldest first, trailing blank lines dropped: the retained scrollback. */
   history(): readonly (readonly Span[])[];
-  /** The main buffer as text, lines the width wrapped joined again, each line's trailing blanks and the trailing blank lines dropped. */
-  text(): string;
-  /** Whether the main buffer holds as many lines as it can, the rows and the scrollback: a line more drops its oldest. */
-  full(): boolean;
   modes(): ScreenModes;
   /** What the emulator answers a query with (a cursor position report, device attributes), as keys to send back. */
   onAnswer(listener: (data: string) => void): () => void;
-  dispose(): void;
 }
 
 type Cell = NonNullable<ReturnType<NonNullable<ReturnType<xterm.Terminal["buffer"]["active"]["getLine"]>>["getCell"]>>;
@@ -153,23 +148,8 @@ export const createScreen = (options: { readonly cols: number; readonly rows: nu
       while (lines.length > 0 && (lines.at(-1)?.length ?? 0) === 0) lines.pop();
       return lines;
     },
-    text() {
-      const buffer = term.buffer.normal;
-      const out: string[] = [];
-      for (let y = 0; y < buffer.length; y++) {
-        const line = buffer.getLine(y);
-        if (!line) continue;
-        // A line the width wrapped goes on with the next, whose own blanks are part of it.
-        const wrapsOn = buffer.getLine(y + 1)?.isWrapped === true;
-        const piece = line.translateToString(!wrapsOn);
-        if (line.isWrapped && out.length > 0) out[out.length - 1] += piece;
-        else out.push(piece);
-      }
-      const trimmed = out.map((line) => line.trimEnd());
-      while (trimmed.length > 0 && trimmed.at(-1) === "") trimmed.pop();
-      return trimmed.join("\n");
-    },
-    full: () => term.buffer.normal.length >= term.rows + (term.options.scrollback ?? 0),
+    text: () => xtermText(term),
+    full: () => xtermFull(term),
     modes: () => ({ applicationCursorKeys: term.modes.applicationCursorKeysMode, bracketedPaste: term.modes.bracketedPasteMode }),
     onAnswer(listener) {
       const subscription = term.onData(listener);

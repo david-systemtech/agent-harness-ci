@@ -17,7 +17,9 @@ export const APP_SCHEME_REGISTRATION: SchemeRegistration = {
 /**
  * The content policy every page and file of the app scheme carries: nothing
  * by default; scripts and styles from the app scheme only, so no inline
- * script, `eval` or injected stylesheet runs; pictures from the app scheme
+ * script, `eval` or injected stylesheet runs (the terminal pane's xterm.js
+ * puts its stylesheets through the CSSOM, which `style-src` does not cover:
+ * `gui`'s `terminal/xterm-styles.ts`, #486); pictures from the app scheme
  * and the `data:` pictures a transcript draws; WebSockets, which the request
  * lockdown narrows to the addresses the renderer declared. HTTP to
  * environments goes through the shell, so no `http:` or `https:` connects.

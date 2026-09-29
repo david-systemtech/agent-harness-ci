@@ -75,4 +75,6 @@ export const SESSION_WRITE_COMMANDS = {
   "routines.disable": { ordered: "Links the copy a move made, which a later disable may not name; it follows the enable it undoes." },
   "routines.delete": { ordered: "Ends the routine's life in the list." },
   "routines.import": { ordered: "Makes routines or replaces one's definition, all or nothing; refused name_taken for a name another routine holds." },
+  "forge.pullRequests.link": { ordered: "Adds one pull request, as the forge answers it when the link is applied, to the set the session holds (#317)." },
+  "forge.pullRequests.unlink": { ordered: "Takes one pull request from the set the session holds, and keeps discovery from linking it again; it follows the link it undoes." },
 } as const satisfies { readonly [N in SessionWriteMethodName]: WriteCommandKind };

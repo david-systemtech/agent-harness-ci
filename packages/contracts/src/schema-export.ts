@@ -100,6 +100,7 @@ import {
   IdleSpan,
   IdleSpanUnit,
   SETTINGS_EVENT_TYPES,
+  SettingsChangedNoticePayload,
   SettingsEventType,
   SettingsKeyName,
   SettingsPatch,
@@ -298,6 +299,7 @@ import {
   IdentityMismatchError,
   KindUnsupportedError,
   NotAForgeError,
+  NotAPullRequestError,
   VerificationFailedError,
 } from "./methods/forge.js";
 import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
@@ -860,6 +862,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "settings/notices/settings.changed.json", title: "SettingsChangedNoticePayload", schema: SettingsChangedNoticePayload },
   { path: "settings/band-id.json", title: "SettingsBandId", schema: SettingsBandId },
   { path: "settings/band.json", title: "SettingsBand", schema: SettingsBand },
   { path: "settings/row-scope.json", title: "SettingsRowScope", schema: SettingsRowScope },
@@ -987,6 +990,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
   { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
   { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
+  { path: "errors/not_a_pull_request.json", title: "NotAPullRequestError", schema: NotAPullRequestError },
   { path: "forge/errors/unreachable.json", title: "ForgeUnreachableError", schema: ForgeUnreachableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),

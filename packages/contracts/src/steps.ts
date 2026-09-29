@@ -210,8 +210,8 @@ export const anyValidValue =
  * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
  * rules and settings") and the transcript compaction window beside them
  * (#123), which sit on `environments.service`; Permissions (#129's keys,
- * #141's entry); and Appearance, which writes nothing until its theme
- * (ADR 0023, #391). The other steps arrive as their features are built,
+ * #141's entry); and Appearance, for the theme (ADR 0023, #391), whose
+ * contrast it checks. The other steps arrive as their features are built,
  * each with its budget class, cadence, triggers and skip check as the Set
  * up specification tables them (#88).
  */
@@ -337,13 +337,22 @@ export const STEP_REGISTRY = [
     triggers: ["settings.updated", "denylist.changed"],
   },
   {
-    // The Appearance step (ADR 0023), at home on appearance.theme. It writes nothing since its session keys moved to
-    // Your machines (#568), until #391 adds appearance.theme; a settings change re-runs it.
+    // The Appearance step (ADR 0023), at home on appearance.theme, where the theme it writes sits (#391; its session
+    // keys moved to Your machines, #568). The theme is a preference: done once set or preset (ADR 0031), unless a seed
+    // of it could not hold the theme package's rules where its role puts it, which the environment's contrast check
+    // derives both ladders to find; Restore writes the preset theme back through settings.update. Never skipped; a
+    // settings change re-runs it.
     id: "appearance",
     home: "appearance.theme",
-    writes: [],
-    checks: [],
-    stateChecks: [],
+    writes: ["appearance.theme"],
+    checks: [{ key: "appearance.theme", check: anyValidValue("appearance.theme") }],
+    stateChecks: [
+      {
+        id: "appearance.contrast",
+        holds: "Both ladders of the theme meet the contrast, gamut and hue-separation rules with no seed clamped.",
+        actions: ["restore"],
+      },
+    ],
     links: [],
     skippable: false,
     budget: "local",
