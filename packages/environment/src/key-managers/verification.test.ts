@@ -391,6 +391,7 @@ describe("when a verification runs", () => {
     // The start signed in; its verification waits on the clock, which this test moves.
     expect(bao.requests.map((request) => request.path)).not.toContain("sys/capabilities-self");
     again.clock.advance(0);
+    // What a verification found is seen only as it ends, the base path it suggests answered (#689): the next is set fifteen minutes from now.
     await vi.waitFor(async () => expect((await list(reader))[0]).toMatchObject({ canMint: true, verifiedAt: MANUAL_CLOCK_START }), EVENTUALLY);
 
     again.clock.advance(15 * MINUTE - 1);
@@ -412,6 +413,7 @@ describe("when a verification runs", () => {
 
     await signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
     t.clock.advance(0);
+    // Seen only as the sign-in's verification ends, its suggestion answered (#689): the update's is one of its own, never joined to it.
     await vi.waitFor(async () => expect((await list(client))[0]).toMatchObject({ canMint: false, policies: [{ name: "default" }, { name: "agent-read" }] }), EVENTUALLY);
 
     await update(client, { connectionId: connection.id, label: "Work" });
