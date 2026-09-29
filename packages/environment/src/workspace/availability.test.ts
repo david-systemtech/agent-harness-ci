@@ -269,6 +269,40 @@ describe("a look at a directory that does not answer, as on a network mount whos
     expect((await get(client, id)).workspaceMissingSince).toBeNull();
   });
 
+  it("asks once about a path two sessions share, when their looks overlap, and not again while that call is out (#670 review)", async () => {
+    const dead = directory();
+    const asked: string[] = [];
+    let deadAsked: () => void = () => undefined;
+    const lookedAtDead = new Promise<void>((resolve) => (deadAsked = resolve));
+    const t = await start({
+      workspaces: {
+        // Long enough for the second session's look to start while the first waits; the outcome holds either way.
+        lookTimeoutMs: 1_000,
+        isDirectory: async (path) => {
+          asked.push(path);
+          if (path !== dead) return true;
+          deadAsked();
+          return new Promise<boolean>(() => undefined);
+        },
+      },
+    });
+    await t.env.workspaces.availabilityPass;
+    const client = await t.client();
+    const one = await create(client, { workspace: { kind: "directory", path: dead } });
+    const other = await create(client, { workspace: { kind: "session", sessionId: one.id } });
+    expect(other.result?.summary.workspace).toEqual({ kind: "directory", path: dead });
+
+    const first = run(client, "runs.start", { sessionId: one.id, text: "Go on" });
+    await lookedAtDead;
+    const second = run(client, "runs.start", { sessionId: other.id, text: "Go on" });
+
+    const refused = { status: "rejected", error: { data: { reason: "workspace_missing", path: dead } } };
+    expect((await first).receipt).toMatchObject(refused);
+    expect((await second).receipt).toMatchObject(refused);
+    expect((await run(client, "runs.start", { sessionId: other.id, text: "Again" })).receipt).toMatchObject(refused);
+    expect(asked.filter((path) => path === dead)).toHaveLength(1);
+  });
+
   it("asks about no other path while two looks are overdue, keeping the rest of the thread pool free: the session's mark stays as it was", async () => {
     const dead = Array.from({ length: MAX_UNANSWERED }, () => directory());
     const asked: string[] = [];

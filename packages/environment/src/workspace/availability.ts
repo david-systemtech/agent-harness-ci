@@ -26,7 +26,8 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * returns. So each look has its own time bound, in real time as git's and
  * a forge's are: a directory that does not answer within it counts as not
  * there (a run could not start in it either), and is not asked again until
- * its first call has returned, so one dead mount holds one thread per path;
+ * that call has returned; looks at one path while its call is out share
+ * it, so one dead mount holds one thread per path;
  * and while `MAX_UNANSWERED` looks are overdue, no other path is asked,
  * leaving the rest of the pool to everything else: such a look finds
  * nothing, and the mark stays as it was.
@@ -92,6 +93,12 @@ export interface AvailabilityWatcher {
   start(): RunningWatcher;
 }
 
+/** A `stat` out for one path: whether it found a directory, once it returns, and whether a look has waited past its bound for it. */
+interface Call {
+  readonly there: Promise<boolean>;
+  overdue: boolean;
+}
+
 /** A session as the watcher reads it. */
 interface SessionRow {
   readonly deleted_at: string | null;
@@ -112,8 +119,8 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
   const { log, clock } = options;
   const isDirectory = options.isDirectory ?? statDirectory;
   const timeoutMs = options.lookTimeoutMs ?? LOOK_TIMEOUT_MS;
-  /** The paths whose look is past its time and has not returned. */
-  const overdue = new Set<string>();
+  /** The call out for each path: looks at one path while it is out share it, so a path holds one thread at most. */
+  const calls = new Map<string, Call>();
   /** How each look still waiting is answered finding nothing, when the watcher stops. */
   const waiting = new Set<() => void>();
   /** Each session's latest check, which the next one for it follows. */
@@ -144,12 +151,30 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
     }
   };
 
+  /** How many calls are out past a look's bound. */
+  const overdue = (): number => [...calls.values()].filter((call) => call.overdue).length;
+
+  /** The call out for `path`, or a new one, which leaves `calls` once it returns. */
+  const callFor = (path: string): Call => {
+    const out = calls.get(path);
+    if (out !== undefined) return out;
+    const call: Call = {
+      overdue: false,
+      there: isDirectory(path)
+        .catch(() => false)
+        .finally(() => calls.delete(path)),
+    };
+    calls.set(path, call);
+    return call;
+  };
+
   /** Looks at `path` within the time bound. */
   const look = (path: string): Promise<Finding> => {
     if (stopped) return Promise.resolve("unknown");
-    // Its first call has not returned: it is not asked again, and still does not answer.
-    if (overdue.has(path)) return Promise.resolve("missing");
-    if (overdue.size >= MAX_UNANSWERED) return Promise.resolve("unknown");
+    // Its call past its bound has not returned: it is not asked again, and still does not answer.
+    if (calls.get(path)?.overdue === true) return Promise.resolve("missing");
+    if (!calls.has(path) && overdue() >= MAX_UNANSWERED) return Promise.resolve("unknown");
+    const call = callFor(path);
     return new Promise<Finding>((resolve) => {
       let answered = false;
       const answer = (finding: Finding): void => {
@@ -161,16 +186,11 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
       };
       const stop = (): void => answer("unknown");
       const timer = setTimeout(() => {
-        overdue.add(path);
+        call.overdue = true;
         answer("missing");
       }, timeoutMs);
       waiting.add(stop);
-      void isDirectory(path)
-        .catch(() => false)
-        .then((there) => {
-          overdue.delete(path);
-          answer(there ? "present" : "missing");
-        });
+      void call.there.then((there) => answer(there ? "present" : "missing"));
     });
   };
 
