@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "CredentialSourceUnavailableError",
+  "title": "ReferenceDeniedError",
   "type": "object",
   "properties": {
     "code": {
       "type": "string",
-      "const": "credential_source_unavailable"
+      "const": "reference_denied"
     },
     "message": {
       "type": "string"
@@ -30,5 +30,5 @@
     "message",
     "data"
   ],
-  "description": "The key-manager reference could not be read: no key-manager connection on this environment holds it, the connection is not signed in, or the key manager could not be asked now. Nothing was changed; the message says which, and data names the connection."
+  "description": "The key manager refused the connection's login the read. OpenBao refuses a path the login may not read, a path that is not there and a mount that is not there alike, so the message says to check the mount first, then the path and the login's policies. Nothing was changed; data names the connection."
 }

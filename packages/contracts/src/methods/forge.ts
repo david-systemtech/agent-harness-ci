@@ -3,7 +3,7 @@ import { errorSchema } from "../errors.js";
 import { ForgeAccountId, ForgeAccountRecord, ForgeAddCredential, ForgeCopiedFrom, ForgeCredentialInput, ForgeIdentity } from "../forge-accounts.js";
 import { GhProbe } from "../forge-gh.js";
 import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug } from "../forge.js";
-import { KeyManagerConnectionId } from "../key-managers.js";
+import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError } from "../key-managers.js";
 import { commandParams, defineMethod } from "../method.js";
 
 /**
@@ -67,16 +67,6 @@ export const AliasIdentityMismatchError = errorSchema(
     "An alias was not accepted: on its own origin the credential answered as another login or user id than on the forge account's canonical origin, or was refused there, so it is not the same instance. Nothing was changed; data names the alias, both identities and the status.",
 });
 export type AliasIdentityMismatchError = z.infer<typeof AliasIdentityMismatchError>;
-
-/** A key-manager reference could not be read: no key-manager connection holds it, or it answered no value. */
-export const CredentialSourceUnavailableError = errorSchema(
-  "credential_source_unavailable",
-  z.object({ connectionId: KeyManagerConnectionId.meta({ description: "The key-manager connection the reference names." }) }),
-).meta({
-  description:
-    "The credential's key-manager reference could not be read: no key-manager connection holds it, the connection is not signed in, or it answered no value. Nothing was changed; the message says which, and data names the connection.",
-});
-export type CredentialSourceUnavailableError = z.infer<typeof CredentialSourceUnavailableError>;
 
 /**
  * A harness operation on a forge was refused on an origin no forge account
@@ -167,7 +157,7 @@ export const forgeAccountsAdd = defineMethod({
     copiedFrom: ForgeCopiedFrom.optional().meta({ description: "The environment a copy was made from, which the record keeps; absent for a forge account added here." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError],
+  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
 });
 
 /**
@@ -199,7 +189,7 @@ export const forgeAccountsUpdate = defineMethod({
     credential: ForgeCredentialInput.optional().meta({ description: "The new credential, which must answer as the forge account's identity." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError],
+  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
 });
 
 /** Removes a forge account (`forge.account.removed`); its stored token's vault entry is deleted once the removal has committed. A primary one leaves none primary until a person chooses. */

@@ -1063,6 +1063,18 @@
       "title": "KeyManagerCertificate"
     },
     {
+      "path": "key-managers/reference-display.json",
+      "title": "KeyManagerReferenceDisplay"
+    },
+    {
+      "path": "key-managers/reference-holder.json",
+      "title": "KeyManagerReferenceHolder"
+    },
+    {
+      "path": "key-managers/reference-problem.json",
+      "title": "KeyManagerReferenceProblem"
+    },
+    {
       "path": "key-managers/events/key-manager.connection.added.json",
       "title": "KeyManagerConnectionAddedPayload"
     },
@@ -2213,6 +2225,14 @@
     {
       "path": "errors/credential_source_unavailable.json",
       "title": "CredentialSourceUnavailableError"
+    },
+    {
+      "path": "errors/reference_not_found.json",
+      "title": "ReferenceNotFoundError"
+    },
+    {
+      "path": "errors/reference_denied.json",
+      "title": "ReferenceDeniedError"
     },
     {
       "path": "errors/forge_account_missing.json",
@@ -3501,6 +3521,30 @@
     {
       "path": "methods/keyManagers.certificate.preview/error.json",
       "title": "keyManagers.certificate.preview error"
+    },
+    {
+      "path": "methods/keyManagers.references.check/params.json",
+      "title": "keyManagers.references.check params"
+    },
+    {
+      "path": "methods/keyManagers.references.check/result.json",
+      "title": "keyManagers.references.check result"
+    },
+    {
+      "path": "methods/keyManagers.references.check/error.json",
+      "title": "keyManagers.references.check error"
+    },
+    {
+      "path": "methods/keyManagers.references.browse/params.json",
+      "title": "keyManagers.references.browse params"
+    },
+    {
+      "path": "methods/keyManagers.references.browse/result.json",
+      "title": "keyManagers.references.browse result"
+    },
+    {
+      "path": "methods/keyManagers.references.browse/error.json",
+      "title": "keyManagers.references.browse error"
     },
     {
       "path": "methods/settings.get/params.json",
@@ -5033,6 +5077,24 @@
       "params": "methods/keyManagers.certificate.preview/params.json",
       "result": "methods/keyManagers.certificate.preview/result.json",
       "error": "methods/keyManagers.certificate.preview/error.json"
+    },
+    {
+      "name": "keyManagers.references.check",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.references.check/params.json",
+      "result": "methods/keyManagers.references.check/result.json",
+      "error": "methods/keyManagers.references.check/error.json"
+    },
+    {
+      "name": "keyManagers.references.browse",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/keyManagers.references.browse/params.json",
+      "result": "methods/keyManagers.references.browse/result.json",
+      "error": "methods/keyManagers.references.browse/error.json"
     },
     {
       "name": "settings.get",

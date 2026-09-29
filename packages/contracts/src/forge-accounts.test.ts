@@ -95,10 +95,10 @@ describe("the forge account methods", () => {
     expect(add.safeParse({ ...base, credential: { kind: "gh", login: "--hostname" } }).success).toBe(false);
   });
 
-  it("errors with verification_failed, alias_identity_mismatch and credential_source_unavailable on add and update, identity_mismatch on update alone", () => {
+  it("errors with verification_failed, alias_identity_mismatch and a reference's refusals on add and update, identity_mismatch on update alone", () => {
     const own = (name: "forge.accounts.add" | "forge.accounts.update") => registry[name].errors.map((member) => member.shape.code.value);
-    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable"]);
-    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable"]);
+    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable", "reference_not_found", "reference_denied"]);
+    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable", "reference_not_found", "reference_denied"]);
   });
 
   it("probe gh against the minimum 2.40, the first whose gh auth token takes a user", () => {

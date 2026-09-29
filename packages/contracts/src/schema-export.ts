@@ -289,8 +289,20 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
-import { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
-import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
+import { AliasIdentityMismatchError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+import {
+  BitwardenReference,
+  CredentialSourceUnavailableError,
+  DopplerReference,
+  KeyManagerConnectionId,
+  KeyManagerProvider,
+  KeyManagerReference,
+  KeyManagerReferenceProblem,
+  OnePasswordReference,
+  OpenBaoReference,
+  ReferenceDeniedError,
+  ReferenceNotFoundError,
+} from "./key-managers.js";
 import {
   KEY_MANAGER_EVENT_PAYLOADS,
   KeyManagerAddress,
@@ -307,6 +319,8 @@ import {
   KeyManagerMount,
   KeyManagerPolicy,
   KeyManagerPolicyWrites,
+  KeyManagerReferenceDisplay,
+  KeyManagerReferenceHolder,
   KeyManagerStatus,
   KeyManagerStatusKind,
   KeyManagerTokenInformation,
@@ -658,6 +672,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/label.json", title: "KeyManagerLabel", schema: KeyManagerLabel },
   { path: "key-managers/connection-record.json", title: "KeyManagerConnectionRecord", schema: KeyManagerConnectionRecord },
   { path: "key-managers/certificate.json", title: "KeyManagerCertificate", schema: KeyManagerCertificate },
+  { path: "key-managers/reference-display.json", title: "KeyManagerReferenceDisplay", schema: KeyManagerReferenceDisplay },
+  { path: "key-managers/reference-holder.json", title: "KeyManagerReferenceHolder", schema: KeyManagerReferenceHolder },
+  { path: "key-managers/reference-problem.json", title: "KeyManagerReferenceProblem", schema: KeyManagerReferenceProblem },
   ...Object.entries(KEY_MANAGER_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `key-managers/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -943,6 +960,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/identity_mismatch.json", title: "IdentityMismatchError", schema: IdentityMismatchError },
   { path: "errors/alias_identity_mismatch.json", title: "AliasIdentityMismatchError", schema: AliasIdentityMismatchError },
   { path: "errors/credential_source_unavailable.json", title: "CredentialSourceUnavailableError", schema: CredentialSourceUnavailableError },
+  { path: "errors/reference_not_found.json", title: "ReferenceNotFoundError", schema: ReferenceNotFoundError },
+  { path: "errors/reference_denied.json", title: "ReferenceDeniedError", schema: ReferenceDeniedError },
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),

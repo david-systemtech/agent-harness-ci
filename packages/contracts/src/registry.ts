@@ -95,6 +95,8 @@ import {
   keyManagersConnectionsUpdate,
   keyManagersConnectionsVerify,
   keyManagersList,
+  keyManagersReferencesBrowse,
+  keyManagersReferencesCheck,
 } from "./methods/key-managers.js";
 import {
   updatesApply,
@@ -222,6 +224,8 @@ export const methods = [
   keyManagersConnectionsRemove,
   keyManagersConnectionsVerify,
   keyManagersCertificatePreview,
+  keyManagersReferencesCheck,
+  keyManagersReferencesBrowse,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
