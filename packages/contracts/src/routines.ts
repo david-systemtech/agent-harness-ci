@@ -6,8 +6,10 @@ import { ContainmentLevel, ModeResolution } from "./permissions.js";
 import { Mode } from "./permissions-modes.js";
 import { ClientSessionId, EnvironmentId, setOf, Timestamp } from "./primitives.js";
 import { Sha256 } from "./release.js";
+import { RepositoryIdentity } from "./repository-identity.js";
 import { Ceiling } from "./scopes.js";
 import { SessionId, Tag, WorkspaceRequest } from "./sessions.js";
+import { SkillName } from "./skill-rules.js";
 import { ModelUsage } from "./transcript.js";
 
 /**
@@ -120,7 +122,7 @@ export const RoutineWorkspace = z
   .intersection(
     z.discriminatedUnion("kind", [DirectoryRequest, WorktreeRequest, ScratchRequest]),
     z.object({
-      repositoryIdentity: z.string().min(1).nullable().meta({
+      repositoryIdentity: RepositoryIdentity.nullable().meta({
         description:
           "The repository identity the workspace resolved to when the routine was saved, which a move re-resolves it by; null outside a repository, for scratch, or before the environment has resolved it.",
       }),
@@ -258,7 +260,7 @@ const definitionShape = {
   mode: Mode.nullable().meta({ description: "The mode a firing's runs ask for, clamped to the ceiling it was saved under; null for permissions.unattended.mode." }),
   containment: ContainmentLevel.nullable().meta({ description: "The containment level of a firing's session; null for permissions.containment.default." }),
   injection: RoutineInjection,
-  skills: setOf(z.string().min(1).max(64)).meta({ description: "Names from the skill set, each once, loaded always-on for a firing's runs." }),
+  skills: setOf(SkillName).meta({ description: "Names from the skill set, each once, loaded always-on for a firing's runs." }),
   preCheck: PreCheck.nullable().meta({ description: "What runs before each firing; null for none, so every due time fires." }),
   silenceMarker: silenceMarker.meta({ description: `The final text that delivers nothing: 1 to ${MAX_SILENCE_MARKER} characters.` }),
   maxDurationMinutes: maxDurationMinutes.meta({ description: "How long a firing may run before its live run is interrupted: 1 to 1,440 minutes." }),

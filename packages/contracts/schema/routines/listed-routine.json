@@ -321,7 +321,8 @@
                   "anyOf": [
                     {
                       "type": "string",
-                      "minLength": 1
+                      "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                      "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
                     },
                     {
                       "type": "null"
@@ -450,7 +451,8 @@
           "type": "array",
           "items": {
             "type": "string",
-            "minLength": 1,
+            "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
             "maxLength": 64
           },
           "uniqueItems": true,

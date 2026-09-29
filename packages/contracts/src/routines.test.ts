@@ -175,6 +175,7 @@ describe("a definition's fields", () => {
       { kind: "scratch" },
       { kind: "directory", path: "code/agent-harness", repositoryIdentity: null },
       { kind: "worktree", repository: "/home/david/code/agent-harness", branch: "main", newBranch: {}, repositoryIdentity: null },
+      { kind: "directory", path: "/home/david/code/agent-harness", repositoryIdentity: "git@git.systemtech.dev:david/agent-harness.git" },
     ]) {
       expect(takes({ workspace }), JSON.stringify(workspace)).toBe(false);
     }
@@ -188,12 +189,13 @@ describe("a definition's fields", () => {
     expect(takes({ model: "" })).toBe(false);
   });
 
-  it("take inherit, allow or deny for credential injection, and skills each once", () => {
+  it("take inherit, allow or deny for credential injection, and skills each once by the skill-name rule", () => {
     for (const injection of ["inherit", "allow", "deny"]) expect(takes({ injection }), injection).toBe(true);
     expect(takes({ injection: "ask" })).toBe(false);
     expect(takes({ skills: ["tdd", "code-review"] })).toBe(true);
     expect(takes({ skills: ["tdd", "tdd"] })).toBe(false);
     expect(takes({ skills: [""] })).toBe(false);
+    for (const name of ["Code_Review", "-tdd", "tdd--x", "x".repeat(65)]) expect(takes({ skills: [name] }), name).toBe(false);
   });
 
   it("take no pre-check, a script with a 1 to 600 second timeout, or an http or https URL", () => {
