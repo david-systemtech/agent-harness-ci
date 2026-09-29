@@ -1,5 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
-import { BYPASS_SENTENCE, SETTINGS } from "@agent-harness/contracts";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { settingsDeepLink } from "@agent-harness/client-runtime";
+import { BYPASS_SENTENCE, SETTINGS, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -317,5 +318,88 @@ describe("a row whose feature is not built", () => {
     expect(within(rail()).getByText("Bots arrive in milestone 2, with the Bot object.")).toBeDefined();
     await app.user.click(bots);
     expect(pane("Set up")).toBeDefined();
+  });
+});
+
+describe("opening a row", () => {
+  it("opens each of the sixteen settings addresses' rows from a deep link, and a deep link naming a row id", async () => {
+    const app = await opened();
+    const opens: Record<string, string> = {};
+    for (const address of SETTINGS_ADDRESSES) {
+      act(() => app.shell.openDeepLink(settingsDeepLink(address)));
+      const open = within(await screen.findByRole("region", { name: "Settings" })).getAllByRole("region")[0] as HTMLElement;
+      opens[address] = within(open).getAllByRole("heading")[0]?.textContent ?? "";
+    }
+    expect(opens).toEqual({
+      profiles: "Accounts",
+      models: "Default account and model",
+      runs: "Usage",
+      agents: "Instructions",
+      skills: "Skills",
+      "memory-banks": "Memory banks",
+      cerebro: "Memory banks",
+      permissions: "Permissions",
+      browser: "Browser",
+      secrets: "Key managers",
+      server: "Access",
+      remote: "Your machines",
+      routines: "Routines",
+      advanced: "Your machines",
+      appearance: "Theme",
+      about: "About",
+    });
+
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    act(() => app.shell.openDeepLink("agent-harness://settings/access.forges"));
+    expect(await screen.findByRole("region", { name: "Forges" })).toBeDefined();
+  });
+
+  it("keeps the last row opened as its id, and opens it again in a window opened again", async () => {
+    const app = await opened();
+    await openSettings(app);
+    await openRow(app, "Key managers");
+    await app.user.keyboard("{Control>},{/Control}");
+    await openSettings(app);
+    expect(pane("Key managers")).toBeDefined();
+
+    const again = await app.remount();
+    await screen.findByText("No session is open. Choose one from the sidebar.");
+    await openSettings(again);
+    expect(pane("Key managers")).toBeDefined();
+    expect(again.presentation.values.read().settingsRow).toBe("access.key-managers");
+  });
+
+  it("opens Set up for a kept row id the registry no longer holds", async () => {
+    const app = await opened({ presentation: { settingsRow: "access.retired-row" } });
+    await openSettings(app);
+    expect(pane("Set up")).toBeDefined();
+  });
+});
+
+describe("the command palette", () => {
+  /** The palette's entries under the heading `heading`, each as it reads. */
+  const entriesUnder = (heading: string) =>
+    within(within(screen.getByRole("dialog", { name: "Command palette" })).getByRole("group", { name: heading }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+
+  it("lists every row by its label and old names, finds one by an old name, and opens it", async () => {
+    const app = await opened();
+    await app.user.keyboard("{Control>}k{/Control}");
+    const listed = entriesUnder("Settings");
+    expect(listed).toHaveLength(19);
+    expect(listed).toContain("Key managerssecrets, tokens");
+    expect(listed).toContain("Memory banksmemory-banks, cerebro, memory");
+    expect(listed).toContain("BotsbotsBots arrive in milestone 2, with the Bot object.");
+
+    await app.user.keyboard("cerebro");
+    expect(entriesUnder("Settings")).toEqual(["Memory banksmemory-banks, cerebro, memory"]);
+    await app.user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+    expect(await screen.findByRole("region", { name: "Memory banks" })).toBeDefined();
+
+    // Open or close Settings is the window's, listed with its key.
+    await app.user.keyboard("{Control>}k{/Control}");
+    expect(entriesUnder("Anywhere")).toContain("Open or close SettingsCtrl+,");
   });
 });

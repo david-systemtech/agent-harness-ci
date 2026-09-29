@@ -106,7 +106,7 @@ describe("its entries", () => {
     const { app } = await opened();
     await inComposer(app, "{Control>}k{/Control}");
     // Stop the run is app.interrupt, whose Esc is off until "Esc stops the run" is on: no key.
-    expect(entriesUnder("Anywhere")).toEqual(["Stop the runNothing is running in this session.", "Find in the conversationCtrl+F"]);
+    expect(entriesUnder("Anywhere")).toEqual(["Stop the runNothing is running in this session.", "Find in the conversationCtrl+F", "Open or close SettingsCtrl+,"]);
     expect(entriesUnder("Writing a message")).toEqual([
       "Send it, steer a turn, run a row, send a failed checkEnter",
       "A newline instead of sendingShift+Enter",
@@ -124,11 +124,14 @@ describe("its entries", () => {
     expect(entries()).not.toContainEqual(expect.stringContaining("Open the command palette"));
   });
 
-  it("are the window's own alone while no session is open", async () => {
+  it("are the window's own alone while no session is open: Settings, its rows and the sessions", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>}k{/Control}");
-    expect(entries()).toEqual(["Sessions on every environment…"]);
+    expect(entriesUnder("Anywhere")).toEqual(["Open or close SettingsCtrl+,"]);
+    expect(entriesUnder("Settings")).toHaveLength(19);
+    expect(entries()).toHaveLength(21);
+    expect(entries().at(-1)).toBe("Sessions on every environment…");
   });
 
   it("read their keys as macOS writes them there", async () => {
@@ -214,10 +217,12 @@ describe("choosing an entry", () => {
     // Nothing is running, so Stop the run is dim and the first entry that can be chosen is highlighted.
     expect(highlighted()).toBe("Find in the conversationCtrl+F");
     await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("Open or close SettingsCtrl+,");
+    await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toMatch(/^Send it/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Send it/);
-    await app.user.keyboard("{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });

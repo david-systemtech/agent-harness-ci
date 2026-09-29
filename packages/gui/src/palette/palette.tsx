@@ -1,10 +1,12 @@
 import type { SessionRow } from "@agent-harness/client-runtime";
-import { ACTION_GROUPS, isCommandId, type ActionId, type ListedAction } from "@agent-harness/contracts";
+import { ACTION_GROUPS, SETTINGS_ROWS, isCommandId, type ActionId, type ListedAction } from "@agent-harness/contracts";
 import { Command } from "cmdk";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { keyLabel } from "../keys/chords.js";
 import { KeyContext, useEveryWiredAction, useIsKeyOf, useKeyAction, useMacOS, type Offer, type WiredAction } from "../keys/key-dispatch.js";
+import { dimReason } from "../settings/rail.js";
+import { useSettings } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
@@ -15,8 +17,10 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
  * its GUI keys in force, the slash commands the window wires last among
  * them; its last entry opens the sessions page, which finds a session on
  * every environment through `projections.search` and opens it in the
- * focused pane. Typing filters a page; choosing an entry closes the palette,
- * gives the focus back to where it was, and runs it there.
+ * focused pane. Every row of Settings is listed after the actions, by its
+ * label and old names, and opens Settings on it. Typing filters a page;
+ * choosing an entry closes the palette, gives the focus back to where it
+ * was, and runs it there.
  *
  * - **What is listed** is what the keys would do as the palette opens: an
  *   action whose keys the column answers under a condition (the find bar's,
@@ -146,12 +150,15 @@ const Palette = ({ listed, close }: PaletteProps) => {
 
 /**
  * The first page: the listed actions the query matches, in the shared list's
- * groups and order, and last, whatever is typed, the way to the sessions
+ * groups and order; the rows of Settings it matches, by label and old names
+ * (docs/specs/gui.md, "Settings": opened from the palette), a placeholder row
+ * dim with its reason; and last, whatever is typed, the way to the sessions
  * page, so a session's title typed here is one Enter from its page.
  */
 const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readonly query: string; readonly toSessions: () => void }) => {
   const macOS = useMacOS();
   const wired = useEveryWiredAction();
+  const settings = useSettings();
   const entryOf = (action: ListedAction, wiredAction: WiredAction): Entry => {
     const command = isCommandId(action.id);
     return {
@@ -174,6 +181,17 @@ const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readon
         .filter((entry) => matches(entry, query)),
     }),
   );
+  const rows = SETTINGS_ROWS.map((row): Entry => {
+    const dim = dimReason(row);
+    return {
+      value: `settings ${row.id}`,
+      name: row.label,
+      detail: row.terms.join(", "),
+      keys: [],
+      offer: dim === undefined ? PRESENT : { status: "absent", message: dim },
+      choose: () => close(() => settings.open(row.id)),
+    };
+  }).filter((entry) => matches(entry, query));
   const sessions: Entry = {
     value: "sessions",
     name: query === "" ? "Sessions on every environment…" : `Sessions on every environment matching “${query}”`,
@@ -181,7 +199,7 @@ const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readon
     offer: PRESENT,
     choose: toSessions,
   };
-  return <Groups groups={[...groups, { heading: "Sessions", entries: [sessions] }]} />;
+  return <Groups groups={[...groups, { heading: "Settings", entries: rows }, { heading: "Sessions", entries: [sessions] }]} />;
 };
 
 /** The sessions page: `projections.search`'s rows on every environment, in the sidebar's order; one chosen opens in the focused pane. */
