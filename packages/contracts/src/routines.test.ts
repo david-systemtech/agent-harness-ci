@@ -349,7 +349,7 @@ describe("a pre-check's record", () => {
 
   it("says why it failed: output_too_large and denylisted among its failures", () => {
     expect(PRE_CHECK_FAILURES).toEqual(["script_missing", "script_unusable", "exit_status", "timed_out", "output_too_large", "unreachable", "http_status", "denylisted"]);
-    const failed = { ...preCheck, exitStatus: null, hash: null, differs: null, output: null, stderr: "fetching...", failure: { reason: "output_too_large", detail: "The output passed 1 MiB." } };
+    const failed = { ...preCheck, exitStatus: null, bytes: 1_048_577, hash: null, differs: null, output: null, stderr: "fetching...", failure: { reason: "output_too_large", detail: "The output passed 1 MiB." } };
     expect(PreCheckRecord.safeParse(failed).success).toBe(true);
     expect(PreCheckRecord.safeParse({ ...failed, failure: { reason: "crashed", detail: "x" } }).success).toBe(false);
   });

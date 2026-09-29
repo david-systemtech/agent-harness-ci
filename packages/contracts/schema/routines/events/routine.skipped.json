@@ -109,7 +109,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The script's exit status; null for a URL, or a script killed at its timeout."
+              "description": "The script's exit status; null for a URL, or a script killed at its timeout or once its output passed 1 MiB."
             },
             "httpStatus": {
               "anyOf": [

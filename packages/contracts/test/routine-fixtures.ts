@@ -255,7 +255,8 @@ const deliveryTargets: Fixtures = {
   invalid: [{ kind: "webhook", target: "Hermes", on: "both" }, { kind: "webhook", on: "both" }, { kind: "client-notice", on: "always" }, { kind: "matrix", target: "home", on: "both" }],
 };
 
-const failedRecord = { ...preCheck, exitStatus: null, hash: null, differs: null, output: null, stderr: "fetching...", failure: { reason: "output_too_large", detail: "The output passed 1 MiB." } };
+/** A script stopped once its output passed 1 MiB: read one byte past the limit, and no exit status. */
+const failedRecord = { ...preCheck, exitStatus: null, bytes: 1_048_577, hash: null, differs: null, output: null, stderr: "fetching...", failure: { reason: "output_too_large", detail: "The output passed 1 MiB." } };
 const preCheckRecords: Fixtures = {
   valid: [preCheck, failedRecord, failedPreCheck, unchangedPreCheck, { ...preCheck, kind: "url", exitStatus: null, httpStatus: 200, differs: null }],
   invalid: [without(preCheck, "hash"), { ...preCheck, output: "x".repeat(65_537) }, { ...failedRecord, failure: { reason: "crashed", detail: "x" } }, { ...preCheck, kind: "command" }],

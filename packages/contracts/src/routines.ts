@@ -473,7 +473,7 @@ export const PreCheckRecord = z
     kind: z.enum(["script", "url"]).meta({ description: "Whether a script ran or a URL was fetched." }),
     startedAt: Timestamp,
     durationMs: z.int().nonnegative(),
-    exitStatus: z.int().nullable().meta({ description: "The script's exit status; null for a URL, or a script killed at its timeout." }),
+    exitStatus: z.int().nullable().meta({ description: "The script's exit status; null for a URL, or a script killed at its timeout or once its output passed 1 MiB." }),
     httpStatus: z.int().min(100).max(599).nullable().meta({ description: "The URL's final HTTP status; null for a script, or a URL that did not answer." }),
     bytes: z.int().nonnegative().meta({ description: "The output's size in bytes, as far as it was read." }),
     hash: Sha256.nullable().meta({ description: "The SHA-256 of the output's exact bytes, with no normalisation; null when the pre-check failed." }),
