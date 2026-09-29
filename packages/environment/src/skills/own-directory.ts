@@ -29,7 +29,7 @@ const SKILLS = "skills";
 const COMMANDS = "commands";
 
 /** The own directory's reads' actor, for the `skills.updated` a read raises. */
-export const OWN_DIRECTORY_ACTOR = formatActor({ kind: "system", id: "own-skills" });
+const OWN_DIRECTORY_ACTOR = formatActor({ kind: "system", id: "own-skills" });
 
 const OWN: SkillLayer = { kind: "own" };
 const UPDATED: EventInput = { type: "skills.updated", payload: {} };
@@ -173,7 +173,7 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
       async prepare({ name }, context) {
         const members = await readMembers();
         // The member holding the name that wins in the own directory, else the one whose folder or file is named so.
-        const winning = resolveSkillSet(members, { sourcePosition: () => 0 }).find((member) => member.name === name) ?? members.find((member) => folderNameOf(member) === name);
+        const winning = resolveSkillSet(members, []).find((member) => member.name === name) ?? members.find((member) => folderNameOf(member) === name);
         const member = members.find((found) => found.path === winning?.path);
         if (member === undefined) {
           return refusing({ code: "not_found", message: `The own directory holds no skill named ${JSON.stringify(name)}.`, data: { kind: "skill", name } });

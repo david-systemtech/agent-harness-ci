@@ -1,4 +1,4 @@
-import { SKILL_REPOSITORY_ROOTS, type SkillLayer, type SkillMember, type SkillSetMember } from "@agent-harness/contracts";
+import { SKILL_REPOSITORY_ROOTS, type SkillLayer, type SkillMember, type SkillSetMember, type SkillSource } from "@agent-harness/contracts";
 
 /**
  * The precedence function (skills spec, "The skill set", Precedence; ADR
@@ -13,17 +13,14 @@ import { SKILL_REPOSITORY_ROOTS, type SkillLayer, type SkillMember, type SkillSe
  * listed, shadows nothing and is shadowed by nothing.
  */
 
-/** What resolving needs beside the members: where each source stands, earliest added first. */
-export interface Precedence {
-  /** A source's position among the environment's sources, from 1. */
-  readonly sourcePosition: (sourceId: string) => number;
-}
-
 /** What orders members by precedence: each part compared in turn, the lower winning. */
 type Rank = readonly (number | string)[];
 
+/** Where each source stands, by its id: its position, earliest added first. */
+type Positions = ReadonlyMap<string, number>;
+
 /** A layer's rank: the repository's roots and directories, the own directory, then each source by its position. */
-const layerRank = (layer: SkillLayer, precedence: Precedence): Rank => {
+const layerRank = (layer: SkillLayer, positions: Positions): Rank => {
   switch (layer.kind) {
     case "repository":
       // A nearer directory is a deeper one: more segments come first.
@@ -31,7 +28,7 @@ const layerRank = (layer: SkillLayer, precedence: Precedence): Rank => {
     case "own":
       return [1, 0, 0];
     case "source":
-      return [2, precedence.sourcePosition(layer.sourceId), 0];
+      return [2, positions.get(layer.sourceId) ?? Number.MAX_SAFE_INTEGER, 0];
   }
 };
 
@@ -42,8 +39,8 @@ export const folderNameOf = (member: SkillMember): string => {
 };
 
 /** A member's rank within the whole set. */
-const rankOf = (member: SkillMember, precedence: Precedence): Rank => [
-  ...layerRank(member.layer, precedence),
+const rankOf = (member: SkillMember, positions: Positions): Rank => [
+  ...layerRank(member.layer, positions),
   member.kind === "skill" ? 0 : 1,
   folderNameOf(member) === member.name ? 0 : 1,
   member.path,
@@ -59,13 +56,15 @@ const compareRanks = (a: Rank, b: Rank): number => {
 };
 
 /**
- * Resolves `members`, every layer's: each listed with the member that
- * shadows it, by name and within a name by precedence, highest first, so
- * the first valid one of a name is the one in the set; members without a
- * name last, by precedence.
+ * Resolves `members`, every layer's, with the environment's `sources` (for
+ * their positions): each member listed with the member that shadows it, by
+ * name and within a name by precedence, highest first, so the first valid
+ * one of a name is the one in the set; members without a name last, by
+ * precedence.
  */
-export const resolveSkillSet = (members: readonly SkillMember[], precedence: Precedence): SkillSetMember[] => {
-  const ranked = members.map((member) => ({ member, rank: rankOf(member, precedence) })).sort((a, b) => compareRanks(a.rank, b.rank));
+export const resolveSkillSet = (members: readonly SkillMember[], sources: readonly Pick<SkillSource, "id" | "position">[]): SkillSetMember[] => {
+  const positions: Positions = new Map(sources.map((source) => [source.id, source.position]));
+  const ranked = members.map((member) => ({ member, rank: rankOf(member, positions) })).sort((a, b) => compareRanks(a.rank, b.rank));
   const winners = new Map<string, SkillMember>();
   const resolved = ranked.map(({ member }): SkillSetMember => {
     if (member.name === null || member.problems.length > 0) return { ...member, shadowedBy: null };

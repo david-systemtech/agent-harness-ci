@@ -46,7 +46,9 @@ const OwnSkillDescription = z
  * frontmatter, and answers the member as read. A name failing the
  * skill-name rule is `invalid_params`; a name the own directory already
  * holds, as a folder, a command file or a member's name, is `conflict`
- * (reason `exists`), and nothing is written.
+ * (reason `exists`), and so is an own directory whose `skills/` holds a
+ * `SKILL.md` itself, which makes it one skill whose folders are not read
+ * (reason `root_skill`); nothing is written then.
  */
 export const skillsOwnCreate = defineMethod({
   name: "skills.own.create",
@@ -58,11 +60,11 @@ export const skillsOwnCreate = defineMethod({
 });
 
 /**
- * Moves the own directory's member named `name` (its skill folder, else its
- * command file; else a folder or command file of that name) to the data
- * directory's trash, which deletes it once thirty days old, and answers the
- * member as it was. A name the own directory does not hold is `not_found`
- * (data `kind: skill`).
+ * Moves the own directory's member named `name` that wins there (a skill
+ * folder over a command file), else the member whose folder or command
+ * file is named `name`, to the data directory's trash, which deletes it
+ * once thirty days old, and answers the member as it was. A name the own
+ * directory does not hold is `not_found` (data `kind: skill`).
  */
 export const skillsOwnRemove = defineMethod({
   name: "skills.own.remove",

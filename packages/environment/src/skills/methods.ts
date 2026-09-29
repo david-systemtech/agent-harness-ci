@@ -40,7 +40,7 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
     "skills.get": async ({ sessionId }) => {
       const accountId = accountOf(sessionId);
       const members = await own.read();
-      return { ownDirectory: own.path, sources: [], choices: [], accountId, members: resolveSkillSet(members, { sourcePosition: () => 0 }) };
+      return { ownDirectory: own.path, sources: [], choices: [], accountId, members: resolveSkillSet(members, []) };
     },
     "skills.own.create": own.create,
     "skills.own.remove": own.remove,

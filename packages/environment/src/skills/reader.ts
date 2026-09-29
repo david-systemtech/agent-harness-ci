@@ -77,8 +77,8 @@ export const splitFrontmatter = (text: string): SplitMarkdown => {
   return { frontmatter: typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null, body };
 };
 
-/** A name no member path can hold: a control character, which the path schema refuses. */
-const UNNAMEABLE = /\p{Cc}/u;
+/** A name no member path holds as it is: a control character, which the path schema refuses, or a backslash, which it reads as a separator. */
+const UNNAMEABLE = /[\p{Cc}\\]/u;
 
 /** Whether `path` lies in `tree` or is it, both with every link resolved. */
 const within = (tree: string, path: string): boolean => {

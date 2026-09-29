@@ -322,6 +322,14 @@ describe("skills.own.create", () => {
     expect(t.env.log.readStream({ kind: "environment", id: t.env.id }, head).map((event) => event.type)).toEqual([]);
   });
 
+  it("refuses conflict, reason root_skill, while skills/ holds a SKILL.md itself, since no folder in it would be read", async () => {
+    const { client } = await start();
+    const own = (await get(client)).ownDirectory;
+    write(join(own, "skills", "SKILL.md"), skill("description: A folder that is itself one skill."));
+    expect((await createSkill(client, "tdd")).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "root_skill" } } });
+    expect(readdirSync(join(own, "skills"))).toEqual(["SKILL.md"]);
+  });
+
   it("answers a retry of the same command its first receipt, writing once", async () => {
     const { t, client } = await start();
     const commandId = randomUUID();
