@@ -576,6 +576,22 @@ describe("the environment's refusals", () => {
     expect(env.requests("runs.interrupt")).toEqual([]);
   });
 
+  it("says why no stop can be had, asking nothing, when the run is only starting by the time the environment refuses (PR review)", async () => {
+    const live = { rejected: "conflict", message: "A run of the session is live; interrupt it before rewinding.", data: { reason: "run_active", runId: "0199a100-0000-4000-8000-00000000ffff" } };
+    const { app, env } = await launch({ receipts: { "sessions.rewind": live } });
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    const release = env.holdRewinds();
+    await command(app, "/rewind");
+    await app.waitUntil(() => env.requests("sessions.rewind").length === 1, "the rewind sent");
+    // Another client's start, heard while the refusal is on its way: there is no run id to stop yet.
+    env.list.change(SESSION, { activity: { state: "starting", since: app.clock.now().toISOString() } });
+    await app.tick(2);
+    release();
+    await app.waitFor("Not rewound: A run is starting on this session: once it is running, a rewind offers to stop it.");
+    expect(app.frame()).not.toContain("? y/n");
+    expect(env.requests("runs.interrupt")).toEqual([]);
+  });
+
   it("says a refusal it cannot act on with the environment's message", async () => {
     const queued = { rejected: "conflict", message: "The session has queued messages the next run would read.", data: { reason: "queued_messages" } };
     const { app, env } = await launch({ receipts: { "sessions.rewind": queued } });

@@ -1,4 +1,5 @@
 import {
+  liveRunIdOf,
   oneLine,
   stopFirstOffer,
   type RewindAnswer,
@@ -139,15 +140,22 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
     void runtime.commands.rewind(target.environmentId, target.sessionId, message.messageId, { stopFirst: true, onStopping: stopping }).then((done) => answered(target, message, done, false));
   };
 
+  /** The stop-first rewind's offer on `target` as the runtime has it now, not as the render that asked for the rewind saw it. */
+  const offerNow = (target: Opened) => {
+    const view = runtime.projections.runs.session(target.environmentId, target.sessionId).read();
+    return stopFirstOffer(view, liveRunIdOf(runtime.projections.session(target.environmentId, target.sessionId).read(), view));
+  };
+
   /**
-   * The offer to stop the live run, then rewind, when the runtime says it can be had; else why not, in one line.
-   * `askedByKey`: a key action (the picker's Enter, `w`) asked for the rewind, so y and n answer the offer whatever the
-   * composer holds; a typed `/rewind` emptied the composer, and its offer, which may come once the next message is begun,
-   * leaves what is typed to the composer.
+   * The offer to stop the live run, then rewind, unless the runtime says no stop can be had now (messages queued, the run
+   * only starting), which is said in one line with nothing sent. Read afresh: an environment's refusal comes back after
+   * the render that sent the rewind. `askedByKey`: a key action (the picker's Enter, `w`) asked for the rewind, so y and n
+   * answer the offer whatever the composer holds; a typed `/rewind` emptied the composer, and its offer, which may come
+   * once the next message is begun, leaves what is typed to the composer.
    */
   const offerStop = (target: Opened, message: Anchor, askedByKey: boolean) => {
-    // The stop-first rewind would be refused here (messages queued, the run only starting): its reason is said, and nothing is sent.
-    if (offer !== undefined && offer.stops === null && offer.rewind.status === "absent") return host.say(`Not rewound: ${offer.rewind.message}`);
+    const now = offerNow(target);
+    if (now.stops === null && now.rewind.status === "absent") return host.say(`Not rewound: ${now.rewind.message}`);
     host.ask({
       text: `A run is live: stop it, then rewind to ${messageWords(message.text)}? y/n`,
       yes: () => stopThenRewind(target, message),
