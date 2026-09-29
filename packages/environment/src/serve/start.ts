@@ -838,8 +838,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
-  // What the harness's services put into every provider process and terminal (#307): none registered until one does.
+  // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
+  // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper.
   const processEnvironments = createProcessEnvironments(injection);
+  if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
