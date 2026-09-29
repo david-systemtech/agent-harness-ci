@@ -259,7 +259,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 
 **Owed by this workstream's build**:
 
-- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own; drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
+- To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own (paid by #390); drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
 - With 88: this build turns the step registry's pane links into home row ids and each settings key's band into a row, since the rail reads them first (paid by #389); 88 then serves the `setup` subscription and fills this frame with the step cards.
 - To 93: the browser dock as a driver and the relay's handler registration on the runtime. To 91: Managed tools rows in About.
 

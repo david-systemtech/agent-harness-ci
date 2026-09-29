@@ -112,12 +112,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     lists: made.lists,
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     now: (environmentId) => made.now(environmentId),
-    rewindSource(environmentId, sessionId, messageId) {
-      // What the runtime holds of the session, read without subscribing anything.
-      const held = sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read();
-      const message = held.items.find((item) => item.kind === "user-message" && item.messageId.toLowerCase() === messageId.toLowerCase());
-      return message?.kind === "user-message" ? { text: message.text } : null;
-    },
+    // What the runtime holds of the session, read without subscribing anything.
+    held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
+    sessionRuns: (environmentId, sessionId) => sessionRuns(`${environmentId} ${sessionId.toLowerCase()}`),
+    flushDrafts: () => drafts.flush(),
   });
   const drafts = createDrafts({
     clock: platform.clock,
@@ -285,7 +283,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     commands: {
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
-      rewind: (environmentId, sessionId, messageId) => outbox.rewind(environmentId, sessionId, messageId),
+      rewind: (environmentId, sessionId, messageId, options) => outbox.rewind(environmentId, sessionId, messageId, options),
+      fork: (environmentId, sessionId, options) => outbox.fork(environmentId, sessionId, options),
     },
     drafts: {
       set: (environmentId, sessionId, draft) => drafts.set(environmentId, sessionId, draft),

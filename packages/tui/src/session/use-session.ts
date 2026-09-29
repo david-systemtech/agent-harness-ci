@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  forkedFrom,
   hear,
   liveRunIdOf,
   lockOf,
   nextQuietChange,
   runningCalls,
   type Clock,
+  type ForkedEntry,
+  type ForkedFrom,
   type Lock,
   type QuietCalls,
   type RunState,
@@ -23,8 +26,10 @@ import { gaugeOf, markOf, planDelta, type PlanMark } from "../transcript/plan.js
  * minutes), its run state from `projections.runs`, and its queue and the
  * verbs of ADR 0022 from `projections.runs.session`, the composer's lock from
  * `capability`, its provider's descriptor and slash commands from the request
- * cache, and how long each running call has been quiet. Which session is open
- * is client-local presentation, held in memory only.
+ * cache, and how long each running call has been quiet. A fork's source is
+ * followed too while the fork opens on its `forked` entry, for what that row
+ * names (#390). Which session is open is client-local presentation, held in
+ * memory only.
  */
 
 export interface Opened {
@@ -50,6 +55,8 @@ export interface OpenSession {
   readonly quiet: QuietCalls;
   /** The plan windows a finished run moved, in words, for a run this terminal saw running. */
   planDeltas(runId: string): readonly string[];
+  /** What the open fork's `forked` row names of its source (its title, else the list's, and the prompt it was taken at); undefined when it is no fork. */
+  readonly forkedFrom: ForkedFrom | undefined;
   open(opened: Opened | null): void;
 }
 
@@ -75,6 +82,17 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
 
   const projection = view?.read();
   const summary = projection?.summary ?? null;
+  // A fork's source, followed while the fork opens on its `forked` entry: its title and the prompt the fork was taken at.
+  const forked = projection?.items.find((item): item is ForkedEntry => item.kind === "forked");
+  const sourceId = forked?.fromSessionId;
+  const source = useMemo(
+    () => (environmentId !== undefined && sourceId !== undefined ? runtime.projections.session(environmentId, sourceId) : undefined),
+    [runtime, environmentId, sourceId],
+  );
+  useFollow(source, request);
+  const from = forked === undefined ? undefined : forkedFrom(forked, source?.read());
+  const listedTitle = (): string | null =>
+    runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === sourceId?.toLowerCase())?.summary.title ?? null;
   const listed = providers?.read().result?.providers ?? [];
   // One adapter in phase A; with several, the session's account names its provider, once the accounts (followed while open) are known.
   const accounts = useMemo(() => (environmentId !== undefined ? runtime.projections.accounts(environmentId) : undefined), [runtime, environmentId]);
@@ -136,6 +154,7 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
     providerCommands: commands?.read().result?.commands ?? [],
     quiet: heard.current,
     planDeltas: (runId) => moved.current.get(runId) ?? [],
+    forkedFrom: from === undefined ? undefined : { title: from.title ?? listedTitle(), anchor: from.anchor },
     open: setOpened,
   };
 };
