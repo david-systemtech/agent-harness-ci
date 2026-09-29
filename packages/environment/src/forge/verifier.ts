@@ -187,12 +187,14 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
 
   /** What the forge answers of the forge account's credential now. */
   const ask = async (account: ForgeAccountRecord, signal: AbortSignal): Promise<Found> => {
+    // Read before the credential, whose read may outlast the environment's close, and the event log's with it.
+    const repository = knownRepository(account);
     const credential = await options.readCredential(account, "verify");
     if (credential.outcome === "unavailable") return credential;
     try {
       return await verifyCredential(
         options.provider(account.kind),
-        { origin: account.origin, token: credential.token, expected: account.identity, repository: knownRepository(account), aliases: account.aliases.map((alias) => alias.origin) },
+        { origin: account.origin, token: credential.token, expected: account.identity, repository, aliases: account.aliases.map((alias) => alias.origin) },
         { signal, onPause: (until) => pause(account, until) },
       );
     } finally {

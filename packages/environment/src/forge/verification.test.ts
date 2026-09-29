@@ -10,6 +10,7 @@ import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted,
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
+import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 
 /**
@@ -461,6 +462,39 @@ describe("closing the environment while a verification is in flight", () => {
     expect(errors).not.toHaveBeenCalled();
     // The add's identity call, the verification's, and the update's: none for the credential given.
     expect(forge.requests).toHaveLength(3);
+  });
+  it("reads nothing once the credential it waited on arrives after the close", async () => {
+    const { rejections, errors } = heard();
+    const reference = { provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount: "personal", path: "harness/forge-work", key: "token" } as const;
+    const scripted = scriptedKeyManagers();
+    scripted.answer(reference, TOKEN);
+    let arrive = (): void => undefined;
+    const arrived = new Promise<void>((resolve) => (arrive = resolve));
+    let waiting = 0;
+    // The add's read is answered at once; the verification's waits for the test.
+    const keyManagers: KeyManagerRegistry = {
+      async resolve(request) {
+        if (request.purpose === "verify") {
+          waiting += 1;
+          await arrived;
+        }
+        return scripted.registry.resolve(request);
+      },
+    };
+    const { t, forge, client } = await withForge({ keyManagers, forgeTimeoutMs: BUDGET_MS });
+    forge.repositories(TOKEN, []);
+    await added(client, { url: forge.origin, kind: "forgejo", credential: { kind: "reference", reference } });
+    t.clock.advance(0);
+    await vi.waitFor(() => expect(waiting).toBe(1));
+
+    await t.close();
+    arrive();
+    await pastTheBudget();
+
+    expect(rejections).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+    expect(scripted.requests.map((request) => request.purpose)).toEqual(["add", "verify"]);
+    expect(scripted.outstanding()).toBe(0);
   });
 });
 
