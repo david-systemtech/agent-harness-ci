@@ -3,8 +3,8 @@ export { PROTOCOL_VERSION } from "@agent-harness/contracts";
 
 export { createRuntime, type Runtime } from "./runtime.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
-/** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4). */
-export { uuidv4 } from "./ids.js";
+/** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4), and for a command (version 7). */
+export { uuidv4, uuidv7 } from "./ids.js";
 export type {
   ClientIdentity,
   Clock,
@@ -272,6 +272,21 @@ export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, t
 export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
+export {
+  confirmationOf,
+  describeKey,
+  noKeysLine,
+  parseTyped,
+  rowKeys,
+  saveSetting,
+  valueWords,
+  writerOf,
+  type Parsed,
+  type SaveOptions,
+  type SettingSaved,
+  type SettingsWriter,
+} from "./settings/editor.js";
+export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, type SettingsLink } from "./settings/rows.js";
 export {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,
