@@ -1,14 +1,22 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { registry } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import type { ManualClock } from "../../test/clock.js";
-import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
+import type { AdapterEvent } from "../adapter/contract.js";
+import { end, fakeAdapter, runCommand, say } from "../../test/fake-adapter.js";
+import { baoHash, baoSaw, installFakeBao } from "../../test/fake-bao.js";
+import { startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
+import { fakePty } from "../../test/fake-pty.js";
+import { saidBack, saidBackOnceHeld } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { ROLE_ID, SECRET_ID, added, approle, list, verify } from "../../test/key-manager-connections.js";
+import { OTHER_SECRET_ID, PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, list, setPolicies, signIn, signOut, token, update, verify } from "../../test/key-manager-connections.js";
 import { create } from "../../test/sessions.js";
+import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -21,7 +29,7 @@ import type { WireClient } from "../../test/wire-client.js";
  * `keyManagers.list` answers; never the registry's own state.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -42,13 +50,18 @@ const POLICIES = {
 path "auth/token/create/runs" { capabilities = ["update"] }`,
 };
 
-/** An environment beside a fake OpenBao whose AppRole signs the test's role id and secret id in for two hours with default, minter and reader. */
-const withOpenBao = async (options: TestEnvironmentOptions = {}) => {
-  const t = await start(options);
+/** A fake OpenBao on the environment's clock with the test's policies, whose AppRole signs the test's role id and secret id in for two hours with default, minter and reader. */
+const scriptedOpenBao = async (t: TestEnvironment): Promise<FakeOpenBao> => {
   const bao = await fakeOpenBao(t.clock);
   for (const [name, text] of Object.entries(POLICIES)) bao.policy(name, text);
   bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 7200 });
-  return { t, bao, client: await t.client() };
+  return bao;
+};
+
+/** An environment beside a scripted fake OpenBao. */
+const withOpenBao = async (options: TestEnvironmentOptions = {}) => {
+  const t = await start(options);
+  return { t, bao: await scriptedOpenBao(t), client: await t.client() };
 };
 
 /** A connection signed in by AppRole on `bao`, with its CA pinned, and verified, so whether it can mint is known. */
@@ -100,7 +113,29 @@ const family = (prefix: "BAO" | "VAULT", values: { readonly address: string; rea
 /** The whole block, in both families. */
 const block = (values: Parameters<typeof family>[1]): Record<string, string> => ({ ...family("BAO", values), ...family("VAULT", values) });
 
+/** Variables as the fake `bao` reports them: each by name, with its value's hash. */
+const hashed = (variables: Readonly<Record<string, string>>): Record<string, string> => Object.fromEntries(Object.entries(variables).map(([name, value]) => [name, baoHash(value)]));
+
+/** A terminal's options for a test: the fake PTY, running nothing. */
+const fakeTerminals = () => {
+  const pty = fakePty();
+  return { pty, terminals: { pty, shell: () => ({ file: "/bin/sh", args: [] }) } };
+};
+
 describe("the OpenBao block", () => {
+  it("adds nothing, and leaves the key empty, while no connection injects", async () => {
+    const { t, bao, client } = await withOpenBao();
+    // Awaiting its sign-in: it does not inject.
+    await added(client, { address: bao.address, ca: bao.ca, method: "approle" });
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+
+    expect(t.adapter.lastRun().input.processEnvironment.key).toBe("");
+    expect(await spawnedWith(t, session.id)).toEqual({});
+    expect(bao.created).toEqual([]);
+  });
+
   it("gives a provider process, in both the BAO_ and VAULT_ families, the address, a run token and the pinned CA, every stray variable shadowed and a harness-owned empty configuration, and forces no output format", async () => {
     const { t, bao, client } = await withOpenBao();
     await connected(client, bao);
@@ -113,5 +148,282 @@ describe("the OpenBao block", () => {
     expect(env).toEqual(block({ address: bao.address, token: bao.created[0] ?? "", ca: bao.ca, config: configOf(t) }));
     expect(Object.keys(env).filter((name) => name.endsWith("_FORMAT"))).toEqual([]);
     expect(readFileSync(configOf(t), "utf8")).toBe("");
+  });
+});
+
+describe("a host environment's stray variables", () => {
+  const STRAY = { VAULT_ADDR: "https://stray.example:8200", VAULT_TOKEN: "stray-token-for-tests", BAO_NAMESPACE: "stray-namespace" };
+
+  /** The environment's own process holds the stray variables, as a machine's shell would have exported them. */
+  const strayHost = (): void => {
+    for (const [name, value] of Object.entries(STRAY)) vi.stubEnv(name, value);
+    onCleanup(() => vi.unstubAllEnvs());
+  };
+
+  it("reach the CLI in a provider process only as the block's values", async () => {
+    strayHost();
+    const { t, bao, client } = await withOpenBao();
+    await connected(client, bao);
+    const bin = join(tempDir(), "bin");
+    installFakeBao(bin);
+    const session = await create(client);
+    let saw: Record<string, string> = {};
+    t.adapter.nextScripts.push(async function* (controls) {
+      // The machine's own variables, as a Claude process inherits them: the fake bao's PATH, and the strays.
+      const result = yield* runCommand(controls, "bao token lookup", { env: { PATH: `${bin}:/usr/bin:/bin`, ...STRAY } });
+      saw = baoSaw(result.stdout);
+      yield end();
+    });
+
+    await runTo(t, client, session.id);
+
+    expect(saw).toEqual(hashed(block({ address: bao.address, token: bao.created[0] ?? "", ca: bao.ca, config: configOf(t) })));
+  });
+
+  it("reach the CLI in a terminal only as the block's values", async () => {
+    strayHost();
+    const { pty, terminals } = fakeTerminals();
+    const { t, bao, client } = await withOpenBao({ terminals });
+    await connected(client, bao);
+    const fakeBao = installFakeBao(join(tempDir(), "bin"));
+    const session = await create(client);
+
+    await openTerminal(client, session.id);
+
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    // Run in exactly what the terminal's shell was given.
+    const { stdout } = await promisify(execFile)(fakeBao, ["token", "lookup"], { env: pty.spawned[0]?.options.env ?? {} });
+    expect(baoSaw(stdout)).toEqual(hashed(block({ address: bao.address, token: bao.created[0] ?? "", ca: bao.ca, config: configOf(t) })));
+  });
+});
+
+describe("a run token", () => {
+  it("is a renewable child of the current login with the ticked policies plus default, an hour to live, the display name agent-harness and metadata naming the session and the holder kind", async () => {
+    const { pty, terminals } = fakeTerminals();
+    const { t, bao, client } = await withOpenBao({ terminals });
+    const connection = await connected(client, bao);
+    await setPolicies(client, connection.id, ["reader"]);
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+    const forProcess = (await spawnedWith(t, session.id))["BAO_TOKEN"] ?? "";
+    await openTerminal(client, session.id);
+
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    const forTerminal = pty.spawned[0]?.options.env["BAO_TOKEN"] ?? "";
+    expect(bao.created).toEqual([forProcess, forTerminal]);
+    expect(bao.issued(forProcess)).toEqual({
+      policies: ["default", "reader"],
+      ttlSeconds: 3600,
+      renewable: true,
+      displayName: "token-agent-harness",
+      meta: { session: session.id, holder: "provider-process" },
+      parent: bao.minted.at(-1),
+      role: null,
+    });
+    expect(bao.issued(forTerminal)).toMatchObject({ parent: bao.minted.at(-1), meta: { session: session.id, holder: "terminal" } });
+  });
+
+  it("lives the login's remaining life when that is shorter than an hour", async () => {
+    const { t, bao, client } = await withOpenBao();
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 30 * 60 });
+    await connected(client, bao);
+    const session = await create(client);
+    t.clock.advance(10 * 60_000);
+
+    await runTo(t, client, session.id);
+
+    const env = await spawnedWith(t, session.id);
+    expect(bao.issued(env["BAO_TOKEN"] ?? "")?.ttlSeconds).toBe(20 * 60);
+  });
+});
+
+describe("a run token's life", () => {
+  const MINUTE = 60_000;
+  /** What a run reports as a Claude run's first init does, so a later rewind has a provider session to rewind. */
+  const linked: AdapterEvent = { type: "session.provider-linked", payload: { providerSessionId: "provider-1" } };
+
+  /** An environment with a signed-in connection, a session that has run once, and the token its process was given. */
+  const ranOnce = async (options: TestEnvironmentOptions = {}) => {
+    const { t, bao, client } = await withOpenBao(options);
+    // Four hours, so the login outlives everything these tests do.
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 4 * 3600 });
+    const connection = await connected(client, bao);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    const token = (await spawnedWith(t, session.id))["BAO_TOKEN"] ?? "";
+    expect(bao.live(token)).toBe(true);
+    return { t, bao, client, connection, session, token };
+  };
+
+  const renewals = (bao: FakeOpenBao): number => bao.requests.filter((request) => request.path === "auth/token/renew-self").length;
+
+  it("is minted once per spawn: a second run on the same process mints nothing", async () => {
+    const { t, bao, client, session } = await ranOnce();
+
+    await runTo(t, client, session.id, "And the refunds");
+
+    expect(t.adapter.processesOf(session.id)).toHaveLength(1);
+    expect(bao.created).toHaveLength(1);
+  });
+
+  it("is renewed every twenty minutes while its holder lives, past the hour it was minted for, and revoked as the holder stops for its idle time", async () => {
+    const { t, bao, token } = await ranOnce({ processIdleMinutes: () => 120 });
+
+    for (const round of [1, 2, 3]) {
+      t.clock.advance(20 * MINUTE);
+      await vi.waitFor(() => expect(renewals(bao)).toBe(round));
+    }
+    t.clock.advance(10 * MINUTE);
+    // Seventy minutes on: it lives on its renewals.
+    expect(bao.live(token)).toBe(true);
+
+    t.clock.advance(50 * MINUTE);
+
+    await vi.waitFor(() => expect(bao.live(token)).toBe(false));
+    expect(bao.live(bao.minted.at(-1) ?? "")).toBe(true);
+    // Stopped, it is renewed no more.
+    const renewed = renewals(bao);
+    t.clock.advance(40 * MINUTE);
+    expect(renewals(bao)).toBe(renewed);
+  });
+
+  it("is revoked when a run whose key differs lets its process go, and the fresh process gets its own", async () => {
+    const { t, bao, client, connection, session, token } = await ranOnce();
+    await setPolicies(client, connection.id, ["reader"]);
+
+    await runTo(t, client, session.id, "After the untick");
+
+    const fresh = (await spawnedWith(t, session.id))["BAO_TOKEN"] ?? "";
+    await vi.waitFor(() => expect(bao.live(token)).toBe(false));
+    expect(fresh).not.toBe(token);
+    expect(bao.live(fresh)).toBe(true);
+    expect(bao.issued(fresh)?.policies).toEqual(["default", "reader"]);
+  });
+
+  it("is revoked when a rewind stops its process", async () => {
+    const adapter = fakeAdapter({ capabilities: { rewind: true }, script: ({ input }) => [linked, say(`Done: ${input.prompt[0]?.text}`), end()] });
+    const { t, bao, client, session, token } = await ranOnce({ adapter });
+    await runTo(t, client, session.id, "And the refunds");
+    const [, second] = t.env.log.readStream({ kind: "session", id: session.id }).filter((event) => event.type === "message.sent");
+
+    const answer = registry["sessions.rewind"].response.parse(await client.request("sessions.rewind", { commandId: randomUUID(), sessionId: session.id, messageId: String(second?.payload["messageId"]) }));
+
+    expect(answer.receipt.status).toBe("accepted");
+    await vi.waitFor(() => expect(bao.live(token)).toBe(false));
+  });
+
+  it("is revoked when a drain stops its process", async () => {
+    const { t, bao, token } = await ranOnce();
+
+    const drained = t.env.drain("command");
+    t.clock.advance(0);
+    await drained;
+
+    await vi.waitFor(() => expect(bao.live(token)).toBe(false));
+  });
+
+  it("is revoked when its terminal closes", async () => {
+    const { pty, terminals } = fakeTerminals();
+    const { bao, client, session } = await ranOnce({ terminals });
+    const terminal = await openTerminal(client, session.id);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    const token = pty.spawned[0]?.options.env["BAO_TOKEN"] ?? "";
+    expect(bao.live(token)).toBe(true);
+
+    await terminalCommand(client, "terminals.close", { id: terminal.id });
+
+    await vi.waitFor(() => expect(bao.live(token)).toBe(false));
+  });
+
+  it("is registered with the scrub registry for its holder's life, and let go at the stop", async () => {
+    const { t, client, session, token } = await ranOnce();
+    expect(await saidBack(t, [token])).toEqual(["[redacted]"]);
+
+    const stopped = await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: session.id });
+
+    expect(stopped.receipt.status).toBe("accepted");
+    expect(await saidBackOnceHeld(t, [token], [token])).toEqual([token]);
+  });
+});
+
+describe("the key", () => {
+  it("names each injected connection's id, credential generation and status, never a token: a sign-in, sign-out, address, CA, ticks, token role or status gives the next run a fresh process, and a verification that finds nothing new does not", async () => {
+    const { t, bao, client } = await withOpenBao();
+    const other = await scriptedOpenBao(t);
+    other.approle(ROLE_ID, OTHER_SECRET_ID, { policies: ["default", "minter", "reader"], ttlSeconds: 7200 });
+    for (const at of [bao, other]) at.role("runs");
+    const connection = await connected(client, bao);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    const processes = () => t.adapter.processesOf(session.id).length;
+
+    await verify(client, connection.id);
+    await runTo(t, client, session.id, "After a verification");
+    expect(processes()).toBe(1);
+
+    const changes: [string, () => Promise<unknown>][] = [
+      ["the ticks", () => setPolicies(client, connection.id, ["reader"])],
+      ["the token role", () => update(client, { connectionId: connection.id, tokenRole: "runs" })],
+      ["the CA", () => update(client, { connectionId: connection.id, ca: `${bao.ca}${testCertificates().otherCa}` })],
+      ["the address", () => update(client, { connectionId: connection.id, address: other.address })],
+      ["a sign-in", () => signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) })],
+      [
+        "the status",
+        async () => {
+          other.seal();
+          await verify(client, connection.id);
+        },
+      ],
+      ["a sign-out", () => signOut(client, connection.id)],
+    ];
+    for (const [index, [what, change]] of changes.entries()) {
+      await change();
+      await runTo(t, client, session.id, `After ${what}`);
+      expect(processes(), what).toBe(index + 2);
+    }
+    // Signed out, it no longer injects.
+    expect(await spawnedWith(t, session.id)).toEqual({});
+    const keys = t.adapter.runs.map((run) => run.input.processEnvironment.key);
+    for (const token of [...bao.minted, ...bao.created, ...other.minted, ...other.created]) for (const key of keys) expect(key).not.toContain(token);
+  });
+});
+
+describe("a sign-out", () => {
+  it("revokes the login and with it every run token minted from it, an orphan its token role made among them", async () => {
+    const { pty, terminals } = fakeTerminals();
+    const { t, bao, client } = await withOpenBao({ terminals });
+    bao.role("runs", { orphan: true });
+    const connection = await connected(client, bao);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    const child = (await spawnedWith(t, session.id))["BAO_TOKEN"] ?? "";
+    await update(client, { connectionId: connection.id, tokenRole: "runs" });
+    await openTerminal(client, session.id);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    const orphan = pty.spawned[0]?.options.env["BAO_TOKEN"] ?? "";
+    const login = bao.minted.at(-1) ?? "";
+    expect(bao.issued(orphan)).toMatchObject({ parent: null, role: "runs" });
+    expect([login, child, orphan].map((each) => bao.live(each))).toEqual([true, true, true]);
+
+    await signOut(client, connection.id);
+
+    await vi.waitFor(() => expect([login, child, orphan].map((each) => bao.live(each))).toEqual([false, false, false]));
+  });
+
+  it("revokes the run tokens minted from a token a person gave, and leaves that token, theirs, unrevoked", async () => {
+    const { t, bao, client } = await withOpenBao();
+    bao.token(PERSON_TOKEN, { policies: ["default", "minter", "reader"], ttlSeconds: 7200 });
+    const connection = await added(client, { address: bao.address, ca: bao.ca, credential: token() });
+    await verify(client, connection.id);
+    const session = await create(client);
+    await runTo(t, client, session.id);
+    const child = (await spawnedWith(t, session.id))["BAO_TOKEN"] ?? "";
+    expect(bao.issued(child)?.parent).toBe(PERSON_TOKEN);
+
+    await signOut(client, connection.id);
+
+    await vi.waitFor(() => expect(bao.live(child)).toBe(false));
+    expect(bao.live(PERSON_TOKEN)).toBe(true);
   });
 });

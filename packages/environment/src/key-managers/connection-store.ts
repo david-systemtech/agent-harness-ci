@@ -33,6 +33,13 @@ import type { Reader } from "../sessions/session-tables.js";
  * partial unique indexes hold one live connection per provider and address,
  * and one injecting connection per provider, which the connections check
  * before they append.
+ *
+ * Each row counts its **credential generation** (#368): what runs are given
+ * of the connection changed, so the process environment's key gives the
+ * next run a fresh process. A person's sign-in with a credential, a
+ * sign-out, a new address, CA or token role, new ticks and the injects flag
+ * raise it; the environment's own sign-in from the kept credential, a
+ * verification, a label and a base path do not.
  */
 
 export const KEY_MANAGER_CONNECTIONS_PROJECTOR = "key-manager-connections";
@@ -111,8 +118,15 @@ const added = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnec
   );
 };
 
+/** Raises the connection's credential generation: what runs are given of it changed. */
+const raiseGeneration = (db: ProjectionDb, connectionId: string): void => {
+  db.run("UPDATE key_manager_connections SET credential_generation = credential_generation + 1 WHERE id = ?", connectionId);
+};
+
 const signedIn = (db: ProjectionDb, payload: KeyManagerConnectionSignedInPayload): void => {
   const { connectionId } = payload;
+  // A person's credential, or the connection now injecting; never the environment's own sign-in from the kept credential alone.
+  if (payload.credential !== undefined || payload.injects === true) raiseGeneration(db, connectionId);
   moveStatus(db, connectionId, payload.status);
   db.run("UPDATE key_manager_connections SET token_information = ? WHERE id = ?", jsonOrNull(payload.tokenInformation), connectionId);
   if (payload.credential !== undefined) db.run("UPDATE key_manager_connections SET credential = ? WHERE id = ?", payload.credential, connectionId);
@@ -125,12 +139,14 @@ const signedIn = (db: ProjectionDb, payload: KeyManagerConnectionSignedInPayload
 
 const signedOut = (db: ProjectionDb, payload: KeyManagerConnectionSignedOutPayload): void => {
   moveStatus(db, payload.connectionId, payload.status);
+  raiseGeneration(db, payload.connectionId);
   // Signed out, it no longer injects: the next of its provider signed in does. What the login was known by goes with it.
   db.run("UPDATE key_manager_connections SET token_information = NULL, policies = NULL, can_mint = NULL, credential = NULL, injects = 0 WHERE id = ?", payload.connectionId);
 };
 
 const policiesSet = (db: ProjectionDb, payload: KeyManagerConnectionPoliciesSetPayload): void => {
   db.run("UPDATE key_manager_connections SET ticks = ? WHERE id = ?", json(payload.ticks), payload.connectionId);
+  raiseGeneration(db, payload.connectionId);
 };
 
 const basePathSet = (db: ProjectionDb, payload: KeyManagerConnectionBasePathSetPayload): void => {
@@ -156,6 +172,7 @@ const updated = (db: ProjectionDb, payload: KeyManagerConnectionUpdatedPayload):
   if (payload.address !== undefined) db.run("UPDATE key_manager_connections SET address = ? WHERE id = ?", payload.address, connectionId);
   if (payload.ca !== undefined) db.run("UPDATE key_manager_connections SET ca = ? WHERE id = ?", payload.ca, connectionId);
   if (payload.tokenRole !== undefined) db.run("UPDATE key_manager_connections SET token_role = ? WHERE id = ?", payload.tokenRole, connectionId);
+  if (payload.address !== undefined || payload.ca !== undefined || payload.tokenRole !== undefined) raiseGeneration(db, connectionId);
 };
 
 const removed = (db: ProjectionDb, event: EventEnvelope, payload: KeyManagerConnectionRemovedPayload): void => {
