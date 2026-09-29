@@ -503,6 +503,8 @@ describe("ping", () => {
 
   it("stops when the socket closes", async () => {
     const t = await start();
+    // The start pass's budgets are on the clock until Set up's checks answer (#571).
+    await t.env.setup.startPass;
     const before = t.clock.pending();
     const client = await t.client();
     expect(t.clock.pending()).toBe(before + 1);
