@@ -15,8 +15,8 @@ import type { KeyManagerRegistry, ReferenceRefusal, ReferenceResolution } from "
  *   connection is `signed-in`. The value is registered with the scrub
  *   registry for its owner and answered with its release; nothing is kept,
  *   so every resolve reads again and a read that fails answers no value.
- * - **The refusals** are the ones every caller answers on the wire: a
- *   connection not held, not signed in or that could not be asked now is
+ * - **The refusals** are the ones a resolve's callers answer on the wire:
+ *   a connection not held, not signed in or that could not be asked now is
  *   `credential_source_unavailable`; nothing at the locator is
  *   `reference_not_found`; a read the key manager refuses is
  *   `reference_denied`, whose line says to check the mount first, since
@@ -25,7 +25,9 @@ import type { KeyManagerRegistry, ReferenceRefusal, ReferenceResolution } from "
  *   becomes passes the scrub registry first.
  * - **The check** resolves and lets go at once, answering the display form
  *   and the refusal, never the value; **the browse** lists names, never
- *   values.
+ *   values, refused as a resolve is, except that a connection it names and
+ *   the environment does not hold is `not_found`, as every connection method
+ *   answers one. A connection's id is found whatever its case.
  */
 
 export interface KeyManagerReferences extends KeyManagerRegistry {

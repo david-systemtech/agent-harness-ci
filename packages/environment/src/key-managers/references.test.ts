@@ -91,6 +91,17 @@ describe("a reference's resolve", () => {
     expect(await saidBack(t, [VALUE])).toEqual([VALUE]);
   });
 
+  it("finds the connection whatever case the reference writes its id in, as the check and the browse do", async () => {
+    const { t, client, connection, reference } = await withOpenBao();
+    const shouted: OpenBaoReference = { ...reference, connectionId: connection.id.toUpperCase() };
+
+    const answer = await resolve(t, shouted);
+    expect(answer).toMatchObject({ outcome: "resolved", value: VALUE });
+    if (answer.outcome === "resolved") answer.release();
+    expect(await check(client, shouted)).toMatchObject({ display: { label: "Personal OpenBao" }, problem: null });
+    expect(await browse(client, shouted.connectionId, "personal", "harness")).toEqual({ names: ["forge-github"] });
+  });
+
   it("reads again every time, never cached: a rotated secret answers its new value, and a read that fails answers no earlier value", async () => {
     const { t, bao, reference } = await withOpenBao();
     const first = await resolve(t, reference);
