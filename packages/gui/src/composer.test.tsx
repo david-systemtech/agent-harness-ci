@@ -297,18 +297,26 @@ const PROVIDER_COMMANDS = [
   { name: "model", description: "The provider's own model picker" },
 ];
 
+/** The slash commands the window wires (the composer's and the side column's, #408), in the shared list's order, as the menu and the palette list them. */
+const WINDOW_COMMANDS = [
+  "/attachSend an image or file with the next message",
+  "/diffWhat this conversation changed, and the working tree's diff",
+  "/tasksBackground work: what is running, and what a delegated agent did",
+  "/filesBrowse the workspace's files, and read one in the pager",
+];
+
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {
     const { app } = await opened({ commands: PROVIDER_COMMANDS });
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toEqual(["/attachSend an image or file with the next message", "/compactCompact the conversation · the agent's"]));
+    await waitFor(() => expect(rows("Commands")).toEqual([...WINDOW_COMMANDS, "/compactCompact the conversation · the agent's"]));
   });
 
   it("list the provider's commands only while its adapter lists them", async () => {
     const { app, env } = await opened({ commands: PROVIDER_COMMANDS, provider: { commands: false } });
     await waitFor(() => expect(env.requests("providers.list").length).toBeGreaterThan(0));
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toEqual(["/attachSend an image or file with the next message"]));
+    await waitFor(() => expect(rows("Commands")).toEqual(WINDOW_COMMANDS));
     expect(env.requests("commands.list")).toEqual([]);
   });
 
@@ -331,11 +339,13 @@ describe("slash commands", () => {
   it("move the highlight with ↑ and ↓, fill the command in on Tab, and put the menu away on Esc", async () => {
     const { app } = await opened({ commands: PROVIDER_COMMANDS });
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toHaveLength(2));
+    await waitFor(() => expect(rows("Commands")).toHaveLength(WINDOW_COMMANDS.length + 1));
     expect(highlightedRow()).toMatch(/^\/attach/);
     await write(app, "{ArrowDown}");
-    expect(highlightedRow()).toMatch(/^\/compact/);
+    expect(highlightedRow()).toMatch(/^\/diff/);
     await write(app, "{ArrowDown}{ArrowUp}");
+    expect(highlightedRow()).toMatch(/^\/diff/);
+    await write(app, "{ArrowUp}");
     expect(highlightedRow()).toMatch(/^\/attach/);
 
     await write(app, "{Tab}");
@@ -426,7 +436,7 @@ describe("the composer's keys", () => {
   it("open the command menu on / only from an empty box, and leave Tab to the window when there is nothing to fill in", async () => {
     const { app } = await opened();
     await write(app, "/");
-    await waitFor(() => expect(rows("Commands")).toHaveLength(1));
+    await waitFor(() => expect(rows("Commands")).toHaveLength(WINDOW_COMMANDS.length));
     await write(app, "{Backspace}and/or");
     expect(box().value).toBe("and/or");
     expect(rows("Commands")).toEqual([]);
