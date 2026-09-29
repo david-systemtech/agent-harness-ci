@@ -124,8 +124,10 @@ export const forgeAccountsList = defineMethod({
  * and nothing is stored; a forge that does not answer keeps the forge
  * account with problem `unreachable`; a `gh` that is missing, older than
  * 2.40 or not signed in to the host as the login keeps it with problem
- * `credential-unavailable`; a reference that cannot be read is rejected
- * `credential_source_unavailable`. Each alias is asked on its own origin
+ * `credential-unavailable`; a reference that cannot be read is rejected as
+ * its resolve refuses it: `credential_source_unavailable` (its connection
+ * not held, not signed in or not answering), `reference_not_found` or
+ * `reference_denied`. Each alias is asked on its own origin
  * with the credential and accepted only when it answers as the same login
  * and user id, else `alias_identity_mismatch`; one that does not answer, or
  * any on a forge account that has no identity yet, waits unverified until a
@@ -170,7 +172,8 @@ export const forgeAccountsAdd = defineMethod({
  * is `conflict` (reason `origin_held`). A new credential is checked on the forge's identity
  * endpoint first: a refusal is `verification_failed`, another user id than
  * the forge account's is `identity_mismatch`, a reference that cannot be
- * read is `credential_source_unavailable`, and each changes nothing; a
+ * read is refused as its resolve refuses it (`credential_source_unavailable`,
+ * `reference_not_found`, `reference_denied`), and each changes nothing; a
  * forge that does not answer keeps the new credential with problem
  * `unreachable`, and a `gh` that cannot give a token keeps it with problem
  * `credential-unavailable`. A reference in place of a stored token is the

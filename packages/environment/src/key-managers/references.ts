@@ -1,6 +1,6 @@
-import { ContractError, displayReference, invalidParams, type KeyManagerReference, type ParamsOf, type ResultOf } from "@agent-harness/contracts";
+import { ContractError, displayReference, invalidParams, type KeyManagerProvider, type ParamsOf, type ResultOf } from "@agent-harness/contracts";
 import type { ScrubRegistry } from "../scrub/registry.js";
-import type { HeldLogin, KeyManagerConnections } from "./connections.js";
+import type { HeldLogin, KeyManagerConnections, ReadableConnection } from "./connections.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ListAnswer, type ProviderFailure, type ReadAnswer } from "./provider.js";
 import type { KeyManagerRegistry, ReferenceRefusal, ReferenceResolution } from "./registry.js";
 
@@ -55,24 +55,27 @@ interface Refused {
 
 const refused = (code: ReferenceRefusal, message: string): Refused => ({ outcome: "unavailable", code, message });
 
+/** A signed-in connection's login, ready to read with, and how its key manager is named (`OpenBao at <address>`). */
+interface Ready {
+  readonly outcome: "ready";
+  readonly login: HeldLogin;
+  readonly named: string;
+}
+
 export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_MANAGER_BUDGET_MS }: KeyManagerReferencesOptions): KeyManagerReferences => {
-  /** The login `connectionId` is read with and how its key manager is named (`OpenBao at <address>`), or why it cannot be read. */
-  const loginFor = (connectionId: string, provider: KeyManagerReference["provider"] | null): { readonly login: HeldLogin; readonly named: string } | Refused => {
-    const held = connections.readable(connectionId);
-    if (held === null) {
-      return refused(
-        "credential_source_unavailable",
-        `No key-manager connection ${connectionId} is on this environment: connect the key manager in Set up, Key manager, or name another connection.`,
-      );
-    }
-    const { record, login } = held;
-    if (provider !== null && provider !== record.provider) {
+  /** The refusal of a reference whose connection this environment does not hold. */
+  const notHeld = (connectionId: string): Refused =>
+    refused("credential_source_unavailable", `No key-manager connection ${connectionId} is on this environment: connect the key manager in Set up, Key manager, or name another connection.`);
+
+  /** The login a connection is read with, or why it cannot be: not signed in, or another provider's than the reference. */
+  const loginOf = ({ record, login }: ReadableConnection, provider: KeyManagerProvider): Ready | Refused => {
+    if (provider !== record.provider) {
       return refused("credential_source_unavailable", `The reference is ${PROVIDER_NAMES[provider]}'s, and the key-manager connection ${record.label} is ${PROVIDER_NAMES[record.provider]}.`);
     }
     if (record.status.kind !== "signed-in" || login === null) {
       return refused("credential_source_unavailable", `The key-manager connection ${record.label} is not signed in (${record.status.message}), so its references cannot be read.`);
     }
-    return { login, named: `${PROVIDER_NAMES[record.provider]} at ${record.address}` };
+    return { outcome: "ready", login, named: `${PROVIDER_NAMES[record.provider]} at ${record.address}` };
   };
 
   /** The refusal a provider's failure comes to: nothing there, a read refused, or a key manager that could not be asked. */
@@ -101,9 +104,10 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
 
   const resolve: KeyManagerRegistry["resolve"] = async ({ reference, owner, purpose }): Promise<ReferenceResolution> => {
     try {
-      const through = loginFor(reference.connectionId, reference.provider);
-      if ("outcome" in through) return through;
-      const { login, named } = through;
+      const held = connections.readable(reference.connectionId);
+      const ready = held === null ? notHeld(reference.connectionId) : loginOf(held, reference.provider);
+      if (ready.outcome === "unavailable") return ready;
+      const { login, named } = ready;
       const answer = await withinBudget(named, "read", (signal) => login.provider.read(login.target, login.token, reference, signal));
       if (answer.outcome === "unavailable") return answer;
       if (answer.outcome !== "read") return refusalOf(answer);
@@ -133,14 +137,13 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
         const message = "A path is listed under a mount: name the mount too.";
         throw new ContractError(invalidParams([{ code: "custom", path: ["path"], message }], message));
       }
-      if (connections.readable(id) === null) {
+      const held = connections.readable(id);
+      if (held === null) {
         throw new ContractError({ code: "not_found", message: `No key-manager connection ${id} is on this environment.`, data: { kind: "key_manager_connection", connectionId: id } });
       }
-      const through = loginFor(id, null);
-      const answer =
-        "outcome" in through
-          ? through
-          : await withinBudget(through.named, "list", (signal) => through.login.provider.list(through.login.target, through.login.token, { mount: mount ?? null, path: path ?? null }, signal));
+      const ready = loginOf(held, held.record.provider);
+      const location = { mount: mount ?? null, path: path ?? null };
+      const answer = ready.outcome === "unavailable" ? ready : await withinBudget(ready.named, "list", (signal) => ready.login.provider.list(ready.login.target, ready.login.token, location, signal));
       if (answer.outcome === "listed") return { names: [...answer.names] };
       const problem = answer.outcome === "unavailable" ? answer : refusalOf(answer);
       throw new ContractError({ code: problem.code, message: problem.message, data: { connectionId: id } });

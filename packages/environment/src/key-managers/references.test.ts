@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { EventEnvelope, EventFrame, OpenBaoReference } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { startFakeOpenBao } from "../../test/fake-openbao.js";
@@ -243,6 +243,9 @@ describe("a forge account whose credential is a reference", () => {
   });
 
   it("is refused on add with the refusal the resolve answered, storing nothing, and no value is in an event, a log line or the refusal", async () => {
+    // Every line handed to the logger, before its scrub: a value must never reach it at all.
+    const logged = (["log", "info", "warn", "error"] as const).map((level) => vi.spyOn(console, level));
+    onCleanup(() => logged.forEach((spy) => spy.mockRestore()));
     const { t, client, forge, reference } = await withForge();
     const from = t.env.log.head();
 
@@ -256,6 +259,7 @@ describe("a forge account whose credential is a reference", () => {
     const events = await environmentEvents(client, from);
     expect(events.map((event) => event.type)).toContain("forge.account.added");
     expect(JSON.stringify([events, denied, missing])).not.toContain(VALUE);
+    expect(JSON.stringify(logged.map((spy) => spy.mock.calls))).not.toContain(VALUE);
     expect(await saidBack(t, [VALUE])).toEqual([VALUE]);
   });
 });

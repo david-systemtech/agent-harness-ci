@@ -97,6 +97,9 @@ const VAULT_PREFIX = "key-manager:";
 /** A new vault entry for a credential given to `connectionId`: one per credential, so a replacement never overwrites the one it replaces. */
 const newEntry = (connectionId: string): string => `${VAULT_PREFIX}${connectionId}:${randomUUID()}`;
 
+/** How a holder of a reference is named to people. */
+const HOLDER_KINDS: Record<KeyManagerReferenceHolder["kind"], string> = { "forge-account": "forge account" };
+
 /** The secrets of a credential, each registered for scrubbing: a role id and a secret id, a password, or a token. */
 const secretsOf = (credential: KeyManagerCredential): string[] => {
   switch (credential.method) {
@@ -961,13 +964,13 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (held === null) return { aggregate: stream, rejected: notFound(connectionId) };
       const holders = params.force === true ? [] : (options.referenceHolders?.(connectionId) ?? []);
       if (holders.length > 0) {
-        const named = holders.map((holder) => `the credential of the forge account ${holder.name}`).join(", ");
+        const named = holders.map((holder) => `the credential of the ${HOLDER_KINDS[holder.kind]} ${holder.name}`).join(", ");
         return {
           aggregate: stream,
           rejected: {
             code: "conflict",
             message: `The key-manager connection ${held.record.label} is named by ${named}: give it another credential first, or remove the connection with force.`,
-            data: { reason: "referenced", connectionId, holders: holders.map((holder) => ({ ...holder })) },
+            data: { reason: "referenced", connectionId, holders: [...holders] },
           },
         };
       }
