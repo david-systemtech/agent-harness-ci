@@ -16,6 +16,7 @@ import {
   type GatedToolCall,
   type InProcessToolServer,
   type PermissionBroker,
+  type ProcessEnvironment,
   type PromptDecision,
   type PromptRequest,
   type ProviderTurn,
@@ -1435,6 +1436,88 @@ describe("the process across turns", () => {
     await adapter.stopProcess(SESSION);
     expect(turn.query.closed).toBe(true);
     await adapter.stopProcess(SESSION);
+  });
+});
+
+describe("the process environment (#307)", () => {
+  /** A run's process environment under `key` that supplies `variables`, counting the spawns it supplied. */
+  const supplying = (variables: Readonly<Record<string, string>>, key = "forge generation 1") => {
+    const supplied = { count: 0 };
+    const environment: ProcessEnvironment = {
+      key,
+      supply: async () => {
+        supplied.count += 1;
+        return { variables, release: () => undefined };
+      },
+    };
+    return { environment, supplied };
+  };
+
+  it("layers what the spawn is supplied over the scrubbed environment, once per spawn: a supplied name holding _TOKEN reaches the process, never a stripped one or the harness's own", async () => {
+    const adapter = adapterWith({ hostEnv: { PATH: "/usr/bin", GH_TOKEN: "the shell's", ANTHROPIC_API_KEY: "sk-ant-shell" } });
+    const { environment, supplied } = supplying({
+      GH_TOKEN: "token-for-tests",
+      FORGE_WORK_TOKEN: "forge-token-for-tests",
+      AGENT_HARNESS_RUN_SECRET: "secret-for-tests",
+      ANTHROPIC_API_KEY: "sk-ant-supplied",
+      CLAUDE_CONFIG_DIR: "/elsewhere",
+      CLAUDE_CODE_PROJECT_DIR_NAME: "elsewhere",
+    });
+    const first = runInput({ processEnvironment: environment });
+    const run = adapter.createRun(first, contextWith());
+    const query = await started();
+
+    expect(query.env).toMatchObject({ PATH: "/usr/bin", GH_TOKEN: "token-for-tests", FORGE_WORK_TOKEN: "forge-token-for-tests", AGENT_HARNESS_RUN_SECRET: "secret-for-tests" });
+    expect(query.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(query.env["CLAUDE_CONFIG_DIR"]).toBe("/data/accounts/work");
+    expect(query.env["CLAUDE_CODE_PROJECT_DIR_NAME"]).toBe(SESSION);
+    // Only ever in the process's environment: nothing else query() is handed carries them.
+    const beside = JSON.stringify({ ...query.options, env: undefined });
+    for (const value of ["token-for-tests", "secret-for-tests"]) expect(beside).not.toContain(value);
+
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // The next run attaches to the process: nothing is supplied again.
+    const next = runInput({ processEnvironment: environment, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(next, contextWith());
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    expect(supplied.count).toBe(1);
+  });
+
+  it("serves a run whose key differs on a fresh process, the kept one let go with its queued message handed on, and attaches a run with the same key", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const before = supplying({ HARNESS_GENERATION: "1" }, "forge generation 1");
+    const input = runInput({ processEnvironment: before.environment });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"));
+    await flush();
+    const queued = message("Then tidy up");
+    await run.send(queued);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+
+    const after = supplying({ HARNESS_GENERATION: "2" }, "forge generation 2");
+    const changed = runInput({ processEnvironment: after.environment, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const second = adapter.createRun(changed, context);
+    const fresh = await fake.made(2);
+    const prompts = await fresh.promptsPushed(2);
+    expect(query.closed).toBe(true);
+    expect(prompts.map((prompt) => prompt.uuid)).toEqual([changed.prompt[0]?.messageId, queued.messageId]);
+    expect(fresh.env["HARNESS_GENERATION"]).toBe("2");
+    fresh.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [changed.prompt[0]?.messageId as string, queued.messageId]), sdk.result(PROVIDER_SESSION));
+    await drain(second);
+    second.release();
+
+    const same = runInput({ processEnvironment: supplying({ HARNESS_GENERATION: "2" }, "forge generation 2").environment, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(same, context);
+    await fresh.promptsPushed(3);
+    expect(fake.queries).toHaveLength(2);
+    expect([before.supplied.count, after.supplied.count]).toEqual([1, 1]);
   });
 });
 

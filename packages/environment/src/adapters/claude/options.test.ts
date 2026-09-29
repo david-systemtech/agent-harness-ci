@@ -54,6 +54,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
 const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput> = {}): RunOptionsInput => ({
   run: run(overrides),
   hostEnv: { PATH: "/usr/bin", HOME: "/home/david", ANTHROPIC_API_KEY: "sk-ant-shell", IS_SANDBOX: "1", CLAUDE_CODE_BUBBLEWRAP: "1" },
+  supplied: {},
   configDirectory: "/data/accounts/work",
   executablePath: "/sdk/claude-agent-sdk-linux-x64/claude",
   pluginDirectory: "/data/skills/work",
