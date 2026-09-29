@@ -9,7 +9,9 @@ import { writeFileDurably, type DurableFs } from "./durable.js";
  * update stands. While the service runs the launcher is its only writer;
  * `service install` writes it only when no launcher runs. Every write is
  * durable (`writeFileDurably`), and a state the launcher cannot read or
- * trust stops it starting anything.
+ * trust stops it starting anything. The watched update, the staged version
+ * and a failed handover came with the watch and the handover (#341): a state
+ * written before them holds none of each.
  */
 
 /** The service state's file in the data directory. */
@@ -33,6 +35,22 @@ export interface ServiceState {
   readonly pendingUpdate: PendingUpdate | null;
   /** When the crash-loop watch after the last commit ends (an ISO 8601 time), if one is running. */
   readonly watchDeadline: string | null;
+  /** The update whose commit the watch follows, while one runs: a crash loop restores its snapshot. */
+  readonly watchedUpdateId: string | null;
+  /**
+   * The version the launcher last installed on `install?` and has not been
+   * asked to switch to since: the environment's update to it may still wait
+   * for idle, so pruning keeps it.
+   */
+  readonly stagedVersion: string | null;
+  /** The handover to a newer launcher that was not confirmed, so the launcher that handed over runs on, if there was one since the last confirmed handover. */
+  readonly failedHandover: FailedHandover | null;
+}
+
+/** A handover whose launcher did not confirm that its child passed the gate: the version whose launcher it was, and when the launcher that handed over found it so. */
+export interface FailedHandover {
+  readonly toVersion: string;
+  readonly at: string;
 }
 
 /** The service state, or why the launcher has none it can use. */
@@ -43,28 +61,36 @@ type Fields = Readonly<Record<string, unknown>>;
 const isFields = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
 const isVersion = (value: unknown): value is string => typeof value === "string" && RELEASE_VERSION_PATTERN.test(value);
 const isTime = (value: unknown): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
+const isUpdateId = (value: unknown): value is string => typeof value === "string" && UPDATE_ID_PATTERN.test(value);
 const isPendingUpdate = (value: unknown): value is PendingUpdate =>
-  isFields(value) &&
-  typeof value["updateId"] === "string" &&
-  UPDATE_ID_PATTERN.test(value["updateId"]) &&
-  isVersion(value["fromVersion"]) &&
-  isVersion(value["toVersion"]);
+  isFields(value) && isUpdateId(value["updateId"]) && isVersion(value["fromVersion"]) && isVersion(value["toVersion"]);
+const isFailedHandover = (value: unknown): value is FailedHandover => isFields(value) && isVersion(value["toVersion"]) && isTime(value["at"]);
 
-/** The state `value` holds, or which part of it is wrong. Parts it does not know are passed over. */
+/**
+ * The state `value` holds, or which part of it is wrong. Parts it does not
+ * know are passed over; the parts that came with #341 are none when absent.
+ */
 const stateOf = (value: unknown): ServiceState | string => {
   if (!isFields(value)) return "it is not an object";
   const { activeVersion, previousVersion, launcherVersion, pendingUpdate, watchDeadline } = value;
+  const { watchedUpdateId = null, stagedVersion = null, failedHandover = null } = value;
   if (!isVersion(activeVersion)) return "activeVersion is not a version";
   if (previousVersion !== null && !isVersion(previousVersion)) return "previousVersion is neither a version nor null";
   if (!isVersion(launcherVersion)) return "launcherVersion is not a version";
   if (pendingUpdate !== null && !isPendingUpdate(pendingUpdate)) return "pendingUpdate is neither a pending-update record nor null";
   if (watchDeadline !== null && !isTime(watchDeadline)) return "watchDeadline is neither a time nor null";
+  if (watchedUpdateId !== null && !isUpdateId(watchedUpdateId)) return "watchedUpdateId is neither an update id nor null";
+  if (stagedVersion !== null && !isVersion(stagedVersion)) return "stagedVersion is neither a version nor null";
+  if (failedHandover !== null && !isFailedHandover(failedHandover)) return "failedHandover is neither a failed handover nor null";
   return {
     activeVersion,
     previousVersion,
     launcherVersion,
     pendingUpdate: pendingUpdate === null ? null : { updateId: pendingUpdate.updateId, fromVersion: pendingUpdate.fromVersion, toVersion: pendingUpdate.toVersion },
     watchDeadline,
+    watchedUpdateId,
+    stagedVersion,
+    failedHandover: failedHandover === null ? null : { toVersion: failedHandover.toVersion, at: failedHandover.at },
   };
 };
 
