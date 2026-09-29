@@ -50,6 +50,8 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
+import { readSessionFacts } from "../runs/run-reads.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -326,6 +328,8 @@ export interface EnvironmentOptions {
     readonly resolvePolicy?: PolicySeam;
     /** The tool gate's rules; preset: the denylist's (#132, `permissions/denylist-gate.ts`). */
     readonly gateRules?: readonly ToolGateRule[];
+    /** Whether a holder's process environment is supplied at all (#307); preset: `allow`, until #91's setting answers it. */
+    readonly injection?: InjectionSeam;
   };
   /**
    * What this environment can enforce (#133), probed once as the adapter
@@ -335,7 +339,7 @@ export interface EnvironmentOptions {
    */
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub">;
+  readonly terminals?: Omit<TerminalsOptions, "clock" | "scrub" | "processEnvironment">;
   /**
    * The resolver `sessions.create` and the completions surface give a new
    * session its workspace through (#321). Preset: the environment's
@@ -540,6 +544,12 @@ export interface EnvironmentHandle {
     /** Settles once this start, past the gate, has tried again to delete every stored value a Move left behind. */
     readonly leftBehindDeleted: Promise<void>;
   };
+  /**
+   * Where the harness's services register what they put into every provider
+   * process and terminal the environment starts (#307): the forge's (#315),
+   * the key managers' (#91). None is registered by default.
+   */
+  readonly processEnvironments: Pick<ProcessEnvironments, "register">;
   /**
    * The pairing this start minted because the environment is a declared
    * container that no client has paired with yet (ADR 0025; #349): such a
@@ -825,7 +835,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // close ends every run (and so lets go of what each left parked).
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
-  const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
+  // The injection seam is the process environment's; the rest are the host's.
+  const { injection, ...hostSeams } = options.adapterSeams ?? {};
+  const seamServers = hostSeams.toolServers ?? noToolServers;
+  // What the harness's services put into every provider process and terminal (#307): none registered until one does.
+  const processEnvironments = createProcessEnvironments(injection);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -909,6 +923,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       containmentDirectories: sessionDirectories,
+      processEnvironment: processEnvironments.of,
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
@@ -918,7 +933,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
-      ...options.adapterSeams,
+      ...hostSeams,
       // The seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });
@@ -996,8 +1011,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(options.workspaces?.isDirectory !== undefined && { isDirectory: options.workspaces.isDirectory }),
     ...(options.workspaces?.lookTimeoutMs !== undefined && { lookTimeoutMs: options.workspaces.lookTimeoutMs }),
   });
-  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, scrub, availability, ...options.terminals });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion. Each
+  // holds its session's process environment as its runs' processes do (#307): the account its runs go through, a client's.
+  const terminalService = createTerminalService({
+    log,
+    clock,
+    scrub,
+    availability,
+    ...options.terminals,
+    processEnvironment: (sessionId) => {
+      const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
+      return processEnvironments.of({ sessionId, accountId: host.account(session?.account ?? null)?.id ?? null, origin: "client" });
+    },
+  });
   closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
@@ -1422,6 +1448,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },
+    processEnvironments,
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {

@@ -61,6 +61,8 @@ export interface RunOptionsInput {
   readonly run: RunInput;
   /** The environment the process inherits from, before the scrub: the adapter's copy, taken once. */
   readonly hostEnv: HostEnvironment;
+  /** What the run's process environment supplied this spawn (#307), layered over the scrubbed environment. */
+  readonly supplied: Readonly<Record<string, string>>;
   /** The account's config directory, resolved: the ambient default for an account with none. */
   readonly configDirectory: string;
   /** The SDK's bundled binary; null leaves the SDK to find it itself. */
@@ -229,7 +231,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     // the session store keys every entry by it (the SDK takes it as the project key beside CLAUDE_CONFIG_DIR, #137).
     CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
     CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,
-  });
+  }, input.supplied);
   return {
     cwd: run.workspace.path,
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
