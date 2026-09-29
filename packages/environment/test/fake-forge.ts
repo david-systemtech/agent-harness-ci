@@ -21,8 +21,11 @@ import type { ForgeFetch } from "../src/forge/providers.js";
  * not its token. Every path outside `/api/` is git's smart HTTP (#314),
  * served by a real `git http-backend` over bare repositories the test makes,
  * behind basic auth: a public repository reads anonymously, a private one
- * and every push ask for a credential with 401. Later tickets extend it
- * (detection, organisations).
+ * and every push ask for a credential with 401. Detection (#313) finds
+ * what `detectable` scripts on each kind's version or meta route, and a
+ * GitLab-shaped route is scripted with `answer`; `organisations` scripts
+ * GitHub's organisation list, which answers a fine-grained token with
+ * none, beside its memberships, and the Gitea API's list.
  */
 
 /** What a route answers a token. */
@@ -65,6 +68,12 @@ export interface FakeGitRequest {
   readonly status: number;
 }
 
+/** What detection may find a fake forge to be: Forgejo, Gitea, or GitHub on an Enterprise origin. */
+export type DetectableKind = "forgejo" | "gitea" | "github";
+
+/** The line Forgejo's and Gitea's API answers a caller with no credential when it asks every caller to sign in. */
+export const SIGN_IN_REQUIRED = "Only signed in user is allowed to call APIs.";
+
 /** A user as both APIs' user endpoints answer one. */
 export interface FakeForgeUser {
   readonly login: string;
@@ -85,6 +94,21 @@ export interface FakeForge {
   repository(token: string, fullName: string): void;
   /** Scripts both APIs' repository listings to answer `token` with the repositories `fullNames`, on one page. */
   repositories(token: string, fullNames: readonly string[]): void;
+  /**
+   * Scripts what a caller with no credential finds on the version and meta
+   * routes of `kind` at `version`: Forgejo's own route and the Gitea API's,
+   * the Gitea API's alone with Forgejo's answering 404, or GitHub
+   * Enterprise's meta route. With `signIn`, a Forgejo or Gitea that asks
+   * every caller to sign in, answering its version routes 403.
+   */
+  detectable(kind: DetectableKind, version: string, options?: { readonly signIn?: boolean }): void;
+  /**
+   * Scripts the organisations `token` belongs to, by name, on one page:
+   * GitHub's organisation list answering none, as it answers a fine-grained
+   * token, beside its memberships listing each as active; and the Gitea
+   * API's list.
+   */
+  organisations(token: string, names: readonly string[]): void;
   /** Every request of the APIs so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
   /**
@@ -312,6 +336,18 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       for (const api of ["/api/v3", "/api/v1"]) {
         script(token, `GET ${api}/user/repos`, { status: 200, body: fullNames.map((fullName) => ({ full_name: fullName })) });
       }
+    },
+    detectable(kind, version, options = {}) {
+      const answered = options.signIn === true ? { status: 403, body: { message: SIGN_IN_REQUIRED } } : { status: 200, body: { version } };
+      if (kind === "github") return script(ANONYMOUS, "GET /api/v3/meta", { status: 200, body: { verifiable_password_authentication: false, installed_version: version, packages: [] } });
+      script(ANONYMOUS, "GET /api/forgejo/v1/version", kind === "forgejo" ? answered : { status: 404, raw: "Not found.\n", headers: { "content-type": "text/plain" } });
+      script(ANONYMOUS, "GET /api/v1/version", answered);
+    },
+    organisations(token, names) {
+      script(token, "GET /api/v3/user/orgs", { status: 200, body: [] });
+      const memberships = names.map((login, index) => ({ state: "active", role: "member", organization: { login, id: 100 + index } }));
+      script(token, "GET /api/v3/user/memberships/orgs", { status: 200, body: memberships });
+      script(token, "GET /api/v1/user/orgs", { status: 200, body: names.map((name, index) => ({ id: 100 + index, name, username: name, full_name: "" })) });
     },
     requests,
     gitRepository(path, options = {}) {
