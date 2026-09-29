@@ -526,7 +526,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "What runs before each firing, a script's timeout preset when absent; null for none."
         },
         "silenceMarker": {
           "type": "string",

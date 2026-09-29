@@ -445,7 +445,7 @@ export const routineMethodFixtures: Record<string, { params: Fixtures; result: F
   "routines.import": {
     params: {
       valid: [{ commandId, yaml }, { commandId, yaml, routineIds: [routineId] }, { commandId, yaml, routineId, movedFrom: moveTarget }],
-      invalid: [{ commandId, yaml: "" }, { commandId, yaml, routineIds: [routineId], routineId }, { commandId, yaml, routineIds: [] }, { yaml }],
+      invalid: [{ commandId, yaml: "" }, { commandId, yaml, routineIds: [routineId], routineId }, { commandId, yaml, routineIds: [] }, { commandId, yaml, routineIds: [routineId, routineId] }, { yaml }],
     },
     result: {
       valid: [{ routines: [listed], warnings: [{ attention: [], workspace: null }] }],

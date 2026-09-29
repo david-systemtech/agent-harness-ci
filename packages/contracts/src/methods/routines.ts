@@ -175,7 +175,10 @@ export const routinesCreate = defineMethod({
 
 /** Some of a routine's fields as a client writes them, any subset: a field left out is left as it is, and no preset fills it in. */
 const FieldsInput = z
-  .object({ ...RoutineDefinition.shape, preCheck: PreCheckInput.nullable() })
+  .object({
+    ...RoutineDefinition.shape,
+    preCheck: PreCheckInput.nullable().meta({ description: "What runs before each firing, a script's timeout preset when absent; null for none." }),
+  })
   .partial()
   .meta({ description: "Some of a routine's fields, any subset, each as the definition takes it; a script's timeout left out is its preset." });
 
@@ -231,7 +234,7 @@ export const routinesImport = defineMethod({
   kind: "command",
   params: commandParams({
     yaml: Yaml,
-    routineIds: z.array(RoutineId).min(1).optional().meta({ description: "The ids the documents' routines are made under, one per document in order; the environment mints them when absent." }),
+    routineIds: setOf(RoutineId).min(1).optional().meta({ description: "The ids the documents' routines are made under, one per document in order, each once; the environment mints them when absent." }),
     routineId: RoutineId.optional().meta({ description: "The routine whose definition the one document replaces; never with routineIds." }),
     movedFrom: MoveTarget.optional().meta({ description: "The routine a move copies, which the copies link to; absent for an import that is no move." }),
   })

@@ -578,7 +578,7 @@ export type RoutineEntry = z.infer<typeof RoutineEntry>;
 /** The stream kind of a routine's events; the stream id is the routine's id. */
 export const ROUTINE_STREAM_KIND = "routine";
 
-/** Some of a definition's fields as saved: what `routine.edited` records and `routines.update` takes, any subset. */
+/** Some of a definition's fields as saved, any subset: what `routine.edited` records. */
 export const RoutineFields = RoutineDefinition.partial().meta({
   description: "Some of a routine definition's fields, any subset, each as saved: what an edit changes, the rest left as they are.",
 });
@@ -739,11 +739,13 @@ const DeliverySummary = z.string().min(1).max(MAX_DELIVERY_SUMMARY).meta({
 
 const routineNamed = { routineId: RoutineId, name: RoutineName };
 
+const EntryKind = z.enum(["firing", "skip"]).meta({ description: "Whether the entry is a firing or a skip." });
+
 export const RoutineDeliveredPayload = z
   .object({
     ...routineNamed,
     entryId: RoutineEntryId.meta({ description: "The firing or skip delivered." }),
-    entryKind: z.enum(["firing", "skip"]).meta({ description: "Whether the entry is a firing or a skip." }),
+    entryKind: EntryKind,
     sessionId: SessionId.nullable().meta({ description: "The firing's session, which opening the notice opens; null for a skip." }),
     outcome: DeliveredOutcome,
     summary: DeliverySummary,
@@ -825,7 +827,7 @@ const FailingSkipReason = z.enum(["pre-check-failed", "cannot-start"]).meta({ de
 export const WebhookEntry = z
   .object({
     id: RoutineEntryId,
-    kind: z.enum(["firing", "skip"]).meta({ description: "Whether the entry is a firing or a skip." }),
+    kind: EntryKind,
     trigger: RoutineTrigger,
     dueAt: Timestamp,
     startedAt: Timestamp.meta({ description: "When the firing started; for a skip, when it was recorded." }),

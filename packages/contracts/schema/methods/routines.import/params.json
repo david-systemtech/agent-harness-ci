@@ -15,7 +15,7 @@
       "description": "Routine documents as YAML, one or several."
     },
     "routineIds": {
-      "description": "The ids the documents' routines are made under, one per document in order; the environment mints them when absent.",
+      "description": "The ids the documents' routines are made under, one per document in order, each once; the environment mints them when absent.",
       "minItems": 1,
       "type": "array",
       "items": {
@@ -23,7 +23,8 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
         "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
-      }
+      },
+      "uniqueItems": true
     },
     "routineId": {
       "description": "The routine whose definition the one document replaces; never with routineIds.",
