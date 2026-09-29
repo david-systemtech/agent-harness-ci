@@ -374,6 +374,33 @@ describe("an unknown event type", () => {
   });
 });
 
+describe("a run's policy and the session's containment (#402)", () => {
+  it("holds each run's policy from its run.policy.resolved, by run", () => {
+    const { policies } = reduce(numbered(1, [["run.started", recorded("run.started")], ["run.policy.resolved", recorded("run.policy.resolved")]]));
+    expect(policies).toEqual({
+      [FIXTURE_RUN]: {
+        actorKind: "client",
+        actorName: null,
+        attended: true,
+        mode: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" },
+        containment: { requested: null, effective: "off", mechanism: null, reason: null },
+        unattendedDefaultApplied: false,
+      },
+    });
+  });
+
+  it("holds the session's own level from the latest session.containment.set, or a run's policy that names one; none while neither was heard", () => {
+    expect(reduce([]).containment).toBeNull();
+    const set = numbered(1, [["session.containment.set", recorded("session.containment.set")]]);
+    expect(reduce(set).containment).toBe("workspace");
+    expect(reduce([...set, ...numbered(2, [["session.containment.set", recorded("session.containment.set", 1)]])]).containment).toBe("off");
+    // A run's policy names the level the session asked for; one that names none (the default applied) leaves the level as it was.
+    const named = recorded("run.policy.resolved", 0, { containment: { requested: "workspace-no-network", effective: "workspace", mechanism: "bubblewrap", reason: "No network namespace." } });
+    expect(reduce([...set, ...numbered(2, [["run.policy.resolved", named]])]).containment).toBe("workspace-no-network");
+    expect(reduce([...set, ...numbered(2, [["run.policy.resolved", recorded("run.policy.resolved")]])]).containment).toBe("workspace");
+  });
+});
+
 describe("session.forked", () => {
   const SOURCE = "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
   /** A fork's stream as the environment appends it: created, the source's title carried, the anchored draft, then forked. */
