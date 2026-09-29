@@ -332,6 +332,8 @@ export interface EnvironmentOptions {
   readonly gh?: ManagedGh;
   /** The key-manager registry's resolve seam, which #91 fills (#312). Preset: no key-manager connection; tests script one. */
   readonly keyManagers?: KeyManagerRegistry;
+  /** How long one verification of a key-manager connection may take (#366). Preset: `KEY_MANAGER_VERIFY_BUDGET_MS`, ADR 0031's ten seconds. */
+  readonly keyManagerTimeoutMs?: number;
   /**
    * Reads the bundled Claude Code's version, which `updates.status` answers;
    * called once, the first time it is asked for. Preset: the bundled
@@ -610,7 +612,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     closers.push(() => forgeService.close());
     await forgeService.start();
     capabilities.push("forge");
-    const connections = createKeyManagerConnections({ log, clock, environmentId: loaded.id, vault, scrub });
+    const connections = createKeyManagerConnections({
+      log,
+      clock,
+      environmentId: loaded.id,
+      vault,
+      scrub,
+      ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
+    });
     closers.push(() => connections.close());
     await connections.start();
     capabilities.push("keyManagers");
@@ -1072,7 +1081,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   launcher.onQuery((query) => lifecycle.answer(query));
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
-  // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate.
+  // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
+  // verifications (#366), on the clock, and every fifteen minutes.
   keyManagerConnections.startSigningIn();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
