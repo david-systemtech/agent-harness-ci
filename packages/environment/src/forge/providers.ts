@@ -267,7 +267,7 @@ const GITHUB: ApiDialect = {
   // The API's asset route answers the bytes, or a redirect to GitHub's storage, when asked for an octet stream.
   assetUrl: (origin, fullName, asset) => `${forgeApiBase("github", origin)}/repos/${repositoryPath(fullName)}/releases/assets/${asset.id}`,
   // The organisation list answers a fine-grained token with none (forge research, 1.3); the memberships answer it, pending invitations among them.
-  organisations: { path: "/user/memberships/orgs", query: "state=active", keep: (item) => field(item, "state") === "active", name: (item) => name(field(field(item, "organization"), "login")) },
+  organisations: { path: "/user/memberships/orgs", query: "state=active", keep: (item) => field(item, "state") === "active", name: (item) => nonEmpty(field(field(item, "organization"), "login")) },
 };
 
 /** The most pages of pull requests the Gitea API's list by head reads (a chosen default): 250 most recently updated, as it cannot filter by head. */
@@ -294,7 +294,7 @@ const GITEA_API: ApiDialect = {
     return url === null ? null : `${origin}${url.pathname}${url.search}`;
   },
   // An organisation's `name` is its login; `username` is the older field for it.
-  organisations: { path: "/user/orgs", name: (item) => name(field(item, "name")) ?? name(field(item, "username")) },
+  organisations: { path: "/user/orgs", name: (item) => nonEmpty(field(item, "name")) ?? nonEmpty(field(item, "username")) },
 };
 
 const DIALECTS: Readonly<Record<Exclude<ForgeKind, "gitlab">, ApiDialect>> = { github: GITHUB, forgejo: GITEA_API, gitea: GITEA_API };
@@ -321,8 +321,8 @@ export const field = (value: unknown, name: string): unknown => (typeof value ==
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
-/** A name the forge answered: a string that is not empty. */
-export const name = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+/** A string the forge answered that is not empty: a name, a version. */
+export const nonEmpty = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
 /** A repository on `origin` as both APIs answer one; null for an answer that is none. */
 const repositoryOn =
@@ -506,9 +506,9 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
     organisation: async (origin, token, organisation, call) => acknowledged(origin, await get(origin, `/orgs/${encodeURIComponent(organisation)}`, token, call)),
 
     async organisations(origin, token, limit, call) {
-      const { path, query, keep, name: nameOf } = dialect.organisations;
+      const { path, query, keep, name } = dialect.organisations;
       const paged = await pages(origin, path, token, { limit, ...(query !== undefined && { query }), ...(keep !== undefined && { keep }) }, call);
-      return listed(origin, paged, "organisations", nameOf);
+      return listed(origin, paged, "organisations", name);
     },
 
     async createRepository(origin, token, creation, call) {
