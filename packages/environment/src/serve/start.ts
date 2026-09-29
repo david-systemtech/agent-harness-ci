@@ -453,8 +453,8 @@ export type ActorRunRequest = {
 
 /** Who runs `request`: its actor, a routine's or a bot's with its own injection when it names `allow` or `deny` (#367). */
 const actorOfRequest = (request: ActorRunRequest): RunActor => {
-  if (request.actor.kind === "completions" || request.injection === undefined || request.injection === "inherit") return request.actor;
-  return { ...request.actor, injection: { answer: request.injection, id: request.actorId ?? "" } };
+  if (request.actorId === undefined || request.injection === undefined || request.injection === "inherit") return request.actor;
+  return { ...request.actor, injection: { answer: request.injection, id: request.actorId } };
 };
 
 /** Where a run an actor starts comes from, and who the log says started it: a bot's runs are its routines' (ADR 0008). */
