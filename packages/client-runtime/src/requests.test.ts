@@ -158,7 +158,6 @@ describe("requests.call", () => {
   });
 });
 
-/** An `updates.status` answer: an environment under its launcher with nothing pending. */
 /** What permissions.settings.get answers on an environment nobody has changed, containment unavailable everywhere but off. */
 const PERMISSIONS_REPORT = {
   values: presetPermissionSettings(),
@@ -171,6 +170,7 @@ const PERMISSIONS_REPORT = {
   denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 },
 };
 
+/** An `updates.status` answer: an environment under its launcher with nothing pending. */
 const UPDATES_STATUS = {
   version: "0.1.0",
   protocolVersion: 1,
