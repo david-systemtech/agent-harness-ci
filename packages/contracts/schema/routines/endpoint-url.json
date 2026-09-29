@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EndpointUrl",
+  "type": "string",
+  "maxLength": 2048,
+  "pattern": "^https?:\\/\\/",
+  "description": "Where the endpoint's POSTs go: https, or http only to loopback, localhost, a private or tailnet address or a .ts.net name; with no userinfo, and its host off the denylist."
+}

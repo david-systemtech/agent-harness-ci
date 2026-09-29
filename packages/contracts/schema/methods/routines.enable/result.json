@@ -1,0 +1,1099 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "routines.enable result",
+  "type": "object",
+  "properties": {
+    "routine": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+              "description": "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case."
+            },
+            "schedule": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "manual"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "Never due: the routine runs when run now."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "hourly"
+                    },
+                    "minute": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 59,
+                      "description": "The minute past each hour it is due, 0 to 59."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "minute"
+                  ],
+                  "description": "Due every hour at a minute past it."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "daily"
+                    },
+                    "at": {
+                      "type": "string",
+                      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                      "description": "When in the day it is due, HH:MM in the routine's zone."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "at"
+                  ],
+                  "description": "Due every day at a time."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "weekdays"
+                    },
+                    "at": {
+                      "type": "string",
+                      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                      "description": "When in the day it is due, HH:MM in the routine's zone."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "at"
+                  ],
+                  "description": "Due Monday to Friday at a time."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "weekly"
+                    },
+                    "day": {
+                      "type": "string",
+                      "enum": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                        "sunday"
+                      ],
+                      "description": "A day of the week, named in English and lower case: monday to sunday."
+                    },
+                    "at": {
+                      "type": "string",
+                      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                      "description": "When in the day it is due, HH:MM in the routine's zone."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "day",
+                    "at"
+                  ],
+                  "description": "Due one day a week at a time."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "days"
+                    },
+                    "days": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "monday",
+                          "tuesday",
+                          "wednesday",
+                          "thursday",
+                          "friday",
+                          "saturday",
+                          "sunday"
+                        ],
+                        "description": "A day of the week, named in English and lower case: monday to sunday."
+                      },
+                      "uniqueItems": true,
+                      "description": "The days it is due, each once."
+                    },
+                    "at": {
+                      "type": "string",
+                      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                      "description": "When in the day it is due, HH:MM in the routine's zone."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "days",
+                    "at"
+                  ],
+                  "description": "Due on some days of the week at a time."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "monthly"
+                    },
+                    "day": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 31,
+                      "description": "The day of the month, 1 to 31; a month without it is skipped."
+                    },
+                    "at": {
+                      "type": "string",
+                      "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                      "description": "When in the day it is due, HH:MM in the routine's zone."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "day",
+                    "at"
+                  ],
+                  "description": "Due one day a month at a time; a month without the day is skipped, as cron does."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "cron"
+                    },
+                    "expression": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "description": "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "expression"
+                  ],
+                  "description": "Due when a five-field cron expression matches; both day fields restricted combine with OR, as Vixie cron's do."
+                }
+              ],
+              "description": "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression."
+            },
+            "timezone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_+\\-/]*$",
+              "description": "An IANA time zone's name, such as Europe/London or UTC; whether the environment's zone data knows it is the schedule's to check."
+            },
+            "ifMissed": {
+              "type": "string",
+              "enum": [
+                "run-once",
+                "skip"
+              ],
+              "description": "What a routine does with due times its environment missed: run-once (the latest fires once when the environment is back, within seven days) or skip (each is skipped missed)."
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100000,
+              "description": "What a firing's run is asked to do: 1 to 100,000 characters, after the header the environment writes."
+            },
+            "workspace": {
+              "allOf": [
+                {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "directory"
+                        },
+                        "path": {
+                          "type": "string",
+                          "pattern": "^(?:~(?:[\\\\/]|$)|\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                          "description": "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path"
+                      ],
+                      "description": "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home, . and .. resolved as written and symlinks kept; refused workspace_unusable, with its problem, when the environment cannot use it."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "worktree"
+                        },
+                        "repository": {
+                          "type": "string",
+                          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                          "description": "Any path inside the repository; the worktree is made from its main checkout."
+                        },
+                        "branch": {
+                          "description": "An existing local branch to check out in the worktree.",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "newBranch": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "description": "The new branch's name; agent-harness/ and the session id's first eight characters when absent.",
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "base": {
+                              "description": "The ref the branch starts from, any ref; the main checkout's HEAD when absent.",
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "description": "A branch the worktree is made on, made with it."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "repository"
+                      ],
+                      "description": "A worktree the environment makes from a repository it has: from its main checkout (or bare repository), under the environment's worktrees root, locked for the session, with the ignored files the checkout's .worktreeinclude names copied in; on an existing branch, or on a new one (the new branch with its presets when neither is named), nothing fetched. Refused with the reason git's answer gives: not_a_repository, git_unavailable, no_commits, git_filters_refused, branch_exists, branch_not_found, branch_checked_out or git_failed.",
+                      "not": {
+                        "required": [
+                          "branch",
+                          "newBranch"
+                        ],
+                        "properties": {
+                          "branch": true,
+                          "newBranch": true
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "scratch"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "description": "A scratch directory of the session's own."
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "repositoryIdentity": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                          "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The repository identity the workspace resolved to when the routine was saved, which a move re-resolves it by; null outside a repository, for scratch, or before the environment has resolved it."
+                    }
+                  },
+                  "required": [
+                    "repositoryIdentity"
+                  ]
+                }
+              ],
+              "description": "Where a routine's firings run: a directory, a worktree made per firing, or a scratch directory made per firing, never another session's; with the repository identity it resolved to when saved."
+            },
+            "account": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*$",
+                      "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+                    },
+                    "email": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The login's email, as the provider's status reports it."
+                    },
+                    "organisation": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The organisation the login belongs to, when the provider reports one."
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "email",
+                    "organisation"
+                  ],
+                  "description": "Who an account signed in as: the provider, the email and the organisation when present; one account per identity per environment."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The account a firing runs on, by identity; null for the environment's default account at each firing."
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The model a firing's runs use; null for the strongest of accounts.defaultModelFamily."
+            },
+            "effort": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The reasoning effort a firing's runs take; null for accounts.defaultEffort."
+            },
+            "mode": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "acceptEdits",
+                    "auto",
+                    "bypassPermissions"
+                  ],
+                  "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The mode a firing's runs ask for, clamped to the ceiling it was saved under; null for permissions.unattended.mode."
+            },
+            "containment": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "workspace",
+                    "workspace-no-network"
+                  ],
+                  "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The containment level of a firing's session; null for permissions.containment.default."
+            },
+            "injection": {
+              "type": "string",
+              "enum": [
+                "inherit",
+                "allow",
+                "deny"
+              ],
+              "description": "Whether a firing's runs and pre-check get the environment's credential injection, the forge variables and the credential helper among it: inherit (as the environment's setting says), allow or deny."
+            },
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "uniqueItems": true,
+              "description": "Names from the skill set, each once, loaded always-on for a firing's runs."
+            },
+            "preCheck": {
+              "anyOf": [
+                {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "script"
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 1024,
+                          "pattern": "^(?![\\\\/~]|[A-Za-z]:)",
+                          "description": "A script's path relative to the environment's scripts directory; it must stay inside that directory once links are followed, which the environment checks at each firing."
+                        },
+                        "timeoutSeconds": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 600,
+                          "description": "How long the script may run before its process tree is killed, 1 to 600 seconds."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path",
+                        "timeoutSeconds"
+                      ],
+                      "description": "A script in the environment's scripts directory, run with no arguments; its standard output is the pre-check's output."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "url"
+                        },
+                        "url": {
+                          "type": "string",
+                          "maxLength": 2048,
+                          "pattern": "^https?:\\/\\/",
+                          "description": "The URL fetched with a GET; its body is the pre-check's output."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "url"
+                      ],
+                      "description": "A URL fetched with a GET, up to five redirects; a status other than 2xx is a failure."
+                    }
+                  ],
+                  "description": "What a routine runs before each firing, whose unchanged output skips the model: a script in the scripts directory, or a URL."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What runs before each firing; null for none, so every due time fires."
+            },
+            "silenceMarker": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "The final text that delivers nothing: 1 to 64 characters."
+            },
+            "maxDurationMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440,
+              "description": "How long a firing may run before its live run is interrupted: 1 to 1,440 minutes."
+            },
+            "delivery": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "client-notice"
+                      },
+                      "on": {
+                        "type": "string",
+                        "enum": [
+                          "success",
+                          "failure",
+                          "both"
+                        ],
+                        "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "on"
+                    ],
+                    "description": "routine.delivered on the environment stream, which every connected client raises."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "webhook"
+                      },
+                      "target": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9-]{1,40}$",
+                        "description": "The endpoint's name on the routine's environment, which holds its URL and secret."
+                      },
+                      "on": {
+                        "type": "string",
+                        "enum": [
+                          "success",
+                          "failure",
+                          "both"
+                        ],
+                        "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "target",
+                      "on"
+                    ],
+                    "description": "A signed webhook POST to an endpoint the environment names."
+                  }
+                ],
+                "description": "Where a firing's result goes, and which results it takes: a client notice, or a signed webhook to a named endpoint."
+              },
+              "description": "Where a firing's result goes: up to 8 targets."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether the scheduler fires it; run now works either way."
+            }
+          },
+          "required": [
+            "name",
+            "schedule",
+            "timezone",
+            "ifMissed",
+            "instructions",
+            "workspace",
+            "account",
+            "model",
+            "effort",
+            "mode",
+            "containment",
+            "injection",
+            "skills",
+            "preCheck",
+            "silenceMarker",
+            "maxDurationMinutes",
+            "delivery",
+            "enabled"
+          ],
+          "description": "A routine's definition as saved: its name, schedule and zone, what it does with missed due times, its instructions, workspace, account, model, effort, mode, containment, credential injection, skills, pre-check, silence marker, maximum duration, delivery targets and whether it is enabled."
+        },
+        "state": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+            },
+            "savedUnderCeiling": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "The ceiling of the client session whose create, edit, import or enable last touched it: every firing's mode is clamped to it."
+            },
+            "savedBy": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The client session whose create, edit, import or enable last touched it."
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            "editedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When its definition was last edited or replaced by an import; null until then."
+            },
+            "movedFrom": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "environmentId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+                    },
+                    "routineId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the move was recorded here."
+                    }
+                  },
+                  "required": [
+                    "environmentId",
+                    "routineId",
+                    "at"
+                  ],
+                  "description": "The other copy of a moved routine: its environment, its id there, and when the move was recorded here."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The routine this one is a moved copy of; null for one made here."
+            },
+            "movedTo": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "environmentId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+                    },
+                    "routineId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "A routine's id: a version 4 UUID the creating client mints, so a create can queue offline."
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the move was recorded here."
+                    }
+                  },
+                  "required": [
+                    "environmentId",
+                    "routineId",
+                    "at"
+                  ],
+                  "description": "The other copy of a moved routine: its environment, its id there, and when the move was recorded here."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The copy this one was moved to, which disabled it; null until moved, and cleared when it is enabled."
+            },
+            "baseline": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "hash": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "The SHA-256 of the output's exact bytes."
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When that pre-check ran."
+                    }
+                  },
+                  "required": [
+                    "hash",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The pre-check output of the latest firing that ended succeeded or silent, by its hash and when it ran; null until one has."
+            },
+            "handledThrough": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The latest due time handled, as a firing or a skip; moved to the save time when the routine is created, enabled, or its schedule or zone edited, so no earlier due time is owed. Null for a routine with no due time handled or owed."
+            },
+            "liveFiring": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "firingId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+                    },
+                    "trigger": {
+                      "type": "string",
+                      "enum": [
+                        "schedule",
+                        "catch-up",
+                        "run-now"
+                      ],
+                      "description": "What made an entry: schedule (a due time on time), catch-up (the latest of due times missed while the environment was down, fired once) or run-now (routines.runNow)."
+                    },
+                    "dueAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "The due time it fires for; for run now, when it was asked."
+                    },
+                    "startedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "An instant as an ISO 8601 UTC timestamp."
+                    },
+                    "sessionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The firing's session."
+                    },
+                    "runId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "The firing's live run: its first, or the one that continues it after an update."
+                    }
+                  },
+                  "required": [
+                    "firingId",
+                    "trigger",
+                    "dueAt",
+                    "startedAt",
+                    "sessionId",
+                    "runId"
+                  ],
+                  "description": "A firing that has started and not ended: its id, trigger, due time, start, session and live run."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The firing that has started and not ended; null when none is live."
+            },
+            "lastOutcome": {
+              "anyOf": [
+                {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "firing"
+                        },
+                        "entryId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "succeeded",
+                            "silent",
+                            "failed",
+                            "cancelled"
+                          ],
+                          "description": "How a firing ended: succeeded (its run completed with text other than the silence marker, or none), silent (its final text was the silence marker, so nothing was delivered), failed (with its reason) or cancelled (a person interrupted it, or deleted its session or its routine)."
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "run_error",
+                                "timed_out",
+                                "restart",
+                                "drained"
+                              ],
+                              "description": "Why a firing failed: run_error (its run ended in error), timed_out (its maximum duration passed and its run was interrupted), restart (its run was cut by a restart, or let go with its session still there) or drained (a drain cut its run and nothing continued it)."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Why it failed; null unless it did."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When it ended."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "entryId",
+                        "outcome",
+                        "reason",
+                        "at"
+                      ],
+                      "description": "The latest entry was a firing that ended: its outcome, and why when it failed."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "skip"
+                        },
+                        "entryId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "description": "A history entry's id, a firing's or a skip's: a UUID the environment mints; a firing's is its session's command id, so a retry after a crash makes nothing twice."
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "no-change",
+                            "pre-check-failed",
+                            "cannot-start",
+                            "missed",
+                            "overlap"
+                          ],
+                          "description": "Why a due time was skipped: no-change (the pre-check's output was the baseline's), pre-check-failed (the pre-check failed; a failure), cannot-start (the firing could not start, with a reason of its own; a failure), missed (missed while the environment was down, and not caught up) or overlap (a firing of the routine was live)."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the skip was recorded."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "entryId",
+                        "reason",
+                        "at"
+                      ],
+                      "description": "The latest entry was a skip: why."
+                    }
+                  ],
+                  "description": "How the routine's latest ended entry ended: a firing's outcome, or a skip's reason."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How its latest ended entry ended; null before its first."
+            },
+            "failureStreak": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Consecutive failed firings and failing skips (pre-check-failed, cannot-start), reset by succeeded, silent or no-change."
+            }
+          },
+          "required": [
+            "id",
+            "savedUnderCeiling",
+            "savedBy",
+            "createdAt",
+            "editedAt",
+            "movedFrom",
+            "movedTo",
+            "baseline",
+            "handledThrough",
+            "liveFiring",
+            "lastOutcome",
+            "failureStreak"
+          ],
+          "description": "A routine's state, the environment's and never exported: its id, what it was saved under and by whom, when, its move links, baseline, handledThrough, live firing, last outcome and failure streak."
+        },
+        "nextDueAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it is next due; null when it never is: disabled, or manual."
+        },
+        "mode": {
+          "type": "object",
+          "properties": {
+            "requested": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "acceptEdits",
+                    "auto",
+                    "bypassPermissions"
+                  ],
+                  "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)."
+            },
+            "effective": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "The mode it got."
+            },
+            "ceiling": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "The ceiling it was clamped to."
+            },
+            "clamped": {
+              "type": "boolean",
+              "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
+            },
+            "clampReason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "ceiling",
+                    "unavailable"
+                  ],
+                  "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
+            }
+          },
+          "required": [
+            "requested",
+            "effective",
+            "ceiling",
+            "clamped",
+            "clampReason"
+          ],
+          "description": "Its effective mode: its mode, else permissions.unattended.mode, clamped to the ceiling it was saved under and the account's modes, as the policy resolver clamps a firing's run."
+        },
+        "attention": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "account_missing",
+              "account_signed_out",
+              "model_unavailable",
+              "skill_unknown",
+              "script_missing",
+              "endpoint_missing",
+              "endpoint_needs_secret",
+              "clamped",
+              "failing",
+              "delivery_failing"
+            ],
+            "description": "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a skill is not in the skill set), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally)."
+          },
+          "uniqueItems": true,
+          "description": "What needs attention on it, each code once; empty when nothing does."
+        }
+      },
+      "required": [
+        "definition",
+        "state",
+        "nextDueAt",
+        "mode",
+        "attention"
+      ],
+      "description": "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, and what needs attention."
+    }
+  },
+  "required": [
+    "routine"
+  ]
+}

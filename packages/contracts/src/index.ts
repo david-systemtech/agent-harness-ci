@@ -33,6 +33,7 @@ export * from "./permissions-modes.js";
 export * from "./permissions-settings.js";
 export * from "./prompts.js";
 export * from "./repository-identity.js";
+export * from "./routines.js";
 export * from "./shape-rules.js";
 export * from "./skill-rule-cases.js";
 export * from "./skill-rules.js";
@@ -75,6 +76,7 @@ export {
   UnreachableError,
 } from "./methods/key-managers.js";
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
+export { DenylistedError, MAX_PRE_CHECK_OUTPUT_BYTES, OutputTooLargeError, ROUTINE_HISTORY_LIMIT, ROUTINE_HISTORY_MAX } from "./methods/routines.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {
   MAX_PROCESS_IDLE_MINUTES,

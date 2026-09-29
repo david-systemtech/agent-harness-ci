@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineInjection",
+  "type": "string",
+  "enum": [
+    "inherit",
+    "allow",
+    "deny"
+  ],
+  "description": "Whether a firing's runs and pre-check get the environment's credential injection, the forge variables and the credential helper among it: inherit (as the environment's setting says), allow or deny."
+}

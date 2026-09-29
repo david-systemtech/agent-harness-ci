@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineEnabledPayload",
+  "type": "object",
+  "properties": {
+    "savedUnderCeiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling of the client session that saved it: every firing's mode is clamped to it."
+    }
+  },
+  "required": [
+    "savedUnderCeiling"
+  ],
+  "description": "routine.enabled: the routine fires on its schedule again, saved under the enabling client session's ceiling; its movedTo is cleared."
+}

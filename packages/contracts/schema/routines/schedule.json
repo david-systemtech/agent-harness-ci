@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineSchedule",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "manual"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "Never due: the routine runs when run now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "hourly"
+        },
+        "minute": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 59,
+          "description": "The minute past each hour it is due, 0 to 59."
+        }
+      },
+      "required": [
+        "kind",
+        "minute"
+      ],
+      "description": "Due every hour at a minute past it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "daily"
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "When in the day it is due, HH:MM in the routine's zone."
+        }
+      },
+      "required": [
+        "kind",
+        "at"
+      ],
+      "description": "Due every day at a time."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "weekdays"
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "When in the day it is due, HH:MM in the routine's zone."
+        }
+      },
+      "required": [
+        "kind",
+        "at"
+      ],
+      "description": "Due Monday to Friday at a time."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "weekly"
+        },
+        "day": {
+          "type": "string",
+          "enum": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ],
+          "description": "A day of the week, named in English and lower case: monday to sunday."
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "When in the day it is due, HH:MM in the routine's zone."
+        }
+      },
+      "required": [
+        "kind",
+        "day",
+        "at"
+      ],
+      "description": "Due one day a week at a time."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "days"
+        },
+        "days": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday"
+            ],
+            "description": "A day of the week, named in English and lower case: monday to sunday."
+          },
+          "uniqueItems": true,
+          "description": "The days it is due, each once."
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "When in the day it is due, HH:MM in the routine's zone."
+        }
+      },
+      "required": [
+        "kind",
+        "days",
+        "at"
+      ],
+      "description": "Due on some days of the week at a time."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "monthly"
+        },
+        "day": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31,
+          "description": "The day of the month, 1 to 31; a month without it is skipped."
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "When in the day it is due, HH:MM in the routine's zone."
+        }
+      },
+      "required": [
+        "kind",
+        "day",
+        "at"
+      ],
+      "description": "Due one day a month at a time; a month without the day is skipped, as cron does."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "cron"
+        },
+        "expression": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form."
+        }
+      },
+      "required": [
+        "kind",
+        "expression"
+      ],
+      "description": "Due when a five-field cron expression matches; both day fields restricted combine with OR, as Vixie cron's do."
+    }
+  ],
+  "description": "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression."
+}

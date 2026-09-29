@@ -257,20 +257,44 @@ An environment-owned definition of unattended work: instructions run on a schedu
 _Avoid_: cron job, scheduled task, automation, job
 
 **Firing**:
-One execution of a routine; always a session, tagged with the routine and, if any, its bot.
+One execution of a routine; always a session, tagged with the routine and, if any, its bot. A due time that is skipped is no firing and has no session.
 _Avoid_: run (a firing is a session; its turns are runs), tick, execution
+
+**Due time**:
+A minute, in the routine's zone, at which its schedule says it is due; each is handled exactly once, as a firing or a skip.
+_Avoid_: tick, trigger time, slot
+
+**Skip**:
+A due time, or a run now, handled with no firing and no session: its pre-check's output was unchanged or failed, the firing could not start, it was missed, or a firing of the routine was live; recorded in the routine's history with its reason and the due times it stands for.
+_Avoid_: silent firing (a silent firing is a firing), no-op run
+
+**Catch-up**:
+The one firing a routine makes, when its environment is back, for the latest of the due times it missed while down, if the routine says to and that due time is within seven days; the earlier ones collapse into it.
+_Avoid_: backfill, replay, missed run
 
 **Bot**:
 An environment-owned identity with a persona, default account, model and mode, and skills, that owns routines; its chat front-ends live outside the harness.
 _Avoid_: agent (the model doing the work), persona (only the bot's instructions), profile (Hermes's word; also a retired word for an account)
 
 **Delivery target**:
-Where a firing's result is sent: a kind (client notice, signed webhook, later others), a target and a success or failure split.
+Where a firing's result is sent: a kind (client notice, signed webhook, later others), a target and a success or failure split; a webhook's target is a webhook endpoint's name.
 _Avoid_: notification channel, sink, home channel
+
+**Webhook endpoint**:
+A URL and its secret an environment names once, so any of its routines delivers a signed webhook to it by name and none holds the secret.
+_Avoid_: hook, route (the receiver's word), destination
 
 **Pre-check**:
 A script or URL a routine runs before each firing; if its output is unchanged since the last firing, the model run is skipped.
 _Avoid_: monitor, probe, guard
+
+**Baseline**:
+The pre-check output of a routine's latest firing that ended succeeded or silent, kept by its hash; a pre-check whose output hashes the same is unchanged.
+_Avoid_: snapshot, last output, cursor
+
+**Move settlement**:
+The one disable a client runtime following both environments sends to a moved routine's original when that original is still enabled, names no copy and is unedited since the move, so a move whose own disable never reached the original still ends with one routine firing.
+_Avoid_: failover (automatic, and later), sync
 
 **Skill set**:
 The skills an environment offers an account: its tracked skill sources, its own skills directory and the trusted repository's skills, merged in that order into one directory each adapter maps.

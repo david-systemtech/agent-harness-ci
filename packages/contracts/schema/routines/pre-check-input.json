@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PreCheckInput",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "script"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?![\\\\/~]|[A-Za-z]:)",
+          "description": "A script's path relative to the environment's scripts directory; it must stay inside that directory once links are followed, which the environment checks at each firing."
+        },
+        "timeoutSeconds": {
+          "default": 60,
+          "description": "How long the script may run before its process tree is killed, 1 to 600 seconds; 60 when absent.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "description": "A script in the environment's scripts directory, run with no arguments; its standard output is the pre-check's output."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "url"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https?:\\/\\/",
+          "description": "The URL fetched with a GET; its body is the pre-check's output."
+        }
+      },
+      "required": [
+        "kind",
+        "url"
+      ],
+      "description": "A URL fetched with a GET, up to five redirects; a status other than 2xx is a failure."
+    }
+  ],
+  "description": "A pre-check as a client writes it: a script, whose timeout is 60 seconds when absent, or a URL."
+}
