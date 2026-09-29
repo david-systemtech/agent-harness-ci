@@ -52,8 +52,8 @@ export const lateCheck = (): LateCheck => {
 
 /**
  * A step of the test's own under a registered step's id and home row: it
- * writes no settings, and has the given state checks, a five-second budget
- * and an hourly cadence unless told otherwise.
+ * writes no settings, and has the given state checks, the local budget, an
+ * hourly cadence and no triggers unless told otherwise.
  */
 export const scriptedStep = (id: RegisteredStepId, parts: Partial<Omit<Step, "id">> = {}): CheckedStep => ({
   id,
@@ -63,7 +63,8 @@ export const scriptedStep = (id: RegisteredStepId, parts: Partial<Omit<Step, "id
   stateChecks: [],
   links: [],
   skippable: false,
-  budgetSeconds: 5,
+  budget: "local",
   cadence: { minutes: 60 },
+  triggers: [],
   ...parts,
 });

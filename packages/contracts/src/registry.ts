@@ -288,13 +288,7 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it.
-  "routines.list": "#521",
-  "routines.create": "#521",
-  "routines.update": "#521",
-  "routines.enable": "#521",
-  "routines.disable": "#521",
-  "routines.delete": "#521",
+  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and commands.
   "routines.history": "#523",
   "routines.runNow": "#523",
   "routines.testPreCheck": "#526",

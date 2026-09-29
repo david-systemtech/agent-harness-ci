@@ -2,17 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
   BYPASS_SENTENCE,
-  CHECK_BUDGETS_SECONDS,
+  CHECK_BUDGET_SECONDS,
   DEFAULT_CADENCE_MINUTES,
   DENYLIST_SECTIONS,
+  EVENT_TYPES,
   PERMISSION_SETTINGS_KEYS,
   SETTINGS,
   SETUP_ACTIONS,
+  STEP_LABELS,
   STEP_ORDER,
   STEP_REGISTRY,
   UPDATE_SETTINGS_KEYS,
   isMethodName,
   presetSettings,
+  triggerMatches,
+  unregisteredSteps,
   type SettingsKey,
 } from "./index.js";
 
@@ -24,11 +28,13 @@ import {
  * row are the row registry's test, `settings-rows.test.ts`); the steps stand in
  * the milestone-1 order, link only to steps of it, write state only through
  * registered methods, confirm only keys they write, and name their state
- * checks for themselves (#141); each declares its check's budget and its
- * cadence, one other than the hour with its reason, and only a skippable
- * step a skip check, one of its own (ADR 0031; #308). The Permissions entry
- * names every settings key the permissions spec writes and the denylist's
- * four sections. Each
+ * checks for themselves (#141); each declares its check's budget class, its
+ * cadence, one other than the hour with its reason, and the event and notice
+ * types that re-run it, and every skippable step and no other a skip check,
+ * one of its own (ADR 0031; #308, #568); no part of the state steps write
+ * through their own methods is named by two. The Permissions entry names
+ * every settings key the permissions spec writes and the denylist's four
+ * sections. Each
  * check is a plain function over the tables, so each failure it exists to
  * catch is shown failing on a table broken on purpose.
  */
@@ -47,10 +53,14 @@ interface LooseStep {
   readonly links: readonly ({ readonly row: string } | { readonly step: string })[];
   readonly skippable: boolean;
   /** Optional here, so a table missing one can be written. */
-  readonly budgetSeconds?: number;
+  readonly budget?: string;
   readonly cadence?: { readonly minutes: number; readonly reason?: string };
+  readonly triggers?: readonly string[];
   readonly skip?: string;
 }
+
+/** Every event and notice type the log carries, on any stream: what a trigger may name. */
+const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(table));
 
 /** What is wrong with the two tables together. */
 const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep[]): string[] => {
@@ -84,8 +94,11 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
  * confirmation of a key the step does not write, a state check not named
  * `<step>.<what>` or named twice, an action outside ADR 0031's vocabulary,
  * a budget that is none of ADR 0031's three, a cadence that is no whole
- * number of minutes or leaves the hour without a reason, or a skip check on
- * a step that may not be skipped or that names none of its own state checks.
+ * number of minutes or leaves the hour without a reason, no triggers or a
+ * trigger that names, or as a family prefixes, no event or notice type, a
+ * skippable step with no skip check, a skip check on a step that may not be
+ * skipped or that names none of its own state checks, or a part of the
+ * state steps write through their own methods that two steps name.
  */
 const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
   const problems: string[] = [];
@@ -113,13 +126,20 @@ const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
         if (!(SETUP_ACTIONS as readonly string[]).includes(action)) problems.push(`${step.id}: ${check.id} offers ${action}, which is no named action`);
       }
     }
-    if (step.budgetSeconds === undefined) problems.push(`${step.id}: declares no budget`);
-    else if (!(CHECK_BUDGETS_SECONDS as readonly number[]).includes(step.budgetSeconds)) problems.push(`${step.id}: a budget of ${step.budgetSeconds} s is not 5, 10 or 30 s`);
+    if (step.budget === undefined) problems.push(`${step.id}: declares no budget`);
+    else if (!Object.hasOwn(CHECK_BUDGET_SECONDS, step.budget)) problems.push(`${step.id}: a budget of ${step.budget} is not local, network or git`);
     if (step.cadence === undefined) problems.push(`${step.id}: declares no cadence`);
     else if (!Number.isInteger(step.cadence.minutes) || step.cadence.minutes < 1) problems.push(`${step.id}: a cadence of ${step.cadence.minutes} minutes is no whole number of minutes`);
     else if (step.cadence.minutes !== DEFAULT_CADENCE_MINUTES && !step.cadence.reason?.trim()) {
       problems.push(`${step.id}: a cadence of ${step.cadence.minutes} minutes states no reason for leaving the hour`);
     }
+    if (step.triggers === undefined) problems.push(`${step.id}: declares no triggers`);
+    for (const trigger of step.triggers ?? []) {
+      if (!KNOWN_TYPES.some((type) => triggerMatches(trigger, type))) {
+        problems.push(`${step.id}: triggers on ${trigger}, which ${trigger.endsWith("*") ? "prefixes" : "names"} no event or notice type`);
+      }
+    }
+    if (step.skippable && step.skip === undefined) problems.push(`${step.id}: may be skipped but names no skip check`);
     if (step.skip !== undefined) {
       if (!step.skippable) problems.push(`${step.id}: names the skip check ${step.skip} but may not be skipped`);
       if (!step.stateChecks.some((check) => check.id === step.skip)) problems.push(`${step.id}: its skip check ${step.skip} is none of its state checks`);
@@ -127,6 +147,10 @@ const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
   });
   const checkIds = steps.flatMap((step) => step.stateChecks.map((check) => check.id));
   for (const id of new Set(checkIds)) if (checkIds.filter((other) => other === id).length > 1) problems.push(`${id}: a state check named twice`);
+  for (const part of new Set(steps.flatMap((step) => (step.writesState ?? []).flatMap((write) => write.parts)))) {
+    const writers = steps.filter((step) => (step.writesState ?? []).some((write) => write.parts.includes(part))).map((step) => step.id);
+    if (writers.length > 1) problems.push(`${part}: state written by ${writers.join(", ")}`);
+  }
   return problems;
 };
 
@@ -162,11 +186,18 @@ const stepOf = (id: string): LooseStep => {
 };
 const appearance = stepOf("appearance");
 const account = stepOf("account");
+const machines = stepOf("your-machines");
 const permissions = stepOf("permissions");
-/** The Appearance step's keys alone (the auto-settle keys and the transcript compaction window): the table its broken-on-purpose registries are checked against. */
-const sessionSettings = Object.fromEntries(
-  [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays" as const].map((key) => [key, SETTINGS[key]]),
-) as LooseSettings;
+/** The session keys: the auto-settle keys and the transcript compaction window. */
+const SESSION_KEYS: readonly string[] = [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays"];
+/** The session keys' settings alone: the table the broken-on-purpose registries below are checked against. */
+const sessionSettings = Object.fromEntries(SESSION_KEYS.map((key) => [key, SETTINGS[key as SettingsKey]])) as LooseSettings;
+/** The Your machines entry cut down to the session keys it writes, which `sessionSettings` holds. */
+const sessionsStep: LooseStep = {
+  ...machines,
+  writes: machines.writes.filter((key) => SESSION_KEYS.includes(key)),
+  checks: machines.checks.filter((check) => SESSION_KEYS.includes(check.key)),
+};
 
 describe("the step registry", () => {
   it("has every settings key named by and written by one registered step, each written key checked", () => {
@@ -191,10 +222,46 @@ describe("the step registry", () => {
     expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "permissions", "appearance"]);
   });
 
-  it("puts both auto-settle keys and the transcript compaction window under the Appearance entry, on environments.service", () => {
-    expect(appearance.writes).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
-    expect(appearance.links).toEqual([{ row: "environments.service" }]);
-    for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "appearance", row: "environments.service" });
+  it("exports the check the switch-over's done checklist runs: the steps of the milestone-1 order no entry registers, in that order (#94)", () => {
+    expect(unregisteredSteps(STEP_ORDER.map((id) => ({ id })))).toEqual([]);
+    expect(unregisteredSteps([{ id: "account" }, { id: "your-machines" }, { id: "permissions" }, { id: "appearance" }])).toEqual([
+      "carry-over",
+      "forges",
+      "key-manager",
+      "memory-bank",
+      "skills",
+      "instructions",
+      "browser",
+    ]);
+    // Until #94 the package checks only the registered ids: by default the check reads the registry, which names none of them.
+    for (const id of STEP_REGISTRY.map((step) => step.id)) expect(unregisteredSteps(), id).not.toContain(id);
+  });
+
+  it("names each of the eleven steps alike for every client, registered or not", () => {
+    expect(STEP_ORDER.map((id) => STEP_LABELS[id])).toEqual([
+      "Account",
+      "Carry over",
+      "Your machines",
+      "Forges",
+      "Key manager",
+      "Memory bank",
+      "Skills",
+      "Instructions",
+      "Browser",
+      "Permissions",
+      "Appearance",
+    ]);
+    expect(Object.keys(STEP_LABELS)).toEqual([...STEP_ORDER]);
+  });
+
+  it("puts both auto-settle keys and the transcript compaction window under the Your machines entry, still on environments.service, which it links", () => {
+    expect(machines.writes.filter((key) => key.startsWith("sessions."))).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
+    expect(machines.links).toEqual([{ row: "environments.service" }]);
+    for (const key of SESSION_KEYS) expect(SETTINGS[key as SettingsKey].step, key).toEqual({ id: "your-machines", row: "environments.service" });
+  });
+
+  it("leaves the Appearance entry writing and linking nothing, and never skipped, until its theme key arrives (#391)", () => {
+    expect(appearance).toMatchObject({ home: "appearance.theme", writes: [], checks: [], stateChecks: [], links: [], skippable: false });
   });
 
   it("puts the five permission keys under the Permissions entry, on its home row access.permissions (ADR 0027)", () => {
@@ -249,12 +316,20 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348)", () => {
-    const machines = stepOf("your-machines");
-    expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
-    expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
+  it("gives the Your machines entry the five update keys and the three session keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348)", () => {
+    expect(machines.writes).toEqual([
+      "updates.autoUpdate",
+      "updates.channel",
+      "updates.pinnedVersion",
+      "updates.idleWindowMinutes",
+      "updates.deferralCapHours",
+      "sessions.autoSettleAfterIdle",
+      "sessions.autoSettleOnMerge",
+      "sessions.transcriptCompactAfterDays",
+    ]);
+    expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS, ...SESSION_KEYS]);
     expect(machines.checks.map((check) => check.key)).toEqual(machines.writes);
-    expect(machines).toMatchObject({ home: "environments.machines", links: [], skippable: false });
+    expect(machines).toMatchObject({ home: "environments.machines", links: [{ row: "environments.service" }], skippable: false });
     for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", row: "environments.machines" });
     expect(machines.stateChecks).toEqual([
       { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
@@ -269,7 +344,6 @@ describe("the step registry", () => {
   });
 
   it("holds the Your machines entry's update keys done on any value their schemas take, a pin included", () => {
-    const machines = stepOf("your-machines");
     const checkOf = (key: string) => machines.checks.find((check) => check.key === key)?.check;
     const presets = presetSettings();
     for (const key of UPDATE_SETTINGS_KEYS) expect(checkOf(key)?.(presets[key]), key).toBe(true);
@@ -277,33 +351,84 @@ describe("the step registry", () => {
     expect(checkOf("updates.idleWindowMinutes")?.(0)).toBe("updates.idleWindowMinutes does not hold a valid value.");
   });
 
-  it("gives every registered entry a budget of five seconds and an hourly cadence (#308)", () => {
-    expect(STEP_REGISTRY.map((step) => [step.id, step.budgetSeconds, step.cadence])).toEqual([
-      ["account", 5, { minutes: 60 }],
-      ["your-machines", 5, { minutes: 60 }],
-      ["permissions", 5, { minutes: 60 }],
-      ["appearance", 5, { minutes: 60 }],
+  it("gives ADR 0031's three budget classes their seconds: five for a local read, ten for a network call, thirty for a git probe", () => {
+    expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
+  });
+
+  it("gives Account, Permissions and Appearance the local budget, Your machines the network one, and each an hourly cadence", () => {
+    expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence])).toEqual([
+      ["account", "local", { minutes: 60 }],
+      ["your-machines", "network", { minutes: 60 }],
+      ["permissions", "local", { minutes: 60 }],
+      ["appearance", "local", { minutes: 60 }],
     ]);
   });
 
-  it("fails an entry with no budget, a budget outside ADR 0031's three, no cadence, a cadence of no whole minutes, or a cadence other than the hour with no reason", () => {
-    const { budgetSeconds, cadence, ...bare } = appearance;
-    expect([budgetSeconds, cadence]).toEqual([5, { minutes: 60 }]);
+  it("fails an entry with no budget, a budget outside ADR 0031's three classes, no cadence, a cadence of no whole minutes, or a cadence other than the hour with no reason", () => {
+    const { budget, cadence, ...bare } = appearance;
+    expect([budget, cadence]).toEqual(["local", { minutes: 60 }]);
     expect(stepShapeProblems([bare])).toEqual(["appearance: declares no budget", "appearance: declares no cadence"]);
-    expect(stepShapeProblems([{ ...appearance, budgetSeconds: 7 }])).toEqual(["appearance: a budget of 7 s is not 5, 10 or 30 s"]);
+    expect(stepShapeProblems([{ ...appearance, budget: "5" }])).toEqual(["appearance: a budget of 5 is not local, network or git"]);
+    expect(stepShapeProblems([{ ...appearance, budget: "toString" }])).toEqual(["appearance: a budget of toString is not local, network or git"]);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 0.5 } }])).toEqual(["appearance: a cadence of 0.5 minutes is no whole number of minutes"]);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 15 } }])).toEqual(["appearance: a cadence of 15 minutes states no reason for leaving the hour"]);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 15, reason: " " } }])).toHaveLength(1);
     expect(stepShapeProblems([{ ...appearance, cadence: { minutes: 120 } }])).toEqual(["appearance: a cadence of 120 minutes states no reason for leaving the hour"]);
-    expect(stepShapeProblems([{ ...appearance, budgetSeconds: 30, cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
+    expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("fails a skip check on a step that may not be skipped, or one that names none of the step's own state checks", () => {
+  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices and settings.updated, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+    expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
+      ["account", ["account.updated", "signin.updated"]],
+      ["your-machines", ["environment.update-*", "settings.updated"]],
+      ["permissions", ["settings.updated", "denylist.changed"]],
+      ["appearance", ["settings.updated"]],
+    ]);
+  });
+
+  it("matches a trigger to its own type, and a family ending in * to every type it prefixes", () => {
+    const matched = (trigger: string) => KNOWN_TYPES.filter((type) => triggerMatches(trigger, type));
+    expect(matched("settings.updated")).toEqual(["settings.updated"]);
+    expect(matched("environment.update-*")).toEqual(["environment.update-pending", "environment.update-started", "environment.update-failed", "environment.update-cancelled"]);
+    expect(matched("forge.account.*")).toEqual([
+      "forge.account.added",
+      "forge.account.updated",
+      "forge.account.primary-set",
+      "forge.account.verified",
+      "forge.account.capability-learned",
+      "forge.account.git-rejected",
+      "forge.account.removed",
+    ]);
+    expect(triggerMatches("settings.*", "settings.updated")).toBe(true);
+    expect(triggerMatches("settings.updated*", "settings.updated")).toBe(true);
+    expect(triggerMatches("settings", "settings.updated")).toBe(false);
+    expect(triggerMatches("settings.updated", "settings.updated.late")).toBe(false);
+    expect(triggerMatches("environment.*.started", "environment.update.started")).toBe(false);
+  });
+
+  it("fails an entry with no triggers, or a trigger that names, or as a family prefixes, no event or notice type", () => {
+    const { triggers, ...bare } = appearance;
+    expect(triggers).toEqual(["settings.updated"]);
+    expect(stepShapeProblems([bare])).toEqual(["appearance: declares no triggers"]);
+    expect(stepShapeProblems([{ ...appearance, triggers: [] }])).toEqual([]);
+    expect(stepShapeProblems([{ ...appearance, triggers: ["settings.updated", "settings.changed", "appearance.theme-set", "theme.*", "environment.update"] }])).toEqual([
+      "appearance: triggers on appearance.theme-set, which names no event or notice type",
+      "appearance: triggers on theme.*, which prefixes no event or notice type",
+      "appearance: triggers on environment.update, which names no event or notice type",
+    ]);
+    expect(stepShapeProblems([{ ...appearance, triggers: ["run.ended", "pairing.*", "account.*", "session.*"] }])).toEqual([]);
+  });
+
+  it("fails a skip check on a step that may not be skipped, a skippable step without one, and a skip check naming another step's check or none", () => {
     const present = { id: "account.present", holds: "At least one account is added.", actions: [] };
     expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present], skip: "account.present" }])).toEqual([]);
     expect(stepShapeProblems([{ ...account, stateChecks: [present], skip: "account.present" }])).toEqual(["account: names the skip check account.present but may not be skipped"]);
-    expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present], skip: "permissions.not-root" }])).toEqual([
+    expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present] }])).toEqual(["account: may be skipped but names no skip check"]);
+    expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present], skip: "permissions.not-root" }, permissions])).toEqual([
       "account: its skip check permissions.not-root is none of its state checks",
+    ]);
+    expect(stepShapeProblems([{ ...account, skippable: true, stateChecks: [present], skip: "account.missing" }])).toEqual([
+      "account: its skip check account.missing is none of its state checks",
     ]);
   });
 
@@ -331,6 +456,16 @@ describe("the step registry", () => {
       "account: permissions.not-root offers reboot, which is no named action",
       "permissions.not-root: a state check named twice",
     ]);
+  });
+
+  it("fails a part of the state written through a step's own method that another step names too, so the denylist's four sections are the Permissions step's alone", () => {
+    const browserSection = { ...account, writesState: [{ method: "permissions.denylist.set", parts: ["browserDomains"] }] };
+    expect(stepShapeProblems([browserSection, permissions])).toEqual(["browserDomains: state written by account, permissions"]);
+    expect(stepShapeProblems([{ ...account, writesState: [{ method: "permissions.denylist.get", parts: ["paths", "hosts"] }] }, permissions])).toEqual([
+      "paths: state written by account, permissions",
+      "hosts: state written by account, permissions",
+    ]);
+    expect(stepShapeProblems([{ ...account, writesState: [{ method: "permissions.denylist.set", parts: ["containment"] }] }, permissions])).toEqual([]);
   });
 
   it("puts the default account, model family and effort and providers.processIdleMinutes under the Account entry, on accounts.default-model, each checked done on any valid value", () => {
@@ -362,36 +497,40 @@ describe("the step registry", () => {
 
   it("fails when a key is written by a step other than the one it names, or by two", () => {
     const other: LooseStep = { id: "permissions", writes: ["sessions.autoSettleOnMerge"], checks: [], stateChecks: [], links: [], skippable: false };
-    const withoutMerge = { ...appearance, writes: appearance.writes.filter((key) => key !== "sessions.autoSettleOnMerge"), checks: appearance.checks.filter((check) => check.key !== "sessions.autoSettleOnMerge") };
+    const withoutMerge = {
+      ...sessionsStep,
+      writes: sessionsStep.writes.filter((key) => key !== "sessions.autoSettleOnMerge"),
+      checks: sessionsStep.checks.filter((check) => check.key !== "sessions.autoSettleOnMerge"),
+    };
     expect(stepRegistryProblems(sessionSettings, [withoutMerge, other])).toEqual([
-      "sessions.autoSettleOnMerge: names appearance but permissions writes it",
+      "sessions.autoSettleOnMerge: names your-machines but permissions writes it",
       "permissions: needs one health check of sessions.autoSettleOnMerge",
     ]);
-    expect(stepRegistryProblems(sessionSettings, [appearance, { ...other, checks: [appearance.checks[1] as LooseStep["checks"][number]] }])).toEqual([
-      "sessions.autoSettleOnMerge: written by appearance, permissions",
+    expect(stepRegistryProblems(sessionSettings, [sessionsStep, { ...other, checks: [sessionsStep.checks[1] as LooseStep["checks"][number]] }])).toEqual([
+      "sessions.autoSettleOnMerge: written by your-machines, permissions",
     ]);
   });
 
   it("fails when a step writes a key that is not a setting, or writes a key it does not check", () => {
-    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, writes: [...appearance.writes, "appearance.theme"] }])).toEqual([
-      "appearance: writes appearance.theme, which is not a setting",
-      "appearance: needs one health check of appearance.theme",
+    expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, writes: [...sessionsStep.writes, "appearance.theme"] }])).toEqual([
+      "your-machines: writes appearance.theme, which is not a setting",
+      "your-machines: needs one health check of appearance.theme",
     ]);
-    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, checks: [] }])).toEqual([
-      "appearance: needs one health check of sessions.autoSettleAfterIdle",
-      "appearance: needs one health check of sessions.autoSettleOnMerge",
-      "appearance: needs one health check of sessions.transcriptCompactAfterDays",
+    expect(stepRegistryProblems(sessionSettings, [{ ...sessionsStep, checks: [] }])).toEqual([
+      "your-machines: needs one health check of sessions.autoSettleAfterIdle",
+      "your-machines: needs one health check of sessions.autoSettleOnMerge",
+      "your-machines: needs one health check of sessions.transcriptCompactAfterDays",
     ]);
-    expect(stepRegistryProblems(sessionSettings, [appearance, appearance])).toEqual([
-      "appearance: registered twice",
-      "sessions.autoSettleAfterIdle: written by appearance, appearance",
-      "sessions.autoSettleOnMerge: written by appearance, appearance",
-      "sessions.transcriptCompactAfterDays: written by appearance, appearance",
+    expect(stepRegistryProblems(sessionSettings, [sessionsStep, sessionsStep])).toEqual([
+      "your-machines: registered twice",
+      "sessions.autoSettleAfterIdle: written by your-machines, your-machines",
+      "sessions.autoSettleOnMerge: written by your-machines, your-machines",
+      "sessions.transcriptCompactAfterDays: written by your-machines, your-machines",
     ]);
   });
 
   it("checks each key done on any valid value, the preset included, and names the key when it is not", () => {
-    const check = (key: SettingsKey) => (appearance.checks.find((entry) => entry.key === key) as LooseStep["checks"][number]).check;
+    const check = (key: SettingsKey) => (machines.checks.find((entry) => entry.key === key) as LooseStep["checks"][number]).check;
     const presets = presetSettings();
     for (const key of AUTO_SETTLE_KEYS) expect(check(key)(presets[key]), key).toBe(true);
     for (const value of [null, { amount: 1, unit: "days" }, { amount: 3, unit: "weeks" }, { amount: 1000, unit: "months" }]) {
