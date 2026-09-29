@@ -33,7 +33,9 @@ import { isDirectory } from "./resolver.js";
  *   verified alias of one forge account takes that account's canonical
  *   host: a string rewrite of the identity's host, which runs no git and
  *   needs no workspace. It matters because the Carry over import records
- *   identities before any forge account exists.
+ *   identities before any forge account exists. It also runs once at each
+ *   start, before the resolved pass, so an identity a stop or a failure
+ *   left on an alias's host is moved then.
  *
  * A session whose identity either pass changes has its auto-memory key
  * changed with it: its old directory is carried into the new one
@@ -74,7 +76,7 @@ export interface RunningPasses {
 }
 
 export interface IdentityPasses {
-  /** Runs the resolved pass in the background, and the alias pass on every forge event that adds an account or changes its aliases. */
+  /** Runs the alias pass now and the resolved pass in the background, then the alias pass on every forge event that adds an account or changes its aliases. */
   start(): RunningPasses;
 }
 
@@ -184,6 +186,11 @@ export const createIdentityPasses = (options: IdentityPassesOptions): IdentityPa
           console.error(`The alias pass after ${event.type} failed:`, error);
         }
       });
+      try {
+        aliasPass();
+      } catch (error) {
+        console.error("The alias pass after the start failed; the next start runs it again:", error);
+      }
       const resolved = resolvedPass().catch((error: unknown) => console.error("The identity pass after the start failed; the next start runs it again:", error));
       return {
         resolved,

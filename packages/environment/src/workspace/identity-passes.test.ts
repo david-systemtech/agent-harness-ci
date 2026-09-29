@@ -284,6 +284,28 @@ describe("the alias pass", () => {
     expect((await get(client, ssh.id)).repositoryIdentity).toBe(IDENTITY);
   });
 
+  it("moves an identity left on an alias's host to the canonical host at the next start", async () => {
+    const dataDir = dataDirectory();
+    const { t, client, forgeFetch } = await withForge({ dataDir });
+    await added(client, { url: CANONICAL, kind: "forgejo", aliases: [TAILNET] });
+    await t.close();
+    // Recorded on the alias's host after the account's event was heard: as a stop between the two leaves it.
+    const path = repository();
+    const stale = await start({
+      dataDir,
+      forgeFetch,
+      workspaceResolver: scriptedResolver(({ request }) => ({ workspace: request as Workspace, repositoryIdentity: "https://100.101.102.103/david/agent-harness" })),
+    });
+    const { id } = await created(await stale.client(), { kind: "directory", path });
+    const from = stale.env.log.head();
+    await stale.close();
+
+    const again = await start({ dataDir, forgeFetch });
+    const [event] = await listEvents(await again.client(), from, 1);
+
+    expect(event).toMatchObject({ streamId: id, type: "session.repository-identified", payload: { repositoryIdentity: IDENTITY, reason: "alias" } });
+  });
+
   it("gives the rule the verified aliases at creation and in the resolved pass", async () => {
     const dataDir = dataDirectory();
     const { t, client, forgeFetch } = await withForge({ dataDir });

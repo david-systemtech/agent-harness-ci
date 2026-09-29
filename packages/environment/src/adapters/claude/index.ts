@@ -118,8 +118,8 @@ export interface ClaudeAdapter extends Adapter {
 /**
  * The auto-memory directory of a run's repository (ADR 0018): one per key
  * under `root`, shared by every account. The key is the repository identity,
- * else the repository's main checkout, else one for every scratch workspace,
- * else the workspace path (`workspace/auto-memory.ts`, #329).
+ * else the repository's main checkout, else the one directory all scratch
+ * workspaces share, else the workspace path (`workspace/auto-memory.ts`, #329).
  */
 export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "repositoryIdentity" | "workspace">): string => join(root, autoMemoryName(input));
 
