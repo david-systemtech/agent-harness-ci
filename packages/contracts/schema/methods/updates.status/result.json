@@ -743,14 +743,20 @@
               "type": "string",
               "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
               "description": "The target that cannot be reached: service install from its release unblocks it."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Why, and what unblocks it, for people: service install from the target's release."
             }
           },
           "required": [
             "state",
             "reason",
-            "toVersion"
+            "toVersion",
+            "message"
           ],
-          "description": "The update cannot go on by itself: why, and its target."
+          "description": "The update cannot go on by itself: why, its target, and what unblocks it."
         }
       ],
       "description": "The pending update with its state: current, staging, waiting on what, ready, draining, switching, or blocked with why."

@@ -79,7 +79,7 @@ import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
-import { RELEASE_SOURCE, createReleaseChannel } from "../updates/channel.js";
+import { RELEASE_SOURCE, channelSettingsOf, createReleaseChannel, type ChannelSettings } from "../updates/channel.js";
 import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { updateMethods } from "../updates/methods.js";
@@ -340,6 +340,12 @@ export interface EnvironmentOptions {
    * tests name their fake release source.
    */
   readonly releaseSource?: ReleaseSource;
+  /**
+   * The launcher protocol this build's own launcher speaks, which a
+   * handover to it brings (#347). Preset: `LAUNCHER_PROTOCOL`; a test raises
+   * it to stand for a stepping stone whose launcher speaks a newer one.
+   */
+  readonly launcherProtocol?: number;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -812,7 +818,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       }
     },
   });
-  // The update coordinator (#343): the pending update, read back from the log, its wait, its drain and the switch.
+  // The release channel (#346): read through the ForgeService with the forge account for the release origin, two minutes
+  // after the start, hourly, on updates.check and once the settings the target follows change.
+  const releaseSource = options.releaseSource ?? RELEASE_SOURCE;
+  const releaseChannel = createReleaseChannel({
+    forge,
+    source: releaseSource,
+    harnessVersion,
+    databaseSchemaVersion: () => Number(log.read<{ user_version: number }>("PRAGMA user_version")[0]?.user_version ?? 0),
+    ...(options.launcherProtocol !== undefined && { ownLauncherProtocol: options.launcherProtocol }),
+  });
+  const channelSettings = (): ChannelSettings => channelSettingsOf(readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
+  // The update coordinator (#343, #347): what a check found staged, the pending update, read back from the log, its wait,
+  // its drain and the switch.
   const updates = createUpdateCoordinator({
     log,
     clock,
@@ -825,25 +843,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     host,
     activity: () => lifecycle.status().activity,
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
+    settings: channelSettings,
+    channel: releaseChannel,
     drain: (cause) => void lifecycle.drain("update", cause),
-  });
-  // The release channel (#346): read through the ForgeService with the forge account for the release origin, two minutes
-  // after the start, hourly, on updates.check and once the settings the target follows change.
-  const releaseSource = options.releaseSource ?? RELEASE_SOURCE;
-  const releaseChannel = createReleaseChannel({
-    forge,
-    source: releaseSource,
-    harnessVersion,
-    databaseSchemaVersion: () => Number(log.read<{ user_version: number }>("PRAGMA user_version")[0]?.user_version ?? 0),
   });
   const channelChecks = createChannelChecks({
     clock,
     dataDir,
     channel: releaseChannel,
-    settings: () => {
-      const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
-      return { autoUpdate: values["updates.autoUpdate"], channel: values["updates.channel"], pinnedVersion: values["updates.pinnedVersion"] };
-    },
+    settings: channelSettings,
+    context: () => updates.channelContext(),
+    follow: (reading, settings) => updates.follow(reading, settings),
   });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
@@ -888,7 +898,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       presets: settingsPresets(),
-      stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir, releaseChannel: () => channelChecks.releaseChannelHolds() }),
+      stateChecks: environmentStateChecks({
+        log,
+        containment,
+        isRoot,
+        dataDir,
+        releaseChannel: () => channelChecks.releaseChannelHolds(),
+        updates: () => updates.machineHolds(channelChecks.status().newest),
+      }),
     }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),

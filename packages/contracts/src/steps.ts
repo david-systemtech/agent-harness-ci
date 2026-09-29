@@ -162,9 +162,9 @@ export const STEP_REGISTRY = [
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:
     // environments.machines). It writes the five update keys (#335), through updates.settings.set alone (their
     // writtenBy), and a preference step's checks pass on any valid value; its health line reports not-root, read
-    // from what permissions.settings.get answers as isRoot (#141), and whether the release channel is read (#346).
-    // Its other update state checks are the launcher tickets' (#347, #348), and the rest of its check (the discovery
-    // URL reachable and ready, the name) is Set up's (#88).
+    // from what permissions.settings.get answers as isRoot (#141), whether the release channel is read (#346), and
+    // whether this machine is behind (#347). The host-side updater's check is #348's, and the rest of its check (the
+    // discovery URL reachable and ready, the name) is Set up's (#88).
     id: "your-machines",
     home: "environments.machines",
     writes: ["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"],
@@ -181,6 +181,11 @@ export const STEP_REGISTRY = [
         id: "your-machines.release-channel",
         holds: "Auto-update is off, or the release channel was read in the last 24 hours.",
         actions: ["check-again"],
+      },
+      {
+        id: "your-machines.updates",
+        holds: "Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind.",
+        actions: ["update"],
       },
     ],
     links: [],

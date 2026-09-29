@@ -136,6 +136,8 @@ export interface TestEnvironmentOptions {
    * test reads the project's own releases.
    */
   readonly releaseSource?: EnvironmentOptions["releaseSource"];
+  /** The launcher protocol the environment's own launcher speaks, which a handover brings; preset the build's. */
+  readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
 }
 
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
@@ -309,6 +311,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
+    ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;

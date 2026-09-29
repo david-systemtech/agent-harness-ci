@@ -15,6 +15,7 @@ const stepOf = (id: RegisteredStep["id"]): RegisteredStep => STEP_REGISTRY.find(
 const holding: StateCheckers = {
   "your-machines.not-root": () => true,
   "your-machines.release-channel": () => true,
+  "your-machines.updates": () => true,
   "permissions.containment": () => true,
   "permissions.denylist": () => true,
   "permissions.not-root": () => true,

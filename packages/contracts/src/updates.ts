@@ -247,8 +247,13 @@ export const PendingUpdate = z
     pendingState("draining", "The environment drains for the update: new runs are refused, running ones are let finish up to the cap.", { cause: UpdateCause }),
     pendingState("switching", "The drain is done and the launcher is switching to the target.", { cause: UpdateCause }),
     z
-      .object({ state: z.literal("blocked"), reason: UpdateBlockedReason, toVersion: ReleaseVersion.meta({ description: "The target that cannot be reached: service install from its release unblocks it." }) })
-      .meta({ description: "The update cannot go on by itself: why, and its target." }),
+      .object({
+        state: z.literal("blocked"),
+        reason: UpdateBlockedReason,
+        toVersion: ReleaseVersion.meta({ description: "The target that cannot be reached: service install from its release unblocks it." }),
+        message: z.string().min(1).meta({ description: "Why, and what unblocks it, for people: service install from the target's release." }),
+      })
+      .meta({ description: "The update cannot go on by itself: why, its target, and what unblocks it." }),
   ])
   .meta({ description: "The pending update with its state: current, staging, waiting on what, ready, draining, switching, or blocked with why." });
 export type PendingUpdate = z.infer<typeof PendingUpdate>;
@@ -345,16 +350,29 @@ export type UpdateWhen = z.infer<typeof UpdateWhen>;
  * Why an update, or a pin, is refused in `conflict` (its `data.reason`): the
  * environment is pinned to another version, already runs this one, the
  * version's database schema is below the database's, it needs a newer
- * launcher than the running one hosts, an update is draining or switching,
- * the environment cannot read the releases, the forge did not answer, the
- * release's manifest is missing or not its schema (#346), the launcher
- * refused to install the version (`data.launcherReason` says why), or no
- * launcher runs the environment to switch it (#343).
+ * launcher than the running one hosts, an update is under way, the
+ * environment cannot read the releases, the forge did not answer, the
+ * release's manifest is missing or not its schema (#346), this platform's
+ * artefact did not download or does not match the manifest (#347), the
+ * launcher refused to install the version (`data.launcherReason` says why),
+ * or no launcher runs the environment to switch it (#343).
  */
-export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "install", "no_launcher"] as const;
+export const UPDATE_CONFLICT_REASONS = [
+  "pinned",
+  "current",
+  "schema",
+  "launcher",
+  "in_progress",
+  "no_release_access",
+  "unreachable",
+  "manifest",
+  "artefact",
+  "install",
+  "no_launcher",
+] as const;
 export const UpdateConflictReason = z.enum(UPDATE_CONFLICT_REASONS).meta({
   description:
-    "Why an update or a pin was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed: ask again), manifest (the release's manifest is missing or not its schema), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes).",
+    "Why an update or a pin was refused in conflict: pinned (another version is pinned), current (that version runs already, or nothing newer is published), schema (its database schema is below the database's), launcher (it needs a newer launcher than the running one), in_progress (an update is staging, draining or switching), no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed: ask again), manifest (the release's manifest is missing or not its schema), artefact (this platform's artefact did not download, does not match its size and SHA-256 in the manifest, or does not unpack), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes).",
 });
 export type UpdateConflictReason = z.infer<typeof UpdateConflictReason>;
 
