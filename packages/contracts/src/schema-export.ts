@@ -390,6 +390,7 @@ import {
 } from "./key-manager-connections.js";
 import {
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
+  KeyManagerCannotWriteError,
   KeyManagerMoveItem,
   KeyManagerMoveItemKind,
   KeyManagerMoveItemRef,
@@ -799,6 +800,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/move-item-result.json", title: "KeyManagerMoveItemResult", schema: KeyManagerMoveItemResult },
   { path: "key-managers/stored-at.json", title: "KeyManagerStoredAt", schema: KeyManagerStoredAt },
   { path: "key-managers/errors/target_exists.json", title: "KeyManagerTargetExistsError", schema: KeyManagerTargetExistsError },
+  { path: "key-managers/errors/cannot_write.json", title: "KeyManagerCannotWriteError", schema: KeyManagerCannotWriteError },
   ...Object.entries(KEY_MANAGER_MOVE_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `key-managers/events/${type}.json`,
     title: `${pascal(type)}Payload`,

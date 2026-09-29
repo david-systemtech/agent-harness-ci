@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { WireError, errorSchema } from "./errors.js";
 import { KeyManagerConnectionId, KeyManagerReference } from "./key-managers.js";
+import { ClientSessionId } from "./primitives.js";
 
 /**
  * Move stored tokens (key-managers spec, "Move stored tokens"; ADR 0028;
@@ -13,6 +14,12 @@ import { KeyManagerConnectionId, KeyManagerReference } from "./key-managers.js";
  * (`<base>/forge-<slug>`). Nothing here ever holds a value: an item is named
  * by its kind and id, a target by its reference, and a stored value by
  * where its owner keeps it.
+ *
+ * A login that cannot write a target (#372; ADR 0028's Copy the value)
+ * answers that item `cannot_write`; `keyManagers.move.copyValue` then
+ * answers its stored value once, the one answer that ever holds one, for a
+ * person to paste at the target, and `keyManagers.move` with `verifyOnly`
+ * reads back what was pasted, and swaps and deletes as a Move does.
  */
 
 /** What holds a stored value Move can take: a forge account's pasted token. */
@@ -82,6 +89,19 @@ export const KeyManagerTargetExistsError = errorSchema(
 });
 export type KeyManagerTargetExistsError = z.infer<typeof KeyManagerTargetExistsError>;
 
+/** The connection's login may not write the target (#372). */
+export const KeyManagerCannotWriteError = errorSchema(
+  "cannot_write",
+  z.object({
+    connectionId: KeyManagerConnectionId.meta({ description: "The connection whose login cannot write the target." }),
+    reference: KeyManagerReference.meta({ description: "The target, as the reference the item would hold." }),
+  }),
+).meta({
+  description:
+    "The connection's login may not write the target, as the key manager answered when asked before the write: nothing was written, and the item holds its stored value still. keyManagers.move.copyValue then answers the value once, for a person to paste at the target, and keyManagers.move with verifyOnly reads back what was pasted, and swaps and deletes. Never the value.",
+});
+export type KeyManagerCannotWriteError = z.infer<typeof KeyManagerCannotWriteError>;
+
 /** What a Move did with one item. */
 export const KeyManagerMoveItemResult = z
   .discriminatedUnion("outcome", [
@@ -99,10 +119,13 @@ export const KeyManagerMoveItemResult = z
         item: KeyManagerMoveItemRef,
         outcome: z.literal("failed"),
         step: KeyManagerMoveStep,
-        written: z.boolean().meta({ description: "Whether a copy was written to the target and left there: after a failed read-back or swap. The stored value is left in place either way." }),
-        error: z.union([KeyManagerTargetExistsError, WireError]).meta({
+        written: z.boolean().meta({
           description:
-            "Why: conflict reason target_exists at the write; not_found when the item holds no stored value now; unreachable, sealed, certificate_rejected or reference_denied from the key manager; credential_source_unavailable, reference_not_found or reference_denied, or conflict reason read_back_differs, at the read-back; the owner's command's refusal at the swap. Never the value.",
+            "Whether this Move wrote a copy to the target and left it there: after a failed read-back or swap. Never with verifyOnly, which writes nothing and leaves what a person pasted as it is. The stored value is left in place either way.",
+        }),
+        error: z.union([KeyManagerTargetExistsError, KeyManagerCannotWriteError, WireError]).meta({
+          description:
+            "Why: cannot_write, or conflict reason target_exists, at the write; not_found when the item holds no stored value now; unreachable, sealed, certificate_rejected or reference_denied from the key manager; credential_source_unavailable, reference_not_found (with verifyOnly: nothing pasted there yet) or reference_denied, or conflict reason read_back_differs, at the read-back; the owner's command's refusal at the swap. Never the value.",
         }),
       })
       .meta({ description: "The item was not moved: the step it failed at, whether a copy was left at the target, and why. It holds its stored value still." }),
@@ -128,7 +151,10 @@ export const KeyManagerMovedPayload = z
     reference: KeyManagerReference.meta({ description: "Where it went: the reference the item holds now." }),
     undeleted: KeyManagerStoredAt.nullable().meta({ description: "Where the stored value is kept still when its delete failed, which the next start deletes; null once it was deleted." }),
   })
-  .meta({ description: "key-manager.moved: an item's stored value was written to a key manager, read back, and the item swapped to the reference. Never the value." });
+  .meta({
+    description:
+      "key-manager.moved: an item's stored value was written to a key manager, or pasted there by a person and verified (verifyOnly), read back, and the item swapped to the reference. Never the value.",
+  });
 export type KeyManagerMovedPayload = z.infer<typeof KeyManagerMovedPayload>;
 
 export const KeyManagerStoredValueDeletedPayload = z
@@ -139,8 +165,21 @@ export const KeyManagerStoredValueDeletedPayload = z
   .meta({ description: "key-manager.stored-value-deleted: a stored value a move left behind, its delete having failed, was deleted at a later start; recorded as system:key-manager." });
 export type KeyManagerStoredValueDeletedPayload = z.infer<typeof KeyManagerStoredValueDeletedPayload>;
 
+export const KeyManagerValueCopiedPayload = z
+  .object({
+    connectionId: KeyManagerConnectionId.meta({ description: "The connection whose login cannot write the target." }),
+    item: KeyManagerMoveItemRef,
+    reference: KeyManagerReference.meta({ description: "The target the value was copied to be pasted at." }),
+    clientSessionId: ClientSessionId.meta({ description: "The client session the value was answered to." }),
+  })
+  .meta({
+    description: "key-manager.value-copied: an item's stored value was answered once to a client session, to be pasted at a target the connection's login cannot write (#372). Never the value.",
+  });
+export type KeyManagerValueCopiedPayload = z.infer<typeof KeyManagerValueCopiedPayload>;
+
 /** The Move's events, on the environment stream, so every client hears them as it hears the connections'. */
 export const KEY_MANAGER_MOVE_EVENT_PAYLOADS = {
   "key-manager.moved": KeyManagerMovedPayload,
   "key-manager.stored-value-deleted": KeyManagerStoredValueDeletedPayload,
+  "key-manager.value-copied": KeyManagerValueCopiedPayload,
 } as const;

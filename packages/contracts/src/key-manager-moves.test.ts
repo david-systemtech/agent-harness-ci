@@ -3,6 +3,7 @@ import {
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
+  KeyManagerCannotWriteError,
   KeyManagerConnectionRecord,
   KeyManagerMoveItem,
   KeyManagerTargetExistsError,
@@ -71,11 +72,13 @@ describe("keyManagers.move.list", () => {
 describe("keyManagers.move", () => {
   const method = registry["keyManagers.move"];
 
-  it("is an admin command taking a connection, the items or all, and whether to overwrite", () => {
+  it("is an admin command taking a connection, the items or all, whether to overwrite, and whether only to verify a value pasted by hand", () => {
     expect([method.kind, method.scope]).toEqual(["command", "admin"]);
-    expect(Object.keys(method.params.shape)).toEqual(["commandId", "connectionId", "items", "overwrite"]);
+    expect(Object.keys(method.params.shape)).toEqual(["commandId", "connectionId", "items", "overwrite", "verifyOnly"]);
     expect(method.params.safeParse({ commandId, connectionId, items: "all" }).success).toBe(true);
     expect(method.params.safeParse({ commandId, connectionId, items: [item], overwrite: true }).success).toBe(true);
+    expect(method.params.safeParse({ commandId, connectionId, items: [item], verifyOnly: true }).success).toBe(true);
+    expect(method.params.safeParse({ commandId, connectionId, items: [item], verifyOnly: "yes" }).success).toBe(false);
     expect(method.params.safeParse({ commandId, connectionId, items: [] }).success).toBe(false);
     expect(method.params.safeParse({ commandId, connectionId, items: "some" }).success).toBe(false);
     expect(codes("keyManagers.move")).toEqual(["credential_source_unavailable", "provider_unavailable"]);
@@ -96,11 +99,46 @@ describe("keyManagers.move", () => {
     const failed = { item, outcome: "failed", step: "write", written: false, error: exists };
     expect(method.result.safeParse({ items: [failed] }).success).toBe(true);
   });
+
+  it("answers an item whose target the login cannot write cannot_write at the write, naming the connection and the target, with nothing written", () => {
+    const cannot = { code: "cannot_write", message: "The login cannot write personal/harness/forge-github (key token).", data: { connectionId, reference } };
+    expect(KeyManagerCannotWriteError.parse(cannot)).toEqual(cannot);
+    expect(KeyManagerCannotWriteError.safeParse({ ...cannot, code: "reference_denied" }).success).toBe(false);
+    expect(KeyManagerCannotWriteError.safeParse({ ...cannot, data: { connectionId } }).success).toBe(false);
+    const failed = { item, outcome: "failed", step: "write", written: false, error: cannot };
+    expect(method.result.parse({ items: [failed] })).toEqual({ items: [failed] });
+  });
+});
+
+describe("keyManagers.move.copyValue", () => {
+  const method = registry["keyManagers.move.copyValue"];
+
+  it("is an admin command taking a connection and one item, answering the item, its target and its stored value", () => {
+    expect([method.kind, method.scope]).toEqual(["command", "admin"]);
+    expect(Object.keys(method.params.shape)).toEqual(["commandId", "connectionId", "item"]);
+    expect(method.params.safeParse({ commandId, connectionId, item }).success).toBe(true);
+    expect(method.params.safeParse({ commandId, connectionId, items: [item] }).success).toBe(false);
+    expect(method.params.safeParse({ commandId, connectionId }).success).toBe(false);
+    expect(Object.keys(method.result.shape)).toEqual(["item", "reference", "value"]);
+    expect(method.result.safeParse({ item, reference, value: "token-for-tests" }).success).toBe(true);
+    expect(method.result.safeParse({ item, reference, value: "" }).success).toBe(false);
+    expect(codes("keyManagers.move.copyValue")).toEqual([]);
+  });
+
+  it("is appended as key-manager.value-copied, naming the item, the connection, the target and the client session, never the value", () => {
+    const clientSessionId = "cs-1";
+    const copied = { type: "key-manager.value-copied", payload: { connectionId, item, reference, clientSessionId } };
+    expect(ENVIRONMENT_NOTICE_TYPES).toContain(copied.type);
+    expect(eventTypeEntry("environment", copied.type)?.list).toBe(false);
+    expect(EnvironmentNotice.parse(copied)).toEqual(copied);
+    expect(EnvironmentNotice.parse({ ...copied, payload: { ...copied.payload, value: "token-for-tests" } }).payload).not.toHaveProperty("value");
+    expect(EnvironmentNotice.safeParse({ ...copied, payload: { connectionId, item, reference } }).success).toBe(false);
+  });
 });
 
 describe("the move events", () => {
-  it("are key-manager.moved, naming the item, the connection and the reference and never the value, and key-manager.stored-value-deleted, on the environment stream", () => {
-    expect(Object.keys(KEY_MANAGER_MOVE_EVENT_PAYLOADS)).toEqual(["key-manager.moved", "key-manager.stored-value-deleted"]);
+  it("are key-manager.moved, naming the item, the connection and the reference and never the value, key-manager.stored-value-deleted and key-manager.value-copied, on the environment stream", () => {
+    expect(Object.keys(KEY_MANAGER_MOVE_EVENT_PAYLOADS)).toEqual(["key-manager.moved", "key-manager.stored-value-deleted", "key-manager.value-copied"]);
     for (const type of Object.keys(KEY_MANAGER_MOVE_EVENT_PAYLOADS)) {
       expect(ENVIRONMENT_NOTICE_TYPES, type).toContain(type);
       expect(eventTypeEntry("environment", type)?.list, type).toBe(false);
