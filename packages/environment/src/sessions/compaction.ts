@@ -1,4 +1,4 @@
-import { SESSION_STREAM_KIND, type TasksChangedPayload, type TranscriptEventType } from "@agent-harness/contracts";
+import { SESSION_STREAM_KIND, type SessionEventType, type TasksChangedPayload, type TranscriptEventType } from "@agent-harness/contracts";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import { foldTranscript, storedTranscriptParts, type TranscriptParts } from "../runs/transcript.js";
 import type { Clock } from "../serve/clock.js";
@@ -37,17 +37,19 @@ import { sessionStream } from "./streams.js";
  * - **Folded**: every event of the stream up to its last, organisation ones
  *   included, since the fold reads a run's start and end and a rewind; the
  *   fold goes on from an earlier compaction's snapshot.
- * - **Removed**: only transcript types (`COMPACTION_REMOVES`), and of those
- *   only what no projector reads, so a rebuild of the projections gives the
- *   same read models: the assistant's text, thinking and deltas, tool calls,
- *   commands, usage and plan limits, and every `tasks.changed` but each
- *   run's last (the runs projector keeps a run's latest ledger). Kept:
- *   every organisation event (`session.*`, `group.*`, prompts, pull
- *   requests), the `list`-flagged `run.started` and `run.ended` (the session
- *   list's `activity`, `lastActivityAt`, `accountId` and `model`, and the runs
- *   table), `session.provider-linked` (the resume id), `session.forked`,
- *   `session.rewound` and `session.rewind-undone`, and the `message.*`
- *   events (the runs projector's queue of messages, which a run reads from).
+ * - **Removed**: only the types `COMPACTION_REMOVES` names, each one no
+ *   projector reads, so a rebuild of the projections gives the same read
+ *   models: the assistant's text, thinking and deltas, tool calls,
+ *   commands, usage and plan limits, a run's composed instructions
+ *   (`run.instructions.composed`, its manifest and digest), and every
+ *   `tasks.changed` but each run's last (the runs projector keeps a run's
+ *   latest ledger). Kept: every organisation event (`session.*`,
+ *   `group.*`, prompts, pull requests), the `list`-flagged `run.started`
+ *   and `run.ended` (the session list's `activity`, `lastActivityAt`,
+ *   `accountId` and `model`, and the runs table), `session.provider-linked`
+ *   (the resume id), `session.forked`, `session.rewound` and
+ *   `session.rewind-undone`, and the `message.*` events (the runs
+ *   projector's queue of messages, which a run reads from).
  *
  * The sweep compacts each session in a transaction of its own, a failure
  * rolled back, logged by the session's id and left for the next pass. It
@@ -60,7 +62,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** How often the sweep runs: once a day. */
 export const COMPACTION_SWEEP_INTERVAL_MS = DAY_MS;
 
-/** The transcript types a compaction removes: the fold's items and run facts, none of which a projector reads. */
+/** The transcript types a compaction removes: the fold's items and run facts, and a run's composed instructions, none of which a projector reads. */
 export const COMPACTION_REMOVES = [
   "assistant.delta",
   "assistant.text",
@@ -71,7 +73,8 @@ export const COMPACTION_REMOVES = [
   "command.ran",
   "usage.reported",
   "plan.limit",
-] as const satisfies readonly TranscriptEventType[];
+  "run.instructions.composed",
+] as const satisfies readonly SessionEventType[];
 
 /** The transcript type a compaction removes all but each run's last of: the runs projector replaces a run's ledger with each. */
 const LEDGER_TYPE = "tasks.changed" satisfies TranscriptEventType;

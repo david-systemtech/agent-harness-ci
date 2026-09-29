@@ -50,6 +50,7 @@ import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
+import { instructionMethods } from "../instructions/methods.js";
 import type { SignInDirectorFactory } from "../accounts/signin-seam.js";
 import { createSignInDirector } from "../accounts/signin-director.js";
 import type { SignInSpawn } from "../accounts/signin-process.js";
@@ -281,6 +282,7 @@ export interface EnvironmentOptions {
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
+    /** Composes each run's standing instructions; preset: the composer with no layer filled (`instructions/composer.ts`). */
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
@@ -941,6 +943,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...instructionMethods({ host }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, options.keyManagerTimeoutMs),
     ...usageMethods({ pool: usagePool, accounts, clock }),

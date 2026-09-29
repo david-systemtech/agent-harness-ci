@@ -3,7 +3,7 @@ import { ContractError, type AttachmentInput, type Mode, type PromptAnsweredPayl
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { storeAccounts } from "../../test/accounts.js";
-import { FAKE_AMBIENT_DIRECTORY, ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter } from "../../test/fake-adapter.js";
+import { FAKE_AMBIENT_DIRECTORY, ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter, type Gate } from "../../test/fake-adapter.js";
 import type { ConfiguredAccount, HostAccounts } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
@@ -17,7 +17,8 @@ import { PromptClosed, type AdapterEvent, type ProviderTurn, type RunContext, ty
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
 import { capability } from "./capabilities.js";
 import { createScopedAppend } from "./scoped-append.js";
-import { composeInstructions, presetPolicy, type AutoAnswerRequest } from "./seams.js";
+import { composeInstructions } from "../instructions/composer.js";
+import { presetPolicy, type AutoAnswerRequest } from "./seams.js";
 
 /**
  * The adapter host at its own seam (claude-adapter spec, "The adapter
@@ -107,6 +108,9 @@ const answeredOf = (t: Setup): PromptAnsweredPayload[] => eventsOf(t).filter((ev
 /** Resolves once the run has its end on the stream. */
 const untilEnded = (t: Setup, runId: string) => vi.waitFor(() => expect(endsOf(t, runId)).toHaveLength(1));
 
+/** Resolves once the adapter has been asked for `count` runs: a run's launch composes its instructions first (#493). */
+const reached = (t: Setup, count: number) => vi.waitFor(() => expect(t.adapter.runs).toHaveLength(count));
+
 /** Lets pending promise callbacks and a few timer turns run, so an event the host would wrongly append has had its chance. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -131,6 +135,8 @@ describe("a run's event stream", () => {
       "run.started",
       "run.policy.resolved",
       "message.sent",
+      // The host's, once the run's instructions are composed and before its adapter is asked for it (#493).
+      "run.instructions.composed",
       "session.provider-linked",
       "assistant.delta",
       "assistant.text",
@@ -146,7 +152,8 @@ describe("a run's event stream", () => {
       expect(event.payload["runId"], event.type).toBe(runId);
       expect(event.correlationId, event.type).toBe(runId);
     }
-    const reported = events.slice(3, -1);
+    expect(events[3]?.actor).toBe("system:adapter-host");
+    const reported = events.slice(4, -1);
     expect(reported.filter((event) => event.type !== "tool.decision").map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
     expect(reported.find((event) => event.type === "tool.decision")).toMatchObject({ actor: "system:adapter-host", payload: { toolCallId: "t-1", decision: "allowed", decidedBy: "mode" } });
     expect(events.at(-1)).toMatchObject({ actor: "adapter:fake", payload: { reason: "completed", resultText: "Hello.", turnCount: 1, error: null } });
@@ -164,7 +171,10 @@ describe("a run's event stream", () => {
     const toolServers = vi.fn(() => [{ name: "memory", config: {} }]);
     const t = await setup(fakeAdapter(), {
       toolServers,
-      instructions: composeInstructions({ orientationBlock: () => "You are on SYSTEM-SERVER.", sessionInstructions: () => "Be brief." }),
+      instructions: composeInstructions({
+        orientation: () => ({ text: "You are on SYSTEM-SERVER.", unreadRegistries: [] }),
+        session: () => [{ id: "session", version: null, title: "Instructions for this session", text: "Be brief." }],
+      }),
       // The policy seam, here one that clamps every run to acceptEdits, whatever the actor's ceiling.
       resolvePolicy: (request) => presetPolicy({ ...request, actor: { ...request.actor, ceiling: "acceptEdits" } }),
     });
@@ -227,7 +237,7 @@ describe("one end per run on every exit path", () => {
     const runId = startRun(t);
     const ended = await onlyEnd(t, runId);
     expect(ended).toMatchObject({ actor: "system:adapter-host", payload: { reason: "error", error: { message: "The provider went away.", code: null } } });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
   });
 
   it("ends the run error when its stream stops without an end", async () => {
@@ -256,7 +266,7 @@ describe("one end per run on every exit path", () => {
     expect((await onlyEnd(t, runId)).payload).toMatchObject({ reason: "error" });
     // Its stream may still be open, so the provider's turn is stopped, never kept for the next.
     expect(t.adapter.lastRun()).toMatchObject({ disposed: true, released: false });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
   });
 
   it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
@@ -360,6 +370,8 @@ describe("an adapter that fails the host", () => {
       },
     } as FakeAdapter);
     const first = startRun(t, "First");
+    // Sent once the run is with its provider.
+    await reached(t, 1);
     const messageId = randomUUID();
     t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: first, messageId, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "bypassPermissions" } }], { actor: "client_session:test" });
     t.host.queue({ runId: first, heldBy: "provider", message: { messageId, text: "Also this", attachments: [] } });
@@ -986,8 +998,65 @@ describe("a call the descriptor does not cover", () => {
     };
     const t = await setup(fakeAdapter({ capabilities: { subagents: false }, script }));
     const runId = startRun(t);
+    await reached(t, 1);
     expectUnsupported(await catching(() => t.host.stopTask(runId, "task-1")), "subagents");
     held.open();
+  });
+});
+
+describe("a run composing its instructions (#493)", () => {
+  /** A composer whose every composition waits for `held`, counting those begun. */
+  const stalling = (held: Gate) => {
+    const begun = { count: 0 };
+    const instructions = composeInstructions({
+      orientation: async () => {
+        begun.count += 1;
+        await held.opened;
+        return { text: "You are on SYSTEM-SERVER.", unreadRegistries: [] };
+      },
+    });
+    return { begun, instructions };
+  };
+
+  it("holds a message sent to it in the environment's queue, no provider yet holding anything, and the run after it reads the message", async () => {
+    const held = gate();
+    const { instructions } = stalling(held);
+    const t = await setup(fakeAdapter(), { instructions });
+    const first = startRun(t, "First");
+    const messageId = sendDuring(t, "Also this");
+    expect(eventsOf(t).at(-1)).toMatchObject({ type: "message.requeued", actor: "system:adapter-host", payload: { runId: first, messageId } });
+    held.open();
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(t.adapter.runs.map((run) => run.input.prompt.map((message) => message.text))).toEqual([["First"], ["Also this"]]);
+    expect(t.adapter.runs[0]?.sent).toEqual([]);
+  });
+
+  it("hands its adapter the mode set on it while it composed", async () => {
+    const held = gate();
+    const { begun, instructions } = stalling(held);
+    const t = await setup(fakeAdapter(), { instructions });
+    const runId = startRun(t, "Go", { mode: "acceptEdits" });
+    await vi.waitFor(() => expect(begun.count).toBe(1));
+    t.host.setMode(runId, "plan");
+    held.open();
+    await untilEnded(t, runId);
+    expect(t.adapter.lastRun().input.mode).toBe("plan");
+  });
+
+  it("ends on a read-now, interrupted by it with no provider process begun, and the run of the queue reads what it was launched with", async () => {
+    const held = gate();
+    const { begun, instructions } = stalling(held);
+    const t = await setup(fakeAdapter(), { instructions });
+    const first = startRun(t, "First");
+    await vi.waitFor(() => expect(begun.count).toBe(1));
+    t.host.readNow(t.sessionId, clientActor());
+    await untilEnded(t, first);
+    expect(endsOf(t, first)[0]?.payload).toMatchObject({ reason: "interrupted", cause: "read-now" });
+    expect(t.host.processes.list()).toEqual([]);
+    held.open();
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(t.adapter.runs.map((run) => run.input.prompt.map((message) => message.text))).toEqual([["First"]]);
+    expect(eventsOf(t).filter((event) => event.type === "run.instructions.composed").map((event) => event.payload["runId"])).not.toContain(first);
   });
 });
 
@@ -1281,6 +1350,8 @@ describe("the adoption hook", () => {
       }),
     );
     const first = startRun(t, "First");
+    // Sent once the run is with its provider.
+    await reached(t, 1);
     const messageId = randomUUID();
     t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: first, messageId, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "bypassPermissions" } }], { actor: "client_session:test" });
     t.host.queue({ runId: first, heldBy: "provider", message: { messageId, text: "Also this", attachments: [] } });
@@ -1292,10 +1363,12 @@ describe("the adoption hook", () => {
     expect(adopted?.payload).toMatchObject({ accountId: "acct", promptMessageId: null, queuedMessageIds: [messageId] });
     const second = adopted?.payload["runId"] as string;
     expect(second).not.toBe(first);
+    // The adopted turn is the provider's own, on the process its instructions were composed for: none are composed for it.
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.policy.resolved",
       "message.sent",
+      "run.instructions.composed",
       "message.sent",
       "assistant.text",
       "run.ended",
@@ -1305,7 +1378,7 @@ describe("the adoption hook", () => {
       "assistant.text",
       "run.ended",
     ]);
-    expect(events[8]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
+    expect(events[9]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
     expect(t.adapter.runs.map((run) => run.adopted)).toEqual([false, true]);
   });
 });
