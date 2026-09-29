@@ -115,8 +115,9 @@ export interface PresentationValues {
   /**
    * The first-launch mark (docs/specs/gui.md, "Set up in the window"): set
    * once Set up, the whole window on first launch, is finished or closed.
-   * While it is unset, Set up takes the whole window whenever the home
-   * environment is ready.
+   * While it is unset, each launch opens Set up as the whole window once the
+   * home environment is ready; one left for a row of Settings stays shut
+   * for the rest of that launch (`setup/checklist-window.tsx`).
    */
   readonly firstLaunchDone: boolean;
 }
