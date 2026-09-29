@@ -161,6 +161,19 @@ describe("the Terminal pane", () => {
     expect(column()).toBeNull();
   });
 
+  it("says how a shell that exited ended, closes it so it is never reopened, and opens a new terminal from its button", async () => {
+    const { app, env } = await opened({ terminals: [{ id: FIRST, output: "$ " }] });
+    await open(app);
+    await drawn(["$"]);
+    env.exitTerminal(FIRST, 0);
+    await waitFor(() => expect(line()).toBe("The terminal on desk exited with code 0."));
+    await waitFor(() => expect(env.terminal(FIRST).closed).toBe(true));
+    await app.user.click(within(pane()).getByRole("button", { name: "New terminal" }));
+    await waitFor(() => expect(env.terminals()).toHaveLength(2));
+    await drawn(["$"]);
+    expect(line()).toBeNull();
+  });
+
   it("draws in the theme's tokens, the colours no token names in its fallback theme, and again in the tokens of a theme painted after", async () => {
     const { app } = await opened({ terminals: [{ id: FIRST, output: "$ " }] });
     await open(app);

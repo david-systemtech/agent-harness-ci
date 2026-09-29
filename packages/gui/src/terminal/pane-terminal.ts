@@ -115,6 +115,8 @@ interface Drawn {
   frame: number | null;
   ended: string | null;
   line: string | null;
+  /** No terminal can be opened now (the capability is absent): one is looked for again once it can. */
+  refused: boolean;
   /** Another took its place, or the pane went. */
   gone: boolean;
   readonly stops: (() => void)[];
@@ -160,7 +162,8 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   let disposed = false;
   /** Output is taken into xterm.js one chunk at a time, so what it answers while it parses is known to be to that chunk. */
   let feeding: Promise<void> = Promise.resolve();
-  let answering = true;
+  /** Whether what xterm.js sends now may go to the terminal: not while it parses output replayed rather than heard live. */
+  let sendsAnswers = true;
   const stops: (() => void)[] = [];
 
   const tell = () => {
@@ -177,9 +180,9 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       () =>
         new Promise<void>((resolve) => {
           if (disposed) return resolve();
-          answering = live;
+          sendsAnswers = live;
           term.write(data, () => {
-            answering = true;
+            sendsAnswers = true;
             resolve();
           });
         }),
@@ -296,6 +299,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       frame: null,
       ended: null,
       line: null,
+      refused: false,
       gone: false,
       stops: [],
     };
@@ -341,8 +345,9 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
 
   const findShell = (d: Drawn) => {
     if (d.gone) return;
-    if (refusal(d, "No terminal")) {
-      // Tried again once the connection can open one.
+    d.refused = refusal(d, "No terminal");
+    if (d.refused) {
+      // Looked for again once the connection can open one.
       const stop = runtime.projections.environments.subscribe(() => {
         if (d.gone || runtime.capability(environmentId, "terminals.open").status === "absent") return;
         stop();
@@ -373,7 +378,10 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
 
   const run = (command: string) => {
     const d = begin(command);
-    if (refusal(d, "Not run")) return void (d.ended = "not run");
+    if (refusal(d, "Not run")) {
+      d.ended = "not run";
+      return tell();
+    }
     const id = uuidv4();
     oneOffs.add(id);
     const asked = size();
@@ -397,12 +405,13 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   };
 
   const keys = term.onData((data) => {
-      const d = drawn;
-      // What xterm.js answers while it parses replayed output, or while the pane does not have the keys, is not sent.
-      if (d === null || !answering || !host.contains(document.activeElement)) return;
-      // A key in a `!` command's pane once it has ended takes the pane back to the shell.
-      if (d.command !== null && d.ended !== null) return void shell();
-      if (d.ended !== null) return;
+    const d = drawn;
+    // What xterm.js answers while it parses replayed output, or while the pane does not have the keys, is not sent.
+    if (d === null || !sendsAnswers || !host.contains(document.activeElement)) return;
+    // A key in a `!` command's pane once it has ended takes the pane back to the shell.
+    if (d.command !== null && d.ended !== null) return void shell();
+    // With no terminal to take them (it ended, or none can be opened now), keys are dropped, never held for a later one.
+    if (d.ended !== null || d.refused) return;
     d.outgoing += data;
     frameFor(d);
   });
@@ -425,14 +434,11 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
           return takeKeys();
         case "close": {
           const d = drawn;
-          if (d?.terminalId != null && d.ended === null) closeTerminal(runtime, environmentId, d.terminalId, uuidv4);
-          if (d !== null) {
-            d.ended = "closed";
-            d.gone = true;
-            for (const stop of d.stops.splice(0)) stop();
-            d.handle?.release();
-          }
-          return;
+          if (d === null) return;
+          if (d.terminalId !== null && d.ended === null) closeTerminal(runtime, environmentId, d.terminalId, uuidv4);
+          // Ended, so letting it go leaves nothing heard: the pane goes with it.
+          d.ended = "closed";
+          return letGo(d);
         }
       }
     },
