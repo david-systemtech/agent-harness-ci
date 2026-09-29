@@ -1127,6 +1127,70 @@
       "title": "SecretShapedError"
     },
     {
+      "path": "repository-identity.json",
+      "title": "RepositoryIdentity"
+    },
+    {
+      "path": "skills/name.json",
+      "title": "SkillName"
+    },
+    {
+      "path": "skills/source-url.json",
+      "title": "SkillSourceUrl"
+    },
+    {
+      "path": "skills/source-folder.json",
+      "title": "SkillSourceFolder"
+    },
+    {
+      "path": "skills/rule-issue-params.json",
+      "title": "SkillRuleIssueParams"
+    },
+    {
+      "path": "skills/invocation.json",
+      "title": "SkillInvocation"
+    },
+    {
+      "path": "skills/member-problem.json",
+      "title": "SkillMemberProblem"
+    },
+    {
+      "path": "skills/member-warning.json",
+      "title": "SkillMemberWarning"
+    },
+    {
+      "path": "skills/origin.json",
+      "title": "SkillOrigin"
+    },
+    {
+      "path": "skills/layer.json",
+      "title": "SkillLayer"
+    },
+    {
+      "path": "skills/member.json",
+      "title": "SkillMember"
+    },
+    {
+      "path": "skills/source-id.json",
+      "title": "SkillSourceId"
+    },
+    {
+      "path": "skills/git-commit.json",
+      "title": "GitCommit"
+    },
+    {
+      "path": "skills/source-branch.json",
+      "title": "SkillSourceBranch"
+    },
+    {
+      "path": "skills/follow.json",
+      "title": "SkillSourceFollow"
+    },
+    {
+      "path": "skills/source.json",
+      "title": "SkillSource"
+    },
+    {
       "path": "theme/theme.json",
       "title": "Theme"
     },
@@ -3631,6 +3695,22 @@
     {
       "path": "cases/repository-identity.json",
       "title": "Repository identity"
+    },
+    {
+      "path": "cases/skill-name.json",
+      "title": "Skill name"
+    },
+    {
+      "path": "cases/skill-member.json",
+      "title": "Skill member"
+    },
+    {
+      "path": "cases/skill-source-url.json",
+      "title": "Skill source URL"
+    },
+    {
+      "path": "cases/skill-source-folder.json",
+      "title": "Skill source folder"
     }
   ],
   "data": [

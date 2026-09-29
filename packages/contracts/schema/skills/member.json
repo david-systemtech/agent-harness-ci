@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillMember",
+  "type": "object",
+  "properties": {
+    "name": {
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The member's description, trimmed; null when it has none, a description problem saying so."
+    },
+    "invocation": {
+      "type": "string",
+      "enum": [
+        "model+slash",
+        "slash-only"
+      ],
+      "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+    },
+    "userInvocable": {
+      "type": "boolean",
+      "description": "Whether a person may invoke it: false exactly when its frontmatter sets user-invocable: false, which leaves it out of the / menu."
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "repository"
+                },
+                "repository": {
+                  "type": "string",
+                  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                  "description": "The identity of the repository the member was read from: its source's, or the trusted repository's."
+                },
+                "path": {
+                  "description": "The member's folder in that repository, from its root; . when the root is itself the skill.",
+                  "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "repository",
+                "path"
+              ],
+              "description": "The repository the member was read from, by its identity, and the member's folder there."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "manifest"
+                },
+                "repository": {
+                  "type": "string",
+                  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                  "description": "The identity of the repository the manifest says the member was copied from."
+                },
+                "path": {
+                  "description": "The member's folder in that repository, as the manifest names it.",
+                  "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                  "type": "string"
+                },
+                "commit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{4,64}$",
+                      "description": "The commit the member was copied at, as the manifest names it: its object name, full or abbreviated."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "licence": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The licence the manifest names, an SPDX identifier where it gives one; null when it names none."
+                }
+              },
+              "required": [
+                "kind",
+                "repository",
+                "path",
+                "commit",
+                "licence"
+              ],
+              "description": "What a provenance manifest beside the member names: the repository and folder it was copied from, the commit and the licence."
+            }
+          ],
+          "description": "Where a member comes from, which the readiness overlay is keyed by (repository identity and folder path): the repository it was read from, or what a provenance manifest beside a copy names."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where it comes from; null for a member of the own directory with no provenance manifest, or of a repository with no identity."
+    },
+    "layer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "source"
+            },
+            "sourceId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+            }
+          },
+          "required": [
+            "kind",
+            "sourceId"
+          ],
+          "description": "A tracked source's current snapshot."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "own"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The environment's own skills directory, or its commands directory."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "repository"
+            },
+            "root": {
+              "type": "string",
+              "enum": [
+                ".claude/skills",
+                ".agents/skills"
+              ],
+              "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+            },
+            "directory": {
+              "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
+              "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "root",
+            "directory"
+          ],
+          "description": "A trusted repository's own skills."
+        }
+      ],
+      "description": "The layer a member lies in: a source, the own directory, or a trusted repository's .claude/skills or .agents/skills."
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Its body's length in characters, which always-on appends to every run; a quarter of it approximates the tokens."
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "name",
+              "description"
+            ],
+            "description": "What is wrong: name (neither its frontmatter name nor its folder's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What is wrong, for people: the names tried and why each fails."
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+      },
+      "description": "Empty for a valid member; any problem leaves it invalid and out of the set."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "name-unlike-folder",
+              "frontmatter-name-invalid",
+              "sidecar-invalid"
+            ],
+            "description": "What the warning is: name-unlike-folder (its name is not its folder's name), frontmatter-name-invalid (its frontmatter name fails the skill-name rule, so it is named after its folder) or sidecar-invalid (its readiness sidecar does not read, and counts as none)."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The warning, for people."
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "description": "A warning on a member, which stays in the skill set."
+      },
+      "description": "Warnings that leave it in the set."
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "invocation",
+    "userInvocable",
+    "origin",
+    "layer",
+    "size",
+    "problems",
+    "warnings"
+  ],
+  "description": "A member of a skill set: its name, description, invocation, whether a person may invoke it, its origin, its layer, its body's size, and its problems (any leaves it invalid) and warnings."
+}
