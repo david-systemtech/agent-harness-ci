@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { fakePty } from "../../test/fake-pty.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { command, create, get, listStream, patchOf, refusal, rename } from "../../test/sessions.js";
 import { terminalCommand } from "../../test/terminals.js";
@@ -267,6 +268,37 @@ describe("a look at a directory that does not answer, as on a network mount whos
     expect((await run(client, "runs.start", { sessionId: id, text: "Now" })).receipt).toMatchObject({ status: "accepted" });
     expect(asked.filter((path) => path === dead)).toHaveLength(2);
     expect((await get(client, id)).workspaceMissingSince).toBeNull();
+  });
+
+  it("stalls neither the environment nor terminals.open: another request is answered while the open's look is out, then the open waits out the bound and is refused (#669)", async () => {
+    const dead = directory();
+    let deadAsked: () => void = () => undefined;
+    const lookedAtDead = new Promise<void>((resolve) => (deadAsked = resolve));
+    const pty = fakePty();
+    const t = await start({
+      terminals: { pty },
+      workspaces: {
+        lookTimeoutMs: LOOK_BOUND_MS,
+        isDirectory: async (path) => {
+          if (path !== dead) return true;
+          deadAsked();
+          return new Promise<boolean>(() => undefined);
+        },
+      },
+    });
+    await t.env.workspaces.availabilityPass;
+    const client = await t.client();
+    const { id } = await create(client, { workspace: { kind: "directory", path: dead } });
+    const other = await create(client, { workspace: { kind: "directory", path: directory() } });
+
+    const opening = terminalCommand(client, "terminals.open", { id: randomUUID(), sessionId: id });
+    await lookedAtDead;
+    // While that look is out, the environment answers everything else: a terminal opens on another session.
+    expect((await terminalCommand(client, "terminals.open", { id: randomUUID(), sessionId: other.id })).receipt).toMatchObject({ status: "accepted" });
+
+    expect((await opening).receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "workspace_missing", path: dead } } });
+    expect((await get(client, id)).workspaceMissingSince).toBe(t.clock.now().toISOString());
+    expect(pty.spawned.map((spawned) => spawned.options.cwd)).not.toContain(dead);
   });
 
   it("asks once about a path two sessions share, when their looks overlap, and not again while that call is out (#670 review)", async () => {

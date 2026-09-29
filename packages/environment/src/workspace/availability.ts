@@ -12,11 +12,12 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * change, which sets or clears the summary's `workspaceMissingSince` and
  * leaves `updatedAt` where it was. It looks in a pass over every session
  * not deleted after each start and hourly, one session at a time; when
- * `runs.start`, `runs.send` or `runs.readNow` is about to decide (`check`,
- * before their transaction); and it takes what `terminals.open`, the
+ * `runs.start`, `runs.send`, `runs.readNow` or `terminals.open` is about to
+ * decide (`check`, before their transaction); and it takes what the
  * `files.*` methods and `diffs.workingTree` found (`found`). While a
  * session is marked, its runs cannot start, take a message or read now
- * (`runs/run-decider.ts`); `sessions.setWorkspace` gives it a new
+ * (`runs/run-decider.ts`), and no terminal opens on it
+ * (`terminals/service.ts`); `sessions.setWorkspace` gives it a new
  * workspace (`set-workspace.ts`).
  *
  * A look is a `stat`, which on a network mount whose server is gone may not
@@ -32,10 +33,11 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * leaving the rest of the pool to everything else: such a look finds
  * nothing, and the mark stays as it was. A call that never returns (a hard
  * mount that never comes back) holds that gate for the life of the
- * process: until one returns, the pass and the run commands mark no other
- * session, whose runs start or are refused on the mark as it stands, as
- * before the watcher; the terminal, file and diff methods' own findings
- * still mark it. The log says so once each time the gate starts holding.
+ * process: until one returns, the pass, the run commands and
+ * `terminals.open` mark no other session, which they decide on by the mark
+ * as it stands, as before the watcher; the file and diff methods' own
+ * findings still mark it. The log says so once each time the gate starts
+ * holding.
  */
 
 /** How long one look at a workspace directory may take before the directory counts as not there. A chosen default (#328). */
