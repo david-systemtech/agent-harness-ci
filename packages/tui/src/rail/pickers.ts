@@ -529,13 +529,13 @@ export const setWorkspacePicker = (acts: RailActs, view: EnvironmentView, row: S
       const here = view.kind === "local" && isFullPath(acts.workspace) && !listed.some((directory) => directory.path === acts.workspace);
       const paths = [
         ...(here ? [{ path: acts.workspace, detail: "this directory", missingSince: null }] : []),
-        ...listed.map((directory) => ({ path: directory.path, detail: directory.repositoryIdentity ?? "no repository", missingSince: directory.missingSince })),
+        ...listed.map((directory) => ({ path: directory.path, detail: directory.repositoryIdentity, missingSince: directory.missingSince })),
       ]
         .filter(({ path }) => path.toLowerCase().includes(needle.toLowerCase()))
         .map(
           ({ path, detail, missingSince }): PickerRow =>
             missingSince === null
-              ? { key: `path:${path}`, text: path, detail, choose: chosen(path) }
+              ? { key: `path:${path}`, text: path, ...(detail !== null && { detail }), choose: chosen(path) }
               : { key: `path:${path}`, text: path, absent: `gone since ${whenWords(new Date(missingSince))}` },
         );
       const exact = paths.some((one) => one.text === needle);
