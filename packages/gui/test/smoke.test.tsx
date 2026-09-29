@@ -1,0 +1,128 @@
+// @vitest-environment jsdom-on-node
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
+import { DRAFT_DEBOUNCE_MS, createRuntime, uuidv4, type Runtime } from "@agent-harness/client-runtime";
+import { fakeShell, inMemoryPlatform, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
+import { describe, expect, it } from "vitest";
+import { useCleanups } from "../../environment/test/cleanups.js";
+import { end, gate, say, type Script } from "../../environment/test/fake-adapter.js";
+import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
+import { workspace } from "../../environment/test/sessions.js";
+import { App } from "../src/app.js";
+import { openPresentation } from "../src/presentation.js";
+
+/**
+ * The composer through the real spine (docs/specs/gui.md, "Testing
+ * Decisions"; #400), serial: the #108 in-process environment on a temporary
+ * data directory and loopback port 0, with the scripted fake provider; the
+ * real client runtime over a real WebSocket; and the window rendered in
+ * jsdom over it. A send streams through the fake provider into the rendered
+ * transcript, and the composer's text reaches a second runtime of the same
+ * environment as the session's draft, whose own draft comes back into the
+ * composer only while nothing was typed over what the window held.
+ */
+
+const { onCleanup } = useCleanups();
+
+/** A runtime on the in-memory platform over the real network, paired with `t`'s environment. */
+const pairedRuntime = async (t: TestEnvironment, platform: InMemoryPlatform): Promise<Runtime> => {
+  const runtime = createRuntime(platform);
+  onCleanup(() => runtime.close());
+  await runtime.start();
+  const outcome = await runtime.connections.add({ link: (await t.createPairing()).link });
+  if (outcome.status !== "paired") throw new Error(`The runtime could not pair: ${JSON.stringify(outcome)}.`);
+  return runtime;
+};
+
+/** The window over its own runtime, paired with `t`'s environment, with a session made there open in its pane. */
+const openWindow = async (t: TestEnvironment) => {
+  const platform = inMemoryPlatform({ kind: "desktop", shell: fakeShell() });
+  const runtime = await pairedRuntime(t, platform);
+  const presentation = await openPresentation(platform.documents, platform.reportError);
+  onCleanup(() => presentation.close());
+  const view = render(<App runtime={runtime} presentation={presentation} clock={platform.clock} macOS={false} shell={platform.shell} />);
+  onCleanup(() => view.unmount());
+
+  const environmentId = t.env.id;
+  const sessionId = uuidv4();
+  const created = await runtime.commands.dispatch(environmentId, "sessions.create", { id: sessionId, workspace });
+  if (!created.ok) throw new Error(`The session was not made: ${created.error.message}`);
+  act(() => presentation.set("paneLayout", { session: { environmentId, sessionId } }));
+  const transcript = await screen.findByRole("region", { name: "Transcript" });
+  await within(transcript).findByText("Nothing said yet.", {}, { timeout: 5000 });
+  const box = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const user = userEvent.setup();
+  return {
+    platform,
+    environmentId,
+    sessionId,
+    transcript,
+    box,
+    /** Keys typed into the composer, focused first: jsdom lays nothing out, so a click would land on the sidebar's divider. */
+    async write(keys: string) {
+      act(() => box.focus());
+      await user.keyboard(keys);
+    },
+  };
+};
+
+/** A second runtime of the same environment, following the session's projection as another client's composer would. */
+const secondClient = async (t: TestEnvironment, environmentId: string, sessionId: string) => {
+  const runtime = await pairedRuntime(t, inMemoryPlatform({ kind: "tui" }));
+  const session = runtime.projections.session(environmentId, sessionId);
+  onCleanup(session.subscribe(() => undefined));
+  return { runtime, draft: () => session.read().draft };
+};
+
+describe.sequential("the composer through the real spine", () => {
+  it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
+    const t = await startTestEnvironment({ name: "smoke-composer" });
+    onCleanup(() => t.close());
+    const streamed = gate();
+    const script: Script = async function* () {
+      yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Looking at " }] } };
+      await streamed.opened;
+      yield say("Looking at the receipts.", "i-1");
+      yield end();
+    };
+    t.adapter.nextScripts.push(script);
+    const window = await openWindow(t);
+
+    await window.write("Fix the receipts{Enter}");
+    const message = await within(window.transcript).findByRole("article", { name: "Your message" }, { timeout: 5000 });
+    expect(message.textContent).toBe("Fix the receipts");
+    // Streamed: the words the delta brought, before the reply settles.
+    await waitFor(() => expect(within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("Looking at "), { timeout: 5000 });
+    streamed.open();
+    await waitFor(() => expect(within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("Looking at the receipts."), { timeout: 5000 });
+    await screen.findByRole("button", { name: "Send" });
+
+    // The text is the session's draft: typed in the window, it is in another runtime of the same environment.
+    const other = await secondClient(t, window.environmentId, window.sessionId);
+    await window.write("half a thought");
+    act(() => window.platform.clock.advance(DRAFT_DEBOUNCE_MS));
+    await waitFor(() => expect(other.draft()).toBe("half a thought"), { timeout: 5000 });
+  });
+
+  it("takes a second runtime's draft while nothing was typed over what the window held, and keeps what was typed over it", async () => {
+    const t = await startTestEnvironment({ name: "smoke-draft" });
+    onCleanup(() => t.close());
+    const window = await openWindow(t);
+    const other = await secondClient(t, window.environmentId, window.sessionId);
+
+    other.runtime.drafts.set(window.environmentId, window.sessionId, "typed on the laptop");
+    other.runtime.drafts.flush();
+    await waitFor(() => expect(window.box.value).toBe("typed on the laptop"), { timeout: 5000 });
+
+    // Typed over here, waiting its second: the laptop's next draft does not replace it, and it goes out after.
+    await window.write(", and more");
+    other.runtime.drafts.set(window.environmentId, window.sessionId, "typed on the laptop again");
+    other.runtime.drafts.flush();
+    await waitFor(() => expect(other.draft()).toBe("typed on the laptop again"), { timeout: 5000 });
+    expect(window.box.value).toBe("typed on the laptop, and more");
+
+    act(() => window.platform.clock.advance(DRAFT_DEBOUNCE_MS));
+    await waitFor(() => expect(other.draft()).toBe("typed on the laptop, and more"), { timeout: 5000 });
+    expect(window.box.value).toBe("typed on the laptop, and more");
+  });
+});
