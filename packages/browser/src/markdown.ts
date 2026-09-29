@@ -3,8 +3,9 @@
  * "`web_read`"): the reader runs Readability 0.6.0 on the rendered page, or
  * on jsdom for `web_read`, and hands its article here. The Markdown keeps the
  * headings, paragraphs, lists, tables, code and quotations, and the text is
- * kept as written, with no Markdown escaping: the reader is a model, and
- * verbatim text is the point. Link targets are dropped and the link text
+ * kept as written, with no Markdown escaping but a pipe inside a table's
+ * cell, which would end the cell: the reader is a model, and verbatim text
+ * is the point. Link targets are dropped and the link text
  * kept, unless links are asked for; an image is its alt text.
  *
  * It walks the article's DOM, so it runs wherever the reader does: in the
