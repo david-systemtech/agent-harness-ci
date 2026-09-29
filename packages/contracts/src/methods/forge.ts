@@ -2,7 +2,8 @@ import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import { ForgeAccountId, ForgeAccountRecord, ForgeAddCredential, ForgeCopiedFrom, ForgeCredentialInput, ForgeIdentity } from "../forge-accounts.js";
 import { GhProbe } from "../forge-gh.js";
-import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug } from "../forge.js";
+import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage } from "../forge.js";
+import { CredentialUnavailableError } from "../git-credential.js";
 import { KeyManagerConnectionId } from "../key-managers.js";
 import { commandParams, defineMethod } from "../method.js";
 
@@ -30,16 +31,23 @@ import { commandParams, defineMethod } from "../method.js";
  * for the host and login, and a key-manager reference is resolved through
  * the key-manager registry, neither kept past the command. `forge.gh.probe`
  * says what `gh` is signed in as, for a client offering it.
+ *
+ * `forge.detect` says which forge a URL is on and which token to mint
+ * there; `forge.orgs.list` reads the owners a forge account may create a
+ * repository under, live and never stored (ADR 0020).
  */
 
-/** The forge refused the credential: its identity endpoint answered a refusal (401, 403) or something that is no user. */
+/** The forge refused the credential: its identity endpoint answered a refusal (401, 403) or something that is no user, or a read it asked for answered so. */
 export const VerificationFailedError = errorSchema(
   "verification_failed",
   z.object({
     origin: ForgeOrigin,
-    status: z.int().meta({ description: "The HTTP status the forge's identity endpoint answered." }),
+    status: z.int().meta({ description: "The HTTP status the forge answered." }),
   }),
-).meta({ description: "The forge refused the credential, or its identity endpoint answered no user: nothing was stored. data names the origin and the HTTP status." });
+).meta({
+  description:
+    "The forge refused the credential, or answered no user on its identity endpoint (or, listing owners, no list): an add or update stored nothing. data names the origin and the HTTP status.",
+});
 export type VerificationFailedError = z.infer<typeof VerificationFailedError>;
 
 /** A new credential answered as another user than the forge account's. */
@@ -96,9 +104,32 @@ export const ForgeAccountMissingError = errorSchema(
 });
 export type ForgeAccountMissingError = z.infer<typeof ForgeAccountMissingError>;
 
+/** Detection found GitLab, whose forge accounts are milestone 2's (ADR 0033). */
+export const KindUnsupportedError = errorSchema(
+  "kind_unsupported",
+  z.object({
+    origin: ForgeOrigin,
+    kind: ForgeKind.meta({ description: "The kind detection found: gitlab, which no forge account may be added for before milestone 2." }),
+  }),
+).meta({ description: "The URL is on a kind of forge the harness cannot add a forge account for yet (GitLab, milestone 2): data names the origin and the kind." });
+export type KindUnsupportedError = z.infer<typeof KindUnsupportedError>;
+
+/** The address answered, and none of detection's routes as a forge does. */
+export const NotAForgeError = errorSchema("not_a_forge", z.object({ origin: ForgeOrigin })).meta({
+  description:
+    "The address answered, and as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab) answers on its routes: data names the origin. Name the kind to add a forge account for it anyway.",
+});
+export type NotAForgeError = z.infer<typeof NotAForgeError>;
+
+/** The forge did not answer, or answered that it could not now. */
+export const ForgeUnreachableError = errorSchema("unreachable", z.object({ origin: ForgeOrigin.meta({ description: "The origin that did not answer." }) })).meta({
+  description: "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says which; data names the origin.",
+});
+export type ForgeUnreachableError = z.infer<typeof ForgeUnreachableError>;
+
 /** The kinds a forge account is added with: GitLab is reserved for milestone 2 (ADR 0033). */
 const AddableKind = ForgeKind.exclude(["gitlab"]).meta({
-  description: `The kind of forge the URL is on: ${FORGE_KINDS.filter((kind) => kind !== "gitlab").join(", ")}; optional for github.com, which is GitHub. gitlab is reserved for milestone 2.`,
+  description: `The kind of forge the URL is on: ${FORGE_KINDS.filter((kind) => kind !== "gitlab").join(", ")}; detected when absent. gitlab is reserved for milestone 2.`,
 });
 
 const forgeAccountResult = z.object({ account: ForgeAccountRecord });
@@ -148,9 +179,12 @@ export const forgeAccountsList = defineMethod({
  * is given. An id already used is `conflict` (reason `exists`); an origin
  * or an alias another forge account holds as its origin or an alias is
  * `conflict` (reason `origin_held`); a slug in use is `conflict` (reason
- * `slug_taken`). A URL or an alias that is no remote, an alias that is the
- * forge account's own origin, or no kind for an origin other than
- * github.com, is `invalid_params`.
+ * `slug_taken`). A URL or an alias that is no remote, or an alias that is
+ * the forge account's own origin, is `invalid_params`. Without a kind the
+ * forge is detected as `forge.detect` detects it, before anything is
+ * asked with the credential: GitLab is rejected `kind_unsupported`, an
+ * address answering as no forge `not_a_forge` and one that does not answer
+ * `unreachable`, and nothing is stored.
  */
 export const forgeAccountsAdd = defineMethod({
   name: "forge.accounts.add",
@@ -167,7 +201,7 @@ export const forgeAccountsAdd = defineMethod({
     copiedFrom: ForgeCopiedFrom.optional().meta({ description: "The environment a copy was made from, which the record keeps; absent for a forge account added here." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError],
+  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError, KindUnsupportedError, NotAForgeError, ForgeUnreachableError],
 });
 
 /**
@@ -257,4 +291,66 @@ export const forgeGhProbe = defineMethod({
   params: z.object({}),
   result: GhProbe,
   errors: [],
+});
+
+/**
+ * Which forge a URL is on, and which token to mint there (forge spec,
+ * "Providers" and "Wire methods"): the origin a URL in any form names, its
+ * kind and version, and the token pages with what the token must be
+ * granted, the one to offer first. Detection asks the address, with no
+ * credential, in order: github.com is GitHub by its name; Forgejo's own
+ * version route; the Gitea API's (a version carrying `+gitea-` is
+ * Forgejo's); GitHub Enterprise's meta route; then GitLab's discovery
+ * document, version route and project list (ADR 0033), answering
+ * `kind_unsupported`. A Forgejo or Gitea whose API asks every caller to
+ * sign in is known by that refusal, with no version. An address that
+ * answers none of them as a forge is `not_a_forge`; one that does not
+ * answer, or answers that it cannot now, is `unreachable`. A URL that is no
+ * remote is `invalid_params`. At `admin`, since the environment calls an
+ * address the caller chose.
+ */
+export const forgeDetect = defineMethod({
+  name: "forge.detect",
+  scope: "admin",
+  kind: "query",
+  params: z.object({ url: z.string().min(1).max(2048).meta({ description: "The forge's URL in any form git takes, or a repository's on it: only its origin is asked." }) }),
+  result: z.object({
+    origin: ForgeOrigin,
+    kind: AddableKind.meta({ description: "The kind of forge the origin is: github, forgejo or gitea." }),
+    version: z.string().min(1).nullable().meta({
+      description: "The version the forge answered (16.0.3+gitea-1.22.0, 3.19.0); null where it gives none: github.com, and a Forgejo or Gitea that asks every caller to sign in.",
+    }),
+    tokenPages: z.array(ForgeTokenPage).min(1).meta({ description: "Where to mint the token and what to grant it, the page to offer first at the head." }),
+  }),
+  errors: [KindUnsupportedError, NotAForgeError, ForgeUnreachableError],
+});
+
+/** An owner a repository may be created under: the forge account's user, or an organisation it belongs to. */
+export const ForgeOwner = z
+  .object({
+    login: z.string().min(1).meta({ description: "The user's login, or the organisation's name, as the forge answers it." }),
+    kind: z.enum(["user", "organisation"]).meta({ description: "user: the forge account's own; organisation: one it is a member of." }),
+  })
+  .meta({ description: "An owner a repository may be created under on a forge: the user, or an organisation." });
+export type ForgeOwner = z.infer<typeof ForgeOwner>;
+
+/**
+ * The owners a forge account may create a repository under (forge spec,
+ * "Wire methods"; ADR 0020): its user first, then the organisations it is
+ * a member of, read from the forge now and never stored. GitHub's come
+ * from the memberships endpoint, active ones only, since its list of
+ * organisations answers a fine-grained token with none; Forgejo's and
+ * Gitea's from their own list. A credential that cannot be read, or that
+ * answers as another user, is `credential_unavailable`; the forge refusing
+ * it or answering no list is `verification_failed`; one that does not
+ * answer `unreachable`. At `read`: it reads what the forge account's own
+ * identity sees.
+ */
+export const forgeOrgsList = defineMethod({
+  name: "forge.orgs.list",
+  scope: "read",
+  kind: "query",
+  params: z.object({ forgeAccountId: ForgeAccountId }),
+  result: z.object({ owners: z.array(ForgeOwner).meta({ description: "The user first, then each organisation in the order the forge lists them." }) }),
+  errors: [CredentialUnavailableError, VerificationFailedError, ForgeUnreachableError],
 });
