@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerLoginPolicy",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?!root$)[^,\\p{Cc}]+$",
+      "description": "An OpenBao or Vault policy's name: on one line, no comma, and never root, which the harness never holds."
+    },
+    "writes": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no",
+        "possibly"
+      ],
+      "description": "Whether a login's policy can write: yes (its text grants create, update, patch or delete on a path outside auth/, sys/, cubbyhole/ and identity/), no (it grants none there) or possibly (its text could not be read with the login)."
+    }
+  },
+  "required": [
+    "name",
+    "writes"
+  ],
+  "description": "One of the login's policies, as its lookup names it (never root), and whether it can write, read from its text where the login may."
+}

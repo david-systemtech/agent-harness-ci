@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyManagerPolicyWrites",
+  "type": "string",
+  "enum": [
+    "yes",
+    "no",
+    "possibly"
+  ],
+  "description": "Whether a login's policy can write: yes (its text grants create, update, patch or delete on a path outside auth/, sys/, cubbyhole/ and identity/), no (it grants none there) or possibly (its text could not be read with the login)."
+}

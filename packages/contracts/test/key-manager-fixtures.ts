@@ -27,6 +27,12 @@ const signedIn = { kind: "signed-in", since: at, message: "Signed in to OpenBao 
 const awaiting = { kind: "awaiting-sign-in", since: at, message: "No credential on this environment: sign in in Set up, Key manager." };
 const tokenInformation = { displayName: "approle", policies: ["default", "agent-read"], ttlSeconds: 3600, renewable: true, expiresAt: at };
 const copiedFrom = { environmentId, environmentName: "SYSTEM-SERVER" };
+const policies = [
+  { name: "default", writes: "no" },
+  { name: "agent-read", writes: "possibly" },
+];
+const fingerprint = Array.from({ length: 32 }, (_, i) => (i * 7).toString(16).toUpperCase().padStart(2, "0")).join(":");
+const certificate = { pem: ca, sha256Fingerprint: fingerprint, subject: "CN=agent-harness test CA", names: [], expiresAt: at, selfSigned: true };
 
 const record = {
   id: connectionId,
@@ -38,12 +44,14 @@ const record = {
   mount: "approle",
   username: null,
   tokenRole: null,
+  policies,
   ticks: ["default", "agent-read"],
   basePath: "personal/harness",
   injects: true,
   status: signedIn,
   tokenInformation,
-  canMint: null,
+  canMint: true,
+  verifiedAt: at,
   copiedFrom: null,
   importedFrom: null,
   createdAt: at,
@@ -54,11 +62,14 @@ const copy = {
   method: "userpass",
   mount: "userpass",
   username: "david",
+  policies: null,
   ticks: null,
   basePath: null,
   injects: false,
   status: awaiting,
   tokenInformation: null,
+  canMint: null,
+  verifiedAt: null,
   copiedFrom,
 };
 const doppler = { ...copy, provider: "doppler", address: "https://api.doppler.com", method: null, mount: null, username: null, importedFrom: "secret-manager-1", copiedFrom: null };
@@ -94,6 +105,11 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
   "key-managers/token-role.json": { valid: ["agent-runs"], invalid: ["", "roles/agent", "x".repeat(257)] },
   "key-managers/ca.json": { valid: [ca], invalid: ["", "not a certificate", "-----BEGIN PUBLIC KEY-----\nfake\n-----END PUBLIC KEY-----\n"] },
   "key-managers/policy.json": { valid: ["default", "agent-read", "Personal Admin"], invalid: ["root", "", "a,b", "two\nlines"] },
+  "key-managers/policy-writes.json": { valid: ["yes", "no", "possibly"], invalid: ["maybe", true, ""] },
+  "key-managers/login-policy.json": {
+    valid: [...policies, { name: "personal-admin", writes: "yes" }],
+    invalid: [{ name: "root", writes: "yes" }, { name: "default" }, { name: "default", writes: false }, { writes: "no" }],
+  },
   "key-managers/base-path.json": { valid: ["personal/harness", "secret"], invalid: ["", "/personal/harness", "personal/harness/", "personal//harness"] },
   "key-managers/credential.json": {
     valid: [approle, userpass, token],
@@ -126,6 +142,9 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
       { ...record, status: "signed-in" },
       { ...record, ticks: ["root"] },
       { ...record, canMint: undefined },
+      { ...record, verifiedAt: "yesterday" },
+      { ...record, policies: ["default"] },
+      { ...record, policies: [{ name: "root", writes: "yes" }] },
       { ...record, tokenInformation: { ...tokenInformation, policies: ["root"] } },
       { id: connectionId },
     ],
@@ -148,6 +167,21 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ connectionId }, { connectionId, label: "Work" }, { connectionId, address, ca: null, tokenRole: null }, { connectionId, ca, tokenRole: "agent-runs" }],
     invalid: [{ connectionId, address: "bao.example.com" }, { connectionId, label: "" }, { label: "Work" }],
   },
+  "key-managers/events/key-manager.connection.policies-set.json": {
+    valid: [{ connectionId, ticks: ["agent-read"] }, { connectionId, ticks: [] }],
+    invalid: [{ connectionId }, { connectionId, ticks: ["root"] }, { ticks: [] }],
+  },
+  "key-managers/events/key-manager.connection.verified.json": {
+    valid: [
+      { connectionId, status: signedIn, tokenInformation, policies, canMint: true },
+      { connectionId, status: { ...signedIn, kind: "sealed", message: "OpenBao is sealed." }, tokenInformation: null, policies: null, canMint: null },
+    ],
+    invalid: [
+      { connectionId, status: signedIn, tokenInformation, policies },
+      { connectionId, status: signedIn, tokenInformation, policies: [{ name: "root", writes: "yes" }], canMint: true },
+      { connectionId, status: "signed-in", tokenInformation, policies, canMint: true },
+    ],
+  },
   "key-managers/events/key-manager.connection.removed.json": { valid: [{ connectionId }], invalid: [{}, { connectionId: "openbao" }] },
   "key-managers/errors/verification_failed.json": {
     valid: [
@@ -164,6 +198,20 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
   "errors/certificate_rejected.json": {
     valid: [{ code: "certificate_rejected", message: "The certificate does not verify against the pinned CA.", data: { connectionId } }],
     invalid: [{ code: "certificate_rejected", message: "m", data: {} }],
+  },
+  "key-managers/certificate.json": {
+    valid: [certificate, { ...certificate, names: ["127.0.0.1", "localhost"], selfSigned: false }],
+    invalid: [
+      { ...certificate, sha256Fingerprint: fingerprint.toLowerCase() },
+      { ...certificate, sha256Fingerprint: fingerprint.replaceAll(":", "") },
+      { ...certificate, pem: "not a certificate" },
+      { ...certificate, expiresAt: "never" },
+      { ...certificate, selfSigned: undefined },
+    ],
+  },
+  "key-managers/errors/address_unreachable.json": {
+    valid: [{ code: "unreachable", message: "https://bao.systemtech.dev:8200 could not be reached: connect ECONNREFUSED.", data: { address } }],
+    invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { address: "bao.systemtech.dev" } }],
   },
   "errors/provider_unavailable.json": {
     valid: [{ code: "provider_unavailable", message: "This environment cannot sign in to Doppler.", data: { provider: "doppler" } }],
@@ -215,6 +263,21 @@ export const keyManagerMethodFixtures: Record<string, { params: Fixtures; result
       invalid: [{ commandId }, { commandId, connectionId, label: "" }, { commandId, connectionId, ca: "not a certificate" }, { commandId, connectionId, credential: token, label: 7 }],
     },
     result: { valid: [{ connection: record }], invalid: [{}, { connection: { ...record, status: null } }] },
+  },
+  "keyManagers.connections.setPolicies": {
+    params: {
+      valid: [{ commandId, connectionId, ticks: ["agent-read"] }, { commandId, connectionId, ticks: [] }],
+      invalid: [{ commandId, connectionId }, { commandId, connectionId, ticks: ["root"] }, { commandId, connectionId, ticks: "default" }, { connectionId, ticks: [] }],
+    },
+    result: { valid: [{ connection: record }], invalid: [{}, { connection: { ...record, ticks: ["root"] } }] },
+  },
+  "keyManagers.connections.verify": {
+    params: { valid: [{}, { connectionId }], invalid: [{ connectionId: "openbao" }, { connectionId: null }] },
+    result: { valid: [{ connections: [] }, { connections: [record, copy, doppler] }], invalid: [{}, { connections: [{ ...record, policies: "all" }] }] },
+  },
+  "keyManagers.certificate.preview": {
+    params: { valid: [{ address }, { address: "bao.example.com:8200" }], invalid: [{}, { address: "" }, { address: 8200 }] },
+    result: { valid: [{ certificate }], invalid: [{}, { certificate: { ...certificate, pem: undefined } }] },
   },
   "keyManagers.connections.signOut": {
     params: { valid: [{ commandId, connectionId }], invalid: [{ commandId }, { connectionId }] },
