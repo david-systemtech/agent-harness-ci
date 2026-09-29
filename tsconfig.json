@@ -7,6 +7,8 @@
     { "path": "packages/environment" },
     { "path": "packages/client-runtime" },
     { "path": "packages/theme" },
+    { "path": "packages/browser" },
+    { "path": "packages/browser/tsconfig.test.json" },
     { "path": "packages/tui" },
     { "path": "packages/gui" },
     { "path": "packages/gui/tsconfig.test.json" },

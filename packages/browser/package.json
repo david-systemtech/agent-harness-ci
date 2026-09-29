@@ -1,0 +1,22 @@
+{
+  "name": "@agent-harness/browser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "@agent-harness/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-harness/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.1"
+  }
+}

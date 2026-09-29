@@ -1,0 +1,39 @@
+<!-- #292's PerimeterX check: www.zillow.com/homes/for_sale/, 403 with PerimeterX's px-captcha page, as it served curl on 2026-09-29 (measured 2026-09-28). Trimmed (the error box's style and image), values faked. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="px-captcha">
+    <title>Access to this page has been denied</title>
+</head>
+<body>
+    <script>
+        /* PerimeterX assignments */
+        window._pxVid = '';
+        window._pxUuid = 'uuid-for-tests';
+        window._pxAppId = 'PXappfortests';
+        window._pxHostUrl = '/appfortests/xhr';
+        window._pxJsClientSrc = '/appfortests/init.js';
+        window._pxMobile = false;
+        window._pxFirstPartyEnabled = true;
+
+        var pxCaptchaSrc = '/appfortests/captcha/captcha.js?a=c&u=uuid-for-tests&v=&m=0';
+        var script = document.createElement('script');
+        script.src = pxCaptchaSrc;
+        script.onerror = onScriptError;
+        document.head.appendChild(script);
+        function onScriptError() {
+            script = document.createElement('script');
+            script.src = 'https://captcha.px-cloud.net/PXappfortests/captcha.js?a=c&u=uuid-for-tests&v=&m=0';
+            document.head.appendChild(script);
+        }
+        window._pxOnError = function () {
+            var div = document.createElement('div');
+            div.className = 'px-captcha-error-container';
+            div.innerHTML = '<div class="px-captcha-error-header">Before we continue...</div><div class="px-captcha-error-message">Press & Hold to confirm you are<br>a human (and not a bot).</div>';
+            document.body.appendChild(div);
+        };
+    </script>
+</body>
+</html>

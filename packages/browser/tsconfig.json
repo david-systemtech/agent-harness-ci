@@ -1,0 +1,9 @@
+{
+  // What runs in every browser: the extension's pages, a page's isolated world, the desktop shell's and the environment's
+  // Chromium drivers, and the environment's jsdom. So the DOM's types and no Node's.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "references": [{ "path": "../contracts" }]
+}

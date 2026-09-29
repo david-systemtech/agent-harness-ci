@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { REGISTERED_VALUE_RULE, SHAPE_RULES, SecretRule, SecretShapedError, ShapeRuleId, shapeRuleHits, type ShapeRuleId as ShapeRuleIdType } from "./index.js";
+import {
+  REGISTERED_VALUE_RULE,
+  SHAPE_RULES,
+  SecretRule,
+  SecretShapedError,
+  ShapeRuleId,
+  shapeRuleFinder,
+  shapeRuleHits,
+  type ShapeRuleId as ShapeRuleIdType,
+} from "./index.js";
 
 /**
  * The scrub registry's shape rules (key-managers spec, "The scrub
@@ -241,6 +250,22 @@ describe("the shape rules", () => {
       { rule: "github", hidden: github },
       { rule: "key-assignment", hidden: github },
     ]);
+  });
+});
+
+describe("another table of shape rules", () => {
+  it("is applied as the scrub registry's are: a word boundary before each prefix, the secret group hidden, hits in order of where they start and then of the table", () => {
+    const find = shapeRuleFinder([
+      { id: "demo", label: "a demo token", prefixes: ["dm_"], pattern: /dm_[a-z]{8}/ },
+      { id: "named", label: "a named demo value", prefixes: ["demo="], pattern: /demo=(?<secret>[a-z_]{8,})/i },
+    ]);
+    const text = "x dm_abcdefgh, xdm_abcdefgh and DEMO=dm_abcdefgh";
+    expect(find(text).map(({ rule, start, end }) => [rule, text.slice(start, end)])).toEqual([
+      ["demo", "dm_abcdefgh"],
+      ["demo", "dm_abcdefgh"],
+      ["named", "dm_abcdefgh"],
+    ]);
+    expect(find(text).map(({ start }) => start)).toEqual([2, 37, 37]);
   });
 });
 

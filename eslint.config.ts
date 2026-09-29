@@ -34,6 +34,12 @@ const browserPackages = ["gui", "web"];
 /** Every Node built-in as an import names it, bare (`fs`, `fs/promises`) or `node:`-prefixed (`node:sqlite`, which is only that). */
 const nodeBuiltins = `node:.*|(${builtinModules.map((name) => name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")).join("|")})(/.*)?`;
 
+/** Why the browser package imports contracts and no other workspace package. */
+const browserOnly =
+  "The browser package runs in every browser (the extension, a page's isolated world, the drivers, the environment's jsdom): it depends on contracts alone and imports no environment code (docs/specs/browser.md).";
+/** Every workspace package the browser package may not import: all but contracts. */
+const browserForbids = ["environment", "client-runtime", "theme", "tui", "gui", "web", "desktop", "cli"];
+
 /** Why the environment imports no client and not the CLI. */
 const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
 /** Every client package the environment may not import: the client packages and the desktop shell. */
@@ -105,6 +111,19 @@ export default defineConfig([
       "^(?!@agent-harness/contracts(/|$)|\\.)",
       "The theme package depends on contracts and nothing else: pure maths, no UI and no session state, so every client and the environment can use it (ADR 0023).",
     ),
+  },
+  // The browser package's source runs in every browser, so no Node built-in either; its tests read fixture pages with Node.
+  {
+    files: ["packages/browser/**/*.ts"],
+    rules: {
+      ...forbidImports("^(@agent-harness/(?!contracts(/|$))|agent-harness(/|$))", browserOnly),
+      "agent-harness/no-relative-import-into": ["error", { root: import.meta.dirname, packages: browserForbids, because: browserOnly }],
+    },
+  },
+  {
+    files: ["packages/browser/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: forbidImports(`^(@agent-harness/(?!contracts(/|$))|agent-harness(/|$)|(${nodeBuiltins})$)`, browserOnly),
   },
   {
     files: ["packages/environment/**/*.ts"],

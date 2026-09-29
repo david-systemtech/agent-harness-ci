@@ -1,0 +1,17 @@
+{
+  // The browser package's tests, which run under Node and parse their fixture pages with jsdom, so they need the DOM's
+  // types beside Node's: the repository's tooling project has no DOM, so they are checked here instead
+  // (tsconfig.tooling.json leaves them out).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../.tsbuild/browser-tests",
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.test.ts", "test"],
+  "exclude": [],
+  // The tooling project holds the lint rules' shared timeout, which the lint test reads.
+  "references": [{ "path": "." }, { "path": "../contracts" }, { "path": "../../tsconfig.tooling.json" }]
+}
