@@ -1791,6 +1791,14 @@
       "title": "SetupAction"
     },
     {
+      "path": "setup/target-kind.json",
+      "title": "SetupTargetKind"
+    },
+    {
+      "path": "setup/target.json",
+      "title": "SetupTarget"
+    },
+    {
       "path": "setup/step-state.json",
       "title": "StepState"
     },
