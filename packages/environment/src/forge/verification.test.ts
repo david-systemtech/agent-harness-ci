@@ -411,7 +411,7 @@ describe("a pause the replaced credential draws after it was replaced", () => {
 });
 
 describe("closing the environment while a verification is in flight", () => {
-  const BUDGET_MS = 300;
+  const REFERENCE = { provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount: "personal", path: "harness/forge-work", key: "token" } as const;
 
   /** Every unhandled rejection and every error line from here to the test's end. */
   const heard = () => {
@@ -424,83 +424,96 @@ describe("closing the environment while a verification is in flight", () => {
     return { rejections, errors };
   };
 
-  /** Waits in real time past the budget of a verification that began before, which ends one the forge never answers. */
-  const pastTheBudget = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, BUDGET_MS + 50));
+  /**
+   * A key manager that answers `REFERENCE` with the test's token at once for
+   * an add, and holds a verification's read until the test answers it: the
+   * verification is in flight, on no clock, until then.
+   */
+  const heldVerifyRead = () => {
+    const scripted = scriptedKeyManagers();
+    scripted.answer(REFERENCE, TOKEN);
+    const held: (() => void)[] = [];
+    const keyManagers: KeyManagerRegistry = {
+      async resolve(request) {
+        if (request.purpose === "verify") await new Promise<void>((resolve) => held.push(resolve));
+        return scripted.registry.resolve(request);
+      },
+    };
+    return {
+      keyManagers,
+      scripted,
+      held: () => held.length,
+      /** Answers the verification's read: the token, or null for unavailable. */
+      answer(value: string | null) {
+        scripted.answer(REFERENCE, value);
+        held.shift()?.();
+      },
+    };
+  };
 
-  it("leaves no unhandled rejection and reads nothing from the log once the budget ends it", async () => {
-    const { rejections, errors } = heard();
-    const { t, forge, client } = await withForge({ forgeTimeoutMs: BUDGET_MS });
-    await added(client, { url: forge.origin, kind: "forgejo" });
-    // The forge never says who the token is: the verification the add starts waits on it until its budget passes.
-    forge.user(TOKEN, DAVID, new Promise(() => undefined));
+  /** A forge account on the fake forge whose credential is `REFERENCE`, and the verification its add starts, waiting on its credential. */
+  const verifying = async () => {
+    const read = heldVerifyRead();
+    const { t, forge, client } = await withForge({ keyManagers: read.keyManagers });
+    const account = await added(client, { url: forge.origin, kind: "forgejo", credential: { kind: "reference", reference: REFERENCE } });
     t.clock.advance(0);
-    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
+    await vi.waitFor(() => expect(read.held()).toBe(1));
+    return { t, forge, client, account, read };
+  };
+
+  /** Lets what an answer set going settle, and a rejection it left unhandled be heard. */
+  const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it("leaves no unhandled rejection and reads nothing from the log once it ends", async () => {
+    const { rejections, errors } = heard();
+    const { t, read } = await verifying();
 
     await t.close();
     const reads = vi.spyOn(t.env.log, "read");
-    await pastTheBudget();
+    read.answer(null);
+    await settled();
 
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
     expect(reads).not.toHaveBeenCalled();
   });
 
-  it("never starts the one waiting behind it for a credential given since, and reads nothing for it", async () => {
+  it("never starts the one queued behind it for a credential given since, and reads nothing for it", async () => {
     const { rejections, errors } = heard();
-    const { t, forge, client } = await withForge({ forgeTimeoutMs: BUDGET_MS });
-    const account = await added(client, { url: forge.origin, kind: "forgejo" });
-    forge.user(TOKEN, DAVID, new Promise(() => undefined));
+    const { t, forge, client, account, read } = await verifying();
     forge.user(OTHER_TOKEN, DAVID);
-    t.clock.advance(0);
-    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
     // The credential given while it runs is verified once it ends.
     await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
     t.clock.advance(0);
 
     await t.close();
     const reads = vi.spyOn(t.env.log, "read");
-    await pastTheBudget();
+    read.answer(null);
+    await settled();
 
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
     expect(reads).not.toHaveBeenCalled();
-    // The add's identity call, the verification's, and the update's: none for the credential given.
-    expect(forge.requests).toHaveLength(3);
+    // The add's identity call and the update's: none for the credential given.
+    expect(forge.requests.map((request) => request.path)).toEqual(["/api/v1/user", "/api/v1/user"]);
   });
+
   it("reads nothing once the credential it waited on arrives after the close", async () => {
     const { rejections, errors } = heard();
-    const reference = { provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount: "personal", path: "harness/forge-work", key: "token" } as const;
-    const scripted = scriptedKeyManagers();
-    scripted.answer(reference, TOKEN);
-    let arrive = (): void => undefined;
-    const arrived = new Promise<void>((resolve) => (arrive = resolve));
-    let waiting = 0;
-    // The add's read is answered at once; the verification's waits for the test.
-    const keyManagers: KeyManagerRegistry = {
-      async resolve(request) {
-        if (request.purpose === "verify") {
-          waiting += 1;
-          await arrived;
-        }
-        return scripted.registry.resolve(request);
-      },
-    };
-    const { t, forge, client } = await withForge({ keyManagers, forgeTimeoutMs: BUDGET_MS });
+    const { t, forge, read } = await verifying();
     forge.repositories(TOKEN, []);
-    await added(client, { url: forge.origin, kind: "forgejo", credential: { kind: "reference", reference } });
-    t.clock.advance(0);
-    await vi.waitFor(() => expect(waiting).toBe(1));
 
     await t.close();
     const reads = vi.spyOn(t.env.log, "read");
-    arrive();
-    await pastTheBudget();
+    read.answer(TOKEN);
+    // The credential read for it is let go once the verification has its answers.
+    await vi.waitFor(() => expect([read.scripted.requests.length, read.scripted.outstanding()]).toEqual([2, 0]), { timeout: 5_000 });
+    await settled();
 
     expect(rejections).toEqual([]);
     expect(errors).not.toHaveBeenCalled();
     expect(reads).not.toHaveBeenCalled();
-    expect(scripted.requests.map((request) => request.purpose)).toEqual(["add", "verify"]);
-    expect(scripted.outstanding()).toBe(0);
+    expect(read.scripted.requests.map((request) => request.purpose)).toEqual(["add", "verify"]);
   });
 });
 
