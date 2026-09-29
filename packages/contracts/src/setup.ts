@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Timestamp } from "./primitives.js";
-import { REGISTERED_STEP_IDS } from "./steps.js";
+import { REGISTERED_STEP_IDS, StepId } from "./steps.js";
 
 /**
  * What a step's health check answers (ADR 0031): run on the environment
@@ -144,10 +144,21 @@ export type LastGood = z.infer<typeof LastGood>;
 export const RegisteredStepId = z.enum(REGISTERED_STEP_IDS).meta({ description: `A step with an entry in the step registry: ${REGISTERED_STEP_IDS.join(", ")}.` });
 export type RegisteredStepId = z.infer<typeof RegisteredStepId>;
 
-/** One step's check, as `setup.check` answers it. */
+/**
+ * One step's check, as `setup.check` answers it. It names any step of the
+ * milestone-1 order, not only the ones this build registers (#672): each
+ * entry that lands grows the registry, so an environment built after one
+ * answers for a step an older client's registry lacks, and that client
+ * reads the answer, the snapshot and the notice whole, the step drawn with
+ * the label and home row every client knows it by. Asking about a step
+ * (`setup.check`'s `step`) stays limited to the registered ones.
+ */
 export const StepResult = z
   .object({
-    step: RegisteredStepId,
+    step: StepId.meta({
+      description:
+        "The step checked: any step of the milestone-1 order, so a client reads a result of a step a newer environment registers and its own build does not.",
+    }),
     state: StepState,
     reason: z.string().min(1).meta({
       description: "One line for the step's row: what needs attention, naming each check that failed; when the step is done, what its checks found to hold.",

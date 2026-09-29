@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
-import { DEFAULT_THEME, registry, type ParamsOf, type ResponseOf, type StepResult, type Theme } from "@agent-harness/contracts";
+import { DEFAULT_THEME, registry, type ParamsOf, type RegisteredStepId, type ResponseOf, type StepResult, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { bubblewrapProbe, brokenProbe } from "../../test/containment.js";
@@ -38,7 +38,7 @@ const send = async <N extends Command>(client: WireClient, method: N, params: Om
   registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
 
 /** The one result `setup.check` answers for `step`. */
-const check = async (client: WireClient, step: StepResult["step"]): Promise<StepResult> => {
+const check = async (client: WireClient, step: RegisteredStepId): Promise<StepResult> => {
   const { results } = await client.request("setup.check", { step });
   expect(results.map((result) => result.step)).toEqual([step]);
   return results[0] as StepResult;

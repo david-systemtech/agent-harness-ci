@@ -3,13 +3,16 @@ import {
   CAPABILITY_FLAG_LIST,
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
+  REGISTERED_STEP_IDS,
   SETUP_ACTIONS,
   SETUP_TARGET_KINDS,
+  STEP_ORDER,
   SetupAction,
   StepResult,
   StepState,
   eventTypeEntry,
   registry,
+  unregisteredSteps,
 } from "./index.js";
 
 /**
@@ -107,5 +110,31 @@ describe("the setup subscription", () => {
 
   it("is offered under the setup capability flag", () => {
     expect(CAPABILITY_FLAG_LIST).toContain("setup");
+  });
+});
+
+/**
+ * A result of a step this build does not register (#672): each entry that
+ * lands grows the registry, so an environment built after one answers for a
+ * step an older client's registry lacks. A result names any step of the
+ * milestone-1 order, so that client reads the answer, the snapshot and the
+ * notice whole; asking about a step stays limited to the registered ones.
+ */
+describe("a result of a step this build does not register", () => {
+  const skippedOf = (step: string) => ({ step, state: "skipped", reason: "Nothing is set up here.", failing: [], actions: [], checkedAt: "2026-09-29T08:00:00.000Z" });
+  // An environment that registers every step of the order, the ones this build's registry lacks included.
+  const newer = STEP_ORDER.map(skippedOf);
+
+  it("reads in setup.check's answer beside the registered steps' results, as in the snapshot and the notice", () => {
+    expect(registry["setup.check"].result.parse({ results: newer })).toEqual({ results: newer });
+    const status = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } as const;
+    expect(registry["environment.subscribe"].result.parse({ status, setup: newer })).toEqual({ status, setup: newer });
+    for (const result of newer) expect(EnvironmentNotice.parse({ type: "setup.result-changed", payload: result }).payload).toEqual(result);
+  });
+
+  it("names a step of the milestone-1 order, and setup.check asks about a registered step only", () => {
+    expect(registry["setup.check"].result.safeParse({ results: [skippedOf("housekeeping")] }).success).toBe(false);
+    for (const step of unregisteredSteps()) expect(registry["setup.check"].params.safeParse({ step }).success, step).toBe(false);
+    for (const step of REGISTERED_STEP_IDS) expect(registry["setup.check"].params.safeParse({ step }).success, step).toBe(true);
   });
 });

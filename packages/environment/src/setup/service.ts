@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { StepResult, type LastGood, type RegisteredStepId, type SettingsValues } from "@agent-harness/contracts";
+import { StepResult, type LastGood, type RegisteredStepId, type SettingsValues, type StepId } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
@@ -92,7 +92,7 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
   /** Each step's check that is running, which a call for the step while it runs takes the result of. */
   const running = new Map<RegisteredStepId, Promise<StepResult>>();
 
-  const cachedResult = (step: RegisteredStepId): StepResult | undefined => readResult(log.setupResults.read(step));
+  const cachedResult = (step: StepId): StepResult | undefined => readResult(log.setupResults.read(step));
 
   /** Writes `result` to its step's row, and appends its notice when it changed. */
   const keep = (result: StepResult): void => {
