@@ -193,3 +193,65 @@ describe("this client's own check", () => {
     expect(seen.flat()).toEqual([]);
   });
 });
+
+describe("an environment without the setup flag", () => {
+  /** A runtime paired with a scripted environment that offers no `setup` flag, whose snapshot carries no `setup`, answering every `setup.check` with Account done and Permissions needing attention. */
+  const flagless = async () => {
+    const made = await paired({ capabilities: [] });
+    made.environment.snapshot(2, { status: STATUS });
+    made.environment.synchronized(2);
+    await made.adding;
+    await flush();
+    made.wire.answer("setup.check", () => ({ result: { results: [doneResult("account"), attentionResult("permissions", "permissions.denylist", ["restore"])] } }));
+    return made;
+  };
+
+  it("is asked setup.check for every step when the projection is first followed, again on check, and again when it is followed afresh", async () => {
+    const { runtime, wire, env } = await flagless();
+    const setup = runtime.projections.setup(env);
+    expect(setup.read().counts.registered).toBe(0);
+    await flush();
+    expect(checksSent(wire)).toEqual([]);
+
+    const stop = setup.subscribe(() => undefined);
+    await flush();
+    expect(checksSent(wire).map((frame) => frame.type === "request" && frame.params)).toEqual([{}]);
+    expect(rows(runtime, env).filter((row) => row.registered)).toEqual([
+      { id: "account", registered: true, result: { state: "done", reason: "account holds.", stale: false } },
+      { id: "permissions", registered: true, result: { state: "needs-attention", reason: "permissions.denylist does not hold.", stale: false } },
+    ]);
+    const second = setup.subscribe(() => undefined);
+    await flush();
+    expect(checksSent(wire)).toHaveLength(1);
+
+    expect(await runtime.setup.check(env)).toMatchObject({ ok: true });
+    expect(checksSent(wire)).toHaveLength(2);
+
+    // Set up closed and opened again.
+    stop();
+    second();
+    onTestFinished(setup.subscribe(() => undefined));
+    await flush();
+    expect(checksSent(wire)).toHaveLength(3);
+  });
+
+  it("followed while it cannot be reached, is asked once it is", async () => {
+    const { runtime, wire, clock, env } = await flagless();
+    wire.server.drop();
+    await flush();
+    onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
+    await flush();
+    expect(runtime.connections.list.read()[0]?.phase).toBe("backoff");
+
+    clock.advance(1_250);
+    await wire.server.accept();
+    await flush();
+    expect(checksSent(wire)).toEqual([]);
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    (await subscription(wire, "environment.subscribe")).synchronized(2);
+    await flush();
+    expect(runtime.connections.list.read()[0]?.phase).toBe("ready");
+    expect(checksSent(wire).map((frame) => frame.type === "request" && frame.params)).toEqual([{}]);
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 2, done: 1, needsAttention: 1, skipped: 0, attention: ["permissions"] });
+  });
+});

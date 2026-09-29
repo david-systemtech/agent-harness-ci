@@ -142,10 +142,49 @@ export const createSetup = (host: SetupHost): Setup => {
     return { environmentId, steps, counts: countsOf(steps) };
   };
 
-  return {
+  /**
+   * The view of one environment, which asks `setup.check` of every step each
+   * time it comes to be followed, on an environment without the `setup`
+   * flag: at once when the connection is ready, else once it is while still
+   * followed. One with the flag is never asked: its stream carries its
+   * results (the Set up specification, "Capability flags").
+   */
+  const followed = (environmentId: string): Observable<SetupView> => {
+    const inner = derived([host.environments, version] as const, (environments) => compute(environmentId, environments));
+    let followers = 0;
+    let waiting: (() => void) | undefined;
+    const askWhenReady = (records: readonly ConnectionRecord[]) => {
+      const record = records.find((r) => r.environmentId === environmentId);
+      if (record?.phase !== "ready") return;
+      waiting?.();
+      waiting = undefined;
+      if (!record.descriptor.capabilities.includes("setup")) void setup.check(environmentId);
+    };
+    return {
+      read: inner.read,
+      subscribe(listener) {
+        const stop = inner.subscribe(listener);
+        if (++followers === 1) {
+          waiting = host.records.subscribe(askWhenReady);
+          askWhenReady(host.records.read());
+        }
+        let following = true;
+        return () => {
+          if (!following) return;
+          following = false;
+          stop();
+          if (--followers > 0) return;
+          waiting?.();
+          waiting = undefined;
+        };
+      },
+    };
+  };
+
+  const setup: Setup = {
     view(environmentId) {
       let view = views.get(environmentId);
-      if (view === undefined) views.set(environmentId, (view = derived([host.environments, version] as const, (environments) => compute(environmentId, environments))));
+      if (view === undefined) views.set(environmentId, (view = followed(environmentId)));
       return view;
     },
     async check(environmentId, step) {
@@ -187,4 +226,5 @@ export const createSetup = (host: SetupHost): Setup => {
       asks.clear();
     },
   };
+  return setup;
 };
