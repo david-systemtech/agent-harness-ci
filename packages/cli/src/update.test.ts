@@ -121,6 +121,19 @@ describe("agent-harness update status", () => {
     expect(printed).toMatchObject({ version: HARNESS_VERSION, manager: { kind: "outside", lastPoll: null } });
   });
 
+  it("with --host-updater is the host-side updater's poll, which the environment remembers as the manager's last poll (#348)", async () => {
+    const t = await start({ containerDetector: { inContainer: () => true } });
+    const { code, out, err } = await run(["update", "status", "--json", "--host-updater", "--data-dir", t.dataDir]);
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    const polled = t.clock.now().toISOString();
+    expect(UpdatesStatus.parse(JSON.parse(out)).manager).toEqual({ kind: "outside", lastPoll: polled });
+    const admin = await t.client();
+    expect((await admin.request("updates.status", {})).manager).toEqual({ kind: "outside", lastPoll: polled });
+    await admin.close();
+    expect(await liveLabels(t)).not.toContain("agent-harness update status");
+  });
+
   it("revokes its own local client session before it exits", async () => {
     const t = await start();
     expect((await run(["update", "status", "--data-dir", t.dataDir])).code).toBe(0);
@@ -329,6 +342,52 @@ describe("agent-harness update apply", () => {
       const { code, err } = await run(["update", "apply", ...args, "--data-dir", "/nonexistent/agent-harness"]);
       expect(code, args.join(" ")).toBe(2);
       expect(err, args.join(" ")).toContain("agent-harness update apply");
+    }
+  });
+});
+
+describe("agent-harness update begin", () => {
+  /** A container whose check made the update to 0.5.0 pending, ready as it is idle: with the update's id. */
+  const readyContainer = async () => {
+    const fake = await releaseSource("0.5.0");
+    const t = await start({ harnessVersion: "0.4.1", containerDetector: { inContainer: () => true }, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    const admin = await t.client();
+    await fake.grantAccess(admin);
+    const { pending } = await admin.request("updates.check", {});
+    await admin.close();
+    if (pending.state !== "ready") throw new Error(`The update is not ready: ${JSON.stringify(pending)}`);
+    return { t, updateId: pending.updateId };
+  };
+
+  it("begins the ready update the host-side updater names, through updates.begin, and says the environment drains until the container stops (#348)", async () => {
+    const { t, updateId } = await readyContainer();
+
+    const { code, out, err } = await run(["update", "begin", "--update-id", updateId, "--data-dir", t.dataDir]);
+
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    expect(out).toBe(`Began the update to 0.5.0 (update ${updateId}): the environment is draining, and ends once the container is stopped.\n`);
+    expect(t.env.readiness()).toBe("draining");
+    const started = t.env.log.readStream({ kinds: ["environment"] }).filter((event) => event.type === "environment.update-started");
+    expect(started.map((event) => event.payload)).toEqual([{ updateId, fromVersion: "0.4.1", toVersion: "0.5.0", cause: "idle" }]);
+    expect(await liveLabels(t)).not.toContain("agent-harness update begin");
+  });
+
+  it("says what the environment refused and exits 1: an update that is not the ready one", async () => {
+    const { t } = await readyContainer();
+    const other = "0b5c4f8e-9a51-4d2c-8e3f-6a7b8c9d0e1f";
+    const { code, out, err } = await run(["update", "begin", "--update-id", other, "--data-dir", t.dataDir]);
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toMatch(/^The environment refused to begin the update: 0b5c4f8e-9a51-4d2c-8e3f-6a7b8c9d0e1f is not the pending update/);
+    expect(t.env.readiness()).toBe("ready");
+  });
+
+  it("prints its usage and exits 2 without an update id, or with one that is not an update's", async () => {
+    for (const args of [[], ["--update-id", "u-1"], ["--update-id", "0b5c4f8e-9a51-4d2c-8e3f-6a7b8c9d0e1f", "--now"]]) {
+      const { code, err } = await run(["update", "begin", ...args, "--data-dir", "/nonexistent/agent-harness"]);
+      expect(code, args.join(" ")).toBe(2);
+      expect(err, args.join(" ")).toContain("agent-harness update begin");
     }
   });
 });

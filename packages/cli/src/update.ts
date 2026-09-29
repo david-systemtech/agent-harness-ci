@@ -6,6 +6,7 @@ import {
   PRODUCT_NAME,
   ReleaseVersion,
   UPDATE_SETTINGS,
+  UpdateId,
   type ForgeAccountRecord,
   type PendingUpdate,
   type UpdateCheck,
@@ -29,18 +30,22 @@ import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./lo
  * version and the path of its artefact on this machine; #347: a version
  * alone, which the environment downloads from its release; or the update
  * that waits, when idle or at once with `--now`); `update settings`, the five
- * update settings written from flags through `updates.settings.set`; and
+ * update settings written from flags through `updates.settings.set`;
  * `update credential --stdin`, the release token given to the environment
- * as the forge account for its release origin (#346). Each exchanges the
+ * as the forge account for its release origin (#346); and, for a
+ * container's host-side updater through `docker compose exec` (#348),
+ * `update status --host-updater`, its poll, and `update begin`, the start of
+ * the ready update whose image it pulled. Each exchanges the
  * bootstrap grant for a local client session and revokes it after
  * (`local-session.ts`), as `pair` does.
  */
 
 export const UPDATE_USAGE = [
-  `${PRODUCT_NAME} update status [--json] [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} update status [--json] [--host-updater] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update apply [--version <version> [--path <artefact>]] [--now] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update settings [--auto-update <on|off>] [--channel <stable|beta>] [--pinned-version <version|none>] [--idle-window-minutes <n>] [--deferral-cap-hours <n>] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update credential --stdin [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} update begin --update-id <id> [--data-dir <path>] [--port <n>]`,
 ] as const;
 
 export interface UpdateContext {
@@ -174,10 +179,11 @@ export const renderUpdatesStatus = (status: UpdatesStatus): string =>
     "",
   ].join("\n");
 
-/** `update status`: the document as text, or as JSON with `--json`. */
+/** `update status`: the document as text, or as JSON with `--json`; with `--host-updater`, the call is the host-side updater's poll, which the environment remembers. */
 const status = async (args: readonly string[], context: UpdateContext): Promise<number> => {
-  const values = parseOptions(args, { ...TARGET_OPTIONS, json: { type: "boolean" } });
-  const document = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update status`, (call) => call("updates.status", {}));
+  const values = parseOptions(args, { ...TARGET_OPTIONS, json: { type: "boolean" }, "host-updater": { type: "boolean" } });
+  const params = values["host-updater"] === true ? { hostUpdater: true as const } : {};
+  const document = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update status`, (call) => call("updates.status", params));
   context.stdout(values.json ? `${JSON.stringify(document, null, 2)}\n` : renderUpdatesStatus(document));
   return 0;
 };
@@ -284,8 +290,27 @@ const credential = async (args: readonly string[], context: UpdateContext): Prom
   return 0;
 };
 
+/**
+ * `update begin --update-id <id>`: the host-side updater, having pulled the
+ * image of the ready update `<id>`, begins it through `updates.begin`: the
+ * environment drains, and the drain ends when the container is stopped.
+ */
+const begin = async (args: readonly string[], context: UpdateContext): Promise<number> => {
+  const values = parseOptions(args, { ...TARGET_OPTIONS, "update-id": { type: "string" } });
+  const updateId = UpdateId.safeParse(values["update-id"]);
+  if (!updateId.success) throw new UsageError(`update begin takes --update-id, the id of the ready update whose image was pulled; got ${values["update-id"] || "none"}.`);
+  const answer = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update begin`, (call) =>
+    call("updates.begin", { commandId: randomUUID(), updateId: updateId.data }),
+  );
+  if (answer.receipt.status === "rejected") throw new LocalFailure(`The environment refused to begin the update: ${answer.receipt.error.message}`);
+  // A fresh command id always carries the result.
+  if (answer.result === undefined) throw new LocalFailure("The environment answered the update's begin without saying which it began.");
+  context.stdout(`Began the update to ${answer.result.toVersion} (update ${answer.result.updateId}): the environment is draining, and ends once the container is stopped.\n`);
+  return 0;
+};
+
 /** The `update` verbs by name. */
-const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings, credential };
+const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings, credential, begin };
 
 /**
  * `update`: runs the verb `args` name. Exits 0 once done, 1 with a plain
@@ -295,7 +320,7 @@ const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateCo
 export const update = async (args: readonly string[], context: UpdateContext): Promise<number> => {
   const [verb, ...rest] = args;
   const run = verb === undefined || !Object.hasOwn(VERBS, verb) ? undefined : VERBS[verb];
-  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply, settings or credential." : `Unknown update verb ${verb}.`);
+  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply, settings, credential or begin." : `Unknown update verb ${verb}.`);
   try {
     return await run(rest, context);
   } catch (error) {
