@@ -9,7 +9,9 @@ import { Button, Tooltip } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { closePane, hideColumn, showPane, useSideColumn } from "./column.js";
+import { PreviewPane } from "../preview/preview-pane.js";
 import { DiffPane } from "./diff-pane.js";
+import { DocumentsPane } from "./documents-pane.js";
 import { FilesPane, WORKSPACE_TOP, type FilesPlace } from "./files-pane.js";
 import { PANES, paneCapability } from "./panes.js";
 import { TasksPane } from "./tasks-pane.js";
@@ -120,7 +122,18 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
             {capability.status === "absent" && !PANES[pane].drawnWhileAbsent ? (
               <p className="px-3 py-2 text-sm text-ink-faint">{capability.message}</p>
             ) : (
-              <PaneBody pane={pane} environmentId={environmentId} sessionId={sessionId} onScreen={pane === shown && !column.hidden} files={files} goFiles={goFiles} />
+              <PaneBody
+                pane={pane}
+                environmentId={environmentId}
+                sessionId={sessionId}
+                onScreen={pane === shown && !column.hidden}
+                files={files}
+                goFiles={goFiles}
+                source={(path) => {
+                  goFiles({ directory: directoryOf(path), file: path });
+                  show("files");
+                }}
+              />
             )}
           </section>
         );
@@ -133,13 +146,15 @@ interface PaneBodyProps extends SideColumnViewProps {
   readonly pane: SidePane;
   /** Whether the pane is on screen: shown, in a column that is not hidden. */
   readonly onScreen: boolean;
-  /** Where the Files pane is, which the column holds so `/files <path>` moves it. */
+  /** Where the Files pane is, which the column holds so `/files <path>` and a document's source move it. */
   readonly files: FilesPlace;
   goFiles(place: FilesPlace): void;
+  /** Opens a file of the workspace in the Files pane's file view, and shows the pane. */
+  source(path: string): void;
 }
 
 /** What one pane draws. */
-const PaneBody = ({ pane, environmentId, sessionId, onScreen, files, goFiles }: PaneBodyProps) => {
+const PaneBody = ({ pane, environmentId, sessionId, onScreen, files, goFiles, source }: PaneBodyProps) => {
   switch (pane) {
     case "terminal":
       return <TerminalPane environmentId={environmentId} sessionId={sessionId} onScreen={onScreen} />;
@@ -147,7 +162,11 @@ const PaneBody = ({ pane, environmentId, sessionId, onScreen, files, goFiles }: 
       return <FilesPane environmentId={environmentId} sessionId={sessionId} place={files} go={goFiles} />;
     case "diff":
       return <DiffPane environmentId={environmentId} sessionId={sessionId} onScreen={onScreen} />;
+    case "documents":
+      return <DocumentsPane environmentId={environmentId} sessionId={sessionId} source={source} />;
     case "tasks":
       return <TasksPane environmentId={environmentId} sessionId={sessionId} />;
+    case "preview":
+      return <PreviewPane environmentId={environmentId} sessionId={sessionId} />;
   }
 };
