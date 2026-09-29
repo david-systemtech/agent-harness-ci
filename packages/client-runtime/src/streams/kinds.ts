@@ -10,7 +10,9 @@ import {
   SessionListSnapshot,
   SessionSnapshot,
   SessionSummary,
+  STEP_ORDER,
   StandingRewind,
+  StepResult,
   SummaryPatch,
   registry,
 } from "@agent-harness/contracts";
@@ -100,9 +102,16 @@ export const undoesUnheardRewind = (snapshot: Pick<SessionSnapshotParts, "rewind
 
 const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum, event) => sum + utf8Length(JSON.stringify(event)), 0);
 
-/** The environment's own stream: its status as the snapshot gave it and the notices since changed it. */
+/**
+ * The environment's own stream: its status as the snapshot gave it and the
+ * notices since changed it, and each Set up step's latest result, from the
+ * snapshot's `setup` and each `setup.result-changed` since (#570), in the
+ * milestone-1 order: what `projections.setup` reads, offline too.
+ */
 export interface EnvironmentData {
   readonly status: EnvironmentStatus | null;
+  /** None from an environment without the `setup` flag, or before it checked anything. */
+  readonly setup: readonly StepResult[];
 }
 
 /** The fields of a stored or sent object; throws on anything else. */
@@ -112,6 +121,28 @@ const fieldsOf = (value: unknown, what: string): Record<string, unknown> => {
 };
 
 const EnvironmentSnapshot = registry["environment.subscribe"].result;
+/** The snapshot but its `setup`, whose results are read one by one (`readResults`). */
+const SnapshotStatus = EnvironmentSnapshot.pick({ status: true });
+
+/**
+ * The results a snapshot's `setup` carries that this build can read: one of
+ * a step this build does not register (a newer environment's) is left out,
+ * as a notice this client does not know is, and the others still read.
+ */
+const readResults = (value: unknown): StepResult[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError("The snapshot's setup is not a list.");
+  return value.flatMap((item) => {
+    const result = StepResult.safeParse(item);
+    return result.success ? [result.data] : [];
+  });
+};
+
+/** `results` with `result` in its step's place: replacing the one it had, or added in the milestone-1 order. */
+const withResult = (results: readonly StepResult[], result: StepResult): StepResult[] => {
+  const place = (step: string) => STEP_ORDER.indexOf(step as (typeof STEP_ORDER)[number]);
+  return [...results.filter((held) => held.step !== result.step), result].sort((a, b) => place(a.step) - place(b.step));
+};
 
 const byId = <T extends { readonly id: string }>(items: readonly T[]): ReadonlyMap<string, T> => new Map(items.map((item) => [item.id, item]));
 
@@ -214,20 +245,25 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * The status follows the notices: `environment.draining` makes it draining,
  * and `environment.started` (the restart after a drain, or any start) makes
  * it ready and idle, since a process that has just started runs nothing.
+ * Each `setup.result-changed` replaces its step's result (#570).
  */
 export const environmentKind = (): StreamKind<EnvironmentData> => ({
-  empty: () => ({ status: null }),
+  empty: () => ({ status: null, setup: [] }),
   emptyIsState: true,
-  fromSnapshot: (payload) => ({ status: EnvironmentSnapshot.parse(payload).status }),
+  fromSnapshot: (payload) => ({ status: SnapshotStatus.parse(payload).status, setup: readResults(payload["setup"]) }),
   apply(data, event) {
     // A notice this client does not know (a newer environment's) changes nothing it holds.
     const notice = EnvironmentNotice.safeParse(event);
-    if (!notice.success || data.status === null) return data;
+    if (!notice.success) return data;
+    // A step's result replaces the one held, whether or not a snapshot gave the status: a replay from the cursor carries no
+    // snapshot, and folds every result the environment noticed (#570).
+    if (notice.data.type === "setup.result-changed") return { ...data, setup: withResult(data.setup, notice.data.payload) };
+    if (data.status === null) return data;
     switch (notice.data.type) {
       case "environment.draining":
-        return { status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
+        return { ...data, status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
       case "environment.started":
-        return { status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
+        return { ...data, status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
       // A new version, an account changed (#134), the sign-in moved (#135), or an account's plan usage (#136): the status
       // holds none of them. The request cache refreshes on all but `signin.executable-chosen` (`CACHE_REFRESH_NOTICES` and
       // `QUERY_REFRESH_NOTICES`, #142), and the notices queue says what is news.
@@ -281,12 +317,13 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
       case "settings.changed":
         return data;
-      // A Set up step's result changed (#569): the status holds none of them; `projections.setup` reads the snapshot's
-      // setup and these (#570).
-      case "setup.result-changed":
-        return data;
     }
   },
   encode: (data) => data,
-  decode: (value) => ({ status: EnvironmentStatus.nullable().parse(fieldsOf(value, "The stored environment")["status"]) }),
+  decode(value) {
+    const stored = fieldsOf(value, "The stored environment");
+    // A document from before #570 holds no results and does not read: no cache, so the stream subscribes from nothing and
+    // the environment sends every result it holds, rather than this client reading as never checked what it has checked.
+    return { status: EnvironmentStatus.nullable().parse(stored["status"]), setup: StepResult.array().parse(stored["setup"]) };
+  },
 });

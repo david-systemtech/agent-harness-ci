@@ -24,6 +24,7 @@ import type { KnownDirectory } from "./projections/known-directories.js";
 import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
+import type { SetupView } from "./projections/setup.js";
 
 /**
  * The client runtime (docs/specs/client-runtime.md): what every client
@@ -100,6 +101,14 @@ export interface Runtime {
      * offline with it, and stored nowhere.
      */
     knownDirectories(environmentId: string): Observable<readonly KnownDirectory[]>;
+    /**
+     * The environment's Set up checklist (#570): the eleven steps in the
+     * milestone-1 order, each with its label, its home row, whether the
+     * environment registers it and its latest result, from the environment
+     * stream's snapshot and its `setup.result-changed` notices, with no
+     * call of its own; and the counts over the registered steps.
+     */
+    setup(environmentId: string): Observable<SetupView>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;

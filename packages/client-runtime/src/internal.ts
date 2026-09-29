@@ -22,6 +22,7 @@ import { createForgeNotices } from "./projections/forge-notices.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
+import { setupProjection, type SetupView } from "./projections/setup.js";
 import { createRequestCache, createRequests, type Requests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
@@ -244,6 +245,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     hide: (environmentId, path, lastUsedAt) => registry.hideDirectory(environmentId, path, lastUsedAt),
   };
   const knownDirectories = memo((environmentId): Observable<readonly KnownDirectory[]> => knownDirectoriesProjection(directoriesHost, environmentId));
+  const setupViews = memo((environmentId): Observable<SetupView> => setupProjection({ records: registry.list, environments: made.environments }, environmentId));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>
       list.filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId),
@@ -289,6 +291,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       modes: (environmentId) => modesProjections(environmentId),
       copyTargets: (environmentId) => copyTargets(environmentId),
       knownDirectories: (environmentId) => knownDirectories(environmentId),
+      setup: (environmentId) => setupViews(environmentId),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
