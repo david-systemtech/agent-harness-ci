@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.detect params",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "description": "The forge's URL in any form git takes, or a repository's on it: only its origin is asked."
+    }
+  },
+  "required": [
+    "url"
+  ]
+}

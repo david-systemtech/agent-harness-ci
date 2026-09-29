@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeTokenPermission",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The permission as the token page names it: Contents, Issues, Pull requests, Administration."
+    },
+    "access": {
+      "type": "string",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "description": "The access it needs: read, or write (Read and write on the page), which includes read."
+    }
+  },
+  "required": [
+    "name",
+    "access"
+  ],
+  "description": "One permission a fine-grained token is granted, and its access."
+}

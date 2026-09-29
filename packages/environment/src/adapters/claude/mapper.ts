@@ -1,5 +1,5 @@
 import type { JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
-import type { AdapterEvent, RunEnd, ToolDenial, TranscriptEvent } from "../../adapter/contract.js";
+import { recordedImage, type AdapterEvent, type RunEnd, type ToolDenial, type TranscriptEvent } from "../../adapter/contract.js";
 import type { TaskLedger } from "./tasks.js";
 
 /**
@@ -95,6 +95,23 @@ const toJsonObject = (value: unknown): JsonObject => {
   return isRecord(json) ? json : { value: json };
 };
 
+/**
+ * A tool's result as the transcript records it (#540): each image block in
+ * it (`{type: image, source: {type: base64, media_type, data}}`, what the
+ * CLI hands the model for an MCP tool's image) as its media type and size
+ * (`recordedImage`), never its bytes, which the model read and the log never
+ * holds; everything else as it is.
+ */
+const withoutImageBytes = (output: unknown): unknown => {
+  if (!Array.isArray(output)) return output;
+  return output.map((block: unknown) => {
+    if (!isRecord(block) || block["type"] !== "image" || !isRecord(block["source"])) return block;
+    const { source } = block;
+    if (source["type"] !== "base64" || typeof source["data"] !== "string") return block;
+    return recordedImage(typeof source["media_type"] === "string" ? source["media_type"] : "application/octet-stream", Buffer.byteLength(source["data"], "base64"));
+  });
+};
+
 /** The stream a message belongs to: a subagent's under its tool call, else the main thread's. */
 const MAIN = "";
 const streamOf = (message: Record_): string => text(message["parent_tool_use_id"]) ?? MAIN;
@@ -122,7 +139,7 @@ const endTool = (state: MapperState, id: string, status: "ok" | "error" | "cance
   if (open === undefined) return [];
   state.openTools.delete(id);
   state.closedTools.add(id);
-  return [event("tool.ended", { toolCallId: id, status, output: toJson(output) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
+  return [event("tool.ended", { toolCallId: id, status, output: toJson(withoutImageBytes(output)) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
 };
 
 /** The kind of reason a denial report names (`decision_reason_type`), as the harness's deciders read it: anything else is the provider's own. */

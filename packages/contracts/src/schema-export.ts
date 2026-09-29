@@ -41,7 +41,7 @@ import {
   WireError,
 } from "./errors.js";
 import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
-import { ForgeKind, ForgeOrigin, ForgeSlug, GhLogin } from "./forge.js";
+import { ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage, ForgeTokenPermission, GhLogin } from "./forge.js";
 import { GhProbe, GhSignedInAccount } from "./forge-gh.js";
 import {
   FORGE_EVENT_PAYLOADS,
@@ -155,7 +155,7 @@ import {
   UpdateWhen,
   UpdatesStatus,
 } from "./updates.js";
-import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
+import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepState } from "./setup.js";
 import {
   ADDRESS_ROWS,
   SETTINGS_ADDRESSES,
@@ -289,7 +289,17 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
-import { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+import {
+  AliasIdentityMismatchError,
+  CredentialSourceUnavailableError,
+  ForgeAccountMissingError,
+  ForgeOwner,
+  ForgeUnreachableError,
+  IdentityMismatchError,
+  KindUnsupportedError,
+  NotAForgeError,
+  VerificationFailedError,
+} from "./methods/forge.js";
 import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
 import {
   KEY_MANAGER_EVENT_PAYLOADS,
@@ -644,6 +654,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "forge/copied-from.json", title: "ForgeCopiedFrom", schema: ForgeCopiedFrom },
   { path: "forge/variables.json", title: "ForgeVariables", schema: ForgeVariables },
   { path: "forge/account-record.json", title: "ForgeAccountRecord", schema: ForgeAccountRecord },
+  { path: "forge/token-permission.json", title: "ForgeTokenPermission", schema: ForgeTokenPermission },
+  { path: "forge/token-page.json", title: "ForgeTokenPage", schema: ForgeTokenPage },
+  { path: "forge/owner.json", title: "ForgeOwner", schema: ForgeOwner },
   ...Object.entries(FORGE_EVENT_PAYLOADS).map(([type, payload]) => ({
     path: `forge/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -944,6 +957,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-id.json", title: "StepId", schema: StepId },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
+  { path: "setup/target-kind.json", title: "SetupTargetKind", schema: SetupTargetKind },
+  { path: "setup/target.json", title: "SetupTarget", schema: SetupTarget },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
@@ -970,6 +985,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/alias_identity_mismatch.json", title: "AliasIdentityMismatchError", schema: AliasIdentityMismatchError },
   { path: "errors/credential_source_unavailable.json", title: "CredentialSourceUnavailableError", schema: CredentialSourceUnavailableError },
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
+  { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
+  { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
+  { path: "forge/errors/unreachable.json", title: "ForgeUnreachableError", schema: ForgeUnreachableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },
