@@ -117,10 +117,12 @@ export const DEFAULT_CADENCE_MINUTES = 60;
 
 /**
  * How often the environment checks a step with nobody asking (ADR 0031):
- * every hour, or another whole number of minutes with the reason why (the
- * Key manager and Account steps' fifteen, because the orientation block
- * reports token and sign-in freshness). The runs on start, on the cadence
- * and on a feature's events are the Set up specification's (#88).
+ * every hour, or another whole number of minutes with the reason why. ADR
+ * 0031 gives the Key manager and Account steps fifteen, because the
+ * orientation block reports token and sign-in freshness; each entry takes
+ * it with the checks that report it (#574 for Account), and until then
+ * every registered entry declares the hour. The runs on start, on the
+ * cadence and on a feature's events are the Set up specification's (#88).
  */
 export interface Cadence {
   readonly minutes: number;
