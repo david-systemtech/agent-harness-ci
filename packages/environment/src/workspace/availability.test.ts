@@ -5,9 +5,12 @@ import { SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agen
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { command, create, get, listStream, patchOf, refusal } from "../../test/sessions.js";
+import { command, create, get, listStream, patchOf, refusal, rename } from "../../test/sessions.js";
 import { terminalCommand } from "../../test/terminals.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import { formatActor } from "../event-log/event-log.js";
+import { createSessionIn } from "../sessions/methods.js";
+import { acceptAnyRunParameters } from "../sessions/run-parameters.js";
 import { LOOK_TIMEOUT_MS, MAX_UNANSWERED, PASS_INTERVAL_MS } from "./availability.js";
 
 /**
@@ -123,7 +126,7 @@ describe("a session whose workspace is missing", () => {
     expect(snapshot.runs.map((one) => one.runId)).toEqual([runId]);
     expect(snapshot.summary.workspaceMissingSince).toBe(listed?.workspaceMissingSince);
     expect(await client.request("diffs.session", { sessionId: id })).toMatchObject({ files: [] });
-    await command(client, "sessions.rename", { sessionId: id, title: "The gone one" });
+    await rename(client, id, "The gone one");
     await command(client, "sessions.tag", { sessionId: id, tag: "moved" });
     await command(client, "sessions.pin", { sessionId: id });
     expect((await command(client, "sessions.archive", { sessionId: id })).receipt).toMatchObject({ status: "accepted" });
@@ -158,7 +161,7 @@ describe("the methods that need the workspace", () => {
     expect(await status()).toBe("missing");
 
     mkdirSync(path);
-    await command(client, "sessions.rename", { sessionId: id, title: "Back" });
+    await rename(client, id, "Back");
     expect(await refusal(client.request("files.read", { sessionId: id, path: "none.txt" }))).toMatchObject({ code: "not_found", data: { kind: "file" } });
     // The rename came first; the read found the directory back.
     expect((await list.next()).type).toBe("session.title-set");
@@ -167,7 +170,7 @@ describe("the methods that need the workspace", () => {
     // Found there again, and again: no change, no event. The next event is the rename after.
     await client.request("files.list", { sessionId: id });
     await client.request("diffs.workingTree", { sessionId: id });
-    await command(client, "sessions.rename", { sessionId: id, title: "Still here" });
+    await rename(client, id, "Still here");
     expect((await list.next()).type).toBe("session.title-set");
   });
 });
@@ -190,7 +193,7 @@ describe("the availability pass", () => {
     const list = await listStream(client, from);
 
     expect(await list.next()).toMatchObject({ type: "session.workspace-status-changed", streamId: other.id, actor: WORKSPACES, payload: { status: "missing" } });
-    await command(client, "sessions.rename", { sessionId: one.id, title: "Kept" });
+    await rename(client, one.id, "Kept");
     expect(await list.next()).toMatchObject({ type: "session.title-set", streamId: one.id });
   });
 
@@ -284,5 +287,37 @@ describe("a look at a directory that does not answer, as on a network mount whos
     expect((await run(client, "runs.start", { sessionId: id, text: "Here" })).receipt).toMatchObject({ status: "accepted" });
     expect(asked).not.toContain(healthy);
     expect((await get(client, id)).workspaceMissingSince).toBeNull();
+  });
+});
+
+describe("the Carry over import's entry", () => {
+  it("lets an in-process caller record a session whose directory is gone and mark it missing right after its session.created, in the same transaction", async () => {
+    const t = await start();
+    const client = await t.client();
+    const list = await listStream(client, t.env.log.head());
+    const id = randomUUID();
+    const gone = join(tempDir("agent-harness-availability-"), "gone");
+
+    t.env.log.atomically((tx) => {
+      const created = createSessionIn(
+        t.env.log,
+        { tx, actor: formatActor({ kind: "system", id: "carry-over" }) },
+        { id, title: "Imported", workspace: { kind: "directory", path: gone } },
+        { validateRunParameters: acceptAnyRunParameters, clampMode: (mode) => mode },
+      );
+      expect(created.rejected).toBeUndefined();
+      t.env.workspaces.markMissing(tx, id);
+    });
+
+    const created = await list.next();
+    expect(created).toMatchObject({ type: "session.created", streamId: id });
+    const marked = await list.next();
+    expect(marked).toMatchObject({ type: "session.workspace-status-changed", streamId: id, actor: WORKSPACES, payload: { status: "missing" } });
+    expect(marked.sequence).toBe(created.sequence + 1);
+    expect(patchOf(marked)).toEqual({ op: "set", sessionId: id, fields: { workspaceMissingSince: created.occurredAt } });
+    expect((await run(client, "runs.start", { sessionId: id, text: "Go on" })).receipt).toMatchObject({
+      status: "rejected",
+      error: { data: { reason: "workspace_missing", path: gone } },
+    });
   });
 });

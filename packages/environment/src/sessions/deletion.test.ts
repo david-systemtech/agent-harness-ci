@@ -218,6 +218,8 @@ describe("a deleted session", () => {
     "sessions.snooze": { sessionId, until: "2020-01-01T00:00:00.000Z" },
     "sessions.unsnooze": { sessionId },
     "sessions.delete": { sessionId },
+    // A deleted session is not found before its workspace is looked at or the request resolved (#328).
+    "sessions.setWorkspace": { sessionId, workspace: { kind: "scratch" } },
     "runs.start": { sessionId, text: "Back to work" },
     "runs.send": { sessionId, text: "Anyone there?" },
     "permissions.mode.set": { sessionId, mode: "plan" },
