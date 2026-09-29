@@ -7,7 +7,7 @@ import { attentionResult, doneResult, skippedResult } from "../test/setup.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
-import { fakeShell, inMemoryPlatform, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
+import { fakeShell, inMemoryDocuments, inMemoryPlatform, inMemorySecrets, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 
 /**
  * `projections.setup` through the fake wire (#570; the Set up
@@ -124,6 +124,87 @@ describe("projections.setup from the snapshot and the notices", () => {
     expect(setup.read().counts).toEqual({ registered: 3, done: 3, needsAttention: 0, skipped: 0, attention: [] });
     expect(seen.length).toBeGreaterThan(0);
     expect(checksSent(wire)).toEqual([]);
+  });
+});
+
+describe("the environment stream's results", () => {
+  it("fold from the notices a replay from the cursor carries, with no snapshot", async () => {
+    const { runtime, env, environment, adding } = await paired();
+    environment.event(noticeEvent(1, env, "setup.result-changed", attentionResult("permissions", "permissions.denylist", ["restore"])));
+    environment.event(noticeEvent(2, env, "setup.result-changed", doneResult("account")));
+    environment.event(noticeEvent(3, env, "setup.result-changed", doneResult("permissions", { checkedAt: after(3_000) })));
+    environment.synchronized(3);
+    await adding;
+    await flush();
+    expect(rows(runtime, env).filter((row) => row.registered)).toEqual([
+      { id: "account", registered: true, result: { state: "done", reason: "account holds.", stale: false } },
+      { id: "permissions", registered: true, result: { state: "done", reason: "permissions holds.", stale: false } },
+    ]);
+  });
+
+  it("leave out a snapshot's result for a step this build does not register, reading the rest", async () => {
+    const { runtime, platform, env, environment, adding } = await paired();
+    const newer = { ...doneResult("account"), step: "memory-bank", reason: "Every bank is reachable." };
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), newer] });
+    environment.synchronized(3);
+    await adding;
+    await flush();
+    expect(rows(runtime, env).filter((row) => row.registered)).toEqual([{ id: "account", registered: true, result: { state: "done", reason: "account holds.", stale: false } }]);
+    expect(platform.reported).toEqual([]);
+  });
+
+  /** A runtime that cached the environment stream at its snapshot at 3, restarted on a copy of its documents with `edit` applied to the cached state. */
+  const reopened = async (edit: (state: Record<string, unknown>) => void) => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk", capabilities: ["setup"] });
+    for (const method of ["sessions.subscribe", "environment.subscribe"]) wire.answer(method, () => undefined);
+    const documents = inMemoryDocuments();
+    const secrets = inMemorySecrets();
+    const runtimeOn = () => {
+      const platform = inMemoryPlatform({ clock, documents, secrets, fetch: wire.fetch, webSocket: wire.webSocket });
+      const { runtime } = createRuntimeWithSeams(platform);
+      onTestFinished(() => runtime.close());
+      return { platform, runtime };
+    };
+    const first = runtimeOn();
+    await first.runtime.start();
+    const adding = first.runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const environment = await subscription(wire, "environment.subscribe");
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account")] });
+    environment.synchronized(3);
+    await adding;
+    await first.runtime.close();
+
+    // The stream's document: `{format, sequence, snapshot}`, the kind's stored form `{status, setup}` in it.
+    const key = `streams.${wire.environmentId}.environment`;
+    const document = structuredClone(documents.entries()[key]) as { sequence: number; snapshot: Record<string, unknown> };
+    expect(document.sequence).toBe(3);
+    edit(document.snapshot);
+    await documents.set(key, document);
+
+    const again = runtimeOn();
+    const starting = again.runtime.start();
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const resumed = await subscription(wire, "environment.subscribe");
+    await starting;
+    return { again, afterSequence: resumed.params["afterSequence"] };
+  };
+
+  it("read from a cached document this build wrote, and the stream resubscribes from its cursor", async () => {
+    const { again, afterSequence } = await reopened(() => undefined);
+    expect(afterSequence).toBe(3);
+    expect(again.platform.reported).toEqual([]);
+  });
+
+  it("are none in a cached document from before them, which does not read, so the stream subscribes from nothing rather than read as never checked what was", async () => {
+    const { again, afterSequence } = await reopened((state) => {
+      delete state["setup"];
+    });
+    expect(afterSequence).toBe(0);
+    expect(again.platform.reported).toHaveLength(1);
   });
 });
 
