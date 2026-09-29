@@ -14,10 +14,13 @@ import {
   isLive,
   lastReply,
   liveTasks,
+  oneOffMessage,
   outsideWorkspace,
   quietFor,
   readQueueNow,
+  runOneOff,
   sendMessage,
+  shellLine,
   stopCall,
   transcriptRows,
   ttlWords,
@@ -56,7 +59,7 @@ import { useAnswers } from "./cards/answers.js";
 import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
-import { parseCommand, shellLine } from "./commands/parse.js";
+import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
@@ -112,7 +115,7 @@ import { StatusLine } from "./status/status-line.js";
 import { useStatus } from "./status/use-status.js";
 import { editCalls, rowFile } from "./transcript/targets.js";
 import { heldApart, keyBytes } from "./terminal/keys.js";
-import { oneOffMessage, runOneOff } from "./terminal/one-off.js";
+import { createScreen } from "./terminal/screen.js";
 import { useRawInput } from "./terminal/raw-input.js";
 import { useTerminalPane } from "./terminal/use-terminal.js";
 import {
@@ -1038,7 +1041,7 @@ export const App = (props: AppProps) => {
     record();
     const running = `Running ${shell.command} on ${names.get(target.environmentId) ?? "the environment"}…`;
     say(running);
-    void runOneOff({ runtime, clock, newCommandId: props.newCommandId, newTerminalId: terminal.oneOffId }, target, shell.command).then((result) => {
+    void runOneOff({ runtime, clock, newCommandId: props.newCommandId, newTerminalId: terminal.oneOffId, screens: createScreen }, target, shell.command).then((result) => {
       if (quit.signal.aborted) return;
       if (!result.ok) return say(`Not run: ${result.line}`);
       // Up to a minute later: the session open now, and the send that knows it, not this render's.

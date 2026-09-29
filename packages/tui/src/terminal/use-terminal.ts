@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { Runtime, TerminalHandle, TerminalOutput, TerminalStatus } from "@agent-harness/client-runtime";
+import { closeTerminal as closeById, reusableTerminal, shownEnv, type Runtime, type TerminalHandle, type TerminalOutput, type TerminalStatus } from "@agent-harness/client-runtime";
 import { ONE_OFF_LINE } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import type { Span } from "../transcript/lines.js";
 import { forwarded, pasted } from "./keys.js";
-import { closeTerminal as closeById, shownEnv } from "./one-off.js";
 import { createScreen, type Screen } from "./screen.js";
 
 /**
@@ -26,9 +25,9 @@ import { createScreen, type Screen } from "./screen.js";
  *   stopped.
  * - **`!`** (`run`) opens a terminal of its own for the command, shown in
  *   the pane as the shell is; the command rides the terminal's variables
- *   (`one-off.ts`). When it exits its terminal is closed and the pane keeps
- *   what it showed, marked with how it ended, until a key in the pane, or
- *   another pane, takes it away. A `!` command the pane goes from runs on
+ *   (the client runtime's `runOneOff`). When it exits its terminal is
+ *   closed and the pane keeps what it showed, marked with how it ended,
+ *   until a key in the pane, or another pane, takes it away. A `!` command the pane goes from runs on
  *   unseen, its terminal closed with a line when it exits.
  * - **Sizes**: the pane's size is sent when it changes and when the
  *   terminal is found at another; one that could not be sent (the
@@ -373,7 +372,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       if (entry.closed) return;
       if (!listed.ok) return failed(entry, listed.error.message);
       // The newest the session has that still runs and is not a one-off's: the one a person was using.
-      const running = listed.result.terminals.filter((t) => t.exitCode === null && !oneOffs.current.has(t.id.toLowerCase())).at(-1);
+      const running = reusableTerminal(listed.result.terminals, oneOffs.current);
       if (running) return attach(entry, running.id, { cols: running.cols, rows: running.rows });
       const id = newTerminalId();
       const asked = entry.size;
