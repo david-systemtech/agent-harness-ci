@@ -3,7 +3,6 @@ import {
   ENVIRONMENT_STREAM_KIND,
   invalidParams,
   referenceLocator,
-  type ErrorOf,
   type KeyManagerConnectionRecord,
   type KeyManagerMovedPayload,
   type KeyManagerMoveItemKind,
@@ -115,6 +114,8 @@ export interface KeyManagerMoves {
   /** `keyManagers.move.list`: every item holding a stored value, with its target on each connection that has one. */
   list(): ResultOf<"keyManagers.move.list">;
   readonly move: PreparedCommand<"keyManagers.move">;
+  /** `keyManagers.move.copyValue`: the stored value of an item a Move answered `cannot_write`, once. */
+  readonly copyValue: PreparedCommand<"keyManagers.move.copyValue">;
   /** After startup's gate: deletes again every stored value a Move left behind, recording each deleted; settles once each was tried. */
   deleteLeftBehind(): Promise<void>;
 }
@@ -151,6 +152,14 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     turn = answer.catch(() => undefined);
     return answer;
   };
+
+  /**
+   * The copies offered (#372): each item a Move answered `cannot_write`, on
+   * its connection, until its value is copied. Held in memory: a start
+   * offers none, and a Move answers `cannot_write` again.
+   */
+  const offered = new Set<string>();
+  const offerOf = (connectionId: string, item: KeyManagerMoveItemRef): string => JSON.stringify([connectionId, item.kind, item.id]);
 
   /** Each item holding a stored value, with its source. */
   const everyItem = (): { readonly source: MoveSource; readonly item: MoveSourceItem }[] =>
@@ -189,16 +198,26 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     const release = scrub.register(stored.value, { owner: `key-manager:move:${source.kind}:${item.id}` });
     try {
       const said = (message: string): string => scrub.scrubOutput(message);
+      const keeps = `the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token`;
+      // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
+      const checked = await login.provider.canWrite(login.target, login.token, { mount: reference.mount, path: reference.path }, AbortSignal.timeout(budgetMs));
+      if (checked.outcome !== "checked") {
+        return { result: failed(ref, "write", false, { code: WRITE_CODES[checked.outcome], message: `${said(checked.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
+      }
+      if (!checked.writable) {
+        offered.add(offerOf(connectionId, ref));
+        const message = `The login of ${record.label} may not write ${named}: nothing was written, and ${keeps}. Copy the value to paste it there by hand, then verify it to finish the move.`;
+        return { result: failed(ref, "write", false, { code: "cannot_write", message, data: { connectionId, reference } }), event: null };
+      }
+      // `added` is the environment's day.
       const fields = { note: item.note, service: item.service, added: clock.now().toISOString().slice(0, 10) };
-      // The write's budget runs on the wall clock, never the environment's, which a test may hold still; `added` is the environment's day.
       const written = await login.provider.write(login.target, login.token, { reference, value: stored.value, fields, overwrite }, AbortSignal.timeout(budgetMs));
       if (written.outcome === "exists") {
-        const message = `A different value is at ${named} already: nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token. Move it with overwrite to replace that value.`;
+        const message = `A different value is at ${named} already: nothing was written, and ${keeps}. Move it with overwrite to replace that value.`;
         return { result: failed(ref, "write", false, { code: "conflict", message, data: { reason: "target_exists", connectionId, reference } }), event: null };
       }
       if (written.outcome !== "written") {
-        const message = `${said(written.message)} Nothing was written, and the ${ITEM_KINDS[source.kind]} ${item.name} keeps its stored token.`;
-        return { result: failed(ref, "write", false, { code: WRITE_CODES[written.outcome], message, data: { connectionId } }), event: null };
+        return { result: failed(ref, "write", false, { code: WRITE_CODES[written.outcome], message: `${said(written.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
       }
       const leftCopy = `The copy written to ${named} and the stored token of the ${ITEM_KINDS[source.kind]} ${item.name} are both left in place.`;
       const back = await registry.resolve({ reference, owner: `key-manager:move:${source.kind}:${item.id}`, purpose: "read back a move" });
@@ -235,16 +254,24 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     throw new ContractError(invalidParams([{ code: "custom", path: [...path], message }], message));
   };
 
+  /** The handler of a command refused with `rejected`, whose code is one of the method's. */
   const rejecting =
-    (rejected: CommandRejection<ErrorOf<"keyManagers.move">["code"]>): MethodHandler<"keyManagers.move"> =>
-    () => ({ aggregate: stream, rejected });
+    <Code extends string>(rejected: CommandRejection<Code>) =>
+    (): { readonly aggregate: StreamRef; readonly rejected: CommandRejection<Code> } => ({ aggregate: stream, rejected });
+
+  /** The refusal of a connection the environment does not hold. */
+  const noConnection = (connectionId: string): CommandRejection<"not_found"> => ({
+    code: "not_found",
+    message: `No key-manager connection ${connectionId} is on this environment.`,
+    data: { kind: "key_manager_connection", connectionId },
+  });
 
   const move: KeyManagerMoves["move"] = {
     prepare: (params, context) =>
       inTurn(async (): Promise<MethodHandler<"keyManagers.move">> => {
         const connectionId = params.connectionId.toLowerCase();
         const held = connections.readable(connectionId);
-        if (held === null) return rejecting({ code: "not_found", message: `No key-manager connection ${connectionId} is on this environment.`, data: { kind: "key_manager_connection", connectionId } });
+        if (held === null) return rejecting(noConnection(connectionId));
         const { record, login } = held;
         if (record.provider !== "openbao") {
           return rejecting({ code: "provider_unavailable", message: `This environment cannot move stored tokens into ${PROVIDER_NAMES[record.provider]} yet.`, data: { provider: record.provider } });
@@ -280,6 +307,36 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
       }),
   };
 
+  const copyValue: KeyManagerMoves["copyValue"] = {
+    prepare: (params, context) =>
+      inTurn(async (): Promise<MethodHandler<"keyManagers.move.copyValue">> => {
+        const connectionId = params.connectionId.toLowerCase();
+        const held = connections.readable(connectionId);
+        if (held === null) return rejecting(noConnection(connectionId));
+        const ref = refOf(params.item.kind, params.item.id.toLowerCase());
+        const source = sources.get(ref.kind);
+        const item = source?.items().find((each) => each.id === ref.id);
+        const none = (message: string) => rejecting({ code: "not_found", message, data: { ...ref } });
+        if (source === undefined || item === undefined) return none(`No ${ITEM_KINDS[ref.kind]} ${ref.id} holds a stored token on this environment.`);
+        const offer = offerOf(connectionId, ref);
+        if (!offered.has(offer)) {
+          return none(`No copy of the stored token of the ${ITEM_KINDS[ref.kind]} ${item.name} is offered on ${held.record.label}: move it first, and a Move that may not write its target offers one.`);
+        }
+        const reference = moveTarget(held.record, item.entry, source.key);
+        if (reference === null) throw new Error(`The key-manager connection ${connectionId} has no target for ${item.entry}.`);
+        // Taken now, so a second copy waits for another cannot_write; given back when this one is not accepted.
+        offered.delete(offer);
+        context.onUndo(() => void offered.add(offer));
+        const stored = await source.read(item.id);
+        if (stored === null) return none(`The ${ITEM_KINDS[ref.kind]} ${item.name} holds no stored token to copy now.`);
+        return (_params, command) => ({
+          aggregate: stream,
+          result: { item: ref, reference, value: stored.value },
+          events: [{ type: "key-manager.value-copied", payload: { connectionId, item: ref, reference, clientSessionId: command.clientSession.id } }],
+        });
+      }),
+  };
+
   return {
     register(source) {
       if (sources.has(source.kind)) throw new Error(`A Move source for ${source.kind} is registered already.`);
@@ -302,6 +359,8 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
     },
 
     move,
+
+    copyValue,
 
     async deleteLeftBehind() {
       for (const { kind, itemId, storedAt } of leftBehind(reader)) {

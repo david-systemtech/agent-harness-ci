@@ -57,9 +57,15 @@ export const list = async (client: WireClient): Promise<KeyManagerConnectionReco
 /** `keyManagers.move.list`: the items holding a stored value, with their targets (#371). */
 export const moveList = async (client: WireClient): Promise<ResultOf<"keyManagers.move.list">["items"]> => (await client.request("keyManagers.move.list", {})).items;
 
-/** Sends `keyManagers.move` for `items` (preset all) to the connection, with a fresh command id (#371). */
+/** Sends `keyManagers.move` for `items` (preset all) to the connection, with a fresh command id (#371); with `verifyOnly` (#372) it writes nothing. */
 export const move = (client: WireClient, params: Omit<ParamsOf<"keyManagers.move">, "commandId" | "items"> & Partial<Pick<ParamsOf<"keyManagers.move">, "items">>): Promise<ResponseOf<"keyManagers.move">> =>
   client.request("keyManagers.move", { commandId: randomUUID(), items: "all", ...params });
+
+/** Sends `keyManagers.move.copyValue` for one item on the connection, with a fresh command id unless given (#372). */
+export const copyValue = (
+  client: WireClient,
+  params: Omit<ParamsOf<"keyManagers.move.copyValue">, "commandId"> & Partial<Pick<ParamsOf<"keyManagers.move.copyValue">, "commandId">>,
+): Promise<ResponseOf<"keyManagers.move.copyValue">> => client.request("keyManagers.move.copyValue", { commandId: randomUUID(), ...params });
 
 /** `keyManagers.connections.verify` of one connection, or every one: the records it answers. */
 export const verify = async (client: WireClient, connectionId?: string): Promise<KeyManagerConnectionRecord[]> =>

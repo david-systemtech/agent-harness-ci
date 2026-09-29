@@ -8,7 +8,7 @@ import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { DAVID, TOKEN, added as forgeAdded, list as forgeList, rejection, saidBack, verify as forgeVerify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, move, moveList, setBasePath, verify } from "../../test/key-manager-connections.js";
+import { ROLE_ID, SECRET_ID, added, approle, copyValue, keyManagerEvents, list, move, moveList, setBasePath, verify } from "../../test/key-manager-connections.js";
 import { scriptedMoveSource, storedAtOf } from "../../test/move-sources.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { VAULT_FILE, fileVault } from "../serve/vault.js";
@@ -43,12 +43,16 @@ const WRITER = `path "personal/data/harness/*" { capabilities = ["create", "upda
 path "legacy/harness/*" { capabilities = ["create", "update", "read"] }
 path "archive/data/*" { capabilities = ["read"] }`;
 
-/** An environment connected by AppRole to a fake OpenBao with the KV mounts archive and personal (version 2) and legacy (version 1), the login writing under harness on the last two. */
-const withOpenBao = async (options: TestEnvironmentOptions = {}) => {
+/**
+ * An environment connected by AppRole to a fake OpenBao with the KV mounts
+ * archive and personal (version 2) and legacy (version 1), the login
+ * holding `policy`: preset writing under harness on the last two.
+ */
+const withOpenBao = async (options: TestEnvironmentOptions = {}, policy = WRITER) => {
   const t = await start(options);
   const bao = await fakeOpenBao(t);
   bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "writer"] });
-  bao.policy("writer", WRITER);
+  bao.policy("writer", policy);
   bao.kv("archive", 2);
   bao.kv("personal", 2);
   bao.kv("legacy", 1);
@@ -135,15 +139,16 @@ const OTHER_VALUE = "another-value-for-tests";
 const vaultKeys = async (t: TestEnvironment): Promise<readonly string[]> => fileVault(join(t.dataDir, VAULT_FILE)).keys();
 
 /**
- * An environment connected to the fake OpenBao (above), whose forge is the
- * fake forge answering the test's token as David, with a Forgejo forge
- * account holding that token pasted under the slug home.
+ * An environment connected to the fake OpenBao (above) with the login
+ * holding `policy`, whose forge is the fake forge answering the test's
+ * token as David, with a Forgejo forge account holding that token pasted
+ * under the slug home.
  */
-const withForgeAccount = async () => {
+const withForgeAccount = async (policy = WRITER) => {
   const forge: FakeForge = await startFakeForge();
   onCleanup(() => forge.close());
   forge.user(TOKEN, DAVID);
-  const setup = await withOpenBao({ forgeFetch: forge.fetch });
+  const setup = await withOpenBao({ forgeFetch: forge.fetch }, policy);
   const account = await forgeAdded(setup.client, { url: forge.origin, kind: "forgejo", slug: "home" });
   return { ...setup, forge, account };
 };
@@ -313,6 +318,110 @@ describe("keyManagers.move's refusals", () => {
     ]);
     expect(scripted.swapped.size).toBe(0);
     expect(JSON.stringify(answer)).not.toMatch(new RegExp(`${OTHER_VALUE}|${TOKEN}`));
+  });
+});
+
+/** A login that reads under harness on personal and writes only its entry forge-open there. */
+const WRITES_ONE = `path "personal/data/harness/*" { capabilities = ["read"] }
+path "personal/data/harness/forge-open" { capabilities = ["create", "update", "read"] }`;
+
+describe("a Move to a target the login cannot write", () => {
+  it("asks the key manager first, and answers that item cannot_write with nothing written, naming the connection and the target, then goes on to the next item", async () => {
+    const scripted = scriptedMoveSource();
+    const { bao, client, connection } = await withOpenBao({ moveSources: [scripted.source] }, WRITES_ONE);
+    await setBasePath(client, connection.id, "personal/harness");
+    const [locked, open] = [randomUUID(), randomUUID()];
+    scripted.hold(locked, TOKEN, "locked");
+    scripted.hold(open, OTHER_VALUE, "open");
+    const reference = { provider: "openbao", connectionId: connection.id, mount: "personal", path: "harness/forge-locked", key: "token" } as const;
+
+    const answer = await move(client, { connectionId: connection.id });
+
+    expect(answer.result?.items).toEqual([
+      {
+        item: { kind: "forge-account", id: locked },
+        outcome: "failed",
+        step: "write",
+        written: false,
+        error: {
+          code: "cannot_write",
+          message:
+            "The login of Personal OpenBao may not write OpenBao at personal/harness/forge-locked (key token): nothing was written, and the forge account scripted locked keeps its stored token. Copy the value to paste it there by hand, then verify it to finish the move.",
+          data: { connectionId: connection.id, reference },
+        },
+      },
+      expect.objectContaining({ item: { kind: "forge-account", id: open }, outcome: "moved" }),
+    ]);
+    expect(bao.requests).toContainEqual({ method: "POST", path: "sys/capabilities-self" });
+    expect(bao.requests.filter((request) => request.path === "personal/data/harness/forge-locked")).toEqual([]);
+    expect(bao.stored("personal", "harness/forge-locked")).toBeUndefined();
+    expect([...scripted.swapped.keys()]).toEqual([open]);
+    expect(await moveList(client)).toMatchObject([{ kind: "forge-account", id: locked }]);
+  });
+});
+
+/** A login that reads under harness on personal and writes nowhere. */
+const READER = `path "personal/data/harness/*" { capabilities = ["read"] }`;
+
+describe("keyManagers.move.copyValue", () => {
+  it("answers once the stored value of an item a Move answered cannot_write, with its target, appending key-manager.value-copied naming the item and the client session", async () => {
+    const { t, client, connection, account } = await withForgeAccount(READER);
+    await setBasePath(client, connection.id, "personal/harness");
+    const item = { kind: "forge-account", id: account.id } as const;
+    const reference = homeTarget(connection.id);
+    expect((await move(client, { connectionId: connection.id })).result?.items).toMatchObject([{ item, outcome: "failed", step: "write", error: { code: "cannot_write" } }]);
+    const from = t.env.log.head();
+    const commandId = randomUUID();
+
+    const copied = await copyValue(client, { connectionId: connection.id, item, commandId });
+
+    expect(copied.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect(copied.result).toEqual({ item, reference, value: TOKEN });
+    const events = await keyManagerEvents(client, from);
+    expect(events.map((event) => [event.type, event.payload])).toEqual([["key-manager.value-copied", { connectionId: connection.id, item, reference, clientSessionId: client.hello.clientSessionId }]]);
+    expect(events[0]).toMatchObject({ actor: { kind: "client_session", id: client.hello.clientSessionId }, commandId });
+
+    // Once: the same command id is answered by its receipt alone, and a new one finds no copy offered until a Move answers cannot_write again.
+    expect(await copyValue(client, { connectionId: connection.id, item, commandId })).toEqual({ receipt: copied.receipt });
+    expect(rejection((await copyValue(client, { connectionId: connection.id, item })).receipt)).toMatchObject({
+      reason: "not_found",
+      message: `No copy of the stored token of the forge account ${account.origin} is offered on Personal OpenBao: move it first, and a Move that may not write its target offers one.`,
+      data: { kind: "forge-account", id: account.id },
+    });
+    await move(client, { connectionId: connection.id });
+    expect((await copyValue(client, { connectionId: connection.id, item })).result).toEqual({ item, reference, value: TOKEN });
+  });
+
+  it("answers the value unredacted though it is held as a secret, and puts it in no event, receipt or log line", async () => {
+    // Every line handed to the logger, before its scrub: a value must never reach it at all.
+    const logged = (["log", "info", "warn", "error"] as const).map((level) => vi.spyOn(console, level));
+    onCleanup(() => logged.forEach((spy) => spy.mockRestore()));
+    const { t, client, connection, account } = await withForgeAccount(READER);
+    await setBasePath(client, connection.id, "personal/harness");
+    const item = { kind: "forge-account", id: account.id } as const;
+    await move(client, { connectionId: connection.id });
+    const commandId = randomUUID();
+
+    const copied = await copyValue(client, { connectionId: connection.id, item, commandId });
+    const replayed = await copyValue(client, { connectionId: connection.id, item, commandId });
+    const refused = await copyValue(client, { connectionId: connection.id, item });
+
+    expect(t.scrub.scrub(TOKEN)).toBe("[redacted]");
+    expect(copied.result?.value).toBe(TOKEN);
+    const events = await environmentEvents(client, 0);
+    expect(events.map((event) => event.type)).toContain("key-manager.value-copied");
+    expect(JSON.stringify([events, copied.receipt, replayed, refused, await moveList(client)])).not.toContain(TOKEN);
+    expect(JSON.stringify(logged.map((spy) => spy.mock.calls))).not.toContain(TOKEN);
+  });
+
+  it("is not_found for a connection the environment does not hold, and for an item no Move answered cannot_write on the connection", async () => {
+    const { client, connection, account } = await withForgeAccount();
+    await setBasePath(client, connection.id, "personal/harness");
+    const item = { kind: "forge-account", id: account.id } as const;
+    const elsewhere = randomUUID();
+
+    expect(rejection((await copyValue(client, { connectionId: elsewhere, item })).receipt)).toMatchObject({ reason: "not_found", data: { kind: "key_manager_connection", connectionId: elsewhere } });
+    expect(rejection((await copyValue(client, { connectionId: connection.id, item })).receipt)).toMatchObject({ reason: "not_found", data: item });
   });
 });
 
