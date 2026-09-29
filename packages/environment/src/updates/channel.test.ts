@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { Frame, UpdateSettingsPatch, UpdatesStatus } from "@agent-harness/contracts";
+import { StepResult, type EventFrame, type Frame, type UpdateSettingsPatch, type UpdatesStatus } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -72,6 +72,9 @@ const checked = async (client: WireClient, since = 0): Promise<UpdatesStatus> =>
 const listReads = (fake: FakeReleaseSource) => fake.reads().filter((request) => request.path === "/api/v1/repos/david/agent-harness/releases").length;
 
 const ok = { at: MANUAL_CLOCK_START, result: "ok" } as const;
+
+/** The manual clock's time `ms` after its start. */
+const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
 
 describe("the release source", () => {
   it("is compiled into the build as the project's Forgejo, and updates.status says where the releases are read", async () => {
@@ -431,6 +434,55 @@ describe("the Your machines step's release channel check", () => {
       failing: ["your-machines.release-channel"],
       actions: ["check-again"],
       reason: expect.stringMatching(/^The release channel has not been read in the last 24 hours: The forge at .* could not be reached/) as unknown as string,
+    });
+  });
+
+  /**
+   * Subscribes `client` to the environment stream from its start: each call answers the next result of Your machines a
+   * `setup.result-changed` notice carries, the start pass's first, as the environment checked it with nobody asking.
+   */
+  const machinesResults = async (client: WireClient): Promise<() => Promise<StepResult>> => {
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
+    const isMachinesResult = (f: Frame): f is EventFrame =>
+      f.type === "event" && f.subscription === subscription && f.event.type === "setup.result-changed" && StepResult.parse(f.event.payload).step === "your-machines";
+    return async () => StepResult.parse((await client.next(isMachinesResult)).event.payload);
+  };
+
+  const notReadYet = "The release channel has not been read yet: the environment reads it two minutes after it starts, then hourly.";
+
+  it("is checked again within a second of the channel's first read, two minutes after the start, not an hour on at its cadence, though the read appends nothing (#679)", async () => {
+    // The channel's newest is what runs: the read stages nothing, so no update notice triggers the step.
+    const { fake, t, client } = await withChannel("0.5.0");
+    fake.publish({ version: "0.5.0" });
+    await t.env.setup.startPass;
+    const next = await machinesResults(client);
+    expect(await next()).toMatchObject({ state: "needs-attention", failing: ["your-machines.release-channel"], reason: notReadYet, checkedAt: MANUAL_CLOCK_START });
+
+    t.clock.advance(2 * MINUTE);
+    // Answers once the check the clock began, the channel's first read, has ended.
+    expect((await client.request("updates.check", {})).lastCheck).toEqual({ at: after(2 * MINUTE), result: "ok" });
+    t.clock.advance(1_000);
+    expect(await next()).toMatchObject({ state: "done", failing: [], checkedAt: after(2 * MINUTE + 1_000) });
+  });
+
+  it("is checked again within a second of a check of the channel that failed, and says why it failed (#679)", async () => {
+    // No forge account for the release origin: the check cannot read the channel.
+    const fake = await releaseSource();
+    const t = await start({ harnessVersion: "0.5.0", releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    const client = await t.client();
+    await t.env.setup.startPass;
+    const next = await machinesResults(client);
+    expect(await next()).toMatchObject({ state: "needs-attention", reason: notReadYet });
+
+    t.clock.advance(2 * MINUTE);
+    const { lastCheck } = await client.request("updates.check", {});
+    expect(lastCheck).toMatchObject({ at: after(2 * MINUTE), result: "failed", reason: "no_release_access" });
+    t.clock.advance(1_000);
+    expect(await next()).toMatchObject({
+      state: "needs-attention",
+      failing: ["your-machines.release-channel"],
+      reason: `The release channel has not been read yet: ${lastCheck?.result === "failed" ? lastCheck.message : ""}`,
+      checkedAt: after(2 * MINUTE + 1_000),
     });
   });
 });
