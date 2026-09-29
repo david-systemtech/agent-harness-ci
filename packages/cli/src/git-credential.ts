@@ -31,6 +31,17 @@ import {
  * is an http one), unless `no_proxy` or `NO_PROXY` names the environment's
  * host, so under containment it passes the proxy as any host does. It loads
  * Node's built-ins and the contracts alone: git waits on it.
+ *
+ * Where the environment cannot be reached at all (the connection fails, as
+ * it does from inside a Linux sandbox, whose own network namespace has
+ * nothing on the environment's loopback port and whose `no_proxy` names
+ * loopback; #315), a `get` is answered from the slug's `FORGE_<SLUG>_TOKEN`
+ * when the process has one, as the run's process environment gave it at
+ * spawn: a rotation since is not seen there. The username is
+ * `x-access-token` for every kind, since the helper holds no login, and
+ * Forgejo and Gitea read a token given as the password whatever the
+ * username (Forgejo 16.0.3, 2026-09-29). An environment that answers, even
+ * to refuse, or does not answer in time, is never passed over.
  */
 
 /** What the verb needs of the process: git's attributes, its output streams and its environment. */
@@ -58,6 +69,15 @@ const attributesOf = (text: string): Map<string, string> => {
 
 /** Why git gets no credential, for the one line a person reads. */
 class NoCredential extends Error {}
+
+/** The environment could not be reached at all: the connection failed before any answer. */
+class Unreachable extends NoCredential {}
+
+/** The username the helper names with a token it answers from the process's own variables: GitHub's for a token, which Forgejo and Gitea take too. */
+const FALLBACK_USERNAME = "x-access-token";
+
+/** The variable the run's process environment gives the slug's token in (`FORGE_<SLUG>_TOKEN`). */
+const tokenVariable = (slug: string): string => `FORGE_${slug.toUpperCase()}_TOKEN`;
 
 /** The variable `names` hold first, lower case before upper, as curl reads them; undefined when none is set. */
 const firstSet = (env: GitCredentialContext["env"], ...names: string[]): string | undefined => names.map((name) => env[name]).find((value) => value !== undefined && value.trim() !== "");
@@ -157,7 +177,7 @@ const ask = async (action: GitCredentialAction, slug: string, attributes: Map<st
     return await post(target, proxyFor(target, context.env), secret, { action, slug, protocol, host }, signal);
   } catch (error) {
     if (signal.aborted) throw new NoCredential(`the environment at ${address} did not answer within ${Math.round((context.timeoutMs ?? GIT_CREDENTIAL_TIMEOUT_MS) / 1000)} seconds`);
-    throw new NoCredential(`the environment at ${address} did not answer (${(error as NodeJS.ErrnoException).code ?? (error as Error).message})`);
+    throw new Unreachable(`the environment at ${address} did not answer (${(error as NodeJS.ErrnoException).code ?? (error as Error).message})`);
   }
 };
 
@@ -204,6 +224,11 @@ export const gitCredential = async (args: readonly string[], context: GitCredent
     return 0;
   } catch (error) {
     if (!(error instanceof NoCredential)) throw error;
+    const token = context.env[tokenVariable(slug)];
+    if (error instanceof Unreachable && verb === "get" && token !== undefined && token !== "") {
+      context.stdout(`username=${FALLBACK_USERNAME}\npassword=${token}\n`);
+      return 0;
+    }
     return refuse(error.message);
   }
 };

@@ -61,6 +61,42 @@ export interface ProcessEnvironments {
   of(scope: ProcessEnvironmentScope): ProcessEnvironment;
 }
 
+/** git's process-only configuration: how many entries, then a key and a value each. */
+const GIT_CONFIG_COUNT = "GIT_CONFIG_COUNT";
+const GIT_CONFIG_ENTRY = /^GIT_CONFIG_(KEY|VALUE)_(\d+)$/;
+
+/** The entries `GIT_CONFIG_COUNT` announces in `env`: 0 for none, or a count that is no whole number. */
+const gitConfigCount = (env: Readonly<Record<string, string | undefined>>): number => {
+  const count = env[GIT_CONFIG_COUNT];
+  return count !== undefined && /^\d+$/.test(count) ? Number(count) : 0;
+};
+
+/**
+ * `supplied` as a holder layers it over what it inherits (#315): the
+ * process-only git configuration a supplier gives (`GIT_CONFIG_COUNT`, its
+ * `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`) numbered after the
+ * entries `inherited` holds, which it keeps, the count covering both, so a
+ * supplier's entries come after the machine's, as git reads them in order.
+ * Every other variable is as supplied; with nothing inherited, or no
+ * configuration supplied, `supplied` is answered as it is.
+ */
+export const afterInheritedGitConfig = (
+  inherited: Readonly<Record<string, string | undefined>>,
+  supplied: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> => {
+  const offset = gitConfigCount(inherited);
+  if (offset === 0 || supplied[GIT_CONFIG_COUNT] === undefined) return supplied;
+  const count = gitConfigCount(supplied);
+  const layered: Record<string, string> = {};
+  for (const [name, value] of Object.entries(supplied)) {
+    const entry = GIT_CONFIG_ENTRY.exec(name);
+    if (name === GIT_CONFIG_COUNT) layered[name] = String(offset + count);
+    else if (entry === null) layered[name] = value;
+    else if (Number(entry[2]) < count) layered[`GIT_CONFIG_${entry[1]}_${offset + Number(entry[2])}`] = value;
+  }
+  return layered;
+};
+
 /** Nothing to supply, and nothing to release. */
 const NOTHING: SuppliedVariables = { variables: {}, release: () => undefined };
 

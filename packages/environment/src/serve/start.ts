@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
-import { dirname, join, resolve as absolutePath } from "node:path";
+import { dirname, isAbsolute, join, resolve as absolutePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BOOTSTRAP_PATH,
@@ -73,7 +73,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -809,6 +809,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
+  // What git's credential helper is run from (#315): the absolute paths of the command git names (the launcher's shim, or
+  // node and the entry it runs).
+  const helperPaths = (options.harnessCommand ?? []).filter((word) => isAbsolute(word));
 
   // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
@@ -838,8 +841,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
-  // What the harness's services put into every provider process and terminal (#307): none registered until one does.
+  // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
+  // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper.
   const processEnvironments = createProcessEnvironments(injection);
+  if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -930,7 +935,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
-      providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
+      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from, where the denylist
+      // covers them (#315), are exempt too, so the sandbox lets the helper run.
+      providerDenylist: () => {
+        const denylist = readDenylistNow();
+        const helper = coveredDirectories({ ...denylistContext, denylist: () => denylist }, helperPaths);
+        return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...helper] });
+      },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...hostSeams,

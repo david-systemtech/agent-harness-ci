@@ -36,7 +36,18 @@ import type { Address } from "../serve/http.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
-import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder, type MissingOrigin } from "./forge-store.js";
+import type { ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
+import {
+  credentialGenerations,
+  forgeAccountEver,
+  isInjected,
+  listForgeAccounts,
+  liveForgeAccount,
+  originHolder,
+  primaryForgeAccount,
+  slugHolder,
+  type MissingOrigin,
+} from "./forge-store.js";
 import type { ManagedGh } from "./gh.js";
 import { keepSince } from "./verification.js";
 import { FORGE_ACTOR, createVerifier } from "./verifier.js";
@@ -49,6 +60,7 @@ import { createForgeOperations, type ForgeOperations } from "./operations.js";
 import { detectForge, type Detection } from "./detection.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 import { createForgeMoveSource } from "./move-source.js";
+import { createForgeInjection } from "./injection.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -108,6 +120,10 @@ import { createForgeMoveSource } from "./move-source.js";
  *   kept current through the operations (`pull-request-links.ts`).
  * - **Move** (#371): the forge accounts holding a pasted token are a Move
  *   source (`move-source.ts`), swapped to a reference through `update`.
+ * - **Runs reach the forge** (#315): the supplier of every provider
+ *   process's and terminal's forge variables and credential helper
+ *   (`injection.ts`), which the environment registers with its process
+ *   environment.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -146,7 +162,8 @@ export interface ForgeServiceOptions {
    * The command line that runs the `agent-harness` binary before its verb,
    * which git names as its credential helper (`git-credential <slug>`): the
    * one `serve` runs as. Absent, the harness's git fails on an origin a
-   * forge account covers, having no helper to name.
+   * forge account covers, having no helper to name, and no run or terminal
+   * is given the forge's variables (`processEnvironment` is undefined).
    */
   readonly harnessCommand?: readonly string[];
   /** The environment's loopback address, where the helper asks; undefined until it listens. */
@@ -274,6 +291,13 @@ export interface ForgeService extends ForgeOperations {
   readonly links: PullRequestLinks;
   /** The forge accounts holding a pasted token, as a Move takes them into a key manager (#371). */
   readonly moveSource: MoveSource;
+  /**
+   * The forge's part of every provider process and terminal (#315): the
+   * variables, git's helper and the run-scoped secret, which the
+   * environment registers with its process environment. Undefined when the
+   * service was given no `harnessCommand` for git to name.
+   */
+  readonly processEnvironment: ProcessEnvironmentSupplier | undefined;
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -967,6 +991,19 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     links,
 
     moveSource: createForgeMoveSource({ log, reader, vault, update }),
+
+    processEnvironment:
+      options.harnessCommand === undefined
+        ? undefined
+        : createForgeInjection({
+            accounts: () => listForgeAccounts(reader),
+            injected: isInjected,
+            generations: () => credentialGenerations(reader),
+            readCredential: readHeld,
+            secrets,
+            command: options.harnessCommand,
+            address: options.address ?? (() => undefined),
+          }),
 
     secrets,
 

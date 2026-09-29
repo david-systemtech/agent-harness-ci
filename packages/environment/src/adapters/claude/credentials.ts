@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AuthStatus } from "@agent-harness/contracts";
 import type { AdapterCredentialSpec } from "../../adapter/contract.js";
+import { afterInheritedGitConfig } from "../../adapter/process-environment.js";
 
 /**
  * How a Claude account's credential is scoped (claude-adapter spec, "The
@@ -107,7 +108,11 @@ export const CLAUDE_STRIPPED_VARIABLES = [
  *   any setting for where auto memory lives (2.1.281's resolver: this, then
  *   the settings layers from policy down, then the project directory's
  *   default), so a stray one cannot move memory out of the directory every
- *   account shares (ADR 0018, #137).
+ *   account shares (ADR 0018, #137);
+ * - every `FORGE_*`: a run's forge variables are the harness's injection's
+ *   alone (forge spec, "Runs: the injection"; #315), set again from what the
+ *   spawn is supplied, so an inherited `FORGE_URL` never names a forge the
+ *   harness does not serve.
  *
  * What the SDK itself sets (`CLAUDE_CODE_ENTRYPOINT`) or the harness sets
  * (`CLAUDE_AGENT_SDK_CLIENT_APP`) is layered on after the scrub.
@@ -126,6 +131,9 @@ export const CLAUDE_SCRUBBED_VARIABLES: readonly string[] = [
 /** The families scrubbed by pattern. */
 const SCRUBBED_PATTERNS: readonly RegExp[] = [/^ANTHROPIC_/, /^CLAUDE_CODE_USE_/, /^CLAUDE_CODE_OAUTH_/, /_TOKEN/, /_FILE_DESCRIPTOR$/];
 
+/** The forge's variables, which only the harness's injection sets (ADR 0020, #315): an inherited one would name a forge the harness does not serve. */
+const FORGE_VARIABLES = /^FORGE_/;
+
 /** Names that hold the word token and no credential: limits and thresholds the CLI reads as tuning. */
 const TOKEN_TUNING: readonly RegExp[] = [
   /_TOKENS$/,
@@ -137,8 +145,8 @@ const TOKEN_TUNING: readonly RegExp[] = [
 /** Whether a host variable is kept out of every Claude process. */
 export const isScrubbed = (name: string): boolean => {
   if (CLAUDE_SCRUBBED_VARIABLES.includes(name)) return true;
-  // The credential families go whatever else they say.
-  if (/^ANTHROPIC_|^CLAUDE_CODE_USE_|^CLAUDE_CODE_OAUTH_/.test(name)) return true;
+  // The credential families go whatever else they say, and so do the forge's variables.
+  if (/^ANTHROPIC_|^CLAUDE_CODE_USE_|^CLAUDE_CODE_OAUTH_/.test(name) || FORGE_VARIABLES.test(name)) return true;
   if (!SCRUBBED_PATTERNS.some((pattern) => pattern.test(name))) return false;
   return !TOKEN_TUNING.some((pattern) => pattern.test(name));
 };
@@ -160,7 +168,8 @@ export const ambientConfigDirectory = (host: HostEnvironment): string => {
  * A Claude process's environment: the host's, with every scrubbed variable
  * removed, then what its spawn was `supplied` (the run's process
  * environment, #307: after the scrub, so a supplied name holding `_TOKEN`
- * reaches the process), then `extra`, the harness's own, then the account's
+ * reaches the process; its git configuration numbered after the host's
+ * entries, #315), then `extra`, the harness's own, then the account's
  * directory, as the config directory and as the credential store, on top.
  * The directory is always given and always set, and the stripped variables
  * never are, whoever asks otherwise. Answers a fresh object: the SDK's `env`
@@ -178,7 +187,7 @@ export const composeRunEnvironment = (
     if (value === undefined || isScrubbed(key)) continue;
     env[key] = value;
   }
-  for (const [key, value] of [...Object.entries(supplied), ...Object.entries(extra)]) {
+  for (const [key, value] of [...Object.entries(afterInheritedGitConfig(env, supplied)), ...Object.entries(extra)]) {
     // The stripped variables are never set, whoever asks.
     if ((CLAUDE_STRIPPED_VARIABLES as readonly string[]).includes(key)) continue;
     env[key] = value;

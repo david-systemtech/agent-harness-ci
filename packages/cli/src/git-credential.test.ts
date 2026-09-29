@@ -148,6 +148,26 @@ describe("agent-harness git-credential get", () => {
     expectOneLine(answer.err, new RegExp(`${address.replaceAll(".", "\\.")} did not answer`));
   });
 
+  it("answers from its slug's FORGE_<SLUG>_TOKEN when the environment cannot be reached, as from inside a Linux sandbox's own network (#315)", async () => {
+    const route = await scripted();
+    const address = route.address;
+    await cleanups.pop()?.();
+    const answer = await helper("get", withRoute(address, { FORGE_GIT_EXAMPLE_COM_TOKEN: "token-for-tests", FORGE_TOKEN: "other-token-for-tests" }));
+    expect(answer).toEqual({ code: 0, out: "username=x-access-token\npassword=token-for-tests\n", err: "" });
+  });
+
+  it("never answers from the token variable when the environment answers, refusing, or does not answer in time", async () => {
+    const refusing = await scripted((_seen, response) => json(response, 401, { code: "unauthorized", message: "The run-scoped secret is missing, or not one this environment holds.", data: {} }));
+    const token = { FORGE_GIT_EXAMPLE_COM_TOKEN: "token-for-tests" };
+    const refused = await helper("get", withRoute(refusing.address, token));
+    expect(refused.out).toBe("quit=1\n");
+    expectOneLine(refused.err, /run-scoped secret is missing/);
+    const silent = await scripted(() => undefined);
+    const late = await helper("get", withRoute(silent.address, token), { timeoutMs: 300 });
+    expect(late.out).toBe("quit=1\n");
+    expectOneLine(late.err, /did not answer within/);
+  });
+
   it("prints quit=1 and the environment's reason when the origin is outside the secret's set, or its credential is unavailable", async () => {
     for (const [status, body] of [
       [401, { code: "unauthorized", message: "No forge account this secret names serves https://git.example.com:5526.", data: {} }],

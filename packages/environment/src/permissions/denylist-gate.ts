@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   describeDenylistMatch,
   hostOf,
@@ -210,6 +210,24 @@ export const providerDenylist = (denylist: Denylist, context: Pick<DenylistConte
     exempt: [...context.exempt],
     commandPatterns: denylist.commandPatterns.filter((entry) => entry.enabled).map(({ pattern }) => pattern),
   };
+};
+
+/**
+ * The directory of each of `paths` (absolute, as a command line names a
+ * program and its files) that an enabled path of the denylist covers
+ * outside its exempt directories, each once, in order: where a program the
+ * environment has a contained run execute is read from, git's credential
+ * helper (#315; forge spec, "Containment"), so an unattended run's sandbox,
+ * which reads the exempt directories again, lets it run.
+ */
+export const coveredDirectories = (context: DenylistContext, paths: readonly string[]): string[] => {
+  const directories: string[] = [];
+  for (const path of paths) {
+    const directory = dirname(path);
+    if (directories.includes(directory) || readDenylistCall(context, { paths: [path] }, directory).matches.length === 0) continue;
+    directories.push(directory);
+  }
+  return directories;
 };
 
 /** What the model reads when a person denies a denylisted call and gives no message of their own. */
