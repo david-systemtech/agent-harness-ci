@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SnapshotArgs",
+  "type": "object",
+  "properties": {
+    "filter": {
+      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+      "type": "string",
+      "enum": [
+        "interactive",
+        "all"
+      ]
+    },
+    "depth": {
+      "description": "How many levels of the tree to read.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "ref": {
+      "description": "Read only the subtree of the element with this ref.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "maxChars": {
+      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200000
+    }
+  },
+  "description": "What a snapshot reads: its filter, depth, focus and length."
+}

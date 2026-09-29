@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TypeValue",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The address the page has now."
+    },
+    "title": {
+      "type": "string",
+      "description": "The page's title."
+    },
+    "snapshot": {
+      "description": "The snapshot the call asked for.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The accessibility tree, one element per line with its role, name, state and value, and a ref on each element that can be acted on."
+        },
+        "totalChars": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "How long the whole snapshot is, in characters."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "Whether the text was cut at maxChars, at a line boundary."
+        }
+      },
+      "required": [
+        "text",
+        "totalChars",
+        "truncated"
+      ]
+    },
+    "challenge": {
+      "description": "The challenge the page shows, when it shows one.",
+      "type": "string",
+      "enum": [
+        "recaptcha",
+        "hcaptcha",
+        "turnstile",
+        "datadome",
+        "perimeterx",
+        "cloudflare",
+        "javascript"
+      ]
+    }
+  },
+  "required": [
+    "url",
+    "title"
+  ],
+  "description": "Where the verb left the page: its address and title, the snapshot the call asked for, and a challenge the page shows."
+}

@@ -14,10 +14,11 @@
               "account",
               "your-machines",
               "forges",
+              "browser",
               "permissions",
               "appearance"
             ],
-            "description": "A step with an entry in the step registry: account, your-machines, forges, permissions, appearance."
+            "description": "A step with an entry in the step registry: account, your-machines, forges, browser, permissions, appearance."
           },
           "state": {
             "type": "string",

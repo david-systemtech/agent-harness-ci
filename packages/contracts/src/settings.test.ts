@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTO_SETTLE_KEYS,
+  BROWSER_SETTINGS_KEYS,
   DEFAULT_THEME,
   EVENT_TYPES,
   IdleSpan,
@@ -30,7 +31,7 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335) and the theme (#391)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391) and the browser keys (#541)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -42,6 +43,7 @@ describe("the settings keys", () => {
       ...PERMISSION_SETTINGS_KEYS,
       ...UPDATE_SETTINGS_KEYS,
       "appearance.theme",
+      ...BROWSER_SETTINGS_KEYS,
     ]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
@@ -59,6 +61,15 @@ describe("the settings keys", () => {
       "updates.idleWindowMinutes": 10,
       "updates.deferralCapHours": 24,
       "appearance.theme": DEFAULT_THEME,
+      "browser.devSites": [],
+      "browser.evaluateEverywhere": false,
+      "browser.deepReadEverywhere": false,
+      "browser.reach": {},
+      "browser.headless.allowRuns": true,
+      "browser.headless.endpoint": null,
+      "browser.headless.executable": null,
+      "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 },
+      "browser.internalHosts": ["localhost", "127.0.0.1", "::1"],
     });
     for (const key of SETTINGS_KEYS) expect(SETTINGS[key].schema.safeParse(SETTINGS[key].preset).success, key).toBe(true);
   });
@@ -73,6 +84,7 @@ describe("the settings keys", () => {
       "accounts.defaultEffort",
       "providers.processIdleMinutes",
       "appearance.theme",
+      ...BROWSER_SETTINGS_KEYS,
     ]);
     for (const key of PERMISSION_SETTINGS_KEYS) {
       expect(SETTINGS[key].writtenBy, key).toBe("permissions.settings.set");
