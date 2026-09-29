@@ -1,4 +1,13 @@
-import type { SkillInvocation, SkillMemberFolder, SkillMemberProblemKind, SkillMemberWarningKind, SkillNameReason, SourceFolderReason, SourceUrlReason } from "./skill-rules.js";
+import type {
+  SkillInvocation,
+  SkillMemberFolder,
+  SkillMemberProblemKind,
+  SkillMemberWarningKind,
+  SkillNameReason,
+  SkillWhileActiveKey,
+  SourceFolderReason,
+  SourceUrlReason,
+} from "./skill-rules.js";
 
 /**
  * The published cases of the skill rules (skills spec, "The skill set" and
@@ -168,19 +177,20 @@ export const SOURCE_FOLDER_CASES: readonly SourceFolderCase[] = [
 export interface SkillMemberCase {
   /** What the case shows. */
   readonly note: string;
-  /** The frontmatter as parsed; an empty object for none. */
-  readonly frontmatter: Readonly<Record<string, unknown>>;
+  /** The frontmatter as parsed; an empty object for none, null for frontmatter that does not read as a YAML mapping. */
+  readonly frontmatter: Readonly<Record<string, unknown>> | null;
   readonly folder: SkillMemberFolder;
   readonly name: string | null;
   readonly description: string | null;
   readonly invocation: SkillInvocation;
   readonly userInvocable: boolean;
+  readonly whileActive: readonly SkillWhileActiveKey[];
   readonly problems: readonly SkillMemberProblemKind[];
   readonly warnings: readonly SkillMemberWarningKind[];
 }
 
 /** A case whose answer is an ordinary member's but for what it tests. */
-const member = (note: string, frontmatter: Readonly<Record<string, unknown>>, folder: SkillMemberFolder, answer: Partial<SkillMemberCase>): SkillMemberCase => ({
+const member = (note: string, frontmatter: Readonly<Record<string, unknown>> | null, folder: SkillMemberFolder, answer: Partial<SkillMemberCase>): SkillMemberCase => ({
   note,
   frontmatter,
   folder,
@@ -188,17 +198,20 @@ const member = (note: string, frontmatter: Readonly<Record<string, unknown>>, fo
   description: "Test-driven development.",
   invocation: "model+slash",
   userInvocable: true,
+  whileActive: [],
   problems: [],
   warnings: [],
   ...answer,
 });
 const described = { description: "Test-driven development." };
 const tdd: SkillMemberFolder = { kind: "folder", name: "tdd" };
+const review: SkillMemberFolder = { kind: "file", name: "review" };
 
 /**
  * The cases of reading a member, published as `cases/skill-member.json`:
- * its name by the member-naming rule, its description, its invocation and
- * whether it is user-invocable.
+ * its name by the member-naming rule, its description, its invocation,
+ * whether it is user-invocable and the keys it declares that act while it
+ * is active.
  */
 export const SKILL_MEMBER_CASES: readonly SkillMemberCase[] = [
   // The frontmatter name, else the folder's, else invalid.
@@ -237,4 +250,20 @@ export const SKILL_MEMBER_CASES: readonly SkillMemberCase[] = [
   member("user-invocable: false", { ...described, "user-invocable": false }, tdd, { name: "tdd", userInvocable: false }),
   member("user-invocable as the text false", { ...described, "user-invocable": "false" }, tdd, { name: "tdd" }),
   member("both", { ...described, "disable-model-invocation": true, "user-invocable": false }, tdd, { name: "tdd", invocation: "slash-only", userInvocable: false }),
+  // A command file.
+  member("a command, named by its file", described, review, { name: "review" }),
+  member("a command's frontmatter name passed over", { name: "code-review", ...described }, review, { name: "review" }),
+  member("a command file whose name fails: invalid", { name: "review", ...described }, { kind: "file", name: "Review_Notes" }, { problems: ["name"] }),
+  member("a command without a description: invalid", { "argument-hint": "[branch]" }, review, { name: "review", description: null, problems: ["description"] }),
+  member("a slash-only command", { ...described, "disable-model-invocation": true }, review, { name: "review", invocation: "slash-only" }),
+  // The keys that act while the skill is active.
+  member("hooks", { ...described, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./check.sh" }] }] } }, tdd, { name: "tdd", whileActive: ["hooks"] }),
+  member("allowed-tools as a list", { ...described, "allowed-tools": ["Bash(git status:*)", "Read"] }, tdd, { name: "tdd", whileActive: ["allowed-tools"] }),
+  member("allowed-tools as text", { ...described, "allowed-tools": "Bash(git diff:*)" }, review, { name: "review", whileActive: ["allowed-tools"] }),
+  member("both, in one order", { ...described, "allowed-tools": "Read", hooks: { Stop: [] } }, tdd, { name: "tdd", whileActive: ["hooks", "allowed-tools"] }),
+  member("empty keys flag nothing", { ...described, hooks: {}, "allowed-tools": [] }, tdd, { name: "tdd" }),
+  member("keys set to nothing flag nothing", { ...described, hooks: null, "allowed-tools": "" }, tdd, { name: "tdd" }),
+  // Frontmatter that does not read.
+  member("frontmatter that does not read", null, tdd, { name: "tdd", description: null, problems: ["frontmatter"] }),
+  member("frontmatter that does not read, in a folder that fails", null, { kind: "folder", name: "TDD" }, { description: null, problems: ["frontmatter", "name"] }),
 ];

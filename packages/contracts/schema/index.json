@@ -1215,8 +1215,36 @@
       "title": "SkillLayer"
     },
     {
+      "path": "skills/member-kind.json",
+      "title": "SkillMemberKind"
+    },
+    {
+      "path": "skills/while-active-key.json",
+      "title": "SkillWhileActiveKey"
+    },
+    {
       "path": "skills/member.json",
       "title": "SkillMember"
+    },
+    {
+      "path": "skills/member-ref.json",
+      "title": "SkillMemberRef"
+    },
+    {
+      "path": "skills/set-member.json",
+      "title": "SkillSetMember"
+    },
+    {
+      "path": "skills/choice.json",
+      "title": "SkillChoice"
+    },
+    {
+      "path": "skills/view.json",
+      "title": "SkillsView"
+    },
+    {
+      "path": "skills/skills-updated.json",
+      "title": "SkillsUpdatedPayload"
     },
     {
       "path": "skills/source-id.json",
@@ -4741,6 +4769,50 @@
     {
       "path": "methods/routines.endpoints.test/error.json",
       "title": "routines.endpoints.test error"
+    },
+    {
+      "path": "methods/skills.get/params.json",
+      "title": "skills.get params"
+    },
+    {
+      "path": "methods/skills.get/result.json",
+      "title": "skills.get result"
+    },
+    {
+      "path": "methods/skills.get/error.json",
+      "title": "skills.get error"
+    },
+    {
+      "path": "methods/skills.own.create/params.json",
+      "title": "skills.own.create params"
+    },
+    {
+      "path": "methods/skills.own.create/result.json",
+      "title": "skills.own.create result"
+    },
+    {
+      "path": "methods/skills.own.create/response.json",
+      "title": "skills.own.create response"
+    },
+    {
+      "path": "methods/skills.own.create/error.json",
+      "title": "skills.own.create error"
+    },
+    {
+      "path": "methods/skills.own.remove/params.json",
+      "title": "skills.own.remove params"
+    },
+    {
+      "path": "methods/skills.own.remove/result.json",
+      "title": "skills.own.remove result"
+    },
+    {
+      "path": "methods/skills.own.remove/response.json",
+      "title": "skills.own.remove response"
+    },
+    {
+      "path": "methods/skills.own.remove/error.json",
+      "title": "skills.own.remove error"
     }
   ],
   "cases": [
@@ -6157,6 +6229,35 @@
       "params": "methods/routines.endpoints.test/params.json",
       "result": "methods/routines.endpoints.test/result.json",
       "error": "methods/routines.endpoints.test/error.json"
+    },
+    {
+      "name": "skills.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/skills.get/params.json",
+      "result": "methods/skills.get/result.json",
+      "error": "methods/skills.get/error.json"
+    },
+    {
+      "name": "skills.own.create",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.own.create/params.json",
+      "result": "methods/skills.own.create/result.json",
+      "response": "methods/skills.own.create/response.json",
+      "error": "methods/skills.own.create/error.json"
+    },
+    {
+      "name": "skills.own.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.own.remove/params.json",
+      "result": "methods/skills.own.remove/result.json",
+      "response": "methods/skills.own.remove/response.json",
+      "error": "methods/skills.own.remove/error.json"
     }
   ]
 }

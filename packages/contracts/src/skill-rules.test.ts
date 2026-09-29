@@ -93,11 +93,19 @@ const answerOf = (entry: SkillMemberCase): MemberAnswer => {
 };
 
 /** The answer the case expects. */
-const expectedOf = ({ name, description, invocation, userInvocable, problems, warnings }: SkillMemberCase): MemberAnswer => ({ name, description, invocation, userInvocable, problems, warnings });
+const expectedOf = ({ name, description, invocation, userInvocable, whileActive, problems, warnings }: SkillMemberCase): MemberAnswer => ({
+  name,
+  description,
+  invocation,
+  userInvocable,
+  whileActive,
+  problems,
+  warnings,
+});
 
 describe("reading a member's name, description and invocation", () => {
   /** A member folder's case, with everything but what it tests at the answer an ordinary member gets. */
-  const member = (note: string, frontmatter: Record<string, unknown>, folder: SkillMemberCase["folder"], answer: Partial<SkillMemberCase>): SkillMemberCase => ({
+  const member = (note: string, frontmatter: Record<string, unknown> | null, folder: SkillMemberCase["folder"], answer: Partial<SkillMemberCase>): SkillMemberCase => ({
     note,
     frontmatter,
     folder,
@@ -105,12 +113,14 @@ describe("reading a member's name, description and invocation", () => {
     description: "Test-driven development.",
     invocation: "model+slash",
     userInvocable: true,
+    whileActive: [],
     problems: [],
     warnings: [],
     ...answer,
   });
   const described = { description: "Test-driven development." };
   const tdd = { kind: "folder", name: "tdd" } as const;
+  const review = { kind: "file", name: "review" } as const;
 
   const cases: Record<string, SkillMemberCase[]> = {
     "names a member by its frontmatter name when that passes, else its folder's name, else leaves it invalid": [
@@ -157,6 +167,25 @@ describe("reading a member's name, description and invocation", () => {
       member("user-invocable as the text false", { ...described, "user-invocable": "false" }, tdd, { name: "tdd" }),
       member("both", { ...described, "disable-model-invocation": true, "user-invocable": false }, tdd, { name: "tdd", invocation: "slash-only", userInvocable: false }),
     ],
+    "names a command file by its file alone, its frontmatter's name passed over": [
+      member("a command, named by its file", described, review, { name: "review" }),
+      member("a command's frontmatter name passed over", { name: "code-review", ...described }, review, { name: "review" }),
+      member("a command file whose name fails: invalid", { name: "review", ...described }, { kind: "file", name: "Review_Notes" }, { problems: ["name"] }),
+      member("a command without a description: invalid", { "argument-hint": "[branch]" }, review, { name: "review", description: null, problems: ["description"] }),
+      member("a slash-only command", { ...described, "disable-model-invocation": true }, review, { name: "review", invocation: "slash-only" }),
+    ],
+    "flags the frontmatter keys that act while the skill is active: hooks and allowed-tools": [
+      member("hooks", { ...described, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./check.sh" }] }] } }, tdd, { name: "tdd", whileActive: ["hooks"] }),
+      member("allowed-tools as a list", { ...described, "allowed-tools": ["Bash(git status:*)", "Read"] }, tdd, { name: "tdd", whileActive: ["allowed-tools"] }),
+      member("allowed-tools as text", { ...described, "allowed-tools": "Bash(git diff:*)" }, review, { name: "review", whileActive: ["allowed-tools"] }),
+      member("both, in one order", { ...described, "allowed-tools": "Read", hooks: { Stop: [] } }, tdd, { name: "tdd", whileActive: ["hooks", "allowed-tools"] }),
+      member("empty keys flag nothing", { ...described, hooks: {}, "allowed-tools": [] }, tdd, { name: "tdd" }),
+      member("keys set to nothing flag nothing", { ...described, hooks: null, "allowed-tools": "" }, tdd, { name: "tdd" }),
+    ],
+    "leaves a member whose frontmatter does not read invalid, the problem named, and names it by its folder": [
+      member("frontmatter that does not read", null, tdd, { name: "tdd", description: null, problems: ["frontmatter"] }),
+      member("frontmatter that does not read, in a folder that fails", null, { kind: "folder", name: "TDD" }, { description: null, problems: ["frontmatter", "name"] }),
+    ],
   };
 
   describe.each(Object.entries(cases))("%s", (_, table) => {
@@ -175,6 +204,8 @@ describe("reading a member's name, description and invocation", () => {
     ]);
     const warned = readSkillMember({ name: "test-driven", ...described }, tdd);
     expect(warned.warnings[0]?.message).toMatch(/test-driven.*tdd/);
+    expect(readSkillMember(described, { kind: "file", name: "Review_Notes" }).problems[0]?.message).toMatch(/file's name "Review_Notes"/);
+    expect(readSkillMember(null, tdd).problems[0]?.message).toMatch(/frontmatter/);
   });
 
   it.each(SKILL_MEMBER_CASES.map((entry) => [entry.note, entry] as const))("holds for the published case: %s", (_note, entry) => {

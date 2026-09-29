@@ -6,10 +6,11 @@
     "kind": {
       "type": "string",
       "enum": [
+        "frontmatter",
         "name",
         "description"
       ],
-      "description": "What is wrong: name (neither its frontmatter name nor its folder's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+      "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
     },
     "message": {
       "type": "string",
