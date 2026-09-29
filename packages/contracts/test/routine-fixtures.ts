@@ -368,7 +368,7 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
     valid: [webhookResult, webhookTest],
     invalid: [{ ...webhookResult, version: 2 }, { ...webhookResult, routine: null }, { ...webhookTest, routine: webhookResult.routine }, { ...webhookResult, text: "x".repeat(16_001) }],
   },
-  "routines/conflict-reason.json": { valid: ["name_taken", "firing_running"], invalid: ["exists", ""] },
+  "routines/conflict-reason.json": { valid: ["name_taken", "exists", "firing_running"], invalid: ["taken", ""] },
   "routines/import-warnings.json": {
     valid: [{ attention: [], workspace: null }, { attention: ["account_missing", "script_missing"], workspace: scratch }],
     invalid: [{ attention: ["broken"], workspace: null }, { attention: [] }],
