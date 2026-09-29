@@ -130,6 +130,27 @@ describe("keyManagers.connections.verify", () => {
     ]);
   });
 
+  it("is seen whole once the base path it suggests is answered, never before: a client reading the records on its event reads the suggestion", async () => {
+    const { t, bao, client } = await withOpenBao();
+    bao.kv("personal", 2);
+    const connection = await connected({ bao, client });
+    let answer = (): void => undefined;
+    bao.delay("GET sys/internal/ui/mounts", new Promise<void>((resolve) => (answer = resolve)));
+    const from = t.env.log.head();
+
+    const verifying = verify(client, connection.id);
+    await vi.waitFor(() => expect(bao.requests.map((request) => request.path)).toContain("sys/internal/ui/mounts"), EVENTUALLY);
+    // Asked for its suggestion, not yet answered: nothing the verification found is recorded or answered.
+    expect(await keyManagerEvents(client, from)).toEqual([]);
+    expect(await list(client)).toEqual([connection]);
+
+    answer();
+    const found: KeyManagerConnectionRecord = { ...connection, policies: FLAGGED, canMint: true, verifiedAt: MANUAL_CLOCK_START, suggestedBasePath: "personal/harness" };
+    expect(await verifying).toEqual([found]);
+    expect((await keyManagerEvents(client, from)).map((event) => event.type)).toEqual(["key-manager.connection.verified"]);
+    expect(await list(client)).toEqual([found]);
+  });
+
   it("appends nothing when it finds nothing new, keeping when it was verified beside the record and never moving when the status last changed", async () => {
     const { t, bao, client } = await withOpenBao();
     const connection = await connected({ bao, client });
