@@ -1,12 +1,14 @@
 import { STEP_REGISTRY, type RegisteredStepId, type Step } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../src/permissions/step-checks.js";
 import type { CheckedStep, StateChecker } from "../src/setup/check.js";
+import type { SetupSteps } from "../src/setup/service.js";
 
 /**
- * Scripted steps for `setup.check` through the in-process environment
- * (ADR 0031; #308): a step of the test's own under a registered step's id,
- * and a state check the test answers by hand, so an answer comes late on
- * the manual clock, or never.
+ * Scripted steps for `setup.check` and the checks the environment starts
+ * itself, through the in-process environment (ADR 0031; #308, #571): a step
+ * of the test's own under a registered step's id, and a state check the
+ * test answers by hand, so an answer comes late on the manual clock, or
+ * never, or one that answers at once what the test last set.
  */
 
 /** One call of a check answered by hand. */
@@ -50,6 +52,29 @@ export const lateCheck = (): LateCheck => {
   };
 };
 
+export interface AnsweringCheck {
+  readonly checker: StateChecker;
+  /** Sets what each call answers from now on: it holds, the line saying what does not, or an error it throws. */
+  answer(answer: StateCheckAnswer | Error): void;
+  /** How many times the check has been called. */
+  calls(): number;
+}
+
+/** A state check that answers every call at once with what the test last set, holding until told otherwise. */
+export const answeringCheck = (): AnsweringCheck => {
+  let current: StateCheckAnswer | Error = true;
+  let calls = 0;
+  return {
+    checker: () => {
+      calls += 1;
+      if (current instanceof Error) throw current;
+      return current;
+    },
+    answer: (answer) => void (current = answer),
+    calls: () => calls,
+  };
+};
+
 /**
  * A step of the test's own under a registered step's id and home row: it
  * writes no settings, and has the given state checks, the local budget, an
@@ -68,3 +93,10 @@ export const scriptedStep = (id: RegisteredStepId, parts: Partial<Omit<Step, "id
   triggers: [],
   ...parts,
 });
+
+/**
+ * No step: for a suite that counts a feature's own work, a forge's requests
+ * or its verifications, which the Forges step's check, run on start, on its
+ * cadence and on its triggers (#571), would add to.
+ */
+export const NO_SETUP_STEPS: SetupSteps = { steps: [], stateChecks: {} };
