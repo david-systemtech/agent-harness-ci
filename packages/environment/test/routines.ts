@@ -9,8 +9,10 @@ import {
   type Registry,
   type ResponseOf,
   type RoutineDefinitionInput,
+  type RoutineEntry,
 } from "@agent-harness/contracts";
 import type { z } from "zod";
+import type { EventEnvelope as LogEvent } from "../src/event-log/event-log.js";
 import type { TestEnvironment } from "./helper.js";
 import type { WireClient } from "./wire-client.js";
 
@@ -84,3 +86,49 @@ export const routineUpdates = async (client: WireClient, afterSequence: number):
     events.push((frame as EventFrame).event);
   }
 };
+
+/** Sends `routines.runNow` with a fresh command id unless one is given; resolves with what its response carries. */
+export const runNow = async (client: WireClient, routineId: string, params: { commandId?: string; withPreCheck?: boolean } = {}): Promise<ResponseOf<"routines.runNow">> =>
+  registry["routines.runNow"].response.parse(await client.request("routines.runNow", { commandId: randomUUID(), routineId, ...params })) as ResponseOf<"routines.runNow">;
+
+/** The entry id a run now was answered with; throws unless it was accepted. */
+export const ranNow = async (client: WireClient, routineId: string): Promise<string> => {
+  const answer = await runNow(client, routineId);
+  if (answer.result === undefined) throw new Error(`routines.runNow was not applied: ${JSON.stringify(answer.receipt)}`);
+  return answer.result.entryId;
+};
+
+/** A routine's history as `routines.history` answers it, newest first. */
+export const history = async (client: WireClient, routineId: string, page: { before?: string; limit?: number } = {}): Promise<RoutineEntry[]> =>
+  (await client.request("routines.history", { routineId, ...page })).entries;
+
+/**
+ * Resolves with the first event on the routine's stream that `match`
+ * accepts, once it is on the log: heard as it commits, or read when it is
+ * there already. It waits on the event itself, never on a time budget.
+ */
+export const untilRoutineEvent = (t: TestEnvironment, routineId: string, match: (event: LogEvent) => boolean): Promise<LogEvent> =>
+  new Promise((resolve) => {
+    let done = false;
+    const settle = (): void => {
+      const found = done ? undefined : t.env.log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }).find(match);
+      if (found === undefined) return;
+      done = true;
+      stop();
+      resolve(found);
+    };
+    const stop = t.env.log.subscribe(settle);
+    settle();
+  });
+
+/** The entry's record once it has one: its `routine.firing-ended`, or its `routine.skipped`. */
+export const untilSettled = (t: TestEnvironment, routineId: string, entryId: string): Promise<LogEvent> =>
+  untilRoutineEvent(
+    t,
+    routineId,
+    (event) => (event.type === "routine.firing-ended" && event.payload["firingId"] === entryId) || (event.type === "routine.skipped" && event.payload["skipId"] === entryId),
+  );
+
+/** The firing's `routine.firing-started`, once it is on the log. */
+export const untilStarted = (t: TestEnvironment, routineId: string, firingId: string): Promise<LogEvent> =>
+  untilRoutineEvent(t, routineId, (event) => event.type === "routine.firing-started" && event.payload["firingId"] === firingId);

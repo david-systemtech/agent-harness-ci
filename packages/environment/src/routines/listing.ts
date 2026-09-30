@@ -27,7 +27,7 @@ export interface RoutineAccounts {
  * now: the live account signed in as its identity, whatever it reads now, or
  * for null the environment's default account; null when there is none.
  */
-const routineAccount = (identity: AccountIdentity | null, { reader, accounts }: RoutineAccounts): AccountFacts | null => {
+export const routineAccount = (identity: AccountIdentity | null, { reader, accounts }: RoutineAccounts): AccountFacts | null => {
   const id = identity === null ? accounts.defaultId() : (accountByIdentity(reader, identity)?.id ?? null);
   return id === null ? null : accounts.facts(id);
 };
