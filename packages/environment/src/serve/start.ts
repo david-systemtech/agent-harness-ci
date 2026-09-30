@@ -57,10 +57,11 @@ import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import { composeInstructions } from "../instructions/composer.js";
+import { composeInstructions, type OrientationSeam } from "../instructions/composer.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { environmentSection } from "../instructions/environment-section.js";
 import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
+import { createInstructionStore, instructionsProjector, ownedInstructionsLayer } from "../instructions/store.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector, listAccountStandings } from "../accounts/account-store.js";
 import { accountsSection } from "../accounts/orientation.js";
@@ -176,7 +177,8 @@ import { createMethodTable, type MethodTable } from "./methods.js";
 import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { createTrash } from "./trash.js";
-import { fileVault, holdVault, VAULT_FILE, type Vault } from "./vault.js";
+import { chooseVault, loadKeychainBinding } from "./keychain.js";
+import { holdVault, type Vault } from "./vault.js";
 
 /** The harness version the environment reports: its own package's, read from `src/` and `dist/` alike. */
 export const HARNESS_VERSION: string = (
@@ -281,7 +283,13 @@ export interface EnvironmentOptions {
   readonly user?: UserCheck;
   /** Preset: the IPC channel of a launcher that spawned the environment, else nothing (`processLauncherChannel`). */
   readonly launcher?: LauncherChannel;
-  /** Preset: the file vault in the data directory. Every entry is registered with the scrub registry while the environment holds it. */
+  /**
+   * Preset: the one the vault chooser picks (#364), which the start logs in
+   * one line with why: the OS keychain on macOS and Windows under the
+   * user's launch agent or logon task, where the binding loads and answers,
+   * the file vault in the data directory otherwise. Every entry is registered
+   * with the scrub registry while the environment holds it.
+   */
   readonly vault?: Vault;
   /** Registered and caught up from their cursors in the `projectors` step, after the environment's own (the session list). */
   readonly projectors?: readonly Projector[];
@@ -373,6 +381,12 @@ export interface EnvironmentOptions {
    * Preset: none.
    */
   readonly orientationSections?: readonly OrientationSection[];
+  /**
+   * The orientation block in place of the OrientationRenderer's (#505): what
+   * the composer's user layer opens with and the Orientation row renders.
+   * Tests give their own. Preset: the renderer's.
+   */
+  readonly orientation?: OrientationSeam;
   /**
    * What this environment can enforce (#133), probed once as the adapter
    * host starts: its capability flags, the containment default's preset and
@@ -724,6 +738,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       routinesProjector,
       lookProjector,
       trustProjector,
+      instructionsProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -753,7 +768,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
-    const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
+    const { vault: chosen, reason } =
+      options.vault === undefined
+        ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding: loadKeychainBinding })
+        : { vault: options.vault, reason: undefined };
+    const vault = await holdVault(chosen, scrub);
+    // Logged once every entry is registered, so the scrub on standard error takes a value a keychain's error carried.
+    if (reason !== undefined) console.error(reason);
     const key = await ensureSigningKey(vault);
     const access = createAccessLog(log, loaded.id);
     const loadedClientSessions: ClientSessions = createClientSessions({
@@ -935,7 +956,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
-  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
+  // The owned instructions (#505), after the block in the user layer while instructions.orientation is on.
+  const orientationSeam = options.orientation ?? orientation.seam;
+  const orientationOn = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["instructions.orientation"];
+  const instructionStore = createInstructionStore(log);
+  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore) });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
@@ -1197,6 +1222,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     managedOutside: updatesManagedOutside,
     runs: host.runs,
     host,
+    availability,
     activity: () => lifecycle.status().activity,
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
     settings: channelSettings,
@@ -1302,7 +1328,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...setupMethods(setup),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
-    ...instructionMethods({ host }),
+    ...instructionMethods({
+      host,
+      log,
+      environmentId: record.id,
+      store: instructionStore,
+      accounts: () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null })),
+      orientationOn,
+      // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
+      orientation: async () => {
+        const accountId = accounts.defaultId();
+        return accountId === null ? null : orientationSeam(host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
+      },
+    }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolVerifier),
@@ -1447,8 +1485,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     throw new StartupError("prepared", error);
   }
   // The settle (#344, #345): the update that began last gets its outcome from the version this start runs, and each run it cut
-  // its mark and, where it can go on, its continuation, before any client can read the stream.
-  updates.settle();
+  // its mark and, where it can go on, its continuation, before any client can read the stream. Each cut run's workspace is
+  // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
+  // opening two bounds at most, never the event loop.
+  await updates.settle();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());

@@ -247,7 +247,10 @@ status`, from a release's shim, says `Installed: no`, or the user is new).
    `v11`.
 2. **No secret service.** Start the desktop with `--password-store=basic`, or
    in a session with no keyring: pairing still works, the file begins `v10`,
-   and `desktop.log` says once that tokens are stored unprotected.
+   and `desktop.log` says once that tokens are stored unprotected. Settings,
+   Your machines: the paired environment's card says tokens are stored
+   unprotected, and this machine's card does not (#416); under step 1's
+   secret service no card says it.
 
 ## Restart to update (#355)
 

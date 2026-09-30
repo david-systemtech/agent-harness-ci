@@ -37,7 +37,12 @@ import { pickerOf, type Picker, type PickerRow } from "./picker.js";
 export interface RailActs {
   readonly runtime: Runtime;
   readonly views: readonly EnvironmentView[];
-  readonly badges: ReadonlyMap<string, Badge>;
+  /**
+   * An environment's badge, as the runtime lists the environments when it is
+   * asked: an open picker drawn again after another client renames or
+   * recolours the environment draws the new badge (#327).
+   */
+  badge(environmentId: string): Badge | undefined;
   /** The terminal's workspace (`--cwd`, else the current directory): offered on the local environment. */
   readonly workspace: string;
   say(line: string): void;
@@ -79,6 +84,12 @@ export interface RailActs {
   /** Mints the id of a session this terminal creates: a version 4 UUID (the runtime's `uuidv4`). */
   newId(): string;
 }
+
+/** A picker row's badge field: the environment's badge, or none for an environment not listed. */
+export const withBadge = (acts: Pick<RailActs, "badge">, environmentId: string): Pick<PickerRow, "badge"> => {
+  const badge = acts.badge(environmentId);
+  return badge ? { badge } : {};
+};
 
 /** A session's title as a line quotes it. */
 export const titleOf = (item: { readonly summary: { readonly title: string } }): string => `“${item.summary.title}”`;
@@ -163,7 +174,7 @@ export const groupPicker = (acts: RailActs, row: SessionRow): Picker =>
     rows: (query) => {
       // Which groups, and whether a new one or none, are the runtime's (`groupChoices`), as the window's Move to group offers them.
       const choices = groupChoices(acts.runtime.projections.sessionList.read().groups, row, query);
-      const where = (environmentIds: readonly string[]) => environmentIds.map((id) => acts.badges.get(id)?.abbreviation ?? "??").join(" ");
+      const where = (environmentIds: readonly string[]) => environmentIds.map((id) => acts.badge(id)?.abbreviation ?? "??").join(" ");
       const listed = choices.listed.map(({ heading, here }): PickerRow =>
         here
           ? { key: `group:${heading.key}`, text: heading.name, absent: "it is in it" }
@@ -209,7 +220,7 @@ export const searchPicker = (acts: RailActs, query: string): Picker =>
         .map((row): PickerRow => ({
           key: rowKey(row),
           text: row.summary.title,
-          ...(acts.badges.get(row.environmentId) && { badge: acts.badges.get(row.environmentId) as Badge }),
+          ...withBadge(acts, row.environmentId),
           detail: [whereOf(acts, row), ...row.summary.tags.map((tag) => `#${tag}`)].join(" "),
           choose: () => acts.reveal(rowKey(row)),
         })),
@@ -241,7 +252,7 @@ export const restorePicker = (acts: RailActs, query: string): Picker => {
           return {
             key: `${d.environmentId}/${d.summary.id}`,
             text: d.summary.title,
-            ...(acts.badges.get(d.environmentId) && { badge: acts.badges.get(d.environmentId) as Badge }),
+            ...withBadge(acts, d.environmentId),
             detail: `restorable until ${whenWords(new Date(d.summary.purgeAt))}`,
             choose: () => acts.send(d.environmentId, "sessions.restore", { sessionId: d.summary.id }, `Restored ${title}${whenBack(acts, d.environmentId)}.`),
           };

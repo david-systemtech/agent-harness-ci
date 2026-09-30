@@ -53,7 +53,6 @@ const RowLine = (props: { readonly line: RailRow; readonly selected: boolean }) 
         <Text>
           {selected ? <Text color="cyan">›</Text> : " "}{" "}
           <Text color={badge.colour} dimColor={dim}>
-            {badge.icon}
             {badge.abbreviation}
           </Text>{" "}
           <Text {...(glyph.colour !== undefined && !dim && { color: glyph.colour })} dimColor={dim || glyph.dim}>

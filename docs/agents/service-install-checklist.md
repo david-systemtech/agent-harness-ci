@@ -72,6 +72,36 @@ the shim, written `agent-harness` below, once its folder is on the PATH.
 11. `agent-harness service uninstall`. `schtasks /Query /TN agent-harness` finds nothing, nothing answers on port 7433, `service-task.xml`, `launcher-entry.cmd` and `bin\agent-harness.cmd` do not exist, and the data directory keeps `versions`, `service-state.json`, `launcher-version` and the environment's files.
 12. On an account whose user name has a non-ASCII character, install twice and force the second install's rerun to fail (end the task between the CLI's checks): the put-back decodes `schtasks /Query /XML` by dropping NULs, which damages non-ASCII characters, so record whether the previous task came back intact.
 
+## The keychain (#364)
+
+On macOS and Windows the environment the service runs keeps its vault in the
+OS keychain, through the `@napi-rs/keyring` prebuild, under the service
+`agent-harness <environment id>`, and lists its entries' keys (never a value)
+in `keychain.json` in the data directory. A `serve` run by hand, a Linux
+machine, and an install whose binding is missing or fails keep `vault.json`.
+Each start logs one line to the service log saying which vault it holds and
+why: `The vault is the OS keychain, service "…": …` or `The vault is the file
+…: …`. The first start the keychain answers at moves `vault.json`'s entries
+into it, each written, read back and only then removed from the file. The
+automated tests script the binding (`packages/environment/test/keychain.ts`);
+these steps prove it against the real keychain. Record what each step showed,
+per platform, in the pull request that changes the vault.
+
+### macOS
+
+1. Install the service on a data directory an earlier `serve` ran on, so `vault.json` holds at least `client-session-signing-key`, and start it. The service log's vault line says `N entries moved into it from the file`; `vault.json` holds `{}`; `keychain.json` lists the keys and no value; `security find-generic-password -s "agent-harness <environment id>" -a client-session-signing-key` (without `-w`, which would print the value) finds the entry. A client paired before still connects, so the signing key moved whole.
+2. **An entry the service wrote is read back after a restart.** Add a forge account with a test token, then restart the service (`launchctl kickstart -k gui/$(id -u)/agent-harness`). The new vault line says the file held nothing to move; the forge account is still connected, its token read back from the keychain; no Keychain prompt appeared.
+3. **Verify first: the screen locked.** Lock the screen, then from another machine over SSH `kill -9` the `main.js serve` child, which the launcher restarts. Record whether the new child's vault line names the keychain and the paired client reconnects, or whether it fell back to the file (`failed its first call`, and the keychain's words, such as `User interaction is not allowed`); record whether the login keychain locks itself after inactivity or at sleep on this Mac.
+4. **After an update.** Record whether the first start of a newer version, whose Node is another binary under `versions/<version>`, reads the entries without a Keychain prompt: macOS ties an entry's access to the program that created it.
+5. **Not under the service.** `agent-harness serve --data-dir <a new folder>` from a terminal logs that no launcher started it and keeps `vault.json`.
+
+### Windows
+
+1. Install the service on a data directory an earlier `serve` ran on and start it, as in macOS step 1. `cmdkey /list` shows a generic credential per entry whose target names `agent-harness <environment id>` (record the target's form); `vault.json` holds `{}` and `keychain.json` the keys and no value. A client paired before still connects.
+2. **An entry the service wrote is read back after a restart.** Add a forge account with a test token, sign out and back in: the logon task starts the service, its vault line says the file held nothing to move, and the forge account is still connected.
+3. **Verify first: the logon task.** Record that the first start after signing in (the task's logon trigger, `InteractiveToken`) names the keychain, and that `schtasks /Run /TN agent-harness` while the session is locked does too.
+4. Record what adding a key-manager connection whose credential is longer than 2,560 bytes says: Credential Manager holds no more in one entry, so the keychain refuses the write.
+
 ## The handover (every platform)
 
 The launcher hands over to the active version's launcher once that version has

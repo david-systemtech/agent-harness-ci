@@ -471,8 +471,8 @@ describe("/settings", () => {
     expect(frame).toMatch(/permissions\.defaultCeiling\s+acceptEdits/);
     expect(frame).toMatch(/permissions\.parkedPrompt\.ttl\s+24 hours/);
     expect(frame).toMatch(/permissions\.unattended\.bypassAcknowledgedAt\s+none\s+read-only/);
-    // Down to the Service row's keys, past the four, five, nine, two and five of the rows above it.
-    await app.press(...Array.from({ length: 25 }, () => KEY.down));
+    // Down to the Service row's keys, past the four, one, five, nine, two and five of the rows above it.
+    await app.press(...Array.from({ length: 26 }, () => KEY.down));
     await app.waitFor(/sessions\.autoSettleAfterIdle\s+14 days/);
     // The key under the cursor says what it is.
     expect(app.frame()).toContain("How long a session is quiet before auto-settle settles it");
@@ -499,8 +499,8 @@ describe("/settings", () => {
     await app.press(KEY.enter);
     await app.waitFor("providers.processIdleMinutes is 45.");
     expect(env.requests("settings.update").map((r) => r.params)).toContainEqual(expect.objectContaining({ values: { "providers.processIdleMinutes": 45 } }));
-    // A choice, through the permission settings' own method.
-    await app.press(KEY.down, KEY.enter);
+    // A choice, through the permission settings' own method, past the Instructions row's switch.
+    await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("permissions.defaultCeiling:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("permissions.defaultCeiling is auto.");
@@ -553,12 +553,12 @@ describe("/settings", () => {
     const { app } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("permissions.unattended.mode:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
     // The question stands while the list below it opens a value to type.
-    await app.press(KEY.up, KEY.up, KEY.enter);
+    await app.press(KEY.up, KEY.up, KEY.up, KEY.enter);
     await app.waitFor("New value for providers.processIdleMinutes (now 30)");
     expect(app.frame()).toContain("Make bypassPermissions the unattended mode? y/n");
     await app.paste("45");
@@ -579,7 +579,7 @@ describe("/settings", () => {
     await command(app, "/resume");
     await app.type("Deploy");
     await app.press(KEY.enter);
-    await app.waitFor("● laptop");
+    await app.waitFor("LA laptop");
     await command(app, "/settings environments.service");
     await app.waitFor("Settings on laptop");
     await app.waitFor(/sessions\.autoSettleOnMerge\s+off/);
@@ -600,8 +600,8 @@ describe("/settings by row (#389)", () => {
     // The first row with keys heads the list, the key under the cursor described.
     expect(app.frame()).toMatch(/Default account and model\n.*accounts\.defaultAccount\s+none/);
     expect(app.frame()).toContain("The account a session with none of its own runs on");
-    // Down the list, each row's label over its keys: Permissions, then Browser, then Key managers, then Your machines, then Service.
-    await app.press(...Array.from({ length: 27 }, () => KEY.down));
+    // Down the list, each row's label over its keys: Instructions, then Permissions, then Browser, then Key managers, then Your machines, then Service.
+    await app.press(...Array.from({ length: 28 }, () => KEY.down));
     await app.waitFor(/sessions\.transcriptCompactAfterDays\s+90/);
     const lines = linesOf(app.frame());
     const at = (text: string) => lines.findIndex((line) => line.startsWith(text));
@@ -652,7 +652,7 @@ describe("/settings by row (#389)", () => {
     await app.press(KEY.esc);
     await command(app, "/settings secrets");
     await app.waitFor(
-      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, access.browser, access.key-managers, environments.machines, environments.service, appearance.theme.",
+      "No settings row is named secrets. The rows holding settings: accounts.default-model, knowledge.instructions, access.permissions, access.browser, access.key-managers, environments.machines, environments.service, appearance.theme.",
     );
   });
 });

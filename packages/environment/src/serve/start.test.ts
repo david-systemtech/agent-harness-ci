@@ -358,6 +358,16 @@ describe("the environment record and the signing key", () => {
     expect(statSync(join(env.dataDir, "vault.json")).mode & 0o777).toBe(0o600);
   });
 
+  it("logs one line saying which vault it holds and why", async () => {
+    const logged: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(" ")));
+    const env = await start();
+    // No launcher started it: the file on every platform, for want of the service on macOS and Windows.
+    expect(logged.filter((line) => line.startsWith("The vault is"))).toEqual([
+      expect.stringContaining(`The vault is the file ${join(env.dataDir, "vault.json")}: the OS keychain is the vault `),
+    ]);
+  });
+
   it("uses the vault it is given instead of the file", async () => {
     const stored = new Map<string, string>();
     const env = await start({

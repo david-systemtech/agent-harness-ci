@@ -2,7 +2,7 @@ import { ACCOUNT_STATUS_WORDS, identityWords, type EnvironmentView, type NewSess
 import type { AccountRecord, ModelEntry } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import { pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
-import type { RailActs } from "./pickers.js";
+import { withBadge, type RailActs } from "./pickers.js";
 import { environmentChip, requestLabel, requestWords, sendFromStep, workspaceStep, type StepPlace } from "./workspace-step.js";
 
 /**
@@ -61,7 +61,7 @@ export const newSessionCard = (acts: RailActs, opening: CardOpening): Picker => 
     const now = projection.read();
     const read = reading();
     return [
-      environmentChip(acts.badges.get(environmentId), view),
+      environmentChip(acts, view),
       { label: "account", value: accountWords(now, read.accounts) },
       { label: "model", value: modelWords(now, read.accounts || read.models) },
       { label: "workspace", value: workspace ?? (now.workspace.value === null ? "…" : requestLabel(now.workspace.value, sessionId, rows())) },
@@ -122,11 +122,10 @@ const environmentStep = (acts: RailActs, opening: CardOpening, back: Picker | un
     rows: () =>
       projection.read().environment.options.map(({ environment, unusable }): PickerRow => {
         const id = environment.environmentId;
-        const badge = acts.badges.get(id);
         return {
           key: `environment:${id}`,
           text: nameOf(environment),
-          ...(badge && { badge }),
+          ...withBadge(acts, id),
           ...(id === current && { detail: "the card's now" }),
           ...(unusable !== null ? { absent: unusable } : { choose: () => newSessionCard(acts, { ...opening, chips: { ...opening.chips, environmentId: id }, query: "" }) }),
         };
