@@ -189,6 +189,19 @@
             "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$",
             "description": "Its place in the list: runs are handed the instructions in ascending order of it, then of id."
           },
+          "newerVersion": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The catalogue entry's current version, while it is newer than the one the copy holds, edited or not: See what changed, Replace or Keep mine. Null for Custom, a copy at the current version, or one whose entry this build's catalogue no longer holds."
+          },
           "accounts": {
             "type": "array",
             "items": {
@@ -272,16 +285,28 @@
           "scope",
           "enabled",
           "position",
+          "newerVersion",
           "accounts"
         ],
-        "description": "An owned instruction as instructions.list rows it, with the environment's accounts."
+        "description": "An owned instruction as instructions.list rows it: with its entry's newer version, if any, and the environment's accounts."
       },
       "description": "Every owned instruction, after the Orientation row, in the order runs are handed them."
+    },
+    "dismissed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 100,
+        "pattern": "^(?:setup|coding|working|custom)\\.[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "description": "An instruction entry's id: its group, a dot, then a-z, 0-9 and single hyphens, such as coding.fresh-checkout. Stable across builds and versions: an owned copy's origin names it."
+      },
+      "description": "The catalogue entries dismissed on this environment, for the Dismissed fold, in the order of their ids: none of them is held as a copy."
     }
   },
   "required": [
     "orientation",
-    "instructions"
+    "instructions",
+    "dismissed"
   ],
-  "description": "The user layer's rows: the read-only Orientation row first, then the owned instructions."
+  "description": "The user layer's rows: the read-only Orientation row first, then the owned instructions; and the dismissed catalogue entries."
 }

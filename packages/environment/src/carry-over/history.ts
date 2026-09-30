@@ -82,8 +82,9 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
 
   /** The history the adopted account's adapter reads, or why it could not be read. */
   const read = async (origin: SessionOrigin): Promise<{ readonly history: readonly HistoryEvent[] } | { readonly unreadable: string }> => {
-    const source = accountSource(host, origin.accountId);
-    if (source === null) return { unreadable: `The account ${origin.accountId} its history lives in is no longer on this environment.` };
+    const facts = host.account(origin.accountId);
+    if (facts === null) return { unreadable: `The account ${origin.accountId} its history lives in is no longer on this environment.` };
+    const source = accountSource(host, facts);
     const where = source.account.directory ?? `the account ${origin.accountId}'s directory`;
     try {
       const readHistory = capability(source.adapter.descriptor, "sessionListing", source.adapter.readHistory, "read an imported session's history", "readHistory");

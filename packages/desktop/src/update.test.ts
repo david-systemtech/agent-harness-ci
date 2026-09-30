@@ -30,9 +30,9 @@ const macBundle = (version = "0.5.0") => {
   return { applications, bundle, executable, build: () => readFileSync(executable, "utf8") };
 };
 
-/** A build of `version` as the local environment stages it, in `desktop/<version>/`: its path, version and SHA-256. */
+/** A build of `version` as the local environment stages it, in `desktop-builds/<version>/`: its path, version and SHA-256. */
 const stagedBuild = (version: string, name: string): ShellStagedBuild => {
-  const path = join(scratch(), "desktop", version, name);
+  const path = join(scratch(), "desktop-builds", version, name);
   mkdirSync(dirname(path), { recursive: true });
   const bytes = `the ${name} build of ${version}`;
   writeFileSync(path, bytes);

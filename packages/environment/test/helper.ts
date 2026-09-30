@@ -117,6 +117,8 @@ export interface TestEnvironmentOptions {
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
   /** An orientation seam in place of the OrientationRenderer's, which the composer and the Orientation row read (#505); preset: the renderer's. */
   readonly orientation?: EnvironmentOptions["orientation"];
+  /** The catalogue the suggested instructions are read from (#509); preset: this build's. */
+  readonly catalogue?: EnvironmentOptions["catalogue"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
@@ -135,6 +137,8 @@ export interface TestEnvironmentOptions {
   readonly scrub?: ScrubRegistry;
   /** The machine the state import's source reader looks at (`machinePointedAt`); preset: one whose folders hold nothing, never this box's. */
   readonly stateImportSource?: EnvironmentOptions["stateImportSource"];
+  /** The home whose `.agents/skills` Carry over's skills half reads; preset: a folder under the data directory that is not there. */
+  readonly carryOverHome?: EnvironmentOptions["carryOverHome"];
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
   readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
   /** How long a forge call and a forge account's verification may take; preset: the environment's ten seconds. */
@@ -362,6 +366,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
     ...(options.orientation !== undefined && { orientation: options.orientation }),
+    ...(options.catalogue !== undefined && { catalogue: options.catalogue }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
@@ -371,6 +376,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     stateImportSource: options.stateImportSource ?? { env: {}, platform: "linux", home: join(dataDir, "no-source-home") },
+    carryOverHome: options.carryOverHome ?? join(dataDir, "no-carry-over-home"),
     ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
     managedTools: {
       readPath: async () => EMPTY_PATH,

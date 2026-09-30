@@ -197,7 +197,9 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * (`instructions.updated`, #505), a setting (the orientation switch), an
  * account, a forge account, a key-manager connection or the managed tools
  * (what the block's sections read) `instructions.list` and
- * `instructions.preview`; every key-manager event, a connection's and Move's, the
+ * `instructions.preview`, and an owned instruction changing alone
+ * `instructions.diff` (#509: a copy's version resolved or its body edited;
+ * the catalogue changes only with the build); every key-manager event, a connection's and Move's, the
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; a probe changing managed-tool
@@ -210,7 +212,8 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * ending (`state-import.finished`, #581) the state import's detection; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
- * `browser.status`, whose unpaired flag a pairing clears.
+ * `browser.status`, whose unpaired flag a pairing clears; and a drain
+ * beginning (`environment.draining`, #417) `environment.status`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -229,6 +232,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "trust.list": TRUST_REFRESH_NOTICES,
   "instructions.list": INSTRUCTION_REFRESH_NOTICES,
   "instructions.preview": INSTRUCTION_REFRESH_NOTICES,
+  "instructions.diff": ["instructions.updated"],
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
@@ -236,6 +240,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "browser.chromes.list": ["chrome.updated"],
   "carryOver.inventory": ["carry-over.imported"],
   "stateImport.detect": ["state-import.finished"],
+  "environment.status": ["environment.draining"],
 };
 
 export interface RequestCache {

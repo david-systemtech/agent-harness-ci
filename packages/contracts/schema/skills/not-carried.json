@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillNotCarried",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "subagent",
+        "plugin"
+      ],
+      "description": "What it is: subagent, a Markdown file in the adopted directory's agents/; plugin, an installed plugin its plugins/ lists."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Its name: a subagent's file name without .md; a plugin's as its installed list names it, name@marketplace."
+    }
+  },
+  "required": [
+    "kind",
+    "name"
+  ],
+  "description": "A subagent or plugin in the adopted directory, which Carry over does not carry."
+}

@@ -1,14 +1,18 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FIRST_ROW, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ComponentType, type ReactNode } from "react";
+import { AccessPane } from "../access/access-pane.js";
 import { AccountsPane } from "../accounts/accounts-pane.js";
 import { DefaultModelPane } from "../accounts/default-model-pane.js";
 import { UsagePane } from "../accounts/usage-pane.js";
+import { APPEARANCE_PANES } from "../appearance/panes.js";
 import { EnvironmentMark } from "../connections/environment-mark.js";
+import { ForgesPane } from "../forges/forges-pane.js";
 import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
 import { PermissionsPane } from "../permissions/permissions-pane.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { YourMachines } from "../machines/your-machines.js";
+import { ServicePane } from "../service/service-pane.js";
 import { SetupPane } from "../setup/setup-pane.js";
 import { useCheckHomedSteps } from "../setup/use-setup.js";
 import { useClientVersion, useObservable, useRuntime } from "../window-context.js";
@@ -100,7 +104,11 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "accounts.usage": UsagePane,
   "environments.machines": YourMachines,
   "access.key-managers": KeyManagersPane,
+  "access.forges": ForgesPane,
   "access.permissions": PermissionsPane,
+  "environments.access": AccessPane,
+  "environments.service": ServicePane,
+  ...APPEARANCE_PANES,
 };
 
 /**
@@ -109,8 +117,9 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
  * `client` rows), About with this client's version pinned above its picker
  * as the one line that belongs to no environment, then what the row holds:
  * its built pane (Set up's checklist, the three Accounts rows, Your
- * machines' cards, Key managers, Permissions), the unbuilt row's hint, links and keys on
- * the others. Opening a step's home row checks that step.
+ * machines' cards, Key managers, Forges, Permissions, Access, Service), the
+ * unbuilt row's hint, links and keys on the others. Opening a step's home row
+ * checks that step.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);

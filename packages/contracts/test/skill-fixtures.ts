@@ -78,6 +78,24 @@ const view = {
   members: [setMember, shadowed, { ...invalidMember, shadowedBy: null }],
 };
 const commandId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const copiedSkill = { kind: "skill", name: "tdd", from: "/home/david/.claude/skills/tdd", path: "skills/tdd" };
+const copiedCommand = { kind: "command", name: "review", from: "/home/david/.claude/commands/review.md", path: "commands/review.md" };
+const offer = { name: "grill-me", from: "/home/david/.agents/skills/grill-me", url: "https://github.com/mattpocock/skills.git", folder: "skills/productivity/grill-me", follow: { kind: "branch", branch: "main" } };
+const pinnedOffer = { ...offer, url: "git@github.com:mattpocock/skills.git", folder: ".", follow: { kind: "pinned", commit } };
+const invalidOriginal = { kind: "skill", name: null, from: "C:\\Users\\david\\.claude\\skills\\Notes", problems: invalidMember.problems };
+const report = {
+  accountId: "claude-max",
+  dryRun: false,
+  copied: [copiedSkill, copiedCommand],
+  kept: [{ ...copiedSkill, name: "handoff", from: "/home/david/.agents/skills/handoff", path: "skills/handoff" }],
+  offered: [offer, pinnedOffer],
+  invalid: [invalidOriginal],
+  notCarried: [
+    { kind: "subagent", name: "reviewer" },
+    { kind: "plugin", name: "skills@mattpocock" },
+  ],
+};
+const nothingCarried = { accountId: "claude-max", dryRun: true, copied: [], kept: [], offered: [], invalid: [], notCarried: [] };
 
 /** Params and result instances for the skills methods. */
 export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
@@ -108,6 +126,16 @@ export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fix
       ],
     },
     result: { valid: [{ member: ownMember }, { member: commandMember }], invalid: [{}, { member: { ...ownMember, layer: undefined } }] },
+  },
+  "skills.carryOver": {
+    params: {
+      valid: [
+        { commandId, accountId: "claude-max", dryRun: false },
+        { commandId, accountId: "claude-max", dryRun: true },
+      ],
+      invalid: [{ commandId, accountId: "claude-max" }, { commandId, dryRun: true }, { accountId: "claude-max", dryRun: true }, { commandId, accountId: "", dryRun: false }],
+    },
+    result: { valid: [report, nothingCarried], invalid: [{ ...report, dryRun: undefined }, { ...report, offered: [{ ...offer, url: "https://github.com/mattpocock/skills?tab=readme" }] }] },
   },
   "skills.own.remove": {
     params: { valid: [{ commandId, name: "tdd" }], invalid: [{ commandId, name: "-tdd" }, { commandId }, { name: "tdd" }] },
@@ -230,6 +258,32 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
       { ...member, problems: [{ kind: "size", message: "m" }] },
       { ...member, layer: undefined },
     ],
+  },
+  "skills/carried-item.json": {
+    valid: [copiedSkill, copiedCommand],
+    invalid: [{ ...copiedSkill, name: "Tdd" }, { ...copiedSkill, from: "skills/tdd" }, { ...copiedSkill, path: "../tdd" }, { ...copiedSkill, kind: "plugin" }],
+  },
+  "skills/carry-over-offer.json": {
+    valid: [offer, pinnedOffer],
+    invalid: [
+      { ...offer, url: "https://github.com/mattpocock/skills?tab=readme" },
+      { ...offer, folder: "../skills" },
+      { ...offer, follow: { kind: "pinned", commit: "74ca5fe" } },
+      { ...offer, from: "~/.agents/skills/grill-me" },
+      { ...offer, name: null },
+    ],
+  },
+  "skills/carry-over-invalid.json": {
+    valid: [invalidOriginal, { kind: "command", name: "notes", from: "/home/david/.claude/commands/notes.md", problems: [{ kind: "description", message: "m" }] }],
+    invalid: [{ ...invalidOriginal, problems: [] }, { ...invalidOriginal, name: undefined }, { ...invalidOriginal, from: "Notes" }],
+  },
+  "skills/not-carried.json": {
+    valid: [{ kind: "subagent", name: "reviewer" }, { kind: "plugin", name: "skills@mattpocock" }],
+    invalid: [{ kind: "hook", name: "x" }, { kind: "plugin", name: "" }, { kind: "subagent" }],
+  },
+  "skills/carry-over-report.json": {
+    valid: [report, nothingCarried],
+    invalid: [{ ...report, notCarried: undefined }, { ...report, accountId: "" }, { ...report, kept: [{ ...copiedSkill, path: "/skills/tdd" }] }],
   },
   "skills/source-id.json": {
     valid: [sourceId],

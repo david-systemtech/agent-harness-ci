@@ -67,11 +67,10 @@ const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(ta
 
 /**
  * Methods a registered step writes state through that a later ticket
- * registers, each with that ticket: Carry over's skills copy, which the
- * skills half builds (#513). A method leaves this list in the change that
- * registers it, which the test below holds it to.
+ * registers, each with that ticket; none now. A method leaves this list in
+ * the change that registers it, which the test below holds it to.
  */
-const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = { "skills.carryOver": "#513" };
+const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {};
 
 /** What is wrong with the two tables together. */
 const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep[]): string[] => {
@@ -272,7 +271,7 @@ describe("the step registry", () => {
     }
   });
 
-  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions through their six commands, never skipped, with its state check and triggers left to #514 and #588", () => {
+  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its state check and triggers left to #514 and #588", () => {
     const instructions = stepOf("instructions");
     expect((STEP_ORDER as readonly string[]).indexOf("instructions")).toBe(7);
     expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [], links: [], skippable: false, budget: "local", triggers: [] });
@@ -283,7 +282,11 @@ describe("the step registry", () => {
       "instructions.setScope",
       "instructions.setEnabled",
       "instructions.move",
+      "instructions.resolveVersion",
       "instructions.remove",
+      "instructions.dismissSuggestion",
+      "instructions.restoreSuggestion",
+      "instructions.import",
     ]);
     const [check] = instructions.checks;
     expect(check?.key).toBe("instructions.orientation");

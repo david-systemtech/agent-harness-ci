@@ -9,17 +9,9 @@ import {
   type TypedCredential,
 } from "@agent-harness/client-runtime";
 import { KEY_MANAGER_AUTH_METHODS, KEY_MANAGER_PROVIDERS, type KeyManagerAuthMethod, type KeyManagerProvider } from "@agent-harness/contracts";
-import { useState, type FormEvent, type ReactNode } from "react";
-import { Button, Dialog, DialogContent, Input, Select } from "../ui/index.js";
+import { useState, type FormEvent } from "react";
+import { Button, Dialog, DialogContent, Field, Input, Select } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
-
-/** A field of a form: its name over its control. */
-export const Field = ({ label, children }: { readonly label: string; readonly children: ReactNode }) => (
-  <label className="flex flex-col gap-1 text-sm text-ink">
-    {label}
-    {children}
-  </label>
-);
 
 /** No credential typed. */
 export const NO_CREDENTIAL: TypedCredential = { roleId: "", secretId: "", password: "", token: "" };

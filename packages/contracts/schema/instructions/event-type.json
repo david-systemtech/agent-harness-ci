@@ -8,7 +8,10 @@
     "instructions.scope-set",
     "instructions.enabled-set",
     "instructions.moved",
-    "instructions.removed"
+    "instructions.version-resolved",
+    "instructions.removed",
+    "instructions.suggestion-dismissed",
+    "instructions.suggestion-restored"
   ],
-  "description": "The event types of the instructions stream: instructions.created, instructions.edited, instructions.scope-set, instructions.enabled-set, instructions.moved, instructions.removed."
+  "description": "The event types of the instructions stream: instructions.created, instructions.edited, instructions.scope-set, instructions.enabled-set, instructions.moved, instructions.version-resolved, instructions.removed, instructions.suggestion-dismissed, instructions.suggestion-restored."
 }

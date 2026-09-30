@@ -119,7 +119,7 @@ const skillFileIn = async (tree: string, folder: string): Promise<string | null>
 };
 
 /** The entries of `folder` in name order (by code unit, so every machine lists them alike), those no path can hold left out. */
-const entriesOf = async (folder: string): Promise<Dirent[]> => {
+export const entriesOf = async (folder: string): Promise<Dirent[]> => {
   const entries = await readdir(folder, { withFileTypes: true });
   return entries.filter((entry) => !UNNAMEABLE.test(entry.name)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 };
@@ -179,4 +179,25 @@ export const readCommandFolder = async (folder: string): Promise<FoundMember[]> 
     members.push(await readMember(file, { kind: "file", name }, { kind: "command", relative: entry.name }));
   }
   return members;
+};
+
+/**
+ * Reads the one skill folder at `folder`, named after `name` as a child of
+ * a folder read, following every link: Carry over's originals, which may
+ * lie anywhere a link leads. Null when it is no folder holding a
+ * `SKILL.md` file.
+ */
+export const readSkillFolderAt = async (folder: string, name: string): Promise<FoundMember | null> => {
+  const file = join(folder, SKILL_FILE);
+  if ((await kindOf(folder)) !== "directory" || (await kindOf(file)) !== "file") return null;
+  return readMember(file, { kind: "folder", name }, { kind: "skill", relative: name });
+};
+
+/**
+ * Reads the command file at `file`, following every link, as a member named
+ * by its file name `name`, without `.md`. Null when it is no file.
+ */
+export const readCommandFileAt = async (file: string, name: string): Promise<FoundMember | null> => {
+  if ((await kindOf(file)) !== "file") return null;
+  return readMember(file, { kind: "file", name }, { kind: "command", relative: `${name}${COMMAND_EXTENSION}` });
 };

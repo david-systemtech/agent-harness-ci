@@ -9,13 +9,14 @@ import {
 } from "@agent-harness/contracts";
 import type { AccountRef, ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
-import type { AppendOptions, EventLog, JsonObject, Tx } from "../event-log/event-log.js";
+import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
 import type { MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import { createSessionIn, type SessionCreationChecks } from "../sessions/methods.js";
 import { acceptAnyRunParameters } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
+import { adoptedAccount, isCarryOverRefusal, type CarryOverRefusal as Refusal } from "./adopted.js";
 import {
   accountSource,
   failureOf,
@@ -66,13 +67,6 @@ export interface CarryOverOptions {
  */
 const IMPORT_CHECKS: SessionCreationChecks = { validateRunParameters: acceptAnyRunParameters, clampMode: (mode) => mode };
 
-/** Why an account cannot be carried over: the environment does not hold it, or its directory is not adopted. */
-interface Refusal {
-  readonly code: "not_found" | "conflict";
-  readonly message: string;
-  readonly data: JsonObject;
-}
-
 /** A listed session the import will record, with what it found of its working directory. */
 interface Planned {
   readonly session: ProviderSessionInfo;
@@ -93,13 +87,8 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
 
   /** The adopted account `accountId` names with its adapter, or the refusal: not held, or not adopted. */
   const sourceOf = (accountId: string): AccountSource | Refusal => {
-    const source = accountSource(host, accountId);
-    if (source === null) return { code: "not_found", message: `No account ${accountId} is on this environment.`, data: { kind: "account", accountId } };
-    if (!source.adopted || source.account.directory === null) {
-      const message = `The account ${accountId} has a directory of the environment's own, which holds nothing to carry over; only an adopted directory does.`;
-      return { code: "conflict", message, data: { reason: "not_adopted", accountId } };
-    }
-    return source;
+    const facts = adoptedAccount((id) => host.account(id), accountId);
+    return isCarryOverRefusal(facts) ? facts : accountSource(host, facts);
   };
 
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */

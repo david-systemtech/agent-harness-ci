@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillCarriedItem",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "skill",
+        "command"
+      ],
+      "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+    },
+    "name": {
+      "type": "string",
+      "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "from": {
+      "type": "string",
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "Where the original lies: a folder or command file in the adopted directory's skills/ or commands/, or in the machine's ~/.agents/skills."
+    },
+    "path": {
+      "description": "Its path in the own directory: where it was copied to, skills/<folder> or commands/<file>; for one kept, the path of what the own directory already holds under its name.",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "name",
+    "from",
+    "path"
+  ],
+  "description": "An original skill folder or command file Carry over copied into the own directory, or kept out of it because the own directory already holds its name."
+}

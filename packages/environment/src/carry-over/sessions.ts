@@ -3,6 +3,7 @@ import type { CarryOverFailure } from "@agent-harness/contracts";
 import { capability } from "../adapter/capabilities.js";
 import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
+import type { AccountFacts } from "../runs/run-decider.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { Finding } from "../workspace/availability.js";
 
@@ -52,12 +53,10 @@ export interface AccountSource {
   readonly adapter: Adapter;
 }
 
-/** The account `accountId` names with its adapter; null for one the host does not hold. */
-export const accountSource = (host: Pick<AdapterHost, "account" | "adapters">, accountId: string): AccountSource | null => {
-  const facts = host.account(accountId);
-  if (facts === null) return null;
+/** The account `facts` describes as its adapter is handed it, with that adapter. */
+export const accountSource = (host: Pick<AdapterHost, "adapters">, facts: AccountFacts): AccountSource => {
   const adapter = host.adapters.get(facts.descriptor.provider);
-  if (adapter === undefined) throw new Error(`The adapter of the account ${accountId}, ${facts.descriptor.provider}, is not in the host.`);
+  if (adapter === undefined) throw new Error(`The adapter of the account ${facts.id}, ${facts.descriptor.provider}, is not in the host.`);
   const account: AccountRef = { id: facts.id, directory: facts.directory, ...(facts.label !== undefined && { label: facts.label }) };
   return { account, adopted: facts.adopted, adapter };
 };

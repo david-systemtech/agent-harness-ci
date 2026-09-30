@@ -222,7 +222,7 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
         case "trust.updated":
           return;
-        // An owned instruction changed (#505): the request cache reads instructions.list and instructions.preview again.
+        // An owned instruction changed (#505): the request cache reads instructions.list, instructions.preview and instructions.diff (#509) again.
         case "instructions.updated":
           return;
         // An unpaired extension seen (#547) raises none: the Browser card ticks its Load sub-step from browser.status.

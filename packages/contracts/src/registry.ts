@@ -93,11 +93,16 @@ import {
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
 import {
   instructionsCreate,
+  instructionsDiff,
+  instructionsDismissSuggestion,
   instructionsEdit,
+  instructionsImport,
   instructionsList,
   instructionsMove,
   instructionsPreview,
   instructionsRemove,
+  instructionsResolveVersion,
+  instructionsRestoreSuggestion,
   instructionsSetEnabled,
   instructionsSetScope,
   sessionsSetInstructions,
@@ -145,7 +150,7 @@ import {
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
-import { skillsGet, skillsOwnCreate, skillsOwnRemove } from "./methods/skills.js";
+import { skillsCarryOver, skillsGet, skillsOwnCreate, skillsOwnRemove } from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
 import { browserChromesList, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
 import {
@@ -257,12 +262,17 @@ export const methods = [
   commandsList,
   instructionsPreview,
   instructionsList,
+  instructionsDiff,
   instructionsCreate,
   instructionsEdit,
   instructionsSetScope,
   instructionsSetEnabled,
   instructionsMove,
+  instructionsResolveVersion,
   instructionsRemove,
+  instructionsDismissSuggestion,
+  instructionsRestoreSuggestion,
+  instructionsImport,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,
@@ -353,6 +363,7 @@ export const methods = [
   skillsGet,
   skillsOwnCreate,
   skillsOwnRemove,
+  skillsCarryOver,
   trustGet,
   trustList,
   trustDecide,

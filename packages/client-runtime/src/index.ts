@@ -131,6 +131,35 @@ export {
 } from "./key-managers/actions.js";
 export type { CopyOutcome, CopyReport, CopySource, CopyTarget } from "./copies.js";
 export {
+  FORGE_KIND_WORDS,
+  FORGE_PROBLEM_WORDS,
+  PULL_REQUEST_STATE_WORDS,
+  capabilitiesWords,
+  credentialWords,
+  forgeAccountName,
+  forgeCopyLine,
+  forgeIdentityWords,
+  forgeOriginWords,
+  forgeStatusWords,
+  primaryWords,
+  pullRequestNumber,
+  pullRequestWords,
+  shownPullRequest,
+  tokenPageWords,
+} from "./forges/words.js";
+export {
+  addFromGh,
+  addPastedForge,
+  detectForge,
+  removeForge,
+  setPrimaryForge,
+  verifyForge,
+  type Detection,
+  type ForgeOutcome,
+  type ForgeSender,
+  type PastedForge,
+} from "./forges/actions.js";
+export {
   pairingDeepLink,
   parsePairingInput,
   type PairingFailure,
@@ -542,3 +571,15 @@ export {
   type DenylistTested,
   type ReviewMarked,
 } from "./permissions/actions.js";
+export {
+  OWN_CEILING,
+  accessEventTimeWords,
+  accessEventWords,
+  clientSessionLabels,
+  clientSessionWords,
+  grantWords,
+  type ClientSessionSummary,
+} from "./access/words.js";
+export { PROGRAM_GRANT, readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
+export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";

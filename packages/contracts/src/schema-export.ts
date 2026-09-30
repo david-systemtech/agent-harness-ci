@@ -494,12 +494,14 @@ import {
   InstructionAccount,
   InstructionAlwaysOnSkill,
   InstructionBody,
+  InstructionDiff,
   InstructionId,
   InstructionOrigin,
   InstructionReach,
   InstructionTitle,
   InstructionsEventType,
   InstructionsUpdatedPayload,
+  InstructionVersionChoice,
   OrientationRow,
   OwnedInstruction,
   OwnedInstructionRow,
@@ -624,6 +626,9 @@ import {
   GitCommit,
   RunSkillSet,
   RunSkillSetMember,
+  SkillCarriedItem,
+  SkillCarryOverInvalid,
+  SkillCarryOverOffer,
   SkillChoice,
   SkillLayer,
   SkillMember,
@@ -636,6 +641,8 @@ import {
   SkillSourceBranch,
   SkillSourceFollow,
   SkillSourceId,
+  SkillNotCarried,
+  SkillsCarryOverReport,
   SkillsUpdatedPayload,
   SkillsView,
 } from "./skills.js";
@@ -1001,6 +1008,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
   { path: "skills/follow.json", title: "SkillSourceFollow", schema: SkillSourceFollow },
   { path: "skills/source.json", title: "SkillSource", schema: SkillSource },
+  { path: "skills/carried-item.json", title: "SkillCarriedItem", schema: SkillCarriedItem },
+  { path: "skills/carry-over-offer.json", title: "SkillCarryOverOffer", schema: SkillCarryOverOffer },
+  { path: "skills/carry-over-invalid.json", title: "SkillCarryOverInvalid", schema: SkillCarryOverInvalid },
+  { path: "skills/not-carried.json", title: "SkillNotCarried", schema: SkillNotCarried },
+  { path: "skills/carry-over-report.json", title: "SkillsCarryOverReport", schema: SkillsCarryOverReport },
   { path: "catalogue/skill-entry-id.json", title: "CatalogueSkillEntryId", schema: CatalogueSkillEntryId },
   { path: "catalogue/tag.json", title: "CatalogueTag", schema: CatalogueTag },
   { path: "catalogue/licence-where.json", title: "CatalogueLicenceWhere", schema: CatalogueLicenceWhere },
@@ -1147,6 +1159,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "instructions/account.json", title: "InstructionAccount", schema: InstructionAccount },
   { path: "instructions/orientation-row.json", title: "OrientationRow", schema: OrientationRow },
   { path: "instructions/owned-instruction-row.json", title: "OwnedInstructionRow", schema: OwnedInstructionRow },
+  { path: "instructions/version-choice.json", title: "InstructionVersionChoice", schema: InstructionVersionChoice },
+  { path: "instructions/diff.json", title: "InstructionDiff", schema: InstructionDiff },
   { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
   { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
   { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },
@@ -1647,9 +1661,12 @@ const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCas
 
 const serialise = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
-/** Every file of the export, by path under `schema/`: one per schema, one per case table, one per data table, and `index.json`. */
-export const jsonSchemaFiles = (): Map<string, string> => {
-  const entries = exportedSchemas();
+/**
+ * Every file of the export, by path under `schema/`: one per schema, one per
+ * case table, one per data table, and `index.json`. `entries` are the schemas
+ * it writes, the exported ones unless a test hands it edited ones.
+ */
+export const jsonSchemaFiles = (entries: readonly ExportedSchema[] = exportedSchemas()): Map<string, string> => {
   const tables = publishedCaseTables();
   const data = publishedData();
   const files = new Map<string, string>();

@@ -88,6 +88,7 @@ describe("the preload bundle", () => {
       "clipboard",
       "deepLinks",
       "dialogs",
+      "gh",
       "http",
       "installer",
       "localGrant",
@@ -111,6 +112,7 @@ describe("the preload bundle", () => {
     expect(Object.keys(shell["preview"] ?? {})).toEqual(["grant"]);
     expect(Object.keys(shell["update"] ?? {}).sort()).toEqual(["apply", "current"]);
     expect(Object.keys(shell["installer"] ?? {})).toEqual(["bundledServer"]);
+    expect(Object.keys(shell["gh"] ?? {})).toEqual(["token"]);
     expect(shell).not.toHaveProperty("tray");
   });
 

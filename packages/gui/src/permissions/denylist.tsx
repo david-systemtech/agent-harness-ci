@@ -3,7 +3,7 @@ import { DENYLIST_SECTIONS, type DenylistEntry, type DenylistSection } from "@ag
 import { useId, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogClose, DialogContent, Input, Switch } from "../ui/index.js";
 import { DenylistTest } from "./denylist-test.js";
-import { Part } from "./part.js";
+import { Part } from "../settings/part.js";
 import { useDenylist, type DenylistValues } from "./use-denylist.js";
 
 /**
