@@ -84,7 +84,8 @@ import { EXAMPLE_SNIPPETS, SNIPPETS_FILE, Snippets, toSnippetName, type SnippetT
 import { composerOf, expandedSnippet, replaced, type CommandRow } from "./composer/state.js";
 import { composerNote, highlighted, useComposer, type ComposerClipboard } from "./composer/use-composer.js";
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
-import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Paged } from "./files/views.js";
+import { previewLine } from "./files/documents.js";
+import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Page, type Paged } from "./files/views.js";
 import type { Panel } from "./pickers/panel.js";
 import { usePickers } from "./pickers/use-pickers.js";
 import { createFrameScheduler } from "./frames.js";
@@ -120,7 +121,7 @@ import { ComposerView } from "./screens/composer.js";
 import { FilesCard } from "./screens/files-card.js";
 import { OUTSIDE_COLUMN, TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
-import { PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
+import { DocumentsCard, PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
 import { useForkRewind } from "./session/use-fork-rewind.js";
@@ -283,12 +284,14 @@ type Card =
   | { readonly kind: "asks"; readonly cursor: number }
   /**
    * The pager over lines of its own (#148): a file, a diff, the terminal's scrollback, from `top` (null: the end), with a
-   * search; `back` is the card it goes back to when it closes (the files it was read from).
+   * search; `back` is the card it goes back to when it closes (the files or the documents it was read from); `copy`, a
+   * file's text as read, which `pager.copy` copies (#427).
    */
   | {
       readonly kind: "page";
       readonly title: string;
       readonly lines: readonly TranscriptLine[];
+      readonly copy?: Page["copy"];
       readonly top: number | null;
       readonly query: string;
       readonly typing: boolean;
@@ -296,6 +299,8 @@ type Card =
     }
   /** `/files`: the workspace's listing, one directory at a time (`dir`, the root ""), filtered by what is typed. */
   | { readonly kind: "files"; readonly dir: string; readonly cursor: number; readonly filter: string }
+  /** `/documents`: the session's documents, newest first, from `projections.documents` (#427). */
+  | { readonly kind: "documents"; readonly cursor: number }
   /** Esc Esc: the prompt picker of the session it was opened on; the cursor on the newest user message until a key moves it (null). */
   | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null };
 
@@ -772,6 +777,11 @@ export const App = (props: AppProps) => {
   const listing = files?.read().result ?? null;
   const fileRows = (card: { readonly dir: string; readonly filter: string }): readonly BrowseRow[] | null => (listing ? browse(listing.files, card.dir, card.filter) : null);
 
+  // The session's documents (#427), followed while `/documents` is open, so the list moves as the runs write.
+  const documents = useMemo(() => (opened ? runtime.projections.documents(opened.environmentId, opened.sessionId) : undefined), [runtime, opened]);
+  useFollow(screen.card.kind === "documents" ? documents : undefined, request);
+  const documentRows = screen.card.kind === "documents" ? (documents?.read() ?? []) : [];
+
   // The draft is the session's field (session-state spec), kept in step by the runtime's rule (`followDraft`): what is
   // typed is saved through the runtime, which waits a second after the last key; a session opened takes its draft; a
   // draft another client saved replaces this one's only while nothing has been typed over what this client last held,
@@ -999,15 +1009,19 @@ export const App = (props: AppProps) => {
     });
   };
 
+  /** Puts `text` on the clipboard and says so, calling it `name`: `/copy`'s and the pager's `y`. */
+  const copyOut = (text: string, name: string) =>
+    void clipboard.copy(text).then(
+      (outcome) => say(outcome === "none" ? "Nothing here can reach a clipboard." : `Copied ${name}.`),
+      (error: unknown) => say(`Not copied: ${messageOf(error)}`),
+    );
+
   const copy = (block: number | null) => {
     const reply = projection ? lastReply(projection) : undefined;
     if (!reply) return say("There is no reply to copy yet.");
     const text = block === null ? reply.text : codeBlocks(reply.text)[block - 1];
     if (text === undefined) return say(`The last reply has no code block ${block}.`);
-    void clipboard.copy(text).then(
-      (outcome) => say(outcome === "none" ? "Nothing here can reach a clipboard." : `Copied ${block === null ? "the last reply" : `code block ${block}`}.`),
-      (error: unknown) => say(`Not copied: ${messageOf(error)}`),
-    );
+    copyOut(text, block === null ? "the last reply" : `code block ${block}`);
   };
 
   const exportTo = (file: string | null) => {
@@ -1115,7 +1129,8 @@ export const App = (props: AppProps) => {
       (paged) => {
         if (pages.current !== asked || quit.signal.aborted) return;
         if (!paged.ok) return paged.directory === true && directory ? open(directory, undefined) : say(paged.line);
-        open({ kind: "page", title: paged.page.title, lines: paged.page.lines, top: 0, query: "", typing: false, back }, paged.note);
+        const { title, lines, copy } = paged.page;
+        open({ kind: "page", title, lines, ...(copy !== undefined && { copy }), top: 0, query: "", typing: false, back }, paged.note);
       },
       (error: unknown) => {
         if (pages.current === asked && !quit.signal.aborted) say(messageOf(error));
@@ -1283,6 +1298,10 @@ export const App = (props: AppProps) => {
         return true;
       case "diff":
         showDiff();
+        return true;
+      case "documents":
+        if (!opened) noSession();
+        else update({ card: { kind: "documents", cursor: 0 } });
         return true;
       case "picker":
         pickers.run(command.command);
@@ -1465,6 +1484,18 @@ export const App = (props: AppProps) => {
       showPage(`Reading ${row.path}…`, () => readFile(runtime, target, row.path, mainWidth), card);
       return;
     }
+    if (card.kind === "documents") {
+      const document = documentRows[clampCursor(card.cursor, documentRows.length)];
+      if (!document || !opened) return;
+      // A page or an SVG is the desktop window's preview's alone: said in one line, never read.
+      const preview = previewLine(document, projection?.summary?.workspace.path ?? null);
+      if (preview !== null) return say(preview);
+      const capability = runtime.capability(opened.environmentId, "files.read");
+      if (capability.status === "absent") return say(`Not read: ${capability.message}`);
+      const target = opened;
+      showPage(`Reading ${document.path}…`, () => readFile(runtime, target, document.path, mainWidth), card);
+      return;
+    }
     if (card.kind === "snippets") {
       const row = snippetRows()[clampCursor(card.cursor, snippetRows().length)];
       if (!row) return;
@@ -1513,6 +1544,8 @@ export const App = (props: AppProps) => {
         return snippetRows().length;
       case "files":
         return fileRows(card)?.length ?? 0;
+      case "documents":
+        return documentRows.length;
       case "prompt-picker":
         return messages.length;
       case "panel":
@@ -1697,6 +1730,7 @@ export const App = (props: AppProps) => {
       card.kind === "sessions" ||
       card.kind === "snippets" ||
       card.kind === "files" ||
+      card.kind === "documents" ||
       card.kind === "picker" ||
       card.kind === "prompt-picker" ||
       (card.kind === "panel" && !linesPanel);
@@ -1896,6 +1930,11 @@ export const App = (props: AppProps) => {
         const next = backward ? (pagerMatches.findLast((at) => at < pagerTop) ?? pagerMatches.at(-1)) : (pagerMatches.find((at) => at > pagerTop) ?? pagerMatches[0]);
         return next === undefined ? false : scroll(() => next);
       },
+      "pager.copy": () => {
+        if (!paged(card)) return false;
+        if (card.kind !== "page" || card.copy === undefined) return say(`Nothing here to copy: ${keys("pager.copy")} copies a file or a document read in the pager.`);
+        copyOut(card.copy.text, card.copy.name);
+      },
       "pager.close": () => {
         if (card.kind === "help") return update({ card: card.under });
         if (card.kind === "page") return update({ card: card.back });
@@ -2077,7 +2116,7 @@ export const App = (props: AppProps) => {
   });
 
   // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
-  const sessionCard = card.kind === "pager" || card.kind === "files" || (card.kind === "lines" && card.which !== "notices");
+  const sessionCard = card.kind === "pager" || card.kind === "files" || card.kind === "documents" || (card.kind === "lines" && card.which !== "notices");
   useEffect(() => {
     if (!projection && sessionCard) update({ card: { kind: "none" } });
   }, [projection, sessionCard]);
@@ -2136,7 +2175,12 @@ export const App = (props: AppProps) => {
       ? `The card has the keys · ${pickers.hint(card.panel)}`
       : card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "page"
         ? `The card has the keys · ${keys("pager.close")} closes it`
-        : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "files" || card.kind === "prompt-picker"
+        : card.kind === "environments" ||
+            card.kind === "sessions" ||
+            card.kind === "snippets" ||
+            card.kind === "files" ||
+            card.kind === "documents" ||
+            card.kind === "prompt-picker"
           ? `The card has the keys · ${keys("picker.leave")} closes it`
           : card.kind === "menu" || card.kind === "client-sessions"
             ? `The card has the keys · ${keys("picker.leave")} goes back`
@@ -2267,6 +2311,16 @@ export const App = (props: AppProps) => {
               filter={card.filter}
               height={Math.max(1, helpHeight - 1)}
               hint={`type to filter · ${listHint("open", "close")}`}
+            />
+          )}
+          {card.kind === "documents" && (
+            <DocumentsCard
+              documents={documentRows}
+              now={clock.now()}
+              cursor={clampCursor(card.cursor, documentRows.length)}
+              width={mainWidth}
+              height={Math.max(1, helpHeight - 1)}
+              hint={listHint("open", "close")}
             />
           )}
           {card.kind === "lines" && (

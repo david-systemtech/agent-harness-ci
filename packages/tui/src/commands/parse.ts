@@ -13,9 +13,9 @@ import type { LookField } from "./environment.js";
  * `/timeline` and `/quit`; the accounts, models, permissions, settings and
  * Set up commands (`pickers/commands.ts`, #147); with the cards, `/asks`
  * and `/notices`; with the terminal pane, `/terminal`, `/files [path]` and
- * `/diff` (#148); with the rail, `/archive`, `/pin`, `/title`, `/group`,
- * `/tag`, `/settle`, `/snooze`, `/restore`, `/search` and `/cwd`
- * (`rail/commands.ts`); with fork and rewind (ADR 0022; #232), `/rewind [n]`
+ * `/diff` (#148); `/documents`, the session's documents (#427); with the
+ * rail, `/archive`, `/pin`, `/title`, `/group`, `/tag`, `/settle`,
+ * `/snooze`, `/restore`, `/search` and `/cwd` (`rail/commands.ts`); with fork and rewind (ADR 0022; #232), `/rewind [n]`
  * (n prompts back, one by default), `/rewind undo` and `/fork [n]` (bare,
  * the whole session). A command of the shared list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
@@ -46,6 +46,7 @@ export const ANSWERED_COMMANDS = [
   "terminal",
   "files",
   "diff",
+  "documents",
   ...RAIL_COMMANDS,
   "fork",
   "rewind",
@@ -79,6 +80,7 @@ export type Command =
   | { readonly kind: "terminal" }
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
+  | { readonly kind: "documents" }
   /** `/rewind [n]`: to the prompt `back` prompts from the end (1, the latest). */
   | { readonly kind: "rewind"; readonly back: number }
   | { readonly kind: "rewind-undo" }
@@ -171,6 +173,8 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "terminal" }, "/terminal");
     case "diff":
       return bare(rest, { kind: "diff" }, "/diff");
+    case "documents":
+      return bare(rest, { kind: "documents" }, "/documents");
     case "files":
       return { kind: "files", path: tail.length > 0 ? tail : null };
     // Read as the window reads them: the runtime's.
