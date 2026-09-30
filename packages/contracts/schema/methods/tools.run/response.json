@@ -203,6 +203,8 @@
         "command": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "^[^\\r\\n]+$",
           "description": "The command line the login shell runs, each argument quoted as one word."
         },
         "doctor": {

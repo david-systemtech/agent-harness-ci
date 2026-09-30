@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InstallableToolName, RunnableToolAction, ToolCommandMethod, ToolNotRunnableError } from "../managed-tool-commands.js";
+import { InstallableToolName, RunnableToolAction, ToolCommandLine, ToolCommandMethod, ToolNotRunnableError } from "../managed-tool-commands.js";
 import { DoctorToolName, ManagedToolDetail, ManagedToolName, ManagedToolRow, ManagedToolVerification, ToolDoctorReport, VerifiableToolName } from "../managed-tools.js";
 import { commandParams, defineMethod } from "../method.js";
 import { Timestamp } from "../primitives.js";
@@ -122,7 +122,7 @@ export const toolsRun = defineMethod({
     tool: InstallableToolName.meta({ description: "The tool installed or updated: bao for vault's Install." }),
     action: RunnableToolAction,
     method: ToolCommandMethod,
-    command: z.string().min(1).meta({ description: "The command line the login shell runs, each argument quoted as one word." }),
+    command: ToolCommandLine.meta({ description: "The command line the login shell runs, each argument quoted as one word." }),
     doctor: ToolDoctorReport.nullable().meta({
       description: "For Update on claude, what claude doctor said before the command ran, to set beside the method the row detected, which the run used; null otherwise.",
     }),

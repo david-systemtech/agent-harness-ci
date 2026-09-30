@@ -415,7 +415,7 @@ export const RunnableToolAction = ManagedToolAction.exclude(["copy"]).meta({
 export type RunnableToolAction = z.infer<typeof RunnableToolAction>;
 
 /** A command line as the login shell runs it, or as a person copies it. */
-const CommandLine = z
+export const ToolCommandLine = z
   .string()
   .min(1)
   .max(8192)
@@ -433,7 +433,7 @@ export const ToolNotRunnableError = errorSchema(
   z.object({
     tool: ManagedToolName,
     action: RunnableToolAction,
-    command: CommandLine.nullable().meta({
+    command: ToolCommandLine.nullable().meta({
       description:
         "The vendor's documented command, to copy and run where the harness cannot: the vendor script's update for a tool it installed by hand, else the install the table has for this platform. Null when there is none: vault, which the harness never installs or updates.",
     }),
@@ -462,7 +462,7 @@ const runFields = {
 
 /** `tool.run-started`: a tool run began, by the client session the event's actor names (#376). */
 export const ToolRunStartedPayload = z
-  .object({ ...runFields, command: CommandLine.meta({ description: "The command line the login shell runs." }) })
+  .object({ ...runFields, command: ToolCommandLine.meta({ description: "The command line the login shell runs." }) })
   .meta({ description: "tool.run-started: a client session began installing or updating a tool in a tool terminal: the tool, the action, the method, the terminal and the command line." });
 export type ToolRunStartedPayload = z.infer<typeof ToolRunStartedPayload>;
 

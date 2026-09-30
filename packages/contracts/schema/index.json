@@ -1355,6 +1355,10 @@
       "title": "ToolCommandEntry"
     },
     {
+      "path": "managed-tools/command-line.json",
+      "title": "ToolCommandLine"
+    },
+    {
       "path": "managed-tools/runnable-action.json",
       "title": "RunnableToolAction"
     },

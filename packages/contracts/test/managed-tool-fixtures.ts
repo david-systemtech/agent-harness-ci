@@ -110,6 +110,7 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
     valid: [entry, { ...entry, method: "npm", install: null }, { ...entry, method: "apt", platforms: ["linux"], needs: ["apt-get", "sudo", "curl"], install: aptInstall }],
     invalid: [{ ...entry, tool: "vault" }, { ...entry, platforms: [] }, { ...entry, method: "manual" }, { ...entry, update: null }, { ...entry, needs: ["brew install"] }],
   },
+  "managed-tools/command-line.json": { valid: ["brew install gh", "curl -Ls --proto '=https' https://cli.doppler.com/install.sh | sh"], invalid: ["", "brew install gh\nbrew install doppler", "a\rb"] },
   "managed-tools/runnable-action.json": { valid: ["install", "update"], invalid: ["copy", ""] },
   "managed-tools/run-conflict-reason.json": { valid: ["tool_run_in_progress", "exists", "pty_unavailable"], invalid: ["in_progress", ""] },
   "managed-tools/errors/tool_not_runnable.json": {
@@ -156,6 +157,7 @@ export const managedToolMethodFixtures: Record<string, { params: Fixtures; resul
         { terminal: { ...toolTerminal, owner: "session", sessionId: commandId }, tool: "gh", action: "install", method: "homebrew", command: "brew install gh", doctor: null },
         { terminal: toolTerminal, tool: "vault", action: "install", method: "homebrew", command: "brew install gh", doctor: null },
         { terminal: toolTerminal, tool: "gh", action: "install", method: "homebrew", command: "brew install gh" },
+        { terminal: toolTerminal, tool: "gh", action: "install", method: "homebrew", command: "brew install gh\nbrew install doppler", doctor: null },
       ],
     },
   },
