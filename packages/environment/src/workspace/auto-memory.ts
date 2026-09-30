@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { carryMemory, type CarryOutcome, type MemorySource } from "./carry-memory.js";
+import { carryMemory, type CarryOptions, type CarryOutcome, type MemorySource } from "./carry-memory.js";
 import { hashedName } from "./directory-names.js";
 import { repositoryKey, type RepositoryPlace } from "./repository-key.js";
 
@@ -68,10 +68,11 @@ export interface AutoMemory {
    * adopted directory's, #580), into the directory of the repository key
    * `key` (its value: an identity, a main checkout or a workspace path) by
    * the carry-over rule, in the queue the key changes use; answers what the
-   * copy did, or with `dryRun` would do, writing nothing. Rejects when the
+   * copy did, or with `dryRun` would do, writing nothing (after the dry
+   * copies before it that `plan` pictures). Rejects when the
    * copy fails; the queue goes on.
    */
-  carryIn(source: MemorySource, key: string, options?: { readonly dryRun?: boolean }): Promise<CarryOutcome>;
+  carryIn(source: MemorySource, key: string, options?: CarryOptions): Promise<CarryOutcome>;
 }
 
 /** The environment's auto memory, whose directories live under `root` (`<data dir>/auto-memory`). */

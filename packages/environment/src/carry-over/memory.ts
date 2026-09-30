@@ -11,7 +11,7 @@ import {
 import { readMemoryFolders } from "../adapters/claude/adopted-directory.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { AutoMemory } from "../workspace/auto-memory.js";
-import { memoryDigest, type CarryOutcome } from "../workspace/carry-memory.js";
+import { createDryRun, memoryDigest, type CarryOutcome } from "../workspace/carry-memory.js";
 import { repositoryKey } from "../workspace/repository-key.js";
 import { findDirectories, type DirectoryLooks } from "./sessions.js";
 
@@ -37,8 +37,8 @@ import { findDirectories, type DirectoryLooks } from "./sessions.js";
  *   What the directory holds already, byte for byte, is kept.
  *
  * The adopted directory is only read. A look at a path that cannot answer
- * now, or a copy that fails, is a failure naming the folder, for a re-run
- * to try again.
+ * now, a folder whose files cannot be read now, or a copy that fails, is a
+ * failure naming the folder, for a re-run to try again.
  */
 
 export interface CarryOverMemoryOptions {
@@ -147,7 +147,14 @@ export const carryOverMemory = (options: CarryOverMemoryOptions) => {
         }
         key = identity;
       }
-      const digest = await memoryDigest(path);
+      let digest: string | null;
+      try {
+        digest = await memoryDigest(path);
+      } catch (error) {
+        // The directory is live: a file removed or made unreadable since the folder was found fails that folder only.
+        failed.push({ providerSessionId: null, folder, message: `The memory folder ${path} was not copied: reading it failed (${messageOf(error)}); importing again tries it again.` });
+        continue;
+      }
       // A folder emptied since it was found holds nothing to copy.
       if (digest !== null) mapped.push({ folder, path, key, digest });
     }
@@ -159,13 +166,15 @@ export const carryOverMemory = (options: CarryOverMemoryOptions) => {
     const before = copiedBefore();
     const folders: CarryOverMemoryCopy[] = [];
     const failed: CarryOverFailure[] = [];
+    // A dry copy sees what the copies before it would have written: a second folder for a key lands where the run would put it.
+    const plan = createDryRun();
     for (const folder of mapped) {
       if (before.has(copiedKey(folder.path, folder.key, folder.digest))) {
         folders.push({ ...folder, outcome: "kept", under: null });
         continue;
       }
       try {
-        const outcome = outcomeOf(await autoMemory.carryIn({ directory: folder.path, name: folder.folder, label: folder.path }, folder.key, { dryRun }));
+        const outcome = outcomeOf(await autoMemory.carryIn({ directory: folder.path, name: folder.folder, label: folder.path }, folder.key, { dryRun, plan }));
         if (outcome !== null) folders.push({ ...folder, ...outcome });
       } catch (error) {
         failed.push({ providerSessionId: null, folder: folder.folder, message: `Copying the memory folder ${folder.path} failed: ${messageOf(error)}` });

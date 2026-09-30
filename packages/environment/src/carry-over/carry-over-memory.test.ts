@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { registry, type CarryOverMemoryCopy, type EventFrame, type ParamsOf } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
@@ -23,6 +23,18 @@ import { autoMemoryName } from "../workspace/auto-memory.js";
  */
 
 const { onCleanup, tempDir } = useCleanups();
+
+/** The memory folders whose files a test makes unreadable, as if a file there turned unreadable after the folder was found. */
+const unreadable = vi.hoisted(() => new Set<string>());
+
+vi.mock("../workspace/carry-memory.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../workspace/carry-memory.js")>();
+  return {
+    ...actual,
+    memoryDigest: (directory: string) =>
+      unreadable.has(directory) ? Promise.reject(new Error(`EACCES: permission denied, open '${directory}/MEMORY.md'`)) : actual.memoryDigest(directory),
+  };
+});
 
 const ACCOUNT = "claude-max";
 const IDENTITY = "https://git.systemtech.dev/david/agent-harness";
@@ -280,6 +292,58 @@ describe("carryOver.run's memory", () => {
       "build.md": "Build with pnpm.\n",
       [`carried/${found.harnessFolder}/release.md`]: "Tag from main.\n",
     });
+  });
+
+  it("answers a dry run for several folders of one repository as the run then records them, and the inventory counts what the run copies", async () => {
+    const { client, fixture: found } = await start();
+    // Two more checkouts of the harness: one whose folder holds other memory, one whose folder holds the harness folder's again.
+    const folders = [0, 1].map((n) => {
+      const checkout = tempDir();
+      git(checkout, "init", "-q");
+      git(checkout, "remote", "add", "origin", `${IDENTITY}.git`);
+      const folder = encoded(checkout);
+      transcript(found.directory, folder, checkout);
+      const memory = join(found.directory, "projects", folder, "memory");
+      if (n === 0) {
+        write(join(memory, "MEMORY.md"), "# Memory\n- [Deploy](deploy.md)\n");
+        write(join(memory, "deploy.md"), "Deploy on Fridays.\n");
+      } else {
+        write(join(memory, "MEMORY.md"), "# Memory\n- [Build](build.md)\n");
+        write(join(memory, "build.md"), "Build with pnpm.\n");
+      }
+      return folder;
+    });
+    const ofHarness = new Set([found.harnessFolder, ...folders]);
+
+    const inventory = await client.request("carryOver.inventory", { accountId: ACCOUNT });
+    const dry = await run(client, { dryRun: true });
+    const real = await run(client);
+
+    expect(real.result?.memory).toEqual(dry.result?.memory);
+    const harnessCopies = real.result?.memory.folders.filter((folder) => ofHarness.has(folder.folder)) ?? [];
+    expect(harnessCopies.filter((folder) => folder.outcome === "copied")).toHaveLength(1);
+    expect(harnessCopies.filter((folder) => folder.outcome === "carried").map((folder) => folder.under)).toEqual(
+      harnessCopies.filter((folder) => folder.outcome === "carried").map((folder) => `carried/${folder.folder}`),
+    );
+    expect(inventory.memory.new).toBe(real.result?.memory.folders.filter((folder) => folder.outcome !== "kept").length);
+  });
+
+  it("names a folder whose files cannot be read as failed, and copies the rest", async () => {
+    const { client, fixture: found, memoryOf } = await start();
+    const harnessMemory = join(found.directory, "projects", found.harnessFolder, "memory");
+    unreadable.add(harnessMemory);
+    onCleanup(() => {
+      unreadable.delete(harnessMemory);
+    });
+
+    const inventory = await client.request("carryOver.inventory", { accountId: ACCOUNT });
+    const answer = await run(client);
+
+    expect(inventory.memory).toMatchObject({ folders: 3, new: 1 });
+    expect(answer.result?.memory.folders.map(({ folder, outcome }) => [folder, outcome])).toEqual([[found.localFolder, "copied"]]);
+    expect(answer.result?.failed).toEqual([{ providerSessionId: null, folder: found.harnessFolder, message: expect.stringContaining(`The memory folder ${harnessMemory} was not copied`) as unknown }]);
+    expect(filesOf(memoryOf({ path: found.harness, identity: IDENTITY }))).toEqual({});
+    expect(Object.keys(filesOf(memoryOf({ path: found.local, identity: null })))).toEqual(["MEMORY.md", "receipts.md"]);
   });
 });
 
