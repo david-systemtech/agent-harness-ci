@@ -297,7 +297,11 @@ export interface RunContainment {
   readonly scratchDirectory: string;
   /** The temporary directory of the session's runs, the provider's `TMPDIR`: the session's, since its runs share one provider process. */
   readonly temporaryDirectory: string;
-  /** Where a run may write at a workspace level: its workspace, the scratch directory and its temporary directory, as absolute paths. */
+  /**
+   * Where a run may write at a workspace level, as absolute paths: its workspace (always first), the scratch directory and its
+   * temporary directory, then the repository's git directory when it lies outside the workspace (a worktree's common git
+   * directory, the repository's `.git` above a directory below its root; #322), read as the run starts.
+   */
   readonly writable: readonly string[];
   /** Whether the model's commands and the provider's fetch and search tools may reach any host: false only at `workspace-no-network`. */
   readonly network: boolean;

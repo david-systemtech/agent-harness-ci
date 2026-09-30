@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ContainmentResolution } from "@agent-harness/contracts";
 import type { RunContainment } from "../adapter/contract.js";
+import { isInside } from "../workspace/paths.js";
+import { commonGitDirectory } from "../workspace/repository-key.js";
 
 /**
  * Where a contained run may write beside its workspace (permissions spec,
@@ -91,12 +93,39 @@ export const containmentDirectories = (root: string | (() => string), owned = fa
 export const temporaryContainmentDirectories = (): ContainmentDirectories =>
   containmentDirectories(() => mkdtempSync(join(tmpdir(), "agent-harness-containment-")), true);
 
-/** A run's containment as its adapter is handed it: the resolved level and mechanism, and where it may write. */
-export const runContainment = (resolution: ContainmentResolution, workspace: string, directories: SessionDirectories): RunContainment => ({
-  level: resolution.effective,
-  mechanism: resolution.mechanism,
-  scratchDirectory: directories.scratchDirectory,
-  temporaryDirectory: directories.temporaryDirectory,
-  writable: [workspace, directories.scratchDirectory, directories.temporaryDirectory],
-  network: resolution.effective !== "workspace-no-network",
-});
+/**
+ * The repository's git directory when it lies outside `workspace`
+ * (workspace-picker spec, "Containment's workspace level"; #322): a
+ * worktree's objects, refs and index live in its repository's common git
+ * directory (its main checkout's `.git`, or its bare repository), and a
+ * directory below a repository's root has the repository's `.git` above
+ * it, so a run contained to either could edit but never commit. Null for a
+ * checkout root, whose `.git` is inside it, and for a directory in no
+ * repository. Read from the files git keeps, so nothing the repository's
+ * config names runs.
+ */
+const gitDirectoryOutside = (workspace: string): string | null => {
+  const found = commonGitDirectory(workspace);
+  if (found === null) return null;
+  const gitDirectory = resolve(found);
+  return isInside(resolve(workspace), gitDirectory) ? null : gitDirectory;
+};
+
+/**
+ * A run's containment as its adapter is handed it: the resolved level and
+ * mechanism, and where it may write, read as the run starts. At a workspace
+ * level that is the workspace (always first), the scratch directory and the
+ * temporary directory, and then the repository's git directory when it lies
+ * outside the workspace; at `off`, where nothing applies, only the first three.
+ */
+export const runContainment = (resolution: ContainmentResolution, workspace: string, directories: SessionDirectories): RunContainment => {
+  const gitDirectory = resolution.effective === "off" ? null : gitDirectoryOutside(workspace);
+  return {
+    level: resolution.effective,
+    mechanism: resolution.mechanism,
+    scratchDirectory: directories.scratchDirectory,
+    temporaryDirectory: directories.temporaryDirectory,
+    writable: [workspace, directories.scratchDirectory, directories.temporaryDirectory, ...(gitDirectory === null ? [] : [gitDirectory])],
+    network: resolution.effective !== "workspace-no-network",
+  };
+};
