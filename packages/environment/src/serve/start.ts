@@ -15,6 +15,7 @@ import {
   PROTOCOL_VERSION,
   SESSION_STREAM_KIND,
   STEP_REGISTRY,
+  UPDATE_PATH,
   WIRE_PATH,
   describeDenylistMatch,
   formatHostPort,
@@ -99,6 +100,7 @@ import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { createHostUpdaterPolls } from "../updates/host-updater.js";
 import { updateMethods } from "../updates/methods.js";
+import { createUpdateRoute } from "../updates/route.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
@@ -1356,6 +1358,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   );
   // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
   surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock }));
+  // The update route (#353): updates.apply over HTTP for a client whose protocol the wire refuses; a client session's token, no exchange.
+  surface.route("POST", UPDATE_PATH, createUpdateRoute({ log, clientSessions, methods: table, readiness: () => readiness }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
   const completions = createCompletionsSurface({
     log,
