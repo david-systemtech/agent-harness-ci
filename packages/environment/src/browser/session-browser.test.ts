@@ -1,10 +1,22 @@
 import { randomUUID } from "node:crypto";
-import type { SessionBrowser, SessionBrowserSetPayload } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import {
+  registry,
+  type Mode,
+  type ParamsOf,
+  type ResponseOf,
+  type RunBrowserResolvedPayload,
+  type SessionBrowser,
+  type SessionBrowserSetPayload,
+} from "@agent-harness/contracts";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { fakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, type FakeAdapterOptions, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { created, ranNow, untilStarted, written } from "../../test/routines.js";
 import { command, create, get, listStream, patchOf, refusal } from "../../test/sessions.js";
+import type { WireClient } from "../../test/wire-client.js";
+import type { ActorRunRequest } from "../serve/start.js";
+import type { HeadlessAvailability } from "./run-browser.js";
 
 /**
  * The browser as a session field (browser spec, "The browser as a session
@@ -109,5 +121,185 @@ describe("sessions.create's browser", () => {
     const { id, result } = await create(client);
     expect(result?.summary.browser).toBeNull();
     expect(eventsOf(t, id).map((event) => event.type)).toEqual(["session.created"]);
+  });
+});
+
+/** A run that makes one tool call of the provider's own, then says it is done. */
+const oneToolCall: Script = function* () {
+  yield { type: "tool.started", payload: { toolCallId: "toolu_1", name: "Bash", input: { command: "ls" }, title: null, agentId: null, parentToolCallId: null } };
+  yield { type: "tool.ended", payload: { toolCallId: "toolu_1", status: "ok", output: "README.md", durationMs: 1 } };
+  yield say("Done.");
+  yield end();
+};
+
+/** The headless browser a test's environment has, through the availability seam #555's manager will fill. */
+const HEADLESS_HERE: HeadlessAvailability = { available: true };
+const withHeadless = (headless: HeadlessAvailability = HEADLESS_HERE): Omit<TestEnvironmentOptions, "adapter"> => ({ browser: { headless: () => headless } });
+
+type Command = "runs.start" | "settings.update";
+
+const send = async <N extends Command>(client: WireClient, method: N, params: Omit<ParamsOf<N>, "commandId">): Promise<ResponseOf<N>> =>
+  registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
+
+/** A run a client session starts over the wire: attended. */
+const startRun = async (client: WireClient, sessionId: string, text = "Read the page"): Promise<string> => {
+  const answer = await send(client, "runs.start", { sessionId, text });
+  if (answer.result === undefined) throw new Error(`runs.start was not applied: ${JSON.stringify(answer.receipt)}`);
+  return answer.result.runId;
+};
+
+/** Who starts a run that no client session starts: a routine, a bot, or a program on the completions surface. */
+type Who = Omit<ActorRunRequest, "sessionId" | "text" | "mode">;
+const routine = (ceiling: Mode = "acceptEdits"): Who => ({ actor: { kind: "routine", name: "nightly-read", ceiling, clientSessionId: null }, actorId: "routine-nightly-read" });
+const bot = (ceiling: Mode = "acceptEdits"): Who => ({ actor: { kind: "bot", name: "triage", ceiling, clientSessionId: null }, actorId: "bot-triage" });
+const program = (attended: boolean, ceiling: Mode = "acceptEdits"): Who => ({ actor: { kind: "completions", attended, ceiling, clientSessionId: null } });
+
+const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
+  vi.waitFor(() => expect(eventsOf(t, sessionId).some((event) => event.type === "run.ended" && event.payload["runId"] === runId)).toBe(true));
+
+/** The run's `run.browser.resolved`, less its run id. */
+const resolvedOf = (t: TestEnvironment, sessionId: string, runId: string): Omit<RunBrowserResolvedPayload, "runId"> | undefined => {
+  const found = payloadsOf<RunBrowserResolvedPayload>(t, sessionId, "run.browser.resolved").find((payload) => payload.runId === runId);
+  if (found === undefined) return undefined;
+  const { runId: _, ...resolution } = found;
+  return resolution;
+};
+
+/** A session in the test workspace whose browser is `browser` (none chosen for null). */
+const sessionWith = async (client: WireClient, browser: SessionBrowser | null): Promise<string> => {
+  const { id } = await create(client, browser === null ? {} : { browser: { value: browser, chosenBy: "person" } });
+  return id;
+};
+
+describe("run.browser.resolved", () => {
+  it("is recorded for every run after run.policy.resolved and before its first tool call", async () => {
+    const t = await start({ script: oneToolCall });
+    const client = await t.client();
+    const id = await sessionWith(client, WORK_CHROME);
+    const runId = await startRun(client, id);
+    await untilEnded(t, id, runId);
+    const types = eventsOf(t, id).map((event) => event.type);
+    expect(types.indexOf("run.policy.resolved")).toBeGreaterThan(types.indexOf("run.started"));
+    expect(types.indexOf("run.browser.resolved")).toBe(types.indexOf("run.policy.resolved") + 1);
+    expect(types.indexOf("run.browser.resolved")).toBeLessThan(types.indexOf("tool.started"));
+    expect(resolvedOf(t, id, runId)).toEqual({ requested: WORK_CHROME, browser: WORK_CHROME, reason: "chosen", message: "The session chose a paired Chrome." });
+  });
+
+  it("resolves a Chrome, the plain My Chrome, headless, the dock or none on an attended run as the field names it", async () => {
+    const t = await start({}, withHeadless({ available: false, reason: "no Chromium was found" }));
+    const client = await t.client();
+    for (const browser of [MY_CHROME, { kind: "headless" }, { kind: "dock" }, { kind: "none" }] as const) {
+      const id = await sessionWith(client, browser);
+      const runId = await startRun(client, id);
+      expect(resolvedOf(t, id, runId), browser.kind).toMatchObject({ requested: browser, browser, reason: "chosen" });
+    }
+  });
+
+  it("resolves no browser chosen to none on an attended run while the environment has no headless browser, the seam's preset, with the reason", async () => {
+    const t = await start();
+    const client = await t.client();
+    const id = await sessionWith(client, null);
+    const runId = await startRun(client, id);
+    expect(resolvedOf(t, id, runId)).toEqual({
+      requested: null,
+      browser: { kind: "none" },
+      reason: "headless-unavailable",
+      message: "The session chose no browser, and this environment has no headless browser: it runs none yet.",
+    });
+  });
+
+  it("resolves no browser chosen to the headless browser when the seam has one and browser.headless.allowRuns is on", async () => {
+    const t = await start({}, withHeadless());
+    const client = await t.client();
+    const id = await sessionWith(client, null);
+    const runId = await startRun(client, id);
+    expect(resolvedOf(t, id, runId)).toEqual({
+      requested: null,
+      browser: { kind: "headless" },
+      reason: "default",
+      message: "The session chose no browser, so the run takes this environment's headless browser.",
+    });
+  });
+
+  it("gives no run the headless browser while browser.headless.allowRuns is off, the field's none chosen or headless alike", async () => {
+    const t = await start({}, withHeadless());
+    const client = await t.client();
+    await send(client, "settings.update", { values: { "browser.headless.allowRuns": false } });
+    for (const browser of [null, { kind: "headless" }] as const) {
+      const id = await sessionWith(client, browser);
+      const runId = await startRun(client, id);
+      expect(resolvedOf(t, id, runId), JSON.stringify(browser)).toMatchObject({ requested: browser, browser: { kind: "none" }, reason: "headless-not-allowed" });
+    }
+  });
+
+  it("applies a change during a live run from the next run; the live run keeps what it resolved", async () => {
+    const held: Gate = gate();
+    const t = await start(
+      {
+        script: async function* () {
+          await held.opened;
+          yield end();
+        },
+      },
+      withHeadless(),
+    );
+    const client = await t.client();
+    const id = await sessionWith(client, { kind: "dock" });
+    const first = await startRun(client, id);
+    await command(client, "sessions.setBrowser", { sessionId: id, browser: { kind: "headless" } });
+    held.open();
+    await untilEnded(t, id, first);
+    const second = await startRun(client, id);
+    await untilEnded(t, id, second);
+    const resolutions = payloadsOf<RunBrowserResolvedPayload>(t, id, "run.browser.resolved");
+    expect(resolutions.map((payload) => [payload.runId, payload.browser])).toEqual([
+      [first, { kind: "dock" }],
+      [second, { kind: "headless" }],
+    ]);
+  });
+});
+
+describe("an unattended run's browser", () => {
+  it("resolves a Chrome or the dock to none for a routine's, a bot's and an unattended program's run, with the reason", async () => {
+    const t = await start({}, withHeadless());
+    const client = await t.client();
+    for (const who of [routine(), bot(), program(false)]) {
+      for (const browser of [WORK_CHROME, MY_CHROME, { kind: "dock" }] as const) {
+        const id = await sessionWith(client, browser);
+        const { runId } = t.env.startRun({ sessionId: id, text: "Read the page", ...who } as ActorRunRequest);
+        expect(resolvedOf(t, id, runId), `${who.actor.kind} ${browser.kind}`).toMatchObject({ requested: browser, browser: { kind: "none" }, reason: "unattended" });
+      }
+    }
+  });
+
+  it("resolves no browser chosen as an attended run does, and headless or none as the field names them", async () => {
+    const t = await start({}, withHeadless());
+    const client = await t.client();
+    for (const [browser, expected] of [
+      [null, { browser: { kind: "headless" }, reason: "default" }],
+      [{ kind: "headless" }, { browser: { kind: "headless" }, reason: "chosen" }],
+      [{ kind: "none" }, { browser: { kind: "none" }, reason: "chosen" }],
+    ] as const) {
+      const id = await sessionWith(client, browser);
+      const { runId } = t.env.startRun({ sessionId: id, text: "Read the page", ...routine() } as ActorRunRequest);
+      expect(resolvedOf(t, id, runId), JSON.stringify(browser)).toMatchObject({ requested: browser, ...expected });
+    }
+  });
+
+  it("gives a routine's firing, whose session chooses no browser, the headless browser where one is here", async () => {
+    const t = await start({}, withHeadless());
+    const client = await t.client();
+    const { state } = await created(client, written());
+    const firingId = await ranNow(client, state.id);
+    const { sessionId, runId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string; runId: string };
+    expect(resolvedOf(t, sessionId, runId)).toMatchObject({ requested: null, browser: { kind: "headless" }, reason: "default" });
+  });
+
+  it("lets an attended program's run have the Chrome its session names", async () => {
+    const t = await start();
+    const client = await t.client();
+    const id = await sessionWith(client, WORK_CHROME);
+    const { runId } = t.env.startRun({ sessionId: id, text: "Read the page", ...program(true) } as ActorRunRequest);
+    expect(resolvedOf(t, id, runId)).toMatchObject({ browser: WORK_CHROME, reason: "chosen" });
   });
 });

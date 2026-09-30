@@ -430,6 +430,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     accountId: null,
     model: null,
     mode: null,
+    browser: null,
     pullRequests: [],
     draft: null,
     ...partial,

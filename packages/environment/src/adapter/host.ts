@@ -58,6 +58,7 @@ import {
   decideStart,
   originOfActor,
   policyResolvedEvent,
+  browserResolvedEvent,
   type AccountFacts,
   type LiveRunFacts,
   type PlannedRun,
@@ -117,6 +118,7 @@ import {
   type ToolServerFactory,
   type TrustSeam,
 } from "./seams.js";
+import { presetBrowser, type BrowserSeam } from "../browser/run-browser.js";
 
 /**
  * The adapter host (claude-adapter spec, "Modules and ownership" and "The
@@ -236,6 +238,13 @@ export interface AdapterHostOptions {
   readonly promptTtlMs?: () => number | null;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
+  /**
+   * The browser resolver runs start through (#550): the session's browser by
+   * whether a person is present, `browser.headless.allowRuns` and the
+   * headless browser's availability. Preset: the settings' presets and no
+   * headless browser (`presetBrowser`).
+   */
+  readonly resolveBrowser?: BrowserSeam;
   /**
    * The process environments' registry (#307, `process-environment.ts`):
    * each run's injection answer, asked once as it launches and carried in
@@ -626,6 +635,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
+  const resolveBrowser = options.resolveBrowser ?? presetBrowser;
   const processEnvironments = options.processEnvironments ?? createProcessEnvironments();
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
@@ -889,6 +899,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       ...runContinuation(log, reader, sessionId, facts?.descriptor ?? null),
       actor,
       resolvePolicy,
+      resolveBrowser,
       defaults: { modelFamily, effort },
       runId: randomUUID(),
     };
@@ -1643,7 +1654,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       );
     }
     const mode = policy.mode.effective;
-    const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, policy, running);
+    // The turn is a run of its own: its browser is resolved afresh, as its policy is.
+    const browser = resolveBrowser({ field: session.browser, attended: policy.attended });
+    const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, { policy, browser }, running);
     if (mode !== followed.mode) {
       const setMode = turn.setMode;
       if (!descriptor.modeChange || setMode === undefined) {
@@ -1696,10 +1709,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * A throw on the way (a drain that refuses it, an append that fails) lets
    * the turn go, its messages the environment's again.
    */
-  const adoptTurn = (previous: PlannedRun, turn: ProviderTurn, actor: RunActor, policy: RunPolicy, mode: Mode): void => {
+  const adoptTurn = (
+    previous: PlannedRun,
+    turn: ProviderTurn,
+    actor: RunActor,
+    { policy, browser }: Pick<PlannedRun, "policy" | "browser">,
+    mode: Mode,
+  ): void => {
     const runId = randomUUID();
     const { descriptor } = previous.account;
-    const plan: PlannedRun = { ...previous, runId, prompt: [], target: { kind: "fresh" }, mode, actor, policy };
+    const plan: PlannedRun = { ...previous, runId, prompt: [], target: { kind: "fresh" }, mode, actor, policy, browser };
     const started: RunStartedPayload = {
       runId,
       accountId: plan.account.id,
@@ -1719,7 +1738,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return { type: "message.delivered", payload };
     });
     try {
-      const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), ...delivered];
+      const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), browserResolvedEvent(runId, browser), ...delivered];
       const attribution = { actor: formatActor({ kind: "adapter", id: descriptor.provider }), correlationId: runId };
       log.atomically((tx) => appendRunEvents(log, plan.sessionId, events, { ...attribution, tx }));
     } catch (error) {

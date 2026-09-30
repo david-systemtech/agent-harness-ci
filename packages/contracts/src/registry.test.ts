@@ -373,6 +373,7 @@ describe("the method registry", () => {
       | "sessions.tag"
       | "sessions.untag"
       | "sessions.setDraft"
+      | "sessions.setBrowser"
       | "sessions.setGroup"
       | "sessions.settle"
       | "sessions.unsettle"
