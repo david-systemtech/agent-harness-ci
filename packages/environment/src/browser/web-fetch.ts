@@ -194,8 +194,7 @@ const getFirst = async (url: URL, addresses: readonly ResolvedAddress[], options
 const readable = (url: URL): boolean => url.protocol === "http:" || url.protocol === "https:";
 
 /** The sentence for a scheme web_read does not read. */
-export const schemeRefusal = (address: string, scheme: string): string =>
-  `web_read reads http and https addresses only; ${address} is a ${scheme.replace(/:$/, "")} address.`;
+export const schemeRefusal = (address: string, scheme: string): string => `web_read reads http and https addresses only; ${address} uses ${scheme.replace(/:$/, "")}.`;
 
 /**
  * Fetches `url`: at each hop the address rules first, then, for a hop a

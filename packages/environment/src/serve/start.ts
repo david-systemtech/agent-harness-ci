@@ -35,13 +35,13 @@ import {
   type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
+import { accessMethods } from "../auth/access-methods.js";
+import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { browserToolServer } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
-import { accessMethods } from "../auth/access-methods.js";
-import { createBootstrapGrant } from "../auth/bootstrap.js";
 import {
   SWEEP_INTERVAL_MS,
   createClientSessions,

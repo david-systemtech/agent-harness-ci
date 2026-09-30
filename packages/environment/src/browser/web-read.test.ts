@@ -213,9 +213,9 @@ describe("web_read's fetch", () => {
     expect(pages).toEqual({ text: `pages is a PDF's page or range of pages, counted from 1: "3" or "3-7"; "0-2" is not one.`, isError: true });
     // Neither was fetched: each was answered from its input.
     expect(server.requests).toEqual([]);
-    expect(ftp).toEqual({ text: "web_read reads http and https addresses only; ftp://example.com/file.txt is a ftp address.", isError: true });
-    expect(file).toEqual({ text: "web_read reads http and https addresses only; file:///tmp/notes.txt is a file address.", isError: true });
-    expect(script).toEqual({ text: "web_read reads http and https addresses only; javascript:alert(1) is a javascript address.", isError: true });
+    expect(ftp).toEqual({ text: "web_read reads http and https addresses only; ftp://example.com/file.txt uses ftp.", isError: true });
+    expect(file).toEqual({ text: "web_read reads http and https addresses only; file:///tmp/notes.txt uses file.", isError: true });
+    expect(script).toEqual({ text: "web_read reads http and https addresses only; javascript:alert(1) uses javascript.", isError: true });
     // A bare host is read as https: the loopback server speaks plain HTTP, so the TLS handshake fails, and says so.
     expect(bare?.isError).toBe(true);
     expect(bare?.text).toMatch(new RegExp(`^https://127\\.0\\.0\\.1:${server.port}/page could not be `));
