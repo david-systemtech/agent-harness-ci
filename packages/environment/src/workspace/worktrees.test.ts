@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, get, refusal } from "../../test/sessions.js";
-import { git } from "../../test/workspaces.js";
+import { branchesOf, git, worktreesOf } from "../../test/workspaces.js";
 import { worktreeCheckout } from "../adapters/claude/workspace.js";
 
 /**
@@ -69,29 +69,6 @@ const machineGitConfig = (entries: Record<string, string>): void => {
 
 /** The branch a new worktree gets for the session `id` when none is named. */
 const presetBranch = (id: string): string => `agent-harness/${id.slice(0, 8)}`;
-
-interface Listed {
-  readonly path: string;
-  readonly branch: string | null;
-  readonly locked: string | null;
-}
-
-/** The worktrees git lists for the repository at `checkout`: the main checkout first. */
-const worktreesOf = (checkout: string): Listed[] =>
-  git(checkout, "worktree", "list", "--porcelain", "-z")
-    .split("\0\0")
-    .filter((record) => record !== "")
-    .map((record) => {
-      const fields = record.split("\0");
-      const value = (key: string) => {
-        const field = fields.find((each) => each === key || each.startsWith(`${key} `));
-        return field === undefined ? null : field.slice(key.length + 1);
-      };
-      return { path: value("worktree") as string, branch: value("branch"), locked: value("locked") };
-    });
-
-/** The repository's local branches, by name. */
-const branchesOf = (checkout: string): string[] => git(checkout, "for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n").filter(Boolean).sort();
 
 /** Every directory under the data directory's worktrees root, two levels down: a repository's, then a branch's. */
 const madeUnder = (t: TestEnvironment): string[] => {
