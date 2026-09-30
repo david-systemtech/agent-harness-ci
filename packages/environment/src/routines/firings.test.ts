@@ -1,11 +1,22 @@
 import { randomUUID } from "node:crypto";
-import type { RoutineDefinitionInput, SessionCreatedPayload, Workspace } from "@agent-harness/contracts";
+import {
+  registry,
+  type MessageSentPayload,
+  type Mode,
+  type PromptAnsweredPayload,
+  type RoutineDefinitionInput,
+  type RunPolicyResolvedPayload,
+  type RunStartedPayload,
+  type SessionCreatedPayload,
+  type Workspace,
+} from "@agent-harness/contracts";
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
-import { end, fakeAdapter, gate, say, signedInAs, type Gate, type Script } from "../../test/fake-adapter.js";
+import { bubblewrapProbe } from "../../test/containment.js";
+import { ask, end, fakeAdapter, gate, say, signedInAs, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { created, history, listed, ranNow, routineCommand, routineEvents, runNow, untilSettled, untilStarted, written } from "../../test/routines.js";
 import { get, refusal } from "../../test/sessions.js";
@@ -373,5 +384,87 @@ describe("the firing's transaction", () => {
     await untilStarted(t, state.id, next);
     expect(await untilSettled(t, state.id, next)).toMatchObject({ type: "routine.firing-ended" });
     expect(readdirSync(join(t.dataDir, "scratch"))).toHaveLength(1);
+  });
+});
+
+/** A client of a client session paired under `ceiling` with the scopes run now and the routine commands need, as a phone would be. */
+const paired = async (t: TestEnvironment, ceiling: Mode, label = "a phone"): Promise<WireClient> =>
+  t.client({ token: (await t.pair({ kind: "web", label, ceiling, scopes: ["read", "sessions:write", "runs:drive"] })).token, clientKind: "web" });
+
+/** The payloads of the session's events of `type`. */
+const payloadsOf = <P>(t: TestEnvironment, sessionId: string, type: string): P[] =>
+  sessionEvents(t, sessionId)
+    .filter((event) => event.type === type)
+    .map((event) => event.payload as P);
+
+describe("the firing's run", () => {
+  it("starts with a header naming the routine, the environment and the due time, that nobody is present, and the marker, then the instructions", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ name: "Upstream watch", silenceMarker: "[QUIET]", instructions: "Read the sources and file a digest." }));
+    const firingId = await ranNow(client, state.id);
+    const { sessionId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string };
+    expect(payloadsOf<MessageSentPayload>(t, sessionId, "message.sent").map((sent) => sent.text)).toEqual([
+      [
+        'This is a firing of the routine "Upstream watch" on the environment "laptop", due 2026-09-24 08:00 (Asia/Manila).',
+        "Nobody is present: prompts are answered automatically, and anything that needs a person's approval is denied.",
+        "If there is nothing worth reporting, answer with [QUIET] alone, and nothing is sent.",
+        "",
+        "Read the sources and file a digest.",
+      ].join("\n"),
+    ]);
+  });
+
+  it("runs unattended as the routine, by its name and effort: a prompt is denied at once and the run goes on, and the Unattended review lists it under the routine's name", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ name: "Nightly receipts", model: "opus", effort: "low" }));
+    t.adapter.nextScripts.push(ask("permission", { toolName: "Bash", toolCallId: "toolu_1", input: { command: "sudo apt install jq" }, summary: "Claude wants to run sudo apt install jq" }));
+    const firingId = await ranNow(client, state.id);
+    const { sessionId, runId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string; runId: string };
+    expect((await untilSettled(t, state.id, firingId)).payload).toMatchObject({ outcome: "succeeded" });
+
+    const [runStarted] = payloadsOf<RunStartedPayload>(t, sessionId, "run.started");
+    expect(runStarted).toMatchObject({ runId, origin: "routine", model: "opus", effort: "low" });
+    expect(sessionEvents(t, sessionId).find((event) => event.type === "run.started")?.actor).toBe(`routine:${state.id}`);
+    expect(payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved")).toEqual([expect.objectContaining({ runId, actorKind: "routine", actorName: "Nightly receipts", attended: false })]);
+    expect(payloadsOf<PromptAnsweredPayload>(t, sessionId, "prompt.answered")).toEqual([expect.objectContaining({ decision: "deny", decidedBy: { auto: "unattended" } })]);
+    // Answered in the transaction that opened it: it never parked.
+    expect(t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "prompt.parked")).toEqual([]);
+    // The run went on after the denial and said what it was told.
+    expect(payloadsOf<{ text: string }>(t, sessionId, "assistant.text").map((payload) => payload.text)).toEqual(["Working", expect.stringMatching(/^Told .*deny/)]);
+
+    const review = registry["permissions.review.list"].result.parse(await client.request("permissions.review.list", {}));
+    expect(review.runs).toEqual([expect.objectContaining({ sessionId, runId, actor: { kind: "routine", name: "Nightly receipts" }, attended: false })]);
+  });
+
+  it("is clamped to the ceiling the routine was saved under, and for run now to the caller's when that is lower; run.policy.resolved shows it with the routine's containment", async () => {
+    const t = await start({ containment: bubblewrapProbe() });
+    const desktop = await t.client();
+    const phone = await paired(t, "plan");
+    const fire = async (client: WireClient, routineId: string) => {
+      const firingId = await ranNow(client, routineId);
+      const { sessionId, runId } = (await untilStarted(t, routineId, firingId)).payload as { sessionId: string; runId: string };
+      await untilSettled(t, routineId, firingId);
+      return payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved").find((policy) => policy.runId === runId);
+    };
+
+    // Saved from the phone, whose ceiling is plan: the desktop's run now is clamped to it all the same.
+    const low = await created(phone, routine({ name: "Saved low", mode: "bypassPermissions", containment: "off" }));
+    expect(await fire(desktop, low.state.id)).toMatchObject({
+      mode: { requested: "bypassPermissions", effective: "plan", ceiling: "plan", clamped: true, clampReason: "ceiling" },
+      // The routine's level is the session's own, over the environment's workspace default.
+      containment: { requested: "off", effective: "off", reason: null },
+    });
+
+    // Saved from the desktop: the phone's run now is clamped to the phone's ceiling.
+    const high = await created(desktop, routine({ name: "Saved high", mode: "bypassPermissions", containment: "workspace" }));
+    expect(await fire(phone, high.state.id)).toMatchObject({
+      mode: { requested: "bypassPermissions", effective: "plan", ceiling: "plan", clamped: true, clampReason: "ceiling" },
+      containment: { requested: "workspace", effective: "workspace", reason: null },
+    });
+    expect(await fire(desktop, high.state.id)).toMatchObject({
+      mode: { requested: "bypassPermissions", effective: "bypassPermissions", ceiling: "bypassPermissions", clamped: false, clampReason: null },
+    });
   });
 });
