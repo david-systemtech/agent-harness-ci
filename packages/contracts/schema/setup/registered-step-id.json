@@ -7,9 +7,10 @@
     "your-machines",
     "forges",
     "key-manager",
+    "instructions",
     "browser",
     "permissions",
     "appearance"
   ],
-  "description": "A step with an entry in the step registry: account, your-machines, forges, key-manager, browser, permissions, appearance."
+  "description": "A step with an entry in the step registry: account, your-machines, forges, key-manager, instructions, browser, permissions, appearance."
 }

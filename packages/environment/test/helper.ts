@@ -61,6 +61,8 @@ export interface TestEnvironmentOptions {
   readonly clock?: ManualClock;
   /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
   readonly adapter?: FakeAdapter;
+  /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names; preset none. */
+  readonly otherAdapters?: readonly FakeAdapter[];
   /**
    * The accounts carried over from configuration into the account store on
    * the first start (#119's path, kept for this). Preset: one, `claude-max`,
@@ -111,6 +113,8 @@ export interface TestEnvironmentOptions {
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
   /** Sections registered with the OrientationRenderer beside the environment's own, each in place of the environment's own of its name (#380, #381); preset: none. */
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
+  /** An orientation seam in place of the OrientationRenderer's, which the composer and the Orientation row read (#505); preset: the renderer's. */
+  readonly orientation?: EnvironmentOptions["orientation"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
@@ -336,6 +340,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
+    ...(options.orientation !== undefined && { orientation: options.orientation }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
@@ -372,7 +377,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       scrub,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
-      adapters: [adapter],
+      adapters: [adapter, ...(options.otherAdapters ?? [])],
       accounts,
       probeContainment: async () => (await options.containment) ?? absentProbe(),
       ...passed,
