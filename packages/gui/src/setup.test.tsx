@@ -697,7 +697,7 @@ describe("an environment the checklist cannot reach", () => {
     expect(await within(pane).findByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
     expect(within(pane).getByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     expect(paneSteps(pane).filter(([, state]) => state !== null)).toEqual([
-      ["Account", "done", "Every setting it writes holds a valid value. (stale, checked just now)"],
+      ["Account", "done", "At least one account is on this environment. Every account on this environment is signed in. (stale, checked just now)"],
       ["Your machines", "done", expect.stringMatching(/^The environment runs as a non-root user\. .* \(stale, checked just now\)$/)],
       ["Forges", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
       ["Browser", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
