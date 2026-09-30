@@ -209,7 +209,11 @@ describe("a certificate the environment does not trust", () => {
     await app.user.click(within(await dialog(`The certificate ${address} presents`)).getByRole("button", { name: "Trust this certificate" }));
     await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Status"]).toMatch(/^Signed in since /));
     expect(desk.requests("keyManagers.connections.update")[0]?.params).toMatchObject({ ca: anchor.pem });
-    expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["CA"]).toBe("Pinned: requests to it trust this CA alone.");
+    expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))).toMatchObject({
+      CA: "Pinned: requests to it trust this CA alone.",
+      // Signed in at last, its login suggests a base path as a login at a trusted address does.
+      "Base path": "None set; it suggests personal/harness.",
+    });
   });
 });
 

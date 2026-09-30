@@ -160,6 +160,10 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   const policies = script.policies ?? PRESET_POLICIES;
   const untrusted = new Set(script.untrusted ?? []);
 
+  const suggested = script.suggestedBasePath === undefined ? "personal/harness" : script.suggestedBasePath;
+  /** The base path a login suggests for a connection while it has none set, as each verification reads it. */
+  const suggestionFor = (basePath: string | null): string | null => (basePath === null ? suggested : null);
+
   const signedIn = (method: string | null): Pick<KeyManagerConnectionRecord, "status" | "tokenInformation" | "policies" | "canMint" | "verifiedAt"> => ({
     status: status("signed-in", `Signed in to OpenBao as ${method ?? "token"}.`),
     tokenInformation: { displayName: method ?? "token", policies: policies.map((policy) => policy.name), ttlSeconds: 3600, renewable: true, expiresAt: new Date(clock.now().getTime() + 3_600_000).toISOString() },
@@ -181,7 +185,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
       tokenRole: null,
       ticks: policies.map((policy) => policy.name),
       basePath: null,
-      suggestedBasePath: script.suggestedBasePath === undefined ? "personal/harness" : script.suggestedBasePath,
+      suggestedBasePath: suggestionFor(fields.basePath ?? null),
       injects: index === 0,
       injectedVariables: index === 0 ? OPENBAO_VARIABLES : [],
       ...signedIn("approle"),
@@ -291,7 +295,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
         ...base,
         ...signedIn(method),
         ticks: base.ticks ?? policies.map((policy) => policy.name),
-        suggestedBasePath: base.basePath === null ? (script.suggestedBasePath === undefined ? "personal/harness" : script.suggestedBasePath) : null,
+        suggestedBasePath: suggestionFor(base.basePath),
         injects,
         injectedVariables: injects ? OPENBAO_VARIABLES : [],
       };
@@ -321,6 +325,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
       ...changes,
       ...signedIn(credential.method),
       ticks: record.ticks ?? policies.map((policy) => policy.name),
+      suggestedBasePath: suggestionFor(record.basePath),
       injects,
       injectedVariables: injects ? OPENBAO_VARIABLES : [],
     };
@@ -414,7 +419,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
       found === undefined || found.kind === record.status.kind
         ? { ...record, verifiedAt: now() }
         : found.kind === "signed-in"
-          ? { ...record, ...signedIn(record.method) }
+          ? { ...record, ...signedIn(record.method), suggestedBasePath: suggestionFor(record.basePath) }
           : { ...record, status: status(found.kind, found.message), verifiedAt: now() };
     put(next);
     if (next.status.kind !== record.status.kind) {
