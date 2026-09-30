@@ -128,6 +128,7 @@ import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { followDeliveries } from "../routines/delivery.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -949,6 +950,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
 
+  // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
+  // them, so an end the recovery sweep or the host's close appends is delivered too.
+  closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));

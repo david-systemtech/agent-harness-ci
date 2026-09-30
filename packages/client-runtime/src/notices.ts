@@ -1,4 +1,4 @@
-import type { StepId } from "@agent-harness/contracts";
+import type { DeliveredOutcome, StepId } from "@agent-harness/contracts";
 import { uuidv7 } from "./ids.js";
 import { writable, type Observable } from "./observable.js";
 import type { Clock } from "./platform.js";
@@ -30,8 +30,9 @@ export const NOTICE_LIMIT = 100;
  * was told of was settled with nobody answering it), `forge` (a forge
  * account needs attention: a capability failed, a new problem, git refused
  * its credential, or an origin had none, #320), `key-manager` (a
- * key-manager connection came to stand in a status that needs David, #384);
- * and the outbox's (#128):
+ * key-manager connection came to stand in a status that needs David, #384),
+ * `routine` (a routine's result delivered to the clients, a success or a
+ * failure, #525); and the outbox's (#128):
  * `command-rejected` (the environment refused a command, by its receipt or
  * an error) and `command-dropped` (a command left the outbox unsent,
  * whatever dropped it: seven days without reaching its environment, a run
@@ -49,6 +50,7 @@ export type NoticeKind =
   | "prompt-resolved"
   | "forge"
   | "key-manager"
+  | "routine"
   | "command-rejected"
   | "command-dropped";
 
@@ -74,6 +76,8 @@ export interface NoticeInput {
   readonly action: NoticeAction | null;
   /** Preset null. */
   readonly about?: NoticeSubject | null;
+  /** Preset null. */
+  readonly outcome?: DeliveredOutcome | null;
 }
 
 export interface Notice {
@@ -85,8 +89,10 @@ export interface Notice {
   readonly message: string;
   /** What David can do about it, a name the renderer maps to a call: `re-pair`, `update-client`, `update-environment`, `service.start`, or a Set up step to open on its environment (`setup.forges`). */
   readonly action: NoticeAction | null;
-  /** What it is about, when it is about a session: a prompt's notices name the session, run and prompt. */
+  /** What it is about, when it is about a session: a prompt's notices name the session, run and prompt; a routine's, its firing's session. */
   readonly about: NoticeSubject | null;
+  /** Whether a `routine` notice's result is a success (`succeeded`) or a failure (`failed`); null on every other notice. */
+  readonly outcome: DeliveredOutcome | null;
   /** When it was raised. */
   readonly at: string;
 }
@@ -106,7 +112,16 @@ export const createNotices = (clock: Clock, onRaised?: (notice: Notice) => void)
     list,
     raise(environmentId, draft) {
       const now = clock.now();
-      const notice: Notice = { id: uuidv7(now), environmentId, kind: draft.kind, message: draft.message, action: draft.action, about: draft.about ?? null, at: now.toISOString() };
+      const notice: Notice = {
+        id: uuidv7(now),
+        environmentId,
+        kind: draft.kind,
+        message: draft.message,
+        action: draft.action,
+        about: draft.about ?? null,
+        outcome: draft.outcome ?? null,
+        at: now.toISOString(),
+      };
       list.update((current) => [...current, notice].slice(-NOTICE_LIMIT));
       onRaised?.(notice);
       return notice;
