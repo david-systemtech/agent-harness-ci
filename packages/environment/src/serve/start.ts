@@ -131,6 +131,8 @@ import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
 import { keyManagersSection } from "../key-managers/orientation.js";
+import { createKnownEnvironments, knownEnvironmentsMethods } from "../known-environments/known-environments.js";
+import { otherEnvironmentsSection } from "../known-environments/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import type { ReleaseOrigins } from "../managed-tools/latest.js";
@@ -1008,9 +1010,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
+  // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
+  const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
+  closers.push(() => knownEnvironments.close());
   // Every run's orientation block (#380): this environment's section, its accounts' and the key managers' with the standing
-  // rule (#381), and the forges section where runs are given the forge's variables, each put in the block's order by its
-  // name. A section a test registers takes the place of the environment's own of its name.
+  // rule (#381), the forges section where runs are given the forge's variables, and the other environments the clients
+  // report (#382), each put in the block's order by its name. A section a test registers takes the place of the
+  // environment's own of its name.
   const orientation = createOrientationRenderer({ clock });
   const givenSections = options.orientationSections ?? [];
   const ownSections: OrientationSection[] = [
@@ -1018,6 +1024,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accountsSection({ accounts: () => listAccountStandings({ all: (sql, ...params) => log.read(sql, ...params) }) }),
     keyManagersSection({ connections: () => keyManagerConnections.list(), tool: (name) => managedTools.known(name) }),
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
+    otherEnvironmentsSection({ union: () => knownEnvironments.union() }),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
   // The owned instructions (#505), after the block in the user layer while instructions.orientation is on.
@@ -1408,6 +1415,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // result (#569).
     "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), environment: look.read(), setup: setup.cached() }) }),
     ...look.handlers,
+    ...knownEnvironmentsMethods(knownEnvironments),
     // The rebuild joins the command's transaction, so it and the receipt commit together.
     "environment.rebuildProjections": () => ({
       aggregate: environmentStream,
