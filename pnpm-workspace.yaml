@@ -2,8 +2,11 @@ packages:
   - packages/*
 
 # esbuild arrives through tsx and ships its binary as an optional dependency,
-# so its install script is not needed.
+# so its install script is not needed. electron-winstaller (Squirrel.Windows)
+# arrives as a peer of electron-builder's library; the desktop's Windows build
+# is an NSIS setup (#423), so its install script is not needed either.
 ignoredBuiltDependencies:
+  - electron-winstaller
   - esbuild
 
 # node-pty (the environment's pseudo-terminals, #124) needs its install
