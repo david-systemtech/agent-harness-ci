@@ -15,7 +15,7 @@ import {
   type SessionWriteMethodName,
   type WorkspaceRequest,
 } from "@agent-harness/contracts";
-import { answerCapability, answerQueuedCommand, type AbsentReason } from "../capabilities.js";
+import { answerCapability, answerQueuedCommand, type AbsentReason, type CapabilityAnswer } from "../capabilities.js";
 import { SocketClosedError } from "../connections/connection.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "../connections/records.js";
 import { NotConnectedError, type ConnectionSeams } from "../connections/registry.js";
@@ -144,6 +144,16 @@ export interface Commands {
    * (session-state spec, "Merged groups by name"). Answers the move.
    */
   moveToGroup(environmentId: string, sessionId: string, groupName: string | null): Promise<DispatchAnswer<"sessions.setGroup">>;
+  /**
+   * Whether `dispatch` would keep the command now, as it checks it: a
+   * connection to the environment with the command's scope and the flag
+   * gating it, whatever the phase for a `sessions:write` command, which
+   * waits in the outbox while the environment cannot be reached; for a
+   * `runs:drive` command, which never waits, the environment reachable now
+   * too; an `admin` one, a direct request, as `capability` answers it. A
+   * renderer draws a command dim with the answer's line while it is absent.
+   */
+  admits(environmentId: string, method: CommandMethodName): CapabilityAnswer;
   /**
    * Rewinds a session to one of its user messages (ADR 0022):
    * `sessions.rewind`, once the drafts still waiting their second are sent,
@@ -332,6 +342,19 @@ const sameTarget = (a: Target | null, b: Target | null) => a !== null && b !== n
 
 /** Whether the scope's commands go through the outbox. */
 const queuedScope = (scope: string): scope is "sessions:write" | "runs:drive" => scope === "sessions:write" || scope === "runs:drive";
+
+/**
+ * Whether the connection `record` takes the command now (`commands.admits`):
+ * the scope and the flag whatever the phase for a `sessions:write` command,
+ * which queues; the connection ready now too for a `runs:drive` one, which
+ * never does; `capability`'s answer for any other, a direct request.
+ */
+const admission = (method: CommandMethodName, record: ConnectionRecord | undefined): CapabilityAnswer => {
+  const { scope } = registry[method];
+  if (!queuedScope(scope)) return answerCapability(method, record, undefined);
+  const admitted = answerQueuedCommand(method, record);
+  return admitted.status === "absent" || scope !== "runs:drive" ? admitted : answerCapability(method, record, undefined);
+};
 
 /** What a notice will call the command's target: its title or name as the list shows it now; what a create names. */
 const labelAtDispatch = (method: string, params: Readonly<Record<string, unknown>>, target: Target | null, shown: ListData | null): string | null => {
@@ -726,14 +749,9 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     if (!checked.success) {
       return { refused: failure(null, "invalid_params", `The params are not ${method}'s: ${checked.error.issues.map((i) => i.message).join("; ")}`) };
     }
-    // The scope and the flag, whatever the phase: a sessions:write command queues; a runs:drive one is checked for the phase below.
-    const admitted = answerQueuedCommand(method, record);
-    if (admitted.status === "absent") return { refused: failure(null, admitted.reason, admitted.message) };
-    if (spec.scope === "runs:drive") {
-      // Run commands never queue: the connection must be ready now.
-      const capability = answerCapability(method, record, undefined);
-      if (capability.status === "absent") return { refused: failure(null, capability.reason === "not-ready" ? "unreachable" : capability.reason, capability.message) };
-    }
+    // The scope and the flag, whatever the phase: a sessions:write command queues; a runs:drive one needs the connection ready now.
+    const admitted = admission(method, record);
+    if (admitted.status === "absent") return { refused: failure(null, admitted.reason === "not-ready" ? "unreachable" : admitted.reason, admitted.message) };
     // Kept without its command id, which every attempt adds back as it was minted.
     const stored: Record<string, unknown> = { ...(checked.data as Record<string, unknown>) };
     delete stored["commandId"];
@@ -930,6 +948,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   return {
     view,
     dispatch,
+    admits: (environmentId, method) => admission(method, host.record(environmentId)),
     moveToGroup(environmentId, sessionId, groupName) {
       if (groupName === null) return dispatch(environmentId, "sessions.setGroup", { sessionId, groupId: null });
       const { groupId, create } = groupNamed(environmentId, groupName);

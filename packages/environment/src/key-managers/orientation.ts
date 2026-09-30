@@ -1,6 +1,6 @@
 import {
-  MANAGED_TOOLS,
   compareToolVersions,
+  keyManagerClis,
   type ContainmentLevel,
   type KeyManagerConnectionRecord,
   type KeyManagerPolicyWrites,
@@ -121,7 +121,7 @@ const toolWords = (row: ManagedToolRow): string => {
 
 /** The CLIs that serve the connection's provider (`bao` or `vault` for OpenBao), each as last known. */
 const cliLine = (record: KeyManagerConnectionRecord, tool: KeyManagersSectionOptions["tool"]): string => {
-  const serving = MANAGED_TOOLS.filter(({ requiredFor }) => requiredFor.kind === "key-manager" && requiredFor.provider === record.provider).map(({ name }) => name);
+  const serving = keyManagerClis(record.provider);
   const which = serving.length > 1 ? ` (${serving.join(" or ")})` : "";
   return `Its CLI${which}: ${serving.map((name) => toolWords(tool(name))).join("; ")}.`;
 };

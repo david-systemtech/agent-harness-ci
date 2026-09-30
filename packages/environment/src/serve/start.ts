@@ -15,7 +15,9 @@ import {
   PROTOCOL_VERSION,
   SESSION_STREAM_KIND,
   STEP_REGISTRY,
+  UPDATE_PATH,
   WIRE_PATH,
+  describeDenylistMatch,
   formatHostPort,
   pairingLink,
   parkedPromptTtlMs,
@@ -33,6 +35,11 @@ import {
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
+import { systemResolver, type Resolver } from "../browser/address-rules.js";
+import type { ExtractionHooks } from "../browser/extraction.js";
+import { browserToolServer } from "../browser/tool-server.js";
+import { systemDialer, type Dialer } from "../browser/web-fetch.js";
+import { createWebReader } from "../browser/web-read.js";
 import {
   SWEEP_INTERVAL_MS,
   createClientSessions,
@@ -75,7 +82,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { coveredDirectories, denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -93,6 +100,7 @@ import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { createHostUpdaterPolls } from "../updates/host-updater.js";
 import { updateMethods } from "../updates/methods.js";
+import { createUpdateRoute } from "../updates/route.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
@@ -118,6 +126,7 @@ import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
+import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
@@ -450,6 +459,18 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
+  /**
+   * How `web_read` reaches the web (#546): the resolver each hop's name is
+   * resolved through, how a connection to an address the address rules
+   * checked is opened, and what a test observes of the extraction workers.
+   * Preset: the system's resolver, a TCP connection to the checked address,
+   * no hooks; tests resolve and dial to their loopback server.
+   */
+  readonly webRead?: {
+    readonly resolve?: Resolver;
+    readonly dial?: Dialer;
+    readonly hooks?: ExtractionHooks;
+  };
   /**
    * The extension's folder and its listener (#547): the built extension the
    * environment unpacks into `extension/current` for Chrome, and the ports
@@ -858,6 +879,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // close ends every run (and so lets go of what each left parked).
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
+  // The browser tool server on every run (#546): web_read, reading the internal hosts and the denylist as they are at each
+  // call, so the one server serves every run and a kept provider process the next. A redirect's address meets the
+  // denylist's hosts section here, as the gate met the address the call named.
+  const browserTools = browserToolServer(
+    createWebReader({
+      clock,
+      harnessVersion,
+      rules: () => ({
+        internalHosts: readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["browser.internalHosts"],
+        resolve: options.webRead?.resolve ?? systemResolver,
+      }),
+      denylisted: (url) => {
+        const [match] = readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches;
+        return match === undefined ? null : describeDenylistMatch(match);
+      },
+      dial: options.webRead?.dial ?? systemDialer,
+      ...(options.webRead?.hooks !== undefined && { hooks: options.webRead.hooks }),
+    }),
+  );
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
@@ -894,6 +934,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
   // The injecting key-manager connections' blocks and each holder's run tokens (#368).
   processEnvironments.register(keyManagerConnections.processEnvironment);
+  // The managed tools' verify commands (#375): each a holder of the process environment, with a run token of its own.
+  const toolVerifier = createToolVerifier({ tools: managedTools, processEnvironments, connections: () => keyManagerConnections.list(), scrub, clock });
+  closers.push(() => toolVerifier.close());
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
@@ -1004,8 +1047,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trust: (place) => trustStore.of(place),
       ...hostSeams,
       instructions,
-      // The seam's servers, then the caller's own tools as the `client` server (#139).
-      toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
+      // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
+      toolServers: (scope) => [browserTools, ...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1249,8 +1292,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...accountMethods({ accounts, host }),
     ...instructionMethods({ host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections, references, moves, options.keyManagerTimeoutMs),
-    ...managedToolsMethods(managedTools),
+    ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
+    ...managedToolsMethods(managedTools, toolVerifier),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,
@@ -1315,6 +1358,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   );
   // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
   surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock }));
+  // The update route (#353): updates.apply over HTTP for a client whose protocol the wire refuses; a client session's token, no exchange.
+  surface.route("POST", UPDATE_PATH, createUpdateRoute({ log, clientSessions, methods: table, readiness: () => readiness }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
   const completions = createCompletionsSurface({
     log,

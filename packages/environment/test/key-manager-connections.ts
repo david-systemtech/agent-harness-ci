@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { EventEnvelope, EventFrame, KeyManagerConnectionRecord, ParamsOf, ResponseOf, ResultOf } from "@agent-harness/contracts";
+import { KeyManagerConnectionRecord, type EventEnvelope, type EventFrame, type ParamsOf, type ResponseOf, type ResultOf } from "@agent-harness/contracts";
 import type { WireClient } from "./wire-client.js";
 
 /**
@@ -56,7 +56,9 @@ export const setBasePath = (client: WireClient, connectionId: string, basePath: 
 export const setInjected = (client: WireClient, connectionId: string): Promise<ResponseOf<"keyManagers.connections.setInjected">> =>
   client.request("keyManagers.connections.setInjected", { commandId: randomUUID(), connectionId });
 
-export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> => (await client.request("keyManagers.list", {})).connections;
+/** The records `keyManagers.list` answers, read as records, so less the CLI row it alone gives each (#375) and comparable with what the other methods answer. */
+export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> =>
+  (await client.request("keyManagers.list", {})).connections.map((listed) => KeyManagerConnectionRecord.parse(listed));
 
 /** `keyManagers.move.list`: the items holding a stored value, with their targets (#371). */
 export const moveList = async (client: WireClient): Promise<ResultOf<"keyManagers.move.list">["items"]> => (await client.request("keyManagers.move.list", {})).items;

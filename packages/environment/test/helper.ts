@@ -36,6 +36,7 @@ import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
 import { TEST_EXTENSION, TEST_EXTENSION_PORTS } from "./fake-extension.js";
 import { refusingSpawn } from "./signin.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
+import { loopbackDialer, noResolver } from "./web-server.js";
 import {
   ByeError,
   WAIT_MS,
@@ -159,6 +160,13 @@ export interface TestEnvironmentOptions {
   readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
   /** The steps `setup.check` runs (`test/setup-steps.ts` scripts them); preset: the step registry with the environment's own answers. */
   readonly setupSteps?: EnvironmentOptions["setupSteps"];
+  /**
+   * How `web_read` resolves and connects, and what a test observes of its
+   * workers, each part over the helper's preset: a resolver that resolves
+   * no name and a dialer that reaches loopback alone (`test/web-server.ts`),
+   * so no test reaches the real DNS or network.
+   */
+  readonly webRead?: EnvironmentOptions["webRead"];
   /**
    * The extension's folder and listener (#547), each part over the helper's
    * preset: `TEST_EXTENSION` as the built extension carried, and the
@@ -347,6 +355,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
+    webRead: { resolve: noResolver, dial: loopbackDialer, ...options.webRead },
     browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, ...options.browser },
   };
   let env: EnvironmentHandle;

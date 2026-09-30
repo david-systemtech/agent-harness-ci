@@ -3,11 +3,18 @@ import { afterEach } from "vitest";
 
 /**
  * What every GUI test runs with (vitest.config.ts): Testing Library's
- * cleanup after each test, and what jsdom does not do: layout, pointer
- * capture, media queries, a canvas and the document's adopted stylesheets.
+ * cleanup after each test, and what that schedules at once run before the
+ * next; and what jsdom does not do: layout, pointer capture, media queries,
+ * a canvas and the document's adopted stylesheets.
  */
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // What unmounting schedules at once runs before the next test file's window replaces this one: Radix's focus scope
+  // hands the focus back on a zero timeout, whose `CustomEvent`, made from the next file's window, jsdom refuses to
+  // dispatch on this one's element ("parameter 1 is not of type 'Event'"), an unhandled error in whichever file runs next.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 /**
  * jsdom lays nothing out, so every element measures as a 1280 by 800

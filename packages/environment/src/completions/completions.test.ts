@@ -1581,9 +1581,10 @@ describe("client-tool passthrough (#139)", () => {
       );
       expect(answer.finishReason).toBe("stop");
       expect(answer.extension.ignored).toEqual([]);
+      // The harness's own browser server is on every run (#546); the caller's tools come after it as the client server.
       const servers = t.adapter.lastRun().input.toolServers;
-      expect(servers.map((server) => server.name)).toEqual(["client"]);
-      const [server] = servers;
+      expect(servers.map((server) => server.name)).toEqual(["browser", "client"]);
+      const server = servers.find((candidate) => candidate.name === "client");
       if (server === undefined || !isInProcess(server)) throw new Error("The client server is not served in process.");
       expect(server.external).toBe(true);
       expect(server.tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }))).toEqual([
@@ -1593,9 +1594,9 @@ describe("client-tool passthrough (#139)", () => {
         { name: "echo", description: "", inputSchema: { type: "object", properties: { text: { type: "string" } } } },
       ]);
     }
-    // A request with no tools gives its run none.
+    // A request with no tools gives its run none of the caller's: the harness's own browser server alone.
     await complete(t, token, turn("Hi"));
-    expect(t.adapter.lastRun().input.toolServers).toEqual([]);
+    expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["browser"]);
   });
 
   it("returns a call to the caller's tool as a tool_calls delta with a minted id and the bare name, ends with finish_reason tool_calls, and parks the handler", async () => {
@@ -1730,10 +1731,11 @@ describe("client-tool passthrough (#139)", () => {
       const answer = await exchange(t, token, turn("Hi", { tools: [WEATHER], tool_choice: "none" }), streaming);
       expect(answer.finishReason).toBe("stop");
       expect(answer.extension.ignored).toEqual([]);
-      expect(t.adapter.lastRun().input.toolServers).toEqual([]);
+      // The caller's tools are withheld; the harness's own browser server is on every run (#546).
+      expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["browser"]);
       // auto is the default, said out loud.
       await exchange(t, token, turn("Hi", { tools: [WEATHER], tool_choice: "auto" }), streaming);
-      expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["client"]);
+      expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["browser", "client"]);
     }
   });
 
@@ -1748,7 +1750,7 @@ describe("client-tool passthrough (#139)", () => {
         });
         const tolerated = await exchange(t, token, turn("Hi", { tools: [WEATHER], tool_choice: choice, "agent-harness": { ignoreUnsupported: true } }), streaming);
         expect(tolerated.extension.ignored).toEqual(["tool_choice"]);
-        expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["client"]);
+        expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["browser", "client"]);
       }
     }
     expect(t.adapter.runs).toHaveLength(4);
@@ -1791,7 +1793,7 @@ describe("client-tool passthrough (#139)", () => {
       expect(await refused(turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER] }))).toMatchObject({ code: "unsupported_parameter", param: "tools.0" });
       const tolerated = await exchange(t, token, turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER], "agent-harness": { ignoreUnsupported: true } }), streaming);
       expect(tolerated.extension.ignored).toEqual(["tools.0"]);
-      const [server] = t.adapter.lastRun().input.toolServers;
+      const server = t.adapter.lastRun().input.toolServers.find((candidate) => candidate.name === "client");
       expect(server !== undefined && isInProcess(server) ? server.tools.map((tool) => tool.name) : []).toEqual(["get_weather"]);
       expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "get weather" } }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function.name" });
       expect(await refused(turn("Hi", { tools: [WEATHER, WEATHER] }))).toMatchObject({ code: "invalid_params", param: "tools.1.function.name" });
@@ -1874,7 +1876,10 @@ describe("client-tool passthrough (#139)", () => {
       expect(answer.content).toBe("First done\n\nLet me look.");
       expect(answer.toolCalls.map((call) => call.function.name)).toEqual(["get_weather"]);
       expect(answer.finishReason).toBe("tool_calls");
-      expect(t.adapter.runs.slice(-2).map((run) => run.input.toolServers.map((server) => server.name))).toEqual([["client"], ["client"]]);
+      expect(t.adapter.runs.slice(-2).map((run) => run.input.toolServers.map((server) => server.name))).toEqual([
+        ["browser", "client"],
+        ["browser", "client"],
+      ]);
       // The call is the queue's run's, and a follow-up resumes that run.
       const resumed = await exchange(t, token, followUp("Weather in Manila?", answer, { get_weather: "Sunny" }), streaming);
       expect(resumed).toMatchObject({ content: "Tool said: Sunny", finishReason: "stop" });

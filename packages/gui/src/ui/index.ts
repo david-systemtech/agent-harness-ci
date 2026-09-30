@@ -4,7 +4,16 @@
  * store, and draws only the theme's tokens.
  */
 export { Button, type ButtonProps, type ButtonTone } from "./button.js";
-export { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "./context-menu.js";
+export {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "./context-menu.js";
 export { Dialog, DialogClose, DialogContent, DialogTrigger, type DialogContentProps } from "./dialog.js";
 export { Fold, type FoldProps } from "./fold.js";
 export { Input } from "./input.js";

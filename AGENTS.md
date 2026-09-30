@@ -42,8 +42,8 @@ See `docs/agents/domain.md`.
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
-much as the environment's jsdom: on contracts alone, with no Node built-in and
-no environment code), `tui`, `gui` (the
+much as the environment's jsdom: on contracts and Mozilla Readability alone,
+with no Node built-in and no environment code), `tui`, `gui` (the
 desktop window's renderer, a React app whose bundle runs in a browser tab
 too), `desktop` (the Electron shell that carries the `gui` build), and `cli`,
 the `agent-harness` binary). Node 24 or later: the LTS

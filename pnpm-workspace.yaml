@@ -12,3 +12,9 @@ ignoredBuiltDependencies:
 # which carries python3, make and g++).
 onlyBuiltDependencies:
   - node-pty
+
+# pdf.js (web_read's PDF text, #546) names @napi-rs/canvas as an optional
+# dependency for rendering pages to pixels, a native package per platform;
+# web_read only reads a PDF's text, so it is not installed.
+ignoredOptionalDependencies:
+  - "@napi-rs/canvas"
