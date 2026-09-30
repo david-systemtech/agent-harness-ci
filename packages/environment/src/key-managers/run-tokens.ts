@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import type { SuppliedVariables } from "../adapter/contract.js";
-import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
+import { holderName, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { MintingLogin } from "./logins.js";
@@ -13,9 +13,10 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * The key managers' part of every provider process and terminal
  * (key-managers spec, "Run tokens" and "Injection"; ADR 0011, ADR 0015, ADR
  * 0028; #368): the supplier the key-manager registry registers with the
- * process environment (#307), which a holder (a provider process or a
- * terminal, and any holder the host starts through the same call) is given
- * the injecting connections' blocks through.
+ * process environment (#307), which a holder (a provider process, a
+ * terminal, a managed tool's verify command (#375), and any holder the host
+ * starts through the same call) is given the injecting connections' blocks
+ * through.
  *
  * - **What is injected**: each injecting OpenBao connection's block
  *   (`openbao-block.ts`), at most one per provider (the connections' rule);
@@ -32,7 +33,8 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *   `default` (which its own renewal and revocation need), a time to live
  *   of one hour or, for a child, what is left of the login's maximum life
  *   if that is known and shorter, the display name `agent-harness` and
- *   metadata naming the session and the holder kind; against the
+ *   metadata naming the session (when the holder serves one) and the
+ *   holder kind; against the
  *   connection's token role when it has one, whose tokens may outlive the
  *   login. It is registered with the scrub registry for the holder's life,
  *   renewed every twenty minutes while the holder lives, and revoked when
@@ -215,7 +217,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     let timer: Timer | undefined;
     const ended = await Promise.race([running.then(() => true), new Promise<boolean>((resolve) => (timer = clock.setTimeout(() => resolve(false), SIGN_IN_WAIT_MS)))]);
     timer?.cancel();
-    if (!ended) console.error(`The key-manager connection ${connectionId} was still signing in after ${SIGN_IN_WAIT_MS / 1000} s; session ${scope.sessionId}'s ${scope.holder} is given no run token from it.`);
+    if (!ended) console.error(`The key-manager connection ${connectionId} was still signing in after ${SIGN_IN_WAIT_MS / 1000} s; ${holderName(scope)} is given no run token from it.`);
   };
 
   /** The run token minted for the holder from the connection as it stands; null where none can be. */
@@ -235,7 +237,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
           policies: [...new Set([...(record.ticks ?? []), "default"])],
           ttlSeconds,
           displayName: RUN_TOKEN_DISPLAY_NAME,
-          metadata: { session: scope.sessionId, holder: scope.holder },
+          metadata: { ...(scope.sessionId !== null && { session: scope.sessionId }), holder: scope.holder },
           tokenRole: record.tokenRole,
         },
         AbortSignal.timeout(budgetMs),
@@ -247,7 +249,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       });
     if (answer.outcome !== "minted") {
       use();
-      console.error(`Minting a run token from the key-manager connection ${record.id} for session ${scope.sessionId}'s ${scope.holder} failed; it is given no run token: ${scrub.scrubOutput(answer.message)}`);
+      console.error(`Minting a run token from the key-manager connection ${record.id} for ${holderName(scope)} failed; it is given no run token: ${scrub.scrubOutput(answer.message)}`);
       return null;
     }
     const run = hold(record.id, login, child, answer.token, use);
