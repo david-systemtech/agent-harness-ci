@@ -301,6 +301,8 @@ describe("after a re-login", () => {
     const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, maxTtlSeconds: 90 * 60 }, { processIdleMinutes: () => 600 });
     bao.role("runs", { orphan: true });
     const connection = await added(client, { address: bao.address, ca: bao.ca, credential: approle(), ...(options.tokenRole !== undefined && { tokenRole: options.tokenRole }) });
+    // Verified before any run, so every run's orientation block names the policies' write flags alike (#381): only the key can differ.
+    await verify(client, connection.id);
     const [first = ""] = bao.minted;
     const [one, other] = [await create(client), await create(client)];
     t.clock.advance(5 * MINUTE);
