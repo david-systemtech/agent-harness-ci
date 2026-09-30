@@ -11,6 +11,7 @@ export * from "./browser-policy.js";
 export * from "./browser-settings.js";
 export * from "./credential-settings.js";
 export * from "./calendar.js";
+export * from "./carry-over.js";
 export * from "./completions.js";
 export * from "./denylist.js";
 export * from "./discovery.js";

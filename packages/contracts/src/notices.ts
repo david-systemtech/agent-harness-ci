@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
+import { CarryOverImportedPayload } from "./carry-over.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
 import {
@@ -83,7 +84,8 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * subscription); the skill set changed, by a command or a read that
  * found the own directory changed (#494); a trust decision was recorded or
  * revoked (#500); a probe changed managed-tool rows (#373: the Managed tools
- * registry's notice); so every connected client
+ * registry's notice); an import of an adopted account's directory ended
+ * (#578: Carry over's `carry-over.imported`); so every connected client
  * learns of it whatever else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
@@ -134,10 +136,11 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "skills.updated",
   "trust.updated",
   "tools.updated",
+  "carry-over.imported",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.injected-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager), key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move) and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again), and the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.injected-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager), key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move) and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again), the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list), and Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -327,6 +330,11 @@ const TrustUpdated = describedNotice(
   "A trust decision was recorded or revoked, in the transaction of its trust event: a client reads trust.get and trust.list again.",
 );
 const ToolsUpdated = describedNotice("tools.updated", ToolsUpdatedPayload, "A probe of the managed tools changed rows: those rows as they are now.");
+const CarryOverImported = describedNotice(
+  "carry-over.imported",
+  CarryOverImportedPayload,
+  "An import of an adopted account's directory ended, in the transaction of what it imported: the account, what it did with the sessions, and what failed.",
+);
 
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
@@ -381,6 +389,7 @@ export const EnvironmentNotice = z
     SkillsUpdated,
     TrustUpdated,
     ToolsUpdated,
+    CarryOverImported,
   ])
   .meta({
     description:

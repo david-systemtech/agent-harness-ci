@@ -275,6 +275,10 @@
       "title": "SessionId"
     },
     {
+      "path": "sessions/session-origin.json",
+      "title": "SessionOrigin"
+    },
+    {
       "path": "sessions/group-id.json",
       "title": "GroupId"
     },
@@ -1941,6 +1945,30 @@
     {
       "path": "notices/environment-notice.json",
       "title": "EnvironmentNotice"
+    },
+    {
+      "path": "carry-over/sessions-inventory.json",
+      "title": "CarryOverSessionsInventory"
+    },
+    {
+      "path": "carry-over/inventory.json",
+      "title": "CarryOverInventory"
+    },
+    {
+      "path": "carry-over/sessions-imported.json",
+      "title": "CarryOverSessionsImported"
+    },
+    {
+      "path": "carry-over/failure.json",
+      "title": "CarryOverFailure"
+    },
+    {
+      "path": "carry-over/notices/carry-over.imported.json",
+      "title": "CarryOverImportedPayload"
+    },
+    {
+      "path": "carry-over/report.json",
+      "title": "CarryOverReport"
     },
     {
       "path": "settings/settings-key.json",
@@ -4595,6 +4623,34 @@
       "title": "setup.check error"
     },
     {
+      "path": "methods/carryOver.inventory/params.json",
+      "title": "carryOver.inventory params"
+    },
+    {
+      "path": "methods/carryOver.inventory/result.json",
+      "title": "carryOver.inventory result"
+    },
+    {
+      "path": "methods/carryOver.inventory/error.json",
+      "title": "carryOver.inventory error"
+    },
+    {
+      "path": "methods/carryOver.run/params.json",
+      "title": "carryOver.run params"
+    },
+    {
+      "path": "methods/carryOver.run/result.json",
+      "title": "carryOver.run result"
+    },
+    {
+      "path": "methods/carryOver.run/response.json",
+      "title": "carryOver.run response"
+    },
+    {
+      "path": "methods/carryOver.run/error.json",
+      "title": "carryOver.run error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -6361,6 +6417,25 @@
       "params": "methods/setup.check/params.json",
       "result": "methods/setup.check/result.json",
       "error": "methods/setup.check/error.json"
+    },
+    {
+      "name": "carryOver.inventory",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/carryOver.inventory/params.json",
+      "result": "methods/carryOver.inventory/result.json",
+      "error": "methods/carryOver.inventory/error.json"
+    },
+    {
+      "name": "carryOver.run",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/carryOver.run/params.json",
+      "result": "methods/carryOver.run/result.json",
+      "response": "methods/carryOver.run/response.json",
+      "error": "methods/carryOver.run/error.json"
     },
     {
       "name": "terminals.open",
