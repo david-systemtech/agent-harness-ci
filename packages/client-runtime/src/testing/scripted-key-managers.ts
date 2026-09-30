@@ -3,9 +3,11 @@ import {
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
   KeyManagerCertificate,
   KeyManagerConnectionRecord,
+  MANAGED_TOOLS,
   ManagedToolRow,
   httpOriginOf,
   invalidParams,
+  keyManagerCliRow,
   managedTool,
   type KeyManagerCredential,
   type KeyManagerLoginPolicy,
@@ -239,9 +241,19 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   /** Whether no other connection of the provider injects, so this one, signed in now, does. */
   const firstOfProvider = (record: KeyManagerConnectionRecord) => !connections.some((c) => c.id !== record.id && c.provider === record.provider && c.injects);
 
+  const tools = (script.tools ?? []).map((row) =>
+    ManagedToolRow.parse({ label: managedTool(row.tool).label, path: `/usr/bin/${row.tool}`, realpath: `/usr/bin/${row.tool}`, version: "2.1.1", minimum: "2.1.1", method: "apt", status: "current", action: "update", ...row }),
+  );
+  /** Every managed tool's row: the one scripted, else not installed. */
+  const everyTool = MANAGED_TOOLS.map(
+    ({ name, label, minimum }) =>
+      tools.find((row) => row.tool === name) ?? ManagedToolRow.parse({ tool: name, label, path: null, realpath: null, version: null, minimum, method: null, status: "not-installed", action: "install" }),
+  );
+
   let heldLists: (() => void)[] | null = null;
   wire.answer("keyManagers.list", (): FakeAnswer | Promise<FakeAnswer> => {
-    const answer = (): FakeAnswer => ({ result: { connections: [...connections] } });
+    // Each with its CLI's Managed tools row (#375).
+    const answer = (): FakeAnswer => ({ result: { connections: connections.map((record) => ({ ...record, cli: keyManagerCliRow(record.provider, everyTool) })) } });
     const waiting = heldLists;
     return waiting === null ? answer() : new Promise((resolve) => waiting.push(() => resolve(answer())));
   });
@@ -590,9 +602,6 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     return accepted({ item: ref, reference: target.reference, value: item.value });
   });
 
-  const tools = (script.tools ?? []).map((row) =>
-    ManagedToolRow.parse({ label: managedTool(row.tool).label, path: `/usr/bin/${row.tool}`, realpath: `/usr/bin/${row.tool}`, version: "2.1.1", minimum: "2.1.1", method: "apt", status: "current", action: "update", ...row }),
-  );
   wire.answer("tools.list", () => ({ result: { tools, probedAt: now() } }));
 
   return {
