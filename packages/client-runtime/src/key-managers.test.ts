@@ -3,7 +3,7 @@ import type { ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { noticeEvent } from "../test/events.js";
 import { forgeEventPayload, forgeRecord } from "../test/forges.js";
-import { CA_FOR_TESTS, KEY_MANAGER_EVENT_TYPES, keyManagerEventPayload, keyManagerRecord, keyManagerStatus, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
+import { CA_FOR_TESTS, KEY_MANAGER_EVENT_TYPES, keyManagerEventPayload, keyManagerRecord, keyManagerStatus, listedConnection, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
@@ -25,11 +25,11 @@ const { paired, pairedMany } = usePaired();
 const KEY_MANAGER_FLAGS = ["keyManagers", "managedTools"] as const;
 
 describe("the key managers and the managed tools in the request cache", () => {
-  it("fetch keyManagers.list and keyManagers.move.list again on every key-manager.* notice, and tools.list on tools.updated alone", async () => {
+  it("fetch keyManagers.list and keyManagers.move.list again on every key-manager.* notice, and tools.list and keyManagers.list, whose connections carry their CLI's row, on tools.updated", async () => {
     const { runtime, wire, env, environment } = await paired({ capabilities: KEY_MANAGER_FLAGS });
     const connection = keyManagerRecord();
     const asked = { "keyManagers.list": 0, "keyManagers.move.list": 0, "tools.list": 0 };
-    wire.answer("keyManagers.list", () => (asked["keyManagers.list"]++, { result: { connections: [connection] } }));
+    wire.answer("keyManagers.list", () => (asked["keyManagers.list"]++, { result: { connections: [listedConnection(connection)] } }));
     wire.answer("keyManagers.move.list", () => (asked["keyManagers.move.list"]++, { result: { items: [] } }));
     wire.answer("tools.list", () => (asked["tools.list"]++, { result: { tools: [toolRow()], probedAt: "2026-09-24T00:00:00.000Z" } }));
     for (const method of ["keyManagers.list", "keyManagers.move.list"] as const) runtime.requests.cached(env, method, {}).subscribe(() => undefined);
@@ -37,7 +37,7 @@ describe("the key managers and the managed tools in the request cache", () => {
     tools.subscribe(() => undefined);
     await flush();
     expect(asked).toEqual({ "keyManagers.list": 1, "keyManagers.move.list": 1, "tools.list": 1 });
-    expect(runtime.requests.cached(env, "keyManagers.list", {}).read()).toMatchObject({ result: { connections: [connection] }, error: null });
+    expect(runtime.requests.cached(env, "keyManagers.list", {}).read()).toMatchObject({ result: { connections: [listedConnection(connection)] }, error: null });
     expect(tools.read()).toMatchObject({ result: { tools: [toolRow()] }, error: null });
 
     for (const [index, type] of KEY_MANAGER_EVENT_TYPES.entries()) {
@@ -48,7 +48,7 @@ describe("the key managers and the managed tools in the request cache", () => {
     const heard = KEY_MANAGER_EVENT_TYPES.length;
     environment.event(noticeEvent(heard + 1, env, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
     await flush();
-    expect(asked).toEqual({ "keyManagers.list": heard + 1, "keyManagers.move.list": heard + 1, "tools.list": 2 });
+    expect(asked).toEqual({ "keyManagers.list": heard + 2, "keyManagers.move.list": heard + 1, "tools.list": 2 });
   });
 
   it("fetch keyManagers.move.list again when a forge account changes, since a forge account's stored token is an item", async () => {
@@ -280,7 +280,7 @@ describe("the key-manager status rows", () => {
     let asked = 0;
     wire.answer("keyManagers.list", () => {
       asked++;
-      return new Promise((resolve) => (answer = (connections) => resolve({ result: { connections } })));
+      return new Promise((resolve) => (answer = (connections) => resolve({ result: { connections: connections.map((each) => listedConnection(each)) } })));
     });
     // Its add was before this client's cursor: nothing here names its label.
     environment.event(noticeEvent(1, env, "key-manager.connection.verified", keyManagerEventPayload("key-manager.connection.verified", connection, { status: keyManagerStatus("unreachable", UNREACHABLE) })));

@@ -1,5 +1,23 @@
-import { WHEN_EXAMPLES, isReachable, parseWhen, presetTimes, rowKey, whenWords, writable, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow, type StartSessionChoice } from "@agent-harness/client-runtime";
-import { groupNameKey, shelfOf, type CommandMethodName, type DeletedSessionSummary } from "@agent-harness/contracts";
+import {
+  WHEN_EXAMPLES,
+  askRestorable,
+  groupChoices,
+  hasTag,
+  isReachable,
+  parseWhen,
+  presetTimes,
+  rowKey,
+  snoozeStands,
+  whenWords,
+  type CommandParams,
+  type DispatchAnswer,
+  type DispatchFailure,
+  type EnvironmentView,
+  type Runtime,
+  type SessionRow,
+  type StartSessionChoice,
+} from "@agent-harness/client-runtime";
+import { shelfOf, type CommandMethodName } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import type { Badge } from "./badge.js";
 import { pickerOf, type Picker, type PickerRow } from "./picker.js";
@@ -102,8 +120,7 @@ export const snoozePicker = (acts: RailActs, row: SessionRow): Picker =>
         const at = parseWhen(query, now);
         typed.push(at instanceof Date ? { key: "typed", text: `At ${whenWords(at)}`, choose: () => snoozeTo(acts, row, at) } : { key: "typed", text: query.trim(), absent: at.problem });
       }
-      const awake = row.summary.snoozedUntil === null || Date.parse(row.summary.snoozedUntil) <= now.getTime();
-      const wake: PickerRow[] = awake
+      const wake: PickerRow[] = !snoozeStands(row.summary, now)
         ? []
         : [{ key: "wake", text: "Wake it now", choose: () => acts.send(row.environmentId, "sessions.unsnooze", { sessionId: row.summary.id }, `Woke ${titleOf(row)}${whenBack(acts, row.environmentId)}.`) }];
       // A time typed that reads comes first; one that does not, last, where it says why.
@@ -119,9 +136,8 @@ export const tagPicker = (acts: RailActs, row: SessionRow): Picker =>
     placeholder: "type a tag to add it; Enter on one it has takes it off",
     rows: (query) => {
       const typed = query.trim();
-      const has = row.summary.tags.some((tag) => tag.toLowerCase() === typed.toLowerCase());
       const add: PickerRow[] =
-        typed === "" || has
+        typed === "" || hasTag(row.summary, typed)
           ? []
           : [{ key: "add", text: `Add #${typed}`, choose: () => acts.send(row.environmentId, "sessions.tag", { sessionId: row.summary.id, tag: typed }, `Tagged ${titleOf(row)} #${typed}${whenBack(acts, row.environmentId)}.`) }];
       const held = row.summary.tags
@@ -145,30 +161,25 @@ export const groupPicker = (acts: RailActs, row: SessionRow): Picker =>
     typed: true,
     placeholder: "pick one, or type a new group's name",
     rows: (query) => {
-      const typed = query.trim().replace(/\s+/g, " ");
-      const headings = acts.runtime.projections.sessionList.read().groups;
+      // Which groups, and whether a new one or none, are the runtime's (`groupChoices`), as the window's Move to group offers them.
+      const choices = groupChoices(acts.runtime.projections.sessionList.read().groups, row, query);
       const where = (environmentIds: readonly string[]) => environmentIds.map((id) => acts.badges.get(id)?.abbreviation ?? "??").join(" ");
-      const listed = headings
-        .filter((heading) => heading.name.toLowerCase().includes(typed.toLowerCase()))
-        .map((heading): PickerRow => {
-          const here = heading.groups.some((g) => g.environmentId === row.environmentId && g.groupId === row.summary.groupId);
-          return here
-            ? { key: `group:${heading.key}`, text: heading.name, absent: "it is in it" }
-            : {
-                key: `group:${heading.key}`,
-                text: heading.name,
-                detail: `on ${where(heading.groups.map((g) => g.environmentId))}`,
-                choose: () => acts.move(row, heading.name, `Moved ${titleOf(row)} into ${heading.name}${whenBack(acts, row.environmentId)}.`),
-              };
-        });
+      const listed = choices.listed.map(({ heading, here }): PickerRow =>
+        here
+          ? { key: `group:${heading.key}`, text: heading.name, absent: "it is in it" }
+          : {
+              key: `group:${heading.key}`,
+              text: heading.name,
+              detail: `on ${where(heading.groups.map((g) => g.environmentId))}`,
+              choose: () => acts.move(row, heading.name, `Moved ${titleOf(row)} into ${heading.name}${whenBack(acts, row.environmentId)}.`),
+            },
+      );
+      const typed = choices.fresh;
       const fresh: PickerRow[] =
-        typed === "" || headings.some((heading) => heading.key === groupNameKey(typed))
-          ? []
-          : [{ key: "new", text: `New group ${typed}`, choose: () => acts.move(row, typed, `Moved ${titleOf(row)} into a new group ${typed}${whenBack(acts, row.environmentId)}.`) }];
-      const out: PickerRow[] =
-        row.summary.groupId === null
-          ? []
-          : [{ key: "none", text: "No group", choose: () => acts.move(row, null, `Took ${titleOf(row)} out of ${row.groupName ?? "its group"}${whenBack(acts, row.environmentId)}.`) }];
+        typed === null ? [] : [{ key: "new", text: `New group ${typed}`, choose: () => acts.move(row, typed, `Moved ${titleOf(row)} into a new group ${typed}${whenBack(acts, row.environmentId)}.`) }];
+      const out: PickerRow[] = !choices.out
+        ? []
+        : [{ key: "none", text: "No group", choose: () => acts.move(row, null, `Took ${titleOf(row)} out of ${row.groupName ?? "its group"}${whenBack(acts, row.environmentId)}.`) }];
       // The headings the typing matches first, so a name typed in part picks the heading; a new one after them.
       return [...listed, ...fresh, ...out];
     },
@@ -204,27 +215,17 @@ export const searchPicker = (acts: RailActs, query: string): Picker =>
         })),
   });
 
-interface Deleted {
-  readonly environmentId: string;
-  readonly summary: DeletedSessionSummary;
-}
-
 /**
- * `/restore`: the sessions each reachable environment deleted and can still
- * restore (`sessions.listDeleted`), newest first; Enter restores one.
+ * `/restore`: the sessions each environment deleted and can still restore
+ * (the runtime's `askRestorable`, over `sessions.listDeleted`), newest
+ * first; Enter restores one.
  */
 export const restorePicker = (acts: RailActs, query: string): Picker => {
-  const asked = acts.views.filter((view) => view.name !== null && view.enabled);
-  const listing = writable<{ readonly found: readonly Deleted[]; readonly notes: readonly string[]; readonly asking: number }>({ found: [], notes: [], asking: asked.length });
-  for (const view of asked) {
-    void acts.runtime.requests.call(view.environmentId, "sessions.listDeleted", {}).then((answer) =>
-      listing.update((now) => ({
-        found: answer.ok ? [...now.found, ...answer.result.sessions.map((summary) => ({ environmentId: view.environmentId, summary }))] : now.found,
-        notes: answer.ok ? now.notes : [...now.notes, `${nameOf(view)} could not be asked: ${answer.error.message}`],
-        asking: now.asking - 1,
-      })),
-    );
-  }
+  const listing = askRestorable(acts.runtime.requests, acts.views);
+  const nameIn = (environmentId: string) => {
+    const view = acts.views.find((v) => v.environmentId === environmentId);
+    return view ? nameOf(view) : environmentId;
+  };
   return pickerOf({
     title: "Restore a deleted session",
     typed: true,
@@ -232,9 +233,9 @@ export const restorePicker = (acts: RailActs, query: string): Picker => {
     query,
     follows: [listing],
     rows: (typed) =>
-      [...listing.read().found]
-        .sort((a, b) => Date.parse(b.summary.deletedAt) - Date.parse(a.summary.deletedAt))
-        .filter((d) => d.summary.title.toLowerCase().includes(typed.trim().toLowerCase()))
+      listing
+        .read()
+        .found.filter((d) => d.summary.title.toLowerCase().includes(typed.trim().toLowerCase()))
         .map((d): PickerRow => {
           const title = titleOf(d);
           return {
@@ -246,9 +247,9 @@ export const restorePicker = (acts: RailActs, query: string): Picker => {
           };
         }),
     note: () => {
-      const { notes, asking, found } = listing.read();
+      const { failed, asking, found } = listing.read();
       if (asking > 0) return "Asking each environment what it deleted…";
-      if (notes.length > 0) return notes.join(" ");
+      if (failed.length > 0) return failed.map(({ environmentId, message }) => `${nameIn(environmentId)} could not be asked: ${message}`).join(" ");
       return found.length === 0 ? "Nothing deleted can be restored: a deleted session is purged after 30 days." : undefined;
     },
   });

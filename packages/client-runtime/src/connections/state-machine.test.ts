@@ -354,6 +354,17 @@ describe("bye", () => {
     },
   );
 
+  it("after updating, an environment that says starting is still updating, polled every two seconds with no failure counted; after draining it is starting", () => {
+    for (const reason of ["updating", "draining"] as const) {
+      const d = drive().ready();
+      d.feed({ type: "bye", attempt: d.state.attempt, bye: bye(reason) });
+      d.at(BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+      d.discovered({ kind: "document", document: document({ readiness: "starting" }) });
+      expect(d.state).toMatchObject({ phase: reason === "updating" ? "updating" : "starting", failures: 0 });
+      expect(armed(d.effects, "retry")).toEqual([STARTING_POLL_MS]);
+    }
+  });
+
   it("after draining, nothing answering is the local service down, or a paired environment gone", () => {
     const local = drive({ kind: "local" }).ready();
     local.feed({ type: "bye", attempt: local.state.attempt, bye: bye("draining") });
@@ -759,5 +770,89 @@ describe("enable, disable and retryNow", () => {
     d.feed({ type: "close", attempt: d.state.attempt });
     d.feed({ type: "retryNow" });
     expect(d.effects).toContainEqual({ type: "poll-discovery", attempt: d.state.attempt });
+  });
+});
+
+describe("an update taken across a protocol gap", () => {
+  /** A machine blocked `protocol-mismatch` whose environment can update itself, as `update-environment` offers. */
+  const blocked = () => drive({ blocked: "protocol-mismatch", capabilities: ["self-update"] }).start();
+
+  it("shows updating while the block waits for a hello that agrees, polling discovery and raising nothing", () => {
+    const d = blocked();
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT - 1 }) });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch" });
+
+    d.at(100).feed({ type: "update-taken" });
+    expect(d.state).toMatchObject({ phase: "updating", blocked: "protocol-mismatch", retryAt: 100 + BYE_WAIT_MS, failures: 0 });
+    expect(armed(d.effects, "retry")).toEqual([BYE_WAIT_MS]);
+    expect(notices(d.effects)).toEqual([]);
+    expect(actionOf(d.state)).toBeNull();
+
+    // The old environment still answers, a run keeping it from restarting: still updating, polled again, no failure counted.
+    d.at(d.state.retryAt as number).feed({ type: "timer", timer: "retry" });
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT - 1 }) });
+    expect(d.state).toMatchObject({ phase: "updating", blocked: "protocol-mismatch", failures: 0 });
+    expect(armed(d.effects, "retry")).toEqual([BYE_WAIT_MS]);
+    expect(notices(d.effects)).toEqual([]);
+  });
+
+  it("stays updating through the restart: nothing answering, starting, draining, and a discovery read that hangs", () => {
+    const d = blocked();
+    d.feed({ type: "update-taken" });
+    const round = (answer: DiscoveryAnswer | "hangs") => {
+      d.at(d.state.retryAt as number).feed({ type: "timer", timer: "retry" });
+      if (answer === "hangs") d.feed({ type: "timer", timer: "establish" });
+      else d.discovered(answer);
+      expect(d.state).toMatchObject({ phase: "updating", blocked: "protocol-mismatch" });
+      expect(d.state.retryAt).not.toBeNull();
+      expect(notices(d.effects)).toEqual([]);
+    };
+    round({ kind: "unreachable", message: "restarting" });
+    round({ kind: "malformed", message: "half a document" });
+    round({ kind: "document", document: document({ readiness: "starting" }) });
+    round({ kind: "document", document: document({ readiness: "draining" }) });
+    round("hangs");
+  });
+
+  it("clears the block once hello agrees, and the connection is ready", () => {
+    const d = blocked();
+    d.feed({ type: "update-taken" });
+    d.at(d.state.retryAt as number).feed({ type: "timer", timer: "retry" });
+    d.discovered({ kind: "document", document: document({ harnessVersion: "1.1.0" }) });
+    expect(d.state).toMatchObject({ phase: "updating", blocked: "protocol-mismatch", step: "dialing" });
+    expect(d.effects).toContainEqual({ type: "open-socket", attempt: d.state.attempt });
+
+    d.feed({ type: "hello", attempt: d.state.attempt, hello: hello(), expiresAt: null });
+    expect(d.state).toMatchObject({ phase: "ready", blocked: null, bye: null });
+    expect(d.effects).toContainEqual({ type: "attach" });
+  });
+
+  it("is blocked again, with no new notice, when a retry David asks for finds the old protocol still there", () => {
+    const d = blocked();
+    d.feed({ type: "update-taken" });
+    d.feed({ type: "retryNow" });
+    expect(d.state.phase).toBe("blocked");
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT - 1, capabilities: ["self-update"] }) });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch" });
+    expect(notices(d.effects)).toEqual([]);
+    expect(actionOf(d.state)).toBe("update-environment");
+  });
+
+  it("is blocked as it was when the restarted environment speaks a protocol the client does not", () => {
+    const d = blocked();
+    d.feed({ type: "update-taken" });
+    d.at(d.state.retryAt as number).feed({ type: "timer", timer: "retry" });
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT + 1 }) });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "unsupported-client" });
+    expect(notices(d.effects)).toEqual([expect.objectContaining({ kind: "unsupported-client" })]);
+  });
+
+  it("is taken by no other state: a ready, a disabled or an otherwise blocked connection ignores it", () => {
+    const ready = drive().ready();
+    ready.feed({ type: "update-taken" });
+    expect(ready.state.phase).toBe("ready");
+    const revoked = drive({ blocked: "revoked" }).start();
+    revoked.feed({ type: "update-taken" });
+    expect(revoked.state).toMatchObject({ phase: "blocked", blocked: "revoked" });
   });
 });

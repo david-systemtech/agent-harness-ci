@@ -5,7 +5,7 @@ import { noticeEvent } from "../test/events.js";
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
-import { keyManagerRecord } from "../test/key-managers.js";
+import { keyManagerRecord, listedConnection } from "../test/key-managers.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Shell } from "./shell.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
@@ -449,7 +449,8 @@ const acceptingAdds = (wire: FakeWire) => {
 };
 
 /** Answers `keyManagers.list` on `wire` with `connections`. */
-const listingConnections = (wire: FakeWire, ...connections: KeyManagerConnectionRecord[]) => wire.answer("keyManagers.list", () => ({ result: { connections } }));
+const listingConnections = (wire: FakeWire, ...connections: KeyManagerConnectionRecord[]) =>
+  wire.answer("keyManagers.list", () => ({ result: { connections: connections.map((connection) => listedConnection(connection)) } }));
 
 describe("copying a forge account to other environments", () => {
   const reference = { provider: "openbao", connectionId: randomUUID(), mount: "personal", path: "harness/forge-github", key: "token" } as const;

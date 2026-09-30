@@ -448,6 +448,7 @@ describe("the method registry", () => {
       | "keyManagers.move"
       | "keyManagers.move.copyValue"
       | "tools.list"
+      | "tools.verify"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

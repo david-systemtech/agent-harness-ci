@@ -1107,6 +1107,10 @@
       "title": "KeyManagerConnectionRecord"
     },
     {
+      "path": "key-managers/listed-connection.json",
+      "title": "ListedKeyManagerConnection"
+    },
+    {
       "path": "key-managers/certificate.json",
       "title": "KeyManagerCertificate"
     },
@@ -1257,6 +1261,18 @@
     {
       "path": "managed-tools/row.json",
       "title": "ManagedToolRow"
+    },
+    {
+      "path": "managed-tools/verifiable-name.json",
+      "title": "VerifiableToolName"
+    },
+    {
+      "path": "managed-tools/verify-outcome.json",
+      "title": "ManagedToolVerifyOutcome"
+    },
+    {
+      "path": "managed-tools/verification.json",
+      "title": "ManagedToolVerification"
     },
     {
       "path": "managed-tools/events/tools.updated.json",
@@ -4443,6 +4459,18 @@
       "title": "tools.list error"
     },
     {
+      "path": "methods/tools.verify/params.json",
+      "title": "tools.verify params"
+    },
+    {
+      "path": "methods/tools.verify/result.json",
+      "title": "tools.verify result"
+    },
+    {
+      "path": "methods/tools.verify/error.json",
+      "title": "tools.verify error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -6318,6 +6346,15 @@
       "params": "methods/tools.list/params.json",
       "result": "methods/tools.list/result.json",
       "error": "methods/tools.list/error.json"
+    },
+    {
+      "name": "tools.verify",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/tools.verify/params.json",
+      "result": "methods/tools.verify/result.json",
+      "error": "methods/tools.verify/error.json"
     },
     {
       "name": "settings.get",

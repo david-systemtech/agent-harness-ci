@@ -13,5 +13,5 @@
   "include": ["src/**/*.test.ts", "test"],
   "exclude": [],
   // The tooling project holds the lint rules' shared timeout, which the lint test reads.
-  "references": [{ "path": "." }, { "path": "../contracts" }, { "path": "../../tsconfig.tooling.json" }]
+  "references": [{ "path": "." }, { "path": "./tsconfig.testing.json" }, { "path": "../contracts" }, { "path": "../../tsconfig.tooling.json" }]
 }

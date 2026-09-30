@@ -1,6 +1,6 @@
 import { ENVIRONMENT_ADDRESS_VARIABLE, RUN_SECRET_VARIABLE, formatHostPort, type ForgeAccountRecord } from "@agent-harness/contracts";
 import type { SuppliedVariables } from "../adapter/contract.js";
-import type { ProcessEnvironmentScope, ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
+import { holderName, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import type { Address } from "../serve/http.js";
 import type { ForgeCredential } from "./forge-service.js";
 import { credentialHelper, gitConfigVariables, helperChain, servedOrigins } from "./git-helper.js";
@@ -57,13 +57,13 @@ export interface ForgeInjectionOptions {
 }
 
 /** The token a holder was given for a forge account, and its release; null for one that could not be read. */
-const readFor = async (read: ForgeInjectionOptions["readCredential"], account: ForgeAccountRecord, sessionId: string) => {
+const readFor = async (read: ForgeInjectionOptions["readCredential"], account: ForgeAccountRecord, holder: string) => {
   try {
     const credential = await read(account, PURPOSE);
     if (credential.outcome === "resolved") return credential;
-    console.error(`The token of the forge account ${account.slug} could not be read for session ${sessionId}'s process; its token variables are left out: ${credential.problem.message}`);
+    console.error(`The token of the forge account ${account.slug} could not be read for ${holder}; its token variables are left out: ${credential.problem.message}`);
   } catch (error) {
-    console.error(`Reading the token of the forge account ${account.slug} for session ${sessionId}'s process failed; its token variables are left out:`, error);
+    console.error(`Reading the token of the forge account ${account.slug} for ${holder} failed; its token variables are left out:`, error);
   }
   return null;
 };
@@ -93,11 +93,12 @@ export const createForgeInjection = (options: ForgeInjectionOptions): ProcessEnv
       if (accounts.length === 0) return { variables: {}, release: () => undefined };
       const address = options.address();
       if (address === undefined) throw new Error("The environment is not listening yet, so git's credential helper has nowhere to ask.");
+      const holder = holderName(scope);
       const secret = options.secrets.mint(
         accounts.map((account) => account.id),
-        `process of session ${scope.sessionId}`,
+        holder,
       );
-      const credentials = await Promise.all(accounts.map((account) => readFor(options.readCredential, account, scope.sessionId)));
+      const credentials = await Promise.all(accounts.map((account) => readFor(options.readCredential, account, holder)));
       const entries = accounts.flatMap((account) => helperChain(servedOrigins(account), credentialHelper(options.command, account.slug)));
       const variables: Record<string, string> = {
         ...gitConfigVariables(entries),

@@ -313,6 +313,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       remove: (environmentId) => registry.remove(environmentId),
       retryNow: (environmentId) => registry.retryNow(environmentId),
       startService: (environmentId) => registry.startService(environmentId),
+      updateEnvironment: (environmentId) => registry.updateEnvironment(environmentId),
     },
     preferences: registry.preferences,
     projections: {
@@ -341,6 +342,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     commands: {
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
+      admits: (environmentId, method) => outbox.admits(environmentId, method),
       rewind: (environmentId, sessionId, messageId, options) => outbox.rewind(environmentId, sessionId, messageId, options),
       fork: (environmentId, sessionId, options) => outbox.fork(environmentId, sessionId, options),
       startSession: (environmentId, choice) => outbox.startSession(environmentId, choice),

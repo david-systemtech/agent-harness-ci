@@ -23,7 +23,7 @@ import { readRun, readSessionFacts } from "../runs/run-reads.js";
 import { requireAttachmentKinds } from "../runs/run-decider.js";
 import { sendIn, startRunIn } from "../runs/run-methods.js";
 import type { Clock, Timer } from "../serve/clock.js";
-import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
+import { BodyTooLargeError, bearerToken, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
 import { appendDecided } from "../sessions/companions.js";
 import { decideTag } from "../sessions/decider.js";
@@ -143,14 +143,13 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
   /** The program's client session from the bearer token, with every scope `scopes` names. */
   const authenticate = (request: IncomingMessage, scopes: readonly Scope[]): VerifiedClientSession => {
-    const header = request.headers.authorization ?? "";
-    const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
-    if (match === null) {
+    const token = bearerToken(request);
+    if (token === undefined) {
       throw new CompletionsRefusal(401, "unauthorized", "Send the token of a program's client session as Authorization: Bearer <token>.", {
         headers: { "www-authenticate": "Bearer" },
       });
     }
-    const verified = options.clientSessions.verify(match[1] as string);
+    const verified = options.clientSessions.verify(token);
     if (!verified.ok) throw new CompletionsRefusal(401, verified.reason, verified.message, { headers: { "www-authenticate": "Bearer" } });
     const { clientSession } = verified;
     if (clientSession.kind !== "program") {

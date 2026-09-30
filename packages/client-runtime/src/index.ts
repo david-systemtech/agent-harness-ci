@@ -65,6 +65,7 @@ export {
   type ConnectionRecord,
   type EnvironmentDescriptor,
 } from "./connections/records.js";
+export type { UpdateEnvironmentOutcome } from "./connections/environment-update.js";
 export type { Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
 export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject, type StepAction } from "./notices.js";
@@ -321,6 +322,22 @@ export {
   type SessionHeading,
 } from "./sidebar/headings.js";
 export { WHEN_EXAMPLES, parseWhen, presetTimes, wakeWords, whenWords, type WhenPreset } from "./sidebar/when.js";
+export {
+  arrange,
+  dropOnto,
+  keysFor,
+  noManualOrder,
+  stepIn,
+  type ArrangeAnswer,
+  type Arrangement,
+  type DropTarget,
+  type KeyMove,
+  type Placed,
+  type Refusal,
+  type UnorderedShelf,
+} from "./sidebar/arrange.js";
+export { changeHeading, groupChoices, hasTag, snoozeStands, toggleOf, type GroupChoices, type HeadingChange, type Toggle, type Toggled } from "./sidebar/organise.js";
+export { askRestorable, type DeletedRow, type Restorable } from "./sidebar/restore.js";
 export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";

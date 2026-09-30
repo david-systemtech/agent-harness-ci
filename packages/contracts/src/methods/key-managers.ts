@@ -16,6 +16,7 @@ import {
   KeyManagerReferenceDisplay,
   KeyManagerTokenRole,
   KeyManagerUsername,
+  ListedKeyManagerConnection,
 } from "../key-manager-connections.js";
 import {
   CredentialSourceUnavailableError,
@@ -118,13 +119,18 @@ export type ProviderUnavailableError = z.infer<typeof ProviderUnavailableError>;
 
 const connectionResult = z.object({ connection: KeyManagerConnectionRecord });
 
-/** Every key-manager connection the environment holds, in the order they were added, each with its base path, status and token information; never a secret. */
+/**
+ * Every key-manager connection the environment holds, in the order they
+ * were added, each with its base path, status and token information, and
+ * its CLI's Managed tools row once any probe under way has ended (#375);
+ * never a secret.
+ */
 export const keyManagersList = defineMethod({
   name: "keyManagers.list",
   scope: "read",
   kind: "query",
   params: z.object({}),
-  result: z.object({ connections: z.array(KeyManagerConnectionRecord) }),
+  result: z.object({ connections: z.array(ListedKeyManagerConnection) }),
   errors: [],
 });
 
