@@ -73,7 +73,7 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
     case "forked":
       return `_Forked from ${forked?.title ?? "another session"}${forked?.anchor != null ? ` at ${oneLine(forked.anchor, 200)}` : ""}._`;
     case "history-unreadable":
-      return `_The history could not be read: ${row.entry.message}_`;
+      return `_The history could not be read: ${oneLine(row.entry.message, 300)}_`;
   }
 };
 
