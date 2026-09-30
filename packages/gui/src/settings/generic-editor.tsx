@@ -1,19 +1,9 @@
-import {
-  clockTime,
-  confirmationOf,
-  describeKey,
-  parseTyped,
-  saveSetting,
-  uuidv7,
-  valueWords,
-  writerOf,
-  type EnvironmentView,
-  type Runtime,
-} from "@agent-harness/client-runtime";
+import { clockTime, confirmationOf, describeKey, parseTyped, valueWords, writerOf, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
 import { settingForm, type Confirmation, type SettingsKey } from "@agent-harness/contracts";
-import { useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogClose, DialogContent, Input, Switch } from "../ui/index.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useRuntime } from "../window-context.js";
+import { useSettingsValues } from "./settings-values.js";
 
 /**
  * The generic editor (docs/specs/gui.md, "Settings": a row whose feature is
@@ -27,13 +17,6 @@ import { useClock, useObservable, useRuntime } from "../window-context.js";
  * environment cannot be reached its values show as this window last read
  * them, read-only, with since when.
  */
-
-/** A value the editor wrote, shown over the cached answer until the cache is fetched again. */
-interface Written {
-  /** When the cached answer it is shown over was fetched. */
-  readonly over: string | null;
-  readonly values: Readonly<Record<string, unknown>>;
-}
 
 /** A value waiting on its confirmation before it is written. */
 interface Asking {
@@ -62,19 +45,12 @@ const lackingLines = (runtime: Runtime, environmentId: string, keys: readonly Se
 
 export const GenericEditor = ({ view, keys }: { readonly view: EnvironmentView; readonly keys: readonly SettingsKey[] }) => {
   const runtime = useRuntime();
-  const clock = useClock();
-  const answer = useObservable(useMemo(() => runtime.requests.cached(view.environmentId, "settings.get", {}), [runtime, view.environmentId]));
-  const [written, setWritten] = useState<Written | undefined>(undefined);
+  const settings = useSettingsValues(view.environmentId);
+  const { answer, values } = settings;
   const [lines, setLines] = useState<ReadonlyMap<SettingsKey, string>>(new Map());
   const [asking, setAsking] = useState<Asking | undefined>(undefined);
-  const fetchedAt = useRef(answer.fetchedAt);
-  useLayoutEffect(() => {
-    fetchedAt.current = answer.fetchedAt;
-  });
 
   const ready = view.phase === "ready";
-  const read = answer.result?.values ?? null;
-  const values: Readonly<Record<string, unknown>> | null = read === null ? null : written?.over === answer.fetchedAt ? { ...read, ...written.values } : read;
   const lacking = ready ? lackingLines(runtime, view.environmentId, keys) : [];
 
   const say = (key: SettingsKey, line: string | undefined) =>
@@ -89,11 +65,7 @@ export const GenericEditor = ({ view, keys }: { readonly view: EnvironmentView; 
     const confirmation = confirmationOf(key, value);
     if (confirmation !== undefined && !acknowledged) return setAsking({ key, value, confirmation });
     say(key, undefined);
-    void saveSetting(runtime, view.environmentId, key, value, { commandId: uuidv7(clock.now()), acknowledgeBypass: acknowledged }).then((saved) => {
-      if (!saved.ok) return say(key, `Not saved: ${saved.line}`);
-      const over = fetchedAt.current;
-      setWritten((now) => ({ over, values: { ...(now?.over === over ? now.values : {}), ...saved.values } }));
-    });
+    void settings.save(key, value, acknowledged).then((saved) => !saved.ok && say(key, `Not saved: ${saved.line}`));
   };
 
   return (
