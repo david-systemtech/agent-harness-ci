@@ -331,6 +331,21 @@ posix("a tool run", () => {
     expect(pty.spawned).toHaveLength(2);
   });
 
+  it("answers one the row would refuse while a run is under way as the conflict too, since the run may change the row, and refuses it once that run has finished", async () => {
+    const path = fakePath();
+    programs(path, "brew");
+    const { client, pty } = await withRunner(path);
+    const first = await ran(client, { tool: "gh", action: "install" });
+
+    const during = await run(client, { tool: "gh", action: "update" });
+
+    expect(during.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "tool_run_in_progress", tool: "gh", terminalId: first.terminal.id } } });
+    spawnedAt(pty).exit(0);
+    await eventOf(client, "tool.run-finished");
+    expect((await run(client, { tool: "gh", action: "update" })).receipt).toMatchObject({ status: "rejected", reason: "tool_not_runnable", error: { data: { tool: "gh", action: "update" } } });
+    expect(pty.spawned).toHaveLength(1);
+  });
+
   it("streams through terminals.subscribe, takes a password through terminals.write, and ends closed when terminals.close hangs it up", async () => {
     const path = fakePath();
     programs(path, "apt-get", "sudo", "curl");

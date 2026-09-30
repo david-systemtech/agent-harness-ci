@@ -100,10 +100,11 @@ export const toolsVerify = defineMethod({
  * A Copy-only row, a tool no method available here installs, or `vault`'s
  * Update is `tool_not_runnable`, answering the vendor's documented command.
  * One tool run per environment runs at a time, since package managers
- * lock: another while one is under way is `conflict` reason
- * `tool_run_in_progress`, naming its tool and terminal. An id used on the
- * environment already is `conflict` reason `exists`, and an environment that
- * cannot start a pseudo-terminal `conflict` reason `pty_unavailable`.
+ * lock: another while one is under way, even one the row would refuse, is
+ * `conflict` reason `tool_run_in_progress`, naming its tool and terminal.
+ * An id used on the environment already is `conflict` reason `exists`, and
+ * an environment that cannot start a pseudo-terminal `conflict` reason
+ * `pty_unavailable`.
  */
 export const toolsRun = defineMethod({
   name: "tools.run",

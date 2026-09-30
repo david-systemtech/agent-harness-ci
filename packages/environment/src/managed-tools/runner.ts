@@ -51,7 +51,8 @@ import type { ToolVerifier } from "./verify.js";
  *   answering the vendor's documented command.
  * - **One at a time.** Package managers lock, so one run per environment
  *   runs at a time; another is `conflict` `tool_run_in_progress` until the
- *   one under way has finished.
+ *   one under way has finished, even one the row would refuse, since the
+ *   run may change the row.
  * - **Its record.** `tool.run-started` is appended with the command, in the
  *   command's transaction, by the client session that ran it; the terminal
  *   opens once that has committed. When the command exits the registry
@@ -257,9 +258,7 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
       const planned = await plan(asked.tool, asked.action);
       return (params, context) => {
         const terminalId = params.id.toLowerCase();
-        if (planned.kind === "refused") {
-          return { aggregate: stream, rejected: { code: "tool_not_runnable", message: planned.message, data: { tool: params.tool, action: params.action, command: planned.command } } };
-        }
+        // The run under way wins over a refusal: the plan read the row before it, and the run may change it.
         if (running !== null) {
           const underWay: CommandRejection<"conflict"> = {
             code: "conflict",
@@ -267,6 +266,9 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
             data: { reason: "tool_run_in_progress", tool: running.tool, terminalId: running.terminalId },
           };
           return { aggregate: stream, rejected: underWay };
+        }
+        if (planned.kind === "refused") {
+          return { aggregate: stream, rejected: { code: "tool_not_runnable", message: planned.message, data: { tool: params.tool, action: params.action, command: planned.command } } };
         }
         const refused = toolTerminals.refusal(terminalId);
         if (refused !== undefined) return { aggregate: stream, rejected: refused };
