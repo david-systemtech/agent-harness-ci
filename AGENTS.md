@@ -87,6 +87,16 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   manual checklist in `docs/agents/desktop-checklist.md`, run (or listed as
   not run, per platform) when the shell changes. Never run Electron on the
   shared agent box.
+- The release build, `pnpm --filter agent-harness build-artefacts` (`packages/cli/scripts/release/`, #356),
+  assembles the three server artefacts (each with its own Node, `bin/agent-harness`, the CLI
+  and the packages it runs with their production dependencies for that platform), their
+  `.sha256` sidecars and `release.json`. It runs on a linux-x64 runner, where `node-pty`
+  compiles for the Linux artefact; the macOS and Windows artefacts take `node-pty`'s
+  prebuilds and the SDK's Claude package for their platform. Its tests run it over a fixture
+  workspace (`packages/cli/test/release-fixtures.ts`), downloading and installing nothing; a
+  real run downloads Node's archives and packs three artefacts of about 160 MB each, which
+  the release workflow does. What only a machine of each platform proves is the Server
+  artefacts section of `docs/agents/service-install-checklist.md`.
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts

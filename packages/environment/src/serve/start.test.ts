@@ -14,6 +14,7 @@ import {
 } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { TEST_EXTENSION, TEST_EXTENSION_PORTS } from "../../test/fake-extension.js";
 import {
   NO_LAUNCHER,
   RootRefusedError,
@@ -68,6 +69,9 @@ const recordingLauncher = (onPrepared?: () => void | Promise<void>, onClose?: ()
   return { signals, channel };
 };
 
+/** The extension a test environment unpacks, and its listener on any free port, never 47615 (#547). */
+const browser = { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS };
+
 /** Starts an environment on loopback port 0 as an ordinary user, closed after the test. */
 const start = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   const handle = await startEnvironment({
@@ -76,6 +80,7 @@ const start = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandl
     user: notPrivileged,
     launcher: recordingLauncher().channel,
     interfaces,
+    browser,
     ...options,
   });
   onCleanup(() => handle.close());
@@ -375,7 +380,7 @@ describe("the environment record and the signing key", () => {
     vi.stubEnv("TMPDIR", temp);
     const before = tree(home);
 
-    const env = await startEnvironment({ port: 0, user: notPrivileged, launcher: recordingLauncher().channel, interfaces });
+    const env = await startEnvironment({ port: 0, user: notPrivileged, launcher: recordingLauncher().channel, interfaces, browser });
     onCleanup(() => env.close());
     await getJson(env.address, DISCOVERY_PATH);
     await env.close();
@@ -554,16 +559,22 @@ describe("closing", () => {
     const env = await start();
     const wal = join(env.dataDir, "environment.db-wal");
     expect(existsSync(wal)).toBe(true);
-    const failing = vi.spyOn(Server.prototype, "close").mockImplementationOnce(function (
-      this: Server,
-      callback?: (error?: Error) => void,
-    ) {
-      callback?.(new Error("the listener would not close"));
-      return this;
+    // The wire's listener fails its first close; the extension's (#547) closes as it would.
+    const close = Server.prototype.close;
+    let refused = 0;
+    const failing = vi.spyOn(Server.prototype, "close").mockImplementation(function (this: Server, callback?: (error?: Error) => void) {
+      const bound = this.address();
+      if (refused === 0 && typeof bound === "object" && bound?.port === env.address.port) {
+        refused++;
+        callback?.(new Error("the listener would not close"));
+        return this;
+      }
+      return close.call(this, callback);
     });
+    onCleanup(() => failing.mockRestore());
 
     await expect(env.close()).rejects.toThrow("the listener would not close");
-    expect(failing).toHaveBeenCalledOnce();
+    expect(refused).toBe(1);
     // SQLite removes the write-ahead log when its last connection closes.
     expect(existsSync(wal)).toBe(false);
     expect(await refusesConnections(env.address)).toBe(false);

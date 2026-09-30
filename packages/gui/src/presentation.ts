@@ -1,4 +1,4 @@
-import { writable, type DocumentStore, type Observable } from "@agent-harness/client-runtime";
+import { writable, type CollapsedHeadings, type DocumentStore, type Observable } from "@agent-harness/client-runtime";
 import { Theme } from "@agent-harness/contracts";
 
 /**
@@ -79,6 +79,16 @@ export interface PresentationValues {
    * frame's preset width holds.
    */
   readonly sidebarWidth: number | null;
+  /** Whether the sidebar is shown: `app.sidebar.toggle` (Mod+B) hides and shows it. */
+  readonly sidebarShown: boolean;
+  /**
+   * Which of the sidebar's headings are folded, by heading name, keyed as
+   * the terminal UI keys them (`block:pinned`, `group:<name key>`,
+   * `shelf:snoozed`, `shelf:settled`, `shelf:archive`): a merged heading
+   * spans environments, so no one environment could own the flag. One not
+   * named takes its default, the settled shelf and the archive folded.
+   */
+  readonly collapsedHeadings: CollapsedHeadings;
   readonly paneLayout: PaneLayout;
   /** Each session's side column, by `sideColumnKey`; a session with no pane open has none. */
   readonly sideColumns: Readonly<Record<string, SideColumn>>;
@@ -127,6 +137,8 @@ export type PresentationKey = keyof PresentationValues;
 /** What each key holds before anything is set. */
 export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   sidebarWidth: null,
+  sidebarShown: true,
+  collapsedHeadings: Object.freeze({}),
   paneLayout: Object.freeze({ session: null }),
   sideColumns: Object.freeze({}),
   textSize: 14,
@@ -157,6 +169,12 @@ const readSideColumn = (stored: unknown): SideColumn | undefined => {
 /** How each key's stored value is read back: undefined for a value this build cannot read, which takes the default. */
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
   sidebarWidth: (stored) => (stored === null || (typeof stored === "number" && stored > 0 && stored < 100) ? stored : undefined),
+  sidebarShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  collapsedHeadings: (stored) => {
+    if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return undefined;
+    const folds = Object.entries(stored);
+    return folds.every(([, shut]) => typeof shut === "boolean") ? (Object.fromEntries(folds) as CollapsedHeadings) : undefined;
+  },
   paneLayout: (stored) => {
     if (typeof stored !== "object" || stored === null || !("session" in stored)) return undefined;
     const { session } = stored;

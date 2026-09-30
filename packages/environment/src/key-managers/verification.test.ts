@@ -24,6 +24,7 @@ import {
   verify,
 } from "../../test/key-manager-connections.js";
 import { refusal } from "../../test/sessions.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 
 /**
  * Verification, statuses and policy ticks (#366; key-managers spec, "The
@@ -37,8 +38,9 @@ import { refusal } from "../../test/sessions.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** An environment with no Set up step, whose Key manager check would verify connections beside the verifications counted here (#383). */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  const t = await startTestEnvironment({ setupSteps: NO_SETUP_STEPS, ...options });
   onCleanup(() => t.close());
   return t;
 };
