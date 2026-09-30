@@ -772,6 +772,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "skills.updated",
       "trust.updated",
       "extension.seen",
+      "chrome.updated",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
@@ -815,6 +816,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "trust.updated", payload: {} },
       toolsUpdatedNotice.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
+      { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "connected" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -844,6 +846,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: { step: "forges" } },
       toolsUpdatedNotice.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
+      { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "proved" } },
       validEnvelope,
     ],
   },

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromeVersionReportedPayload",
+  "type": "object",
+  "properties": {
+    "extensionVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The version the connection reported, which differs from the last recorded."
+    }
+  },
+  "required": [
+    "extensionVersion"
+  ],
+  "description": "chrome.version-reported: a connection of the Chrome reported another extension version than the last recorded."
+}

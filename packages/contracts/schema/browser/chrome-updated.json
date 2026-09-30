@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromeUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "chromeId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "The Chrome's name after the change; an unpaired Chrome's, the name it had."
+    },
+    "change": {
+      "type": "string",
+      "enum": [
+        "paired",
+        "renamed",
+        "unpaired",
+        "connected",
+        "disconnected",
+        "version"
+      ],
+      "description": "What changed: paired, renamed or unpaired; connected (a socket proved itself) or disconnected (its proved socket closed); version (a connection reported another extension version than the last recorded)."
+    }
+  },
+  "required": [
+    "chromeId",
+    "name",
+    "change"
+  ],
+  "description": "chrome.updated: a paired Chrome changed, connected or disconnected; which, its name, and what changed. A client reads browser.chromes.list again."
+}

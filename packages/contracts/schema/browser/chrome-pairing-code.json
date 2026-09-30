@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromePairingCode",
+  "type": "string",
+  "pattern": "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$",
+  "description": "A Chrome's pairing code: eight characters of the pairing alphabet, typed into the extension's options page."
+}

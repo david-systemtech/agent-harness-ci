@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from "./access-log.js";
 import { ACCOUNT_EVENT_TYPES, ACCOUNT_STREAM_KIND } from "./accounts.js";
+import { CHROME_EVENT_TYPES, CHROME_STREAM_KIND } from "./browser-chromes.js";
 import { INSTRUCTION_SESSION_EVENT_TYPES } from "./instructions.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { PERMISSION_SESSION_EVENT_TYPES } from "./permissions.js";
@@ -77,6 +78,7 @@ export const EVENT_TYPES = {
   [ACCOUNT_STREAM_KIND]: ACCOUNT_EVENT_TYPES,
   [ROUTINE_STREAM_KIND]: ROUTINE_EVENT_TYPES,
   [TRUST_STREAM_KIND]: TRUST_EVENT_TYPES,
+  [CHROME_STREAM_KIND]: CHROME_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 export type SessionEventType = keyof typeof sessionEventTypes;

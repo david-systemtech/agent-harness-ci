@@ -6,6 +6,7 @@ export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
+export * from "./browser-chromes.js";
 export * from "./browser-driver.js";
 export * from "./browser-policy.js";
 export * from "./browser-settings.js";
