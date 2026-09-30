@@ -220,9 +220,33 @@ the pull request that changes the script or either workflow, or list the
 section as not run.
 
 1. A pull request's `image` check passes: its log shows the build for `linux/amd64` and no `docker login` or push, and `GET /api/v1/packages/david?type=container` lists nothing new.
-2. With David's go-ahead, push a test tag with a prerelease part, `v0.0.1-test.1` (once #358 has added its jobs, this runs the whole release and leaves a prerelease, removed with the tag in step 4). The `release` workflow's `image` job runs on the `build` runner and its push log names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1` and nothing else; the job's outputs hold that `reference` and a `digest` of `sha256:` and 64 hexadecimal digits; `GET /api/v1/packages/david/container/agent-harness/0.0.1-test.1` answers 200, and the package lists no `latest`, `main` or commit tag.
+2. With David's go-ahead, push a test tag with a prerelease part, `v0.0.1-test.1`. This runs the whole release (the Release section below checks the rest) and leaves a prerelease, removed with the tag in step 4. The `release` workflow's `image` job runs on the `build` runner and its push log names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1` and nothing else; the job's outputs hold that `reference` and a `digest` of `sha256:` and 64 hexadecimal digits; `GET /api/v1/packages/david/container/agent-harness/0.0.1-test.1` answers 200, and the package lists no `latest`, `main` or commit tag.
 3. From a machine that is not the agent box, `docker login git.systemtech.dev:5526` as `david` with a token that has only the read:package scope, then `docker pull <reference>@<digest>` with the job's two outputs: it pulls, and `docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .RepoDigests 0}}' <reference>` prints `linux/amd64` and `git.systemtech.dev:5526/david/agent-harness@<digest>`. `docker buildx imagetools inspect <reference>` shows one image manifest, for linux/amd64, and no index or attestation.
 4. Delete the test version (`DELETE /api/v1/packages/david/container/agent-harness/0.0.1-test.1` with a write:package token), the tag, and any prerelease it made.
+
+## Release (`.forgejo/workflows/release.yml`)
+
+On a `v` tag, the release workflow (#358) runs three jobs in order.
+`check` fails a tag whose release is already published, then runs typecheck,
+lint, test and the schema export check. `image` pushes the version's image.
+`release` builds the three server artefacts on the `ci-x64` label, together
+with the asset list's other assets and `release.json`, each with a `.sha256`
+sidecar. It uploads every file to a draft release and publishes the draft
+last. `packages/cli/scripts/release/build.test.ts` and `publish.test.ts` run
+the build over a fixture workspace and the publisher against a fake Forgejo.
+`test/release-workflow.test.ts` runs the workflow's steps against a fake
+`pnpm`. The steps below prove the run on the real runners and forge. They
+publish a release and an image, so the tag waits for David's go-ahead, and
+nothing here runs on the shared agent box. Record the result in the pull
+request that changes the workflow, the build or the publisher, or list the
+section as not run.
+
+1. The label: `vm-ci-1` and `desk-ci-1` carry `ci-x64:docker://node:24-bookworm` beside `ci` (`runners/ci.yaml` and `runners/windows-wsl/config.yaml` in `david/ci`), and no arm64 runner carries it. Until one does, the `release` job waits in the queue and nothing is published.
+2. With David's go-ahead, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet), and `release` starts after `image`, on a `ci-x64` runner. Its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `compose.yaml`, `host-updater.sh` and `release.json`. Its publish log creates a draft prerelease, uploads 16 files and publishes it. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines.
+3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 16 files, each asset beside its `.sha256`. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and seven assets (the three artefacts, then the schema archive, `install.sh`, `compose.yaml` and `host-updater.sh`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft.
+4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image` and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
+5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 16 files and not the stray one.
+6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag.
 
 ## Host-side updater (`scripts/host-updater.sh`)
 

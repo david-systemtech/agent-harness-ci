@@ -105,7 +105,14 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   workspace (`packages/cli/test/release-fixtures.ts`), downloading and installing nothing; a
   real run downloads Node's archives and packs three artefacts of about 160 MB each, which
   the release workflow does. What only a machine of each platform proves is the Server
-  artefacts section of `docs/agents/service-install-checklist.md`.
+  artefacts section of `docs/agents/service-install-checklist.md`. The release workflow
+  (`.forgejo/workflows/release.yml`, #358) runs the build on the `ci-x64` label. Its asset
+  list passes the release's other assets as `--asset <kind>=<path>`. Its last step publishes
+  the build's folder with `pnpm --filter agent-harness publish-release`
+  (`scripts/release/publish.ts`), which is tested against a fake Forgejo
+  (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts` runs the
+  workflow's steps against a fake `pnpm`. A tag's real run is the checklist's Release
+  section.
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
