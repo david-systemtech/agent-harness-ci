@@ -3,6 +3,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntimeWithSeams } from "./internal.js";
 import { noticeEvent } from "../test/events.js";
 import { forgeEventPayload, forgeRecord } from "../test/forges.js";
+import { keyManagerEventPayload, keyManagerRecord, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
 import { subscription } from "../test/scripted.js";
 import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
 import { writable } from "./observable.js";
@@ -418,7 +419,7 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
   });
 
-  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings or an account changing, and no other query (#505)", async () => {
+  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection or the managed tools changing, and no other query (#505)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     const reads = { list: 0, preview: 0 };
     const accounts = [{ accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null }];
@@ -454,6 +455,16 @@ describe("the request cache", () => {
     await flush();
     expect(reads.list).toBe(4);
     expect(reads.preview).toBe(4);
+    // The block's forges and key managers sections: a forge account, a key-manager connection and its CLI's row.
+    environment?.event(noticeEvent(5, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([reads.list, reads.preview]).toEqual([5, 5]);
+    environment?.event(noticeEvent(6, wire.environmentId, "key-manager.connection.added", keyManagerEventPayload("key-manager.connection.added", keyManagerRecord())));
+    await flush();
+    expect([reads.list, reads.preview]).toEqual([6, 6]);
+    environment?.event(noticeEvent(7, wire.environmentId, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {

@@ -161,8 +161,15 @@ const KEY_MANAGER_EVENTS: readonly string[] = [...Object.keys(KEY_MANAGER_EVENT_
 /** What changes a trust key's decision, or the key itself: a decision recorded or revoked, and a forge account's aliases, whose canonical host a key is read on. */
 const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.account.added", "forge.account.updated", "forge.account.verified", "forge.account.removed"];
 
-/** What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), and an account, which every row carries and the block names. */
-const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", "settings.changed", "account.updated"];
+/** Every forge account event: an account added, updated, verified or removed. */
+const FORGE_ACCOUNT_EVENTS: readonly string[] = Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account."));
+
+/**
+ * What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), an
+ * account, which every row carries and the block names, and what the block's forges and key managers sections read: a
+ * forge account, a key-manager connection and the managed tools, whose rows give each connection's CLI.
+ */
+const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", "settings.changed", "account.updated", ...FORGE_ACCOUNT_EVENTS, ...KEY_MANAGER_EVENTS, "tools.updated"];
 
 /**
  * The notices after which one query's cached answer is fetched again: its
@@ -187,8 +194,10 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; an owned instruction changing
- * (`instructions.updated`, #505), a setting (the orientation switch) or an
- * account `instructions.list` and `instructions.preview`; every key-manager event, a connection's and Move's, the
+ * (`instructions.updated`, #505), a setting (the orientation switch), an
+ * account, a forge account, a key-manager connection or the managed tools
+ * (what the block's sections read) `instructions.list` and
+ * `instructions.preview`; every key-manager event, a connection's and Move's, the
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; and a probe changing managed-tool
@@ -205,7 +214,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
-  "forge.accounts.list": Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account.")),
+  "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated"],
