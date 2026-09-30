@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverInventory",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "sessions": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "The sessions the account's directory holds, as its adapter lists them."
+        },
+        "archived": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Of them, those that import archived: tagged archived, or begun by the provider's scheduler."
+        },
+        "missingDirectory": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Of them, those whose working directory is gone."
+        },
+        "new": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Of them, those this environment does not hold yet, by provider session id: what an import brings in."
+        }
+      },
+      "required": [
+        "total",
+        "archived",
+        "missingDirectory",
+        "new"
+      ],
+      "description": "The sessions Carry over finds in an adopted account's directory: every one, the archived, those with a missing directory, and the new."
+    }
+  },
+  "required": [
+    "accountId",
+    "sessions"
+  ],
+  "description": "What Carry over's card counts in an adopted account's directory: its sessions."
+}

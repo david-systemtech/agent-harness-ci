@@ -419,6 +419,29 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
   });
 
+  it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    wire.answer("carryOver.inventory", () => {
+      reads++;
+      return { result: { accountId: "claude-max", sessions: { total: 3, archived: 1, missingDirectory: 1, new: reads > 1 ? 0 : 2 } } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const inventory = runtime.requests.cached(id, "carryOver.inventory", { accountId: "claude-max" });
+    inventory.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    const imported = { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] };
+    environment?.event(noticeEvent(1, wire.environmentId, "carry-over.imported", imported));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(inventory.read()).toMatchObject({ result: { sessions: { new: 0 } }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+  });
+
   it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection or the managed tools changing, and no other query (#505)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     const reads = { list: 0, preview: 0 };
