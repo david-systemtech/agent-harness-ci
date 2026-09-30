@@ -320,7 +320,10 @@ describe("the completions surface's sessions", () => {
     const response = await post(t, token, extension);
     const text = await response.text();
     if (response.status !== 200) throw new Error(`The completion answered ${response.status}: ${text}`);
-    return ChatCompletion.parse(JSON.parse(text))["agent-harness"];
+    const answer = ChatCompletion.parse(JSON.parse(text))["agent-harness"];
+    const { sessionId, runId } = answer;
+    if (sessionId === undefined || runId === undefined) throw new Error(`The completion named no session or run: ${text}`);
+    return { ...answer, sessionId, runId };
   };
 
   it("creates a session with none, chosen by the completions surface, which its run resolves to none", async () => {
