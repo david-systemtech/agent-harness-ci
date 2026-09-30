@@ -381,6 +381,17 @@ describe("Your machines' update controls", () => {
     expect(scripted.wire.updatePosts().map((post) => post.body)).toEqual([{ version: "0.6.0" }]);
   });
 
+  it("says a refused offer of this client's version in one line, as the card's status", async () => {
+    const app = await opened(
+      { laptop: { updates: { status: { version: "0.5.0" } }, receipts: { "updates.apply": { rejected: "conflict", message: "laptop is pinned to 0.5.0.", data: { reason: "pinned" } } } } },
+      { version: "0.6.0" },
+    );
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    await app.user.click(await within(laptop()).findByRole("button", { name: "Update laptop to 0.6.0" }));
+    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "Not updated: laptop is pinned to 0.5.0.");
+  });
+
   it("offers on the local environment's card the newer server the desktop carries, when auto-update is not effective there, and hands it over on a click", async () => {
     const shell = fakeShell();
     shell.answer("installer.bundledServer", async () => ({ version: "0.6.0", path: BUNDLED_PATH }));
@@ -421,6 +432,6 @@ describe("Your machines' update controls", () => {
     expect(within(laptop).getByRole("button", { name: "Update now" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update now" }));
-    expect(await within(card(pane, "desk")).findByText("Not updated: desk runs 0.0.0-fake already.")).toBeDefined();
+    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "Not updated: desk runs 0.0.0-fake already.");
   });
 });

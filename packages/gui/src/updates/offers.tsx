@@ -1,4 +1,4 @@
-import { bundledServerWords, clientOfferWords, clientUpdateWords, offersClientVersion, type BundledServerView, type EnvironmentView } from "@agent-harness/client-runtime";
+import { bundledServerWords, clientOfferWords, clientUpdateWords, offersClientVersion, type ActionOutcome, type BundledServerView, type EnvironmentView } from "@agent-harness/client-runtime";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { Button } from "../ui/index.js";
@@ -16,7 +16,8 @@ const carriedOffer = (bundled: BundledServerView): boolean => bundled.state === 
  * idle, or `POST /api/update` for an environment blocked on the protocol,
  * which the wire refuses. No offer while an update under way there goes as
  * far already, nor on the local environment's card while the server the
- * desktop carries is offered there. What the ask came to is one line.
+ * desktop carries is offered there. What the ask came to is one line, its
+ * status, in the signal colour when the update was not taken.
  */
 export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
@@ -24,7 +25,7 @@ export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
   const status = useUpdatesStatus(view.environmentId);
   const { bundledServer } = useObservable(runtime.desktopUpdate.view);
   const [asking, setAsking] = useState(false);
-  const [said, setSaid] = useState<string | undefined>(undefined);
+  const [said, setSaid] = useState<ActionOutcome | undefined>(undefined);
   const name = nameOf(view);
   const version = status.result?.version ?? view.version;
   const offered = version !== null && offersClientVersion(client, version, status.result?.pending ?? null) && !(view.kind === "local" && carriedOffer(bundledServer));
@@ -36,8 +37,8 @@ export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
     void runtime.connections
       .updateEnvironment(view.environmentId)
       .then(
-        (outcome) => setSaid(clientUpdateWords(outcome, name)),
-        (error: unknown) => setSaid(`Not updated: ${error instanceof Error ? error.message : String(error)}`),
+        (outcome) => setSaid({ ok: outcome.ok, line: clientUpdateWords(outcome, name) }),
+        (error: unknown) => setSaid({ ok: false, line: `Not updated: ${error instanceof Error ? error.message : String(error)}` }),
       )
       .finally(() => setAsking(false));
   };
@@ -53,7 +54,7 @@ export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
           </Button>
         </>
       )}
-      {said !== undefined && <p className="text-ink-muted">{said}</p>}
+      {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
     </div>
   );
 };

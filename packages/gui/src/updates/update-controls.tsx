@@ -88,7 +88,7 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       <Button className="self-start" disabled={!admits("updates.apply")} onClick={updateNow}>
         Update now
       </Button>
-      {said !== undefined && <p className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
+      {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
     </div>
   );
 };
