@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueSkillEntry",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A skills entry's id: 1 to 64 of a-z, 0-9 and single hyphens, such as mattpocock-engineering. Stable across builds."
+    },
+    "url": {
+      "type": "string",
+      "description": "The repository's URL, as a source tracking the entry is added with: it passes the source URL rule.",
+      "pattern": "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$"
+    },
+    "folder": {
+      "description": "The folder a source tracking the entry reads, normalised: . when the repository's root is itself one skill.",
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+      "type": "string"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The card's title, which tells apart two entries of one repository."
+    },
+    "pitch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One or two sentences on what the skills are for."
+    },
+    "licence": {
+      "type": "object",
+      "properties": {
+        "spdx": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9.+-]+(?: (?:AND|OR|WITH) [A-Za-z0-9.+-]+)*$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The licence as an SPDX identifier or expression, such as MIT or Apache-2.0; null exactly when nothing declares one."
+        },
+        "where": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "file"
+                },
+                "path": {
+                  "description": "The licence file's path from the repository's root, such as LICENSE, or cursor-team-kit/LICENSE where each folder has its own.",
+                  "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ],
+              "description": "A licence file states it."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "frontmatter"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "Only a license key in the skills' SKILL.md frontmatter states it: no licence file."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "readme"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "Only the README states it: no licence file."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "none"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "Nothing states a licence."
+            }
+          ],
+          "description": "Where a skills entry's licence was declared: file (a licence file, by its path from the repository's root), frontmatter (a license key in SKILL.md, no file), readme (the README, no file) or none. A client shows a file plainly and anything else with a caution and the note."
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The copyright holder the declaration names; null when it names none."
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "An https link to read the declaration: the licence file, the SKILL.md or the README; the repository when nothing declares one."
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a person should know before relying on the licence, shown beside it: present whenever it is not declared in a file or names no holder; null when a file states it with its holder."
+        }
+      },
+      "required": [
+        "spdx",
+        "where",
+        "holder",
+        "link",
+        "note"
+      ],
+      "description": "A skills entry's licence: the SPDX id (null when nothing declares one), where it was declared, the copyright holder or null, an https link to the declaration, and a note, present whenever the licence is not in a file or names no holder."
+    },
+    "skillCount": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many members the folder yields by the root-skill rule: the number of members listed."
+    },
+    "members": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The member's name by the member-naming rule, as the environment's reader names it.",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the member does, in a sentence written for the card."
+          },
+          "invocation": {
+            "type": "string",
+            "enum": [
+              "model+slash",
+              "slash-only"
+            ],
+            "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "invocation"
+        ],
+        "description": "A member of a skills entry's folder as its card lists it: its name, a sentence on what it does, and its invocation."
+      },
+      "description": "Every member the folder yields, by name, each name once."
+    },
+    "alwaysOnHints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The member suggested always-on: one of the entry's members.",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "maxLength": 64
+          },
+          "characters": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "About how many characters its body adds to every run, as the reader measured it; a quarter of it is the approximate tokens."
+          }
+        },
+        "required": [
+          "name",
+          "characters"
+        ],
+        "description": "A member a skills entry suggests making always-on, never applied on tick, with about how many characters its body adds to every run."
+      },
+      "description": "The members suggested always-on, each one of the members and named once; empty for none."
+    },
+    "fastMoving": {
+      "type": "boolean",
+      "description": "Whether the repository changes often, so a person tracking it sees its skills change: a card says so."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 40,
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "description": "A word a skills entry is filed under, such as engineering or writing: a-z, 0-9 and single hyphens."
+      },
+      "uniqueItems": true,
+      "description": "The words the entry is filed under, each once."
+    }
+  },
+  "required": [
+    "id",
+    "url",
+    "folder",
+    "title",
+    "pitch",
+    "licence",
+    "skillCount",
+    "members",
+    "alwaysOnHints",
+    "fastMoving",
+    "tags"
+  ],
+  "description": "A skills entry: a repository's folder a person may tick to track as a skill source. Its id, URL and folder (passing the source URL and folder rules, the folder normalised), title, pitch, licence, skill count (equal to the members listed), members (each name once), always-on hints (each one of the members, named once), whether the repository changes often, and tags. A licence's spdx is null exactly when where is none, and it has a note whenever where is not a file or holder is null."
+}

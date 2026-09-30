@@ -9,6 +9,7 @@
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
+import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
@@ -771,6 +772,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "instructions.updated",
       "extension.seen",
       "chrome.updated",
     ],
@@ -814,6 +816,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
       { type: "trust.updated", payload: {} },
+      { type: "instructions.updated", payload: {} },
       toolsUpdatedNotice.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "connected" } },
@@ -953,6 +956,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...keyManagerSchemaFixtures,
   ...managedToolSchemaFixtures,
   ...skillSchemaFixtures,
+  ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,

@@ -120,7 +120,12 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   when either changes. The container image (`Dockerfile`) and its compose file
   (`scripts/compose.yaml`) run the environment as a non-root user and are read
   as text by `test/container.test.ts`; building and running them is the
-  checklist's Container section. Never build or run an image on the shared agent box.
+  checklist's Container section. `scripts/host-updater.sh`, the host-side
+  updater, is tested by `test/host-updater-script.test.ts` against a fake
+  `docker`, `curl` and `flock` and a held clock (a fake `date` and `sleep`);
+  running it against a real Docker host is the checklist's Host-side updater
+  section. Never build or run an image on the shared agent box, nor run the
+  updater there.
 - Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and

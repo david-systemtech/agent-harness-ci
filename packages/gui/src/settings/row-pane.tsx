@@ -4,6 +4,7 @@ import { useId, type ComponentType, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
+import { YourMachines } from "../machines/your-machines.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { SetupPane } from "../setup/setup-pane.js";
 import { useCheckHomedSteps } from "../setup/use-setup.js";
@@ -101,6 +102,7 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
 /** The panes built, each keyed by the row it draws (docs/specs/gui.md: a pane is a GUI component keyed by row id); every other row is drawn unbuilt. */
 const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   [FIRST_ROW]: SetupPane,
+  "environments.machines": YourMachines,
   "access.key-managers": KeyManagersPane,
 };
 
@@ -109,9 +111,9 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
  * gives it (an `environment` row's picker, none for `everywhere` and
  * `client` rows), About with this client's version pinned above its picker
  * as the one line that belongs to no environment, then what the row holds:
- * its built pane (Set up's checklist, Key managers), the unbuilt row's
- * hint, links and keys on the others. Opening a step's home row checks that
- * step.
+ * its built pane (Set up's checklist, Your machines' cards, Key managers), the
+ * unbuilt row's hint, links and keys on the others. Opening a step's home row
+ * checks that step.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);

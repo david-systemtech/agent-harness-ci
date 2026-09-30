@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsScopeSetPayload",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "all",
+          "description": "Every account on the environment, those added later included."
+        },
+        {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          },
+          "description": "The accounts named, each once; an account removed since reaches nothing."
+        }
+      ],
+      "description": "The accounts an owned instruction reaches: all (every account, those added later included), or the account ids named, each once."
+    }
+  },
+  "required": [
+    "id",
+    "scope"
+  ],
+  "description": "instructions.scope-set: an owned instruction now reaches these accounts."
+}

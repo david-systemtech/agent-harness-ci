@@ -68,8 +68,8 @@ describe("the rows", () => {
       ["LA", "a session", false, "question", "Which database?", undefined],
       ["LA", "Receipts", false, "denylist", "Bash: rm -rf build", undefined],
     ]);
-    // The second environment listed wears the terminal's second colour, whatever colour it names, until the names are mapped (#327).
-    expect(rows[1]?.badge.colour).toBe("magenta");
+    // An environment's own colour, mapped onto the terminal's (#327); one that names none keeps the terminal's first, by its place.
+    expect(rows.map((row) => row.badge.colour)).toEqual(["cyan", "green", "green"]);
     expect(rows[0]?.key).toBe("env-a s-1 p-1");
     // An environment not listed wears no other environment's badge.
     expect(askRows([ask({ environmentId: "env-gone", sessionId: "s-9", promptId: "p-9" })], views, null)[0]?.badge).toMatchObject({ abbreviation: "??", colour: "gray" });

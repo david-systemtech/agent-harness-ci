@@ -227,6 +227,12 @@ describe("the method registry", () => {
       "accounts.signin.start",
       "accounts.signin.code",
       "accounts.signin.cancel",
+      "instructions.create",
+      "instructions.edit",
+      "instructions.setScope",
+      "instructions.setEnabled",
+      "instructions.move",
+      "instructions.remove",
       "forge.accounts.add",
       "forge.accounts.update",
       "forge.accounts.remove",
@@ -420,6 +426,13 @@ describe("the method registry", () => {
       | "models.list"
       | "commands.list"
       | "instructions.preview"
+      | "instructions.list"
+      | "instructions.create"
+      | "instructions.edit"
+      | "instructions.setScope"
+      | "instructions.setEnabled"
+      | "instructions.move"
+      | "instructions.remove"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"

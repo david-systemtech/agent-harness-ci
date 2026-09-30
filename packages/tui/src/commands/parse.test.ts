@@ -30,6 +30,17 @@ describe("parseCommand", () => {
     expect(parseCommand("/fork end")).toEqual({ kind: "usage", line: "Usage: /fork [n]: bare, the whole session; n, before the prompt n back." });
   });
 
+  it("reads /environment's rename, icon and colour, a name keeping the spaces inside it, bare as null (#327)", () => {
+    expect(parseCommand("/environment")).toEqual({ kind: "environment" });
+    expect(parseCommand("/environment rename  Tower   box ")).toEqual({ kind: "environment-look", field: "name", value: "Tower   box" });
+    expect(parseCommand("/environment Rename")).toEqual({ kind: "environment-look", field: "name", value: null });
+    expect(parseCommand("/environment icon server")).toEqual({ kind: "environment-look", field: "icon", value: "server" });
+    expect(parseCommand("/environment colour")).toEqual({ kind: "environment-look", field: "colour", value: null });
+    expect(parseCommand("/environment colour teal green").kind).toBe("usage");
+    expect(parseCommand("/environment constructor").kind).toBe("usage");
+    expect(parseCommand("/environments icon nas")).toEqual({ kind: "environment-look", field: "icon", value: "nas" });
+  });
+
   it("reads the cards' commands, which take nothing after them", () => {
     expect(parseCommand("/asks")).toEqual({ kind: "asks" });
     expect(parseCommand("/notices")).toEqual({ kind: "notices" });

@@ -137,6 +137,8 @@ export interface FakeWire {
   discoveries(): number;
   /** The last credential issued (pairing, the grant or a refresh). */
   credential(): ClientSessionCredential | undefined;
+  /** Changes the name, icon or colour discovery and `hello` say from now on, as `environment.rename`, `setIcon` and `setColour` do. */
+  look(changes: { readonly name?: string; readonly icon?: EnvironmentIcon; readonly colour?: EnvironmentColour }): void;
 }
 
 /** Lets everything the runtime is waiting on in microtasks finish: one turn of the event loop. */
@@ -160,7 +162,9 @@ interface FakeSocket {
 export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const { clock } = options;
   const environmentId = options.environmentId ?? uuidv7(clock.now());
-  const name = options.name ?? "fake";
+  let name = options.name ?? "fake";
+  let icon = options.icon;
+  let colour = options.colour;
   const address = options.address ?? { host: "fake.test", port: 7433 };
   const origin = originOf(address);
   let overrides: "unreachable" | "hanging" | Partial<DiscoveryDocument> = {};
@@ -177,8 +181,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const document = (): DiscoveryDocument => ({
     environmentId,
     environmentName: name,
-    ...(options.icon !== undefined && { environmentIcon: options.icon }),
-    ...(options.colour !== undefined && { environmentColour: options.colour }),
+    ...(icon !== undefined && { environmentIcon: icon }),
+    ...(colour !== undefined && { environmentColour: colour }),
     harnessVersion: FAKE_HARNESS_VERSION,
     protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
     capabilities: [...(options.capabilities ?? [])],
@@ -368,5 +372,10 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     open: () => sockets.filter((s) => !s.closed).length,
     discoveries: () => reads,
     credential: () => issued,
+    look(changes) {
+      name = changes.name ?? name;
+      icon = changes.icon ?? icon;
+      colour = changes.colour ?? colour;
+    },
   };
 };

@@ -10,7 +10,6 @@ import {
   type WorkspaceRequest,
 } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
-import type { Badge } from "./badge.js";
 import { STAYS, pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { titleOf, whenBack, type RailActs } from "./pickers.js";
 
@@ -524,12 +523,12 @@ const hideDirectory = (place: StepPlace, path: string): void => {
   );
 };
 
-/** The environment a step is on, as its chip: the badge in its colour, then the name. */
-export const environmentChip = (badge: Badge | undefined, view: EnvironmentView): Chip => ({
-  label: "environment",
-  value: `${badge ? `${badge.icon}${badge.abbreviation} ` : ""}${nameOf(view)}`,
-  ...(badge && { colour: badge.colour }),
-});
+/** The environment a step is on, as its chip: the badge in its colour, then the name, as the runtime lists the environment now. */
+export const environmentChip = (acts: Pick<RailActs, "runtime" | "badge">, view: EnvironmentView): Chip => {
+  const now = acts.runtime.projections.environments.read().find((v) => v.environmentId === view.environmentId) ?? view;
+  const badge = acts.badge(view.environmentId);
+  return { label: "environment", value: `${badge ? `${badge.abbreviation} ` : ""}${nameOf(now)}`, ...(badge && { colour: badge.colour }) };
+};
 
 /**
  * `/cwd` on a session whose workspace is missing (workspace-picker spec,
@@ -545,7 +544,7 @@ export const setWorkspacePicker = (acts: RailActs, view: EnvironmentView, row: S
     view,
     sessionId: row.summary.id,
     known: () => known.read(),
-    chips: () => [environmentChip(acts.badges.get(view.environmentId), view)],
+    chips: () => [environmentChip(acts, view)],
     follows: [known],
     choose: (request, at) =>
       sendFromStep(place, at, {

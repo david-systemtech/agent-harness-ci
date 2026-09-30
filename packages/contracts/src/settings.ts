@@ -57,6 +57,15 @@ export const AutoSettleOnMerge = z.boolean().meta({
   description: "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge).",
 });
 
+/**
+ * `instructions.orientation`: whether every run is handed the orientation
+ * block first in its user layer (ADR 0011, ADR 0030). Off, the Orientation
+ * row stays listed and the block is left out of the next run's text.
+ */
+export const OrientationOn = z.boolean().meta({
+  description: "Whether every run is handed the orientation block, first in its standing instructions; off, the block is left out of the next run's text.",
+});
+
 /** The fewest and the most days `sessions.transcriptCompactAfterDays` takes. */
 export const TRANSCRIPT_COMPACT_DAYS = { min: 1, max: 3650 } as const;
 
@@ -119,7 +128,9 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * home row, `appearance.theme`, written by `settings.update` (#391). The
  * browser keys (#541) are the Browser step's, on `access.browser`, written
  * through `settings.update`, and the injection keys (#367) the Key manager
- * step's, on `access.key-managers`, written the same way.
+ * step's, on `access.key-managers`, written the same way. The orientation
+ * switch (`instructions.orientation`, preset on, #505) is the Instructions
+ * step's, on `knowledge.instructions`, written by `settings.update`.
  */
 const SESSIONS_PLACE = { id: "your-machines", row: "environments.service" } as const;
 const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
@@ -169,6 +180,11 @@ export const SETTINGS = {
   }),
   ...BROWSER_SETTINGS,
   ...CREDENTIAL_SETTINGS,
+  "instructions.orientation": setting({
+    schema: OrientationOn,
+    preset: true,
+    step: { id: "instructions", row: "knowledge.instructions" },
+  }),
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS;

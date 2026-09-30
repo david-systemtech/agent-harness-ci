@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionReach",
+  "anyOf": [
+    {
+      "type": "string",
+      "const": "all",
+      "description": "Every account on the environment, those added later included."
+    },
+    {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+      },
+      "description": "The accounts named, each once; an account removed since reaches nothing."
+    }
+  ],
+  "description": "The accounts an owned instruction reaches: all (every account, those added later included), or the account ids named, each once."
+}

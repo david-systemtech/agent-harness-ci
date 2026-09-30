@@ -1,7 +1,10 @@
 /**
  * Fixtures for the standing-instruction schemas (#493): the layer, the
  * manifest and its parts, `run.instructions.composed` on the session stream,
- * the preview's parts, and `instructions.preview`'s params and result. A
+ * the preview's parts, and `instructions.preview`'s params and result;
+ * owned instructions (#505): the record and its parts, the instructions
+ * stream's payloads, the notice's, the list's rows, and the commands'
+ * params and results. A
  * valid and an invalid instance of each file the export writes;
  * `fixtures.ts` folds them into the package's table.
  */
@@ -49,6 +52,20 @@ const channelNoneManifest = {
   ],
 };
 
+const instructionId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const commandId = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+const owned = { id: instructionId, title: "Coding style", body: "Prefer small modules.", origin: null, scope: "all", enabled: true, position: "n" };
+const ticked = { ...owned, origin: { catalogueId: "coding.small-modules", version: 2 }, scope: ["claude-max", "claude-work"], enabled: false, position: "nb" };
+const channelAccount = { accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null };
+const noChannelAccount = {
+  accountId: "local",
+  label: "Local",
+  channel: { kind: "none", maxCharacters: null },
+  reason: "Local has no instruction channel: its runs are handed no standing instructions.",
+};
+const orientationRow = { enabled: true, text: "# Orientation\n\n## This environment", unreadRegistries: [], accounts: [channelAccount, noChannelAccount] };
+const ownedRow = { ...owned, accounts: [channelAccount, noChannelAccount] };
+
 const previewPart = { layer: "user", id: "orientation", title: "Orientation", text: "You are on SYSTEM-SERVER, a Linux machine." };
 
 export const instructionSchemaFixtures: Record<string, Fixtures> = {
@@ -71,7 +88,7 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
       { ...alwaysOnSkill, commit: "0123abc" },
     ],
   },
-  "instructions/left-out-reason.json": { valid: ["channel-none"], invalid: ["cap", ""] },
+  "instructions/left-out-reason.json": { valid: ["channel-none", "over-cap"], invalid: ["cap", ""] },
   "instructions/left-out.json": {
     valid: [{ layer: "user", id: "orientation", reason: "channel-none" }],
     invalid: [{ layer: "user", id: "orientation" }, { layer: "user", id: "", reason: "channel-none" }, { layer: "user", id: "orientation", reason: "disabled" }],
@@ -90,6 +107,44 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
     valid: [previewPart, { layer: "session", id: sessionId, title: "Instructions for this session", text: "Answer in French." }],
     invalid: [{ ...previewPart, text: "" }, { ...previewPart, title: "" }, { layer: "user", id: "orientation", title: "Orientation" }],
   },
+  "instructions/instruction-id.json": { valid: [instructionId], invalid: ["i-1", "", "0F8FAD5B-D9CB-469F-A165-70867728950"] },
+  "instructions/title.json": { valid: ["Coding style", "t".repeat(120), "  Padded  "], invalid: ["", "   ", "t".repeat(121), "zero\u200bwidth"] },
+  "instructions/body.json": { valid: ["", "Prefer **small** modules.", "b".repeat(20000)], invalid: ["b".repeat(20001), 7] },
+  "instructions/origin.json": {
+    valid: [{ catalogueId: "coding.small-modules", version: 1 }],
+    invalid: [{ catalogueId: "", version: 1 }, { catalogueId: "coding.small-modules", version: 0 }, { catalogueId: "coding.small-modules" }],
+  },
+  "instructions/reach.json": { valid: ["all", ["claude-max"], ["claude-max", "local"]], invalid: ["some", [], [""]] },
+  "instructions/owned-instruction.json": {
+    valid: [owned, ticked],
+    invalid: [{ ...owned, title: "" }, { ...owned, body: "b".repeat(20001) }, { ...owned, scope: [] }, { ...owned, position: "na" }, { ...owned, enabled: undefined }],
+  },
+  "instructions/event-type.json": {
+    valid: ["instructions.created", "instructions.edited", "instructions.scope-set", "instructions.enabled-set", "instructions.moved", "instructions.removed"],
+    invalid: ["instructions.updated", "instructions.version-resolved", ""],
+  },
+  "instructions/events/instructions.created.json": { valid: [owned, ticked], invalid: [{ ...owned, id: "i-1" }, { id: instructionId }] },
+  "instructions/events/instructions.edited.json": {
+    valid: [{ id: instructionId, title: "Coding style", body: "" }],
+    invalid: [{ id: instructionId, title: "" , body: "" }, { id: instructionId, title: "Coding style" }],
+  },
+  "instructions/events/instructions.scope-set.json": { valid: [{ id: instructionId, scope: "all" }, { id: instructionId, scope: ["local"] }], invalid: [{ id: instructionId, scope: [] }] },
+  "instructions/events/instructions.enabled-set.json": { valid: [{ id: instructionId, enabled: false }], invalid: [{ id: instructionId, enabled: "no" }] },
+  "instructions/events/instructions.moved.json": { valid: [{ id: instructionId, position: "b" }], invalid: [{ id: instructionId, position: "" }] },
+  "instructions/events/instructions.removed.json": { valid: [{ id: instructionId }], invalid: [{}, { id: "i-1" }] },
+  "instructions/instructions-updated.json": { valid: [{}], invalid: [null, "updated"] },
+  "instructions/account.json": {
+    valid: [channelAccount, noChannelAccount, { ...channelAccount, channel: { kind: "prompt", maxCharacters: 8000 } }],
+    invalid: [{ ...channelAccount, reason: "" }, { ...channelAccount, channel: { kind: "stdin", maxCharacters: null } }, { accountId: "claude-max", label: "Claude Max" }],
+  },
+  "instructions/orientation-row.json": {
+    valid: [orientationRow, { ...orientationRow, enabled: false, text: null, unreadRegistries: ["forges"], accounts: [] }],
+    invalid: [{ ...orientationRow, id: instructionId }, { ...orientationRow, enabled: undefined }, { ...orientationRow, unreadRegistries: [""] }],
+  },
+  "instructions/owned-instruction-row.json": {
+    valid: [ownedRow, { ...ticked, accounts: [] }],
+    invalid: [{ ...ownedRow, id: undefined }, { ...ownedRow, accounts: undefined }, { ...ownedRow, title: "" }],
+  },
   "sessions/events/run.instructions.composed.json": {
     valid: [
       { runId, manifest: composedManifest, digest },
@@ -103,7 +158,9 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
   },
 };
 
-/** Params and results for `instructions.preview`. */
+const instructionResult = { valid: [{ instruction: owned }, { instruction: ticked }], invalid: [{}, { instruction: { ...owned, id: "i-1" } }] };
+
+/** Params and results for `instructions.preview`, `instructions.list` and the owned instructions' commands. */
 export const instructionMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "instructions.preview": {
     params: {
@@ -117,5 +174,50 @@ export const instructionMethodFixtures: Record<string, { params: Fixtures; resul
       ],
       invalid: [{ parts: [previewPart], text: previewPart.text }, { parts: [{ ...previewPart, layer: "orientation" }], text: "", manifest: composedManifest }, {}],
     },
+  },
+  "instructions.list": {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ orientation: orientationRow, instructions: [] }, { orientation: orientationRow, instructions: [ownedRow, { ...ticked, accounts: orientationRow.accounts }] }],
+      invalid: [{ instructions: [ownedRow] }, { orientation: orientationRow }, { orientation: ownedRow, instructions: [] }, { orientation: orientationRow, instructions: [orientationRow] }],
+    },
+  },
+  "instructions.create": {
+    params: {
+      valid: [
+        { commandId, id: instructionId, title: "Coding style", body: "Prefer small modules." },
+        { commandId, id: instructionId, title: "Coding style", body: "", scope: ["local"], enabled: false, position: "c" },
+      ],
+      invalid: [
+        { id: instructionId, title: "Coding style", body: "" },
+        { commandId, id: instructionId, title: "", body: "" },
+        { commandId, id: instructionId, title: "Coding style", body: "b".repeat(20001) },
+        { commandId, id: instructionId, title: "Coding style", body: "", scope: [] },
+      ],
+    },
+    result: instructionResult,
+  },
+  "instructions.edit": {
+    params: {
+      valid: [{ commandId, instructionId, title: "Coding style", body: "Prefer small modules." }],
+      invalid: [{ commandId, instructionId, title: "Coding style" }, { commandId, instructionId, title: "t".repeat(121), body: "" }],
+    },
+    result: instructionResult,
+  },
+  "instructions.setScope": {
+    params: { valid: [{ commandId, instructionId, scope: "all" }, { commandId, instructionId, scope: ["claude-max"] }], invalid: [{ commandId, instructionId, scope: [] }, { commandId, instructionId }] },
+    result: instructionResult,
+  },
+  "instructions.setEnabled": {
+    params: { valid: [{ commandId, instructionId, enabled: false }], invalid: [{ commandId, instructionId }, { commandId, instructionId, enabled: 1 }] },
+    result: instructionResult,
+  },
+  "instructions.move": {
+    params: { valid: [{ commandId, instructionId, position: "b" }], invalid: [{ commandId, instructionId, position: "ba" }, { commandId, instructionId }] },
+    result: instructionResult,
+  },
+  "instructions.remove": {
+    params: { valid: [{ commandId, instructionId }], invalid: [{ commandId }, { commandId, instructionId: "i-1" }] },
+    result: { valid: [{ instructionId }], invalid: [{}, { instructionId: "i-1" }] },
   },
 };

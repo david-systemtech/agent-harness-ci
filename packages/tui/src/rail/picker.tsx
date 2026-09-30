@@ -24,6 +24,8 @@ export interface PickerRow {
   /** Dim words after the text: a time, a path's detail, a count. */
   readonly detail?: string;
   readonly badge?: Badge;
+  /** An Ink colour its text is drawn in: a colour picker's rows, each in its own. */
+  readonly colour?: string;
   /** Why it cannot be chosen now: drawn dim, and said when chosen. */
   readonly absent?: string;
   /** What `picker.hide` does on it: a known directory taken off the list on this client. None, and the key says it hides nothing here. */
@@ -147,11 +149,10 @@ export const PickerCard = (props: { readonly picker: Picker; readonly hint: stri
             {selected ? "› " : "  "}
             {row.badge && (
               <Text color={row.badge.colour}>
-                {row.badge.icon}
                 {row.badge.abbreviation}{" "}
               </Text>
             )}
-            {row.text}
+            {row.colour !== undefined ? <Text color={row.colour}>{row.text}</Text> : row.text}
             {row.detail !== undefined && <Text dimColor> {row.detail}</Text>}
             {row.absent !== undefined && <Text dimColor> ({row.absent})</Text>}
           </Text>
