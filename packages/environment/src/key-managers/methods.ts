@@ -1,3 +1,5 @@
+import { keyManagerCliRow } from "@agent-harness/contracts";
+import type { ManagedTools } from "../managed-tools/registry.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import { previewCertificate } from "./certificate-preview.js";
 import type { KeyManagerConnections } from "./connections.js";
@@ -14,10 +16,22 @@ import type { KeyManagerReferences } from "./references.js";
  * command, the items to move at `read`, and the Move, a prepared `admin`
  * command (#371), with the copy of a value its login cannot write, another
  * (#372). The rules are the connections', the references', the preview's
- * and the Move's own.
+ * and the Move's own. The list gives each connection its CLI's Managed
+ * tools row (#375), once any probe under way has ended: the first
+ * installed of the tools serving its provider, `bao` else `vault` for
+ * OpenBao.
  */
-export const keyManagerMethods = (connections: KeyManagerConnections, references: KeyManagerReferences, moves: KeyManagerMoves, budgetMs?: number): MethodHandlers => ({
-  "keyManagers.list": () => ({ connections: connections.list() }),
+export const keyManagerMethods = (
+  connections: KeyManagerConnections,
+  references: KeyManagerReferences,
+  moves: KeyManagerMoves,
+  tools: Pick<ManagedTools, "list">,
+  budgetMs?: number,
+): MethodHandlers => ({
+  "keyManagers.list": async () => {
+    const rows = (await tools.list()).tools;
+    return { connections: connections.list().map((connection) => ({ ...connection, cli: keyManagerCliRow(connection.provider, rows) })) };
+  },
   "keyManagers.connections.add": connections.add,
   "keyManagers.connections.signIn": connections.signIn,
   "keyManagers.connections.update": connections.update,

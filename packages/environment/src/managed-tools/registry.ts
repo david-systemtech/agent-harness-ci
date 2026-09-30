@@ -76,6 +76,13 @@ export type ToolsListing = ResultOf<"tools.list">;
 export interface ManagedTools {
   /** Begins the start's probe. */
   start(): void;
+  /**
+   * What the registry runs a tool in, once any probe under way has ended: a
+   * terminal's clean base with the PATH the last probe resolved the tools
+   * on, so a tool runs as it was found, a shim among them (#375: a verify
+   * command, its holder's variables laid over it).
+   */
+  commandEnvironment(): Promise<Record<string, string>>;
   /** The rows, once any probe under way has ended; with `refresh`, a probe first unless one began in the last fifteen minutes. */
   list(options?: { readonly refresh?: boolean | undefined }): Promise<ToolsListing>;
   /** One tool's row, once any probe under way has ended. */
@@ -120,6 +127,8 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
 
   let rows: readonly ManagedToolRow[] | null = null;
   let probedAt: Date | null = null;
+  /** The PATH the last probe that gave rows resolved them on. */
+  let probedPath = "";
   let lastBegun: number | null = null;
   let running: Promise<void> | null = null;
   /** The rows the log last carried, by tool: what a probe's rows are compared with. Read from the log at the first probe. */
@@ -209,6 +218,7 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
         if (signal.aborted) return;
         rows = found;
         probedAt = begun;
+        probedPath = pathValue;
         notice(found);
       } catch (error) {
         console.error("Probing the managed tools failed; the rows are as the last probe left them:", error);
@@ -230,6 +240,10 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
 
   return {
     start: () => void probe(),
+    async commandEnvironment() {
+      await list();
+      return { ...base(), PATH: probedPath };
+    },
     list,
     async row(tool) {
       const found = (await list()).tools.find((row) => row.tool === tool);
