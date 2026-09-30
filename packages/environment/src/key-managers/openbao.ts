@@ -280,8 +280,8 @@ const lookedUp = (body: unknown): { readonly information: KeyManagerTokenInforma
   };
 };
 
-/** The path a login's run tokens are created at: its token role's, or the token store's own. */
-const createPath = (tokenRole: string | null): string => (tokenRole === null ? "auth/token/create" : `auth/token/create/${tokenRole}`);
+/** The path a login's run tokens are created at: its token role's, or the token store's own; minting needs `update` there. */
+export const createPath = (tokenRole: string | null): string => (tokenRole === null ? "auth/token/create" : `auth/token/create/${tokenRole}`);
 
 /** What `sys/capabilities-self` answered for `path`: its capabilities, read where OpenBao puts them (under `data` and beside it); empty for none. */
 const capabilitiesIn = (body: unknown, path: string): string[] => {

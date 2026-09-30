@@ -10,6 +10,7 @@ import { DAVID, OTHER_TOKEN, TOKEN, added as forgeAdded, list as forgeList, past
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ROLE_ID, SECRET_ID, added, approle, copyValue, keyManagerEvents, list, move, moveList, setBasePath, verify } from "../../test/key-manager-connections.js";
 import { scriptedMoveSource, storedAtOf } from "../../test/move-sources.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { VAULT_FILE, fileVault } from "../serve/vault.js";
 
@@ -621,7 +622,8 @@ describe("a Move through a source whose swap or delete fails", () => {
     await t.close();
 
     scripted.failDelete(id, false);
-    const again = await start({ dataDir, moveSources: [scripted.source] });
+    // With no Set up step, whose Key manager check would verify the connection as the environment starts, recording what it found (#383).
+    const again = await start({ dataDir, moveSources: [scripted.source], setupSteps: NO_SETUP_STEPS });
     await again.env.keyManagerMoves.leftBehindDeleted;
     expect(scripted.deletes).toEqual([
       { id, storedAt: storedAtOf(id) },
@@ -632,7 +634,7 @@ describe("a Move through a source whose swap or delete fails", () => {
     expect(deleted.map((event) => [event.type, event.payload, event.actor])).toEqual([["key-manager.stored-value-deleted", { item, storedAt: storedAtOf(id) }, { kind: "system", id: "key-manager" }]]);
     await again.close();
 
-    const third = await start({ dataDir, moveSources: [scripted.source] });
+    const third = await start({ dataDir, moveSources: [scripted.source], setupSteps: NO_SETUP_STEPS });
     await third.env.keyManagerMoves.leftBehindDeleted;
     expect(scripted.deletes).toHaveLength(2);
   });

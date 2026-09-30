@@ -454,7 +454,27 @@ describe("the step registry", () => {
 
   it("may skip the Key manager step, skipped when key-manager.present finds no connection, and never forces one (ADR 0028)", () => {
     expect(keyManager).toMatchObject({ skippable: true, skip: "key-manager.present" });
-    expect(keyManager.stateChecks).toEqual([{ id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] }]);
+    expect(keyManager.stateChecks[0]).toEqual({ id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] });
+  });
+
+  it("checks that every connection is signed in and reachable, every injecting OpenBao login can mint, and each injecting connection's CLI is installed, with actions from ADR 0031's vocabulary (#383)", () => {
+    expect(keyManager.stateChecks.map((check) => [check.id, check.actions])).toEqual([
+      ["key-manager.present", []],
+      ["key-manager.signed-in", ["sign-in-again"]],
+      ["key-manager.reachable", ["check-again"]],
+      ["key-manager.run-tokens", ["check-again"]],
+      ["key-manager.cli", ["install", "update"]],
+    ]);
+    for (const check of keyManager.stateChecks) {
+      for (const action of check.actions) expect(SETUP_ACTIONS as readonly string[], `${check.id}: ${action}`).toContain(action);
+    }
+    expect(keyManager.stateChecks.map((check) => check.holds)).toEqual([
+      "At least one key-manager connection is on this environment.",
+      "Every key-manager connection is signed in.",
+      "Every key-manager connection is reachable, unsealed, and presents a certificate that verifies.",
+      "Every injecting OpenBao connection's login can mint run tokens.",
+      "Each injecting key-manager connection's CLI is installed at its minimum or later, bao or vault for OpenBao.",
+    ]);
   });
 
   it("holds the Key manager entry's injection keys done on any value their schemas take, as a preference's", () => {
