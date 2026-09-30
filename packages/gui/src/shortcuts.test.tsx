@@ -203,7 +203,7 @@ describe("a remap", () => {
     expect(remaps(app)).toMatchObject({ "picker.move": ["↑", "Mod+J"] });
   });
 
-  it("refuses a reserved key, Ctrl+C on an action that stops a run, and a key that types, each with its reason; Esc leaves the recording", async () => {
+  it("refuses a reserved key, Ctrl+C on an action that stops a run, and a text field's own key, each with its reason; Esc leaves the recording", async () => {
     const app = await opened();
     const pane = await openShortcuts(app);
     const find = () => actionRow(pane, "Anywhere", "Find in the conversation");
@@ -218,6 +218,12 @@ describe("a remap", () => {
     expect(within(find()).getByText("Not saved: Mod+V pastes into a text field: only composer.paste takes it.")).toBeDefined();
     await record(find, "Ctrl+F", "f");
     expect(within(find()).getByText("Not saved: F types a character in a text field: hold Mod, Ctrl or Alt with it.")).toBeDefined();
+    await record(find, "Ctrl+F", "{Tab}");
+    expect(within(find()).getByText("Not saved: Tab is a key text fields and controls answer themselves: hold Mod, Ctrl or Alt with it.")).toBeDefined();
+    // So a bare Enter never becomes an approval.
+    const allow = () => actionRow(pane, "A permission card", "Allow it once, send the answer, or approve the plan");
+    await record(allow, "Ctrl+Enter", "{Enter}");
+    expect(within(allow()).getByText("Not saved: Enter is a key text fields and controls answer themselves: hold Mod, Ctrl or Alt with it.")).toBeDefined();
 
     const interrupt = () => actionRow(pane, "Anywhere", "Interrupt; or follow the end again");
     await record(interrupt, "Esc", "{Control>}c{/Control}");

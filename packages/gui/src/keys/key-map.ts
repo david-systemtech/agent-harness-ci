@@ -41,29 +41,48 @@ export const isWrittenOff = (action: ListedAction): boolean => action.gui.status
 /** The GUI keys in force for `action`: its keys with the remaps, and none while they are written off and not turned on. */
 export const keysInForce = (action: ListedAction, map: KeyMap): readonly string[] => (isWrittenOff(action) && !map.escStopsRun ? [] : guiKeysOf(action, map.remaps));
 
-/** Whether a key types a character in a text field: one character, or Space, with nothing but Shift held. */
-const typesText = (key: string): boolean => {
+/** The keys a text field or a control answers itself when nothing but Shift is held, beside the characters it types. */
+const EDITING_KEYS: ReadonlySet<string> = new Set(["Enter", "Tab", "Backspace", "Delete", "↑", "↓", "←", "→", "Home", "End", "PgUp", "PgDn"]);
+
+/**
+ * What a text field or a control makes of a key with nothing but Shift
+ * held: a character it types (one character, or Space), a key it edits or
+ * moves with (Enter, Tab, Backspace, an arrow…), or nothing of its own.
+ */
+const fieldsOwn = (key: string): "character" | "editing" | undefined => {
   const at = key.lastIndexOf("+", key.length - 2);
   const modifiers = at < 0 ? [] : key.slice(0, at).split("+");
   const name = key.slice(at + 1);
-  return modifiers.every((modifier) => modifier === "Shift") && ([...name].length === 1 || name === "Space");
+  if (!modifiers.every((modifier) => modifier === "Shift")) return undefined;
+  if ([...name].length === 1 || name === "Space") return "character";
+  return EDITING_KEYS.has(name) ? "editing" : undefined;
 };
+
+/** Why a key a text field answers itself is refused, by what the field makes of it. */
+const FIELDS_OWN_WORDS = {
+  character: "types a character in a text field",
+  editing: "is a key text fields and controls answer themselves",
+} as const;
 
 /**
  * Why `key` may not be one of the GUI keys of the action `id`, or undefined
  * when it may: the contracts' binding rules (`reservedGuiKey`: Mod+C, Mod+X,
  * Mod+A and Mod+Z are a text field's, Mod+V is paste's, and Ctrl+C or Mod+C
- * never stops a run); and a key that types a character is a text field's
- * too, which the window would take from every field, so only an action
- * whose defaults type (the composer's `/`, `@` and `!`, which leave the
- * character to the text where it is text) takes one.
+ * never stops a run); and a key a text field or a control answers itself
+ * (a character, or Enter, Tab, Backspace, an arrow… with nothing but Shift
+ * held), which the window would take from every field, is taken only by an
+ * action one of whose defaults is of its kind: the composer's `/`, `@` and
+ * `!` a character, the composer's and the lists' keys an editing one, each
+ * leaving the key to the field where it is the field's. So a bare Enter
+ * never becomes an approval (#404).
  */
 export const keyRefusal = (id: string, key: string): string | undefined => {
   const reserved = reservedGuiKey(id, key);
   if (reserved !== undefined) return reserved;
   const action = actionById(id);
-  if (!typesText(key) || action === undefined || defaultGuiKeys(action).some(typesText)) return undefined;
-  return `${key} types a character in a text field: hold Mod, Ctrl or Alt with it.`;
+  const kind = fieldsOwn(key);
+  if (kind === undefined || action === undefined || defaultGuiKeys(action).some((each) => fieldsOwn(each) === kind)) return undefined;
+  return `${key} ${FIELDS_OWN_WORDS[kind]}: hold Mod, Ctrl or Alt with it.`;
 };
 
 /**
