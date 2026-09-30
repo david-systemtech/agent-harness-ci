@@ -70,7 +70,8 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     });
     if (!answer.ok) {
       setStarting(false);
-      return say(refusalLine(answer.error, workspace, environment === undefined ? "the environment" : nameOf(environment)));
+      const where = environment === undefined ? "the environment" : nameOf(environment);
+      return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
     }
     const sent = await sendMessage(runtime, environmentId, id, { text: message, attachments: [] }, false);
     if (!sent.ok) runtime.drafts.set(environmentId, id, message);

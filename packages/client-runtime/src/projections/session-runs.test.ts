@@ -41,6 +41,7 @@ const input = (fields: Partial<VerbsInput> = {}): VerbsInput => ({
   rewound: null,
   rewindable: true,
   draft: null,
+  gone: null,
   ...fields,
 });
 
@@ -71,6 +72,17 @@ describe("each verb's availability", () => {
     // The verb is the newest message a withdraw reaches, past one the provider is reading.
     const mixed = [message("m-0", "Held", "environment", 2), ...queued];
     expect(sessionVerbs(input({ queued: mixed })).verbs.withdraw).toEqual(PRESENT);
+  });
+
+  it("refuses a read now while the session's workspace is gone, whatever is queued, and leaves the rest to the session's state (#421)", () => {
+    const queued = [message("m-1", "Also the tests", "environment", 3)];
+    expect(sessionVerbs(input({ queued, gone: "/srv/old" })).verbs.readNow).toEqual({
+      status: "absent",
+      reason: "workspace_missing",
+      message: "/srv/old is gone: choose a workspace for the session first.",
+    });
+    // A withdraw takes the message back to the draft, and a fork shares the workspace as recorded: the environment refuses neither.
+    expect(reasons({ queued, gone: "/srv/old" })).toMatchObject({ withdraw: "present", fork: "present" });
   });
 
   it("names the message the withdraw takes back: the newest a withdraw reaches, whatever the connection says, and none when none is", () => {
