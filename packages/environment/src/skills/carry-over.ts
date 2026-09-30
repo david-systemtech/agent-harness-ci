@@ -182,9 +182,8 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedComman
     } catch {
       before = undefined;
     }
-    let manifest: Record<string, unknown>;
-    if (before === undefined) manifest = { version: MANIFEST_VERSION, skills: {} };
-    else {
+    let manifest: { readonly [key: string]: unknown; readonly skills: Record<string, unknown> } = { version: MANIFEST_VERSION, skills: {} };
+    if (before !== undefined) {
       let parsed: unknown;
       try {
         parsed = JSON.parse(before);
@@ -192,10 +191,9 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedComman
         return;
       }
       if (!isRecord(parsed) || !isRecord(parsed.skills)) return;
-      manifest = parsed;
+      manifest = { ...parsed, skills: parsed.skills };
     }
-    const skills = isRecord(manifest.skills) ? manifest.skills : {};
-    await writeFile(file, `${JSON.stringify({ ...manifest, skills: { ...skills, ...carried } }, null, 2)}\n`);
+    await writeFile(file, `${JSON.stringify({ ...manifest, skills: { ...manifest.skills, ...carried } }, null, 2)}\n`);
     context.onUndo(() => (before === undefined ? rm(file, { force: true }) : writeFile(file, before)));
   };
 
