@@ -74,9 +74,18 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
  * pairing and updates"): while no environment is ready, what the window
  * waits on, this machine's environment while "Run an environment on this
  * machine" is on, else pairing when nothing is paired; once one is ready, a
- * word to choose a session.
+ * word to choose a session. Its caption, and close with it, whichever it
+ * shows.
  */
-export const EmptyPane = ({ focused, ...caption }: PaneContentsProps) => {
+export const EmptyPane = ({ focused, ...caption }: PaneContentsProps) => (
+  <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 flex-1 flex-col">
+    <EmptyCaption {...caption} />
+    <NoSessionOpen />
+  </section>
+);
+
+/** What a pane with no session shows under its caption. */
+const NoSessionOpen = () => {
   const environments = useObservable(useRuntime().projections.environments);
   const [runHere] = usePresentation("runLocalEnvironment");
   const local = environments.find((view) => view.kind === "local");
@@ -85,10 +94,5 @@ export const EmptyPane = ({ focused, ...caption }: PaneContentsProps) => {
     if (runHere && local) return <LocalEnvironmentPane view={local} />;
     if (!known.some((view) => view.kind === "paired")) return <PairingPane />;
   }
-  return (
-    <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 flex-1 flex-col">
-      <EmptyCaption {...caption} />
-      <p className="m-auto p-6 text-sm text-ink-faint">No session is open. Choose one from the sidebar.</p>
-    </section>
-  );
+  return <p className="m-auto p-6 text-sm text-ink-faint">No session is open. Choose one from the sidebar.</p>;
 };

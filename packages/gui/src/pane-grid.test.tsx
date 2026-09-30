@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { RenderedApp } from "../test/harness.js";
+import { renderApp, type RenderedApp } from "../test/harness.js";
 import { LAPTOP_ID, TRAIN, inUtc, row, settled, sidebar, two } from "../test/sidebar-fixtures.js";
 
 /**
@@ -259,6 +259,20 @@ describe("closing a pane", () => {
     // The last pane goes: the one before it takes its quarter, not the half the row's two panes last held.
     await app.user.click(within(panes()[2] as HTMLElement).getByRole("button", { name: "Close the pane" }));
     await waitFor(() => expect(dividers()).toEqual([45]));
+  });
+
+  it("is done from its caption while it waits on this machine's environment, before any environment is ready", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", discovery: "nothing" }] });
+    expect(await within(screen.getByRole("main")).findByRole("region", { name: "This machine" })).toBeDefined();
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: "Close the pane" })).toBeNull();
+
+    await press(app, SPLIT_RIGHT);
+    expect(within(screen.getByRole("main")).getAllByRole("region", { name: "This machine" })).toHaveLength(2);
+    const closes = within(screen.getByRole("main")).getAllByRole("button", { name: "Close the pane" });
+    expect(closes).toHaveLength(2);
+    await app.user.click(closes[1] as HTMLElement);
+    expect(panes()).toHaveLength(1);
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: "Close the pane" })).toBeNull();
   });
 });
 

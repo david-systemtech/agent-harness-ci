@@ -123,12 +123,12 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   const rows = choiceRows(prompt);
 
   // The card takes the focus when its prompt comes to it: the card, never a button, so a stray Enter fires nothing. In a
-  // pane the grid is not focused on it waits for the pane, rather than taking the focus from the one being typed in.
+  // pane the grid is not focused on it leaves the focus in the pane being typed in, and does not take it when its own
+  // pane is focused later: it waits there to be answered.
   const inFocusedPane = useInFocusedPane();
   useEffect(() => {
     const card = self.current;
     if (inFocusedPane && card !== null && card.closest("[inert]") === null) card.focus({ preventScroll: true });
-    // Once, as the prompt comes to the card: not again when the pane is focused later.
   }, []);
 
   /** Sends what was chosen, unless the connection cannot, or the choice sends nothing and says why. */
