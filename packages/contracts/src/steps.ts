@@ -403,18 +403,22 @@ export const STEP_REGISTRY = [
   {
     // The Instructions step (skills spec, "Set up"; ADR 0030; #505), at home on the Knowledge band's Instructions row
     // (ADR 0027): the orientation switch, which settings.update writes and which passes on any valid value, as a
-    // preference's does, and the owned instructions through their commands. Never skipped. Its state check (the block
-    // rendered with no failed registry read) is #514's, and its triggers #588's.
+    // preference's does, and the owned instructions and the dismissed suggestions (#509) through their commands. Never
+    // skipped. Its state check (the block rendered with no failed registry read) is #514's, and its triggers #588's.
     id: "instructions",
     home: "knowledge.instructions",
     writes: ["instructions.orientation"],
     writesState: [
-      { method: "instructions.create", parts: ["ownedInstructions"] },
+      { method: "instructions.create", parts: ["ownedInstructions", "dismissedSuggestions"] },
       { method: "instructions.edit", parts: ["ownedInstructions"] },
       { method: "instructions.setScope", parts: ["ownedInstructions"] },
       { method: "instructions.setEnabled", parts: ["ownedInstructions"] },
       { method: "instructions.move", parts: ["ownedInstructions"] },
-      { method: "instructions.remove", parts: ["ownedInstructions"] },
+      { method: "instructions.resolveVersion", parts: ["ownedInstructions"] },
+      { method: "instructions.remove", parts: ["ownedInstructions", "dismissedSuggestions"] },
+      { method: "instructions.dismissSuggestion", parts: ["dismissedSuggestions"] },
+      { method: "instructions.restoreSuggestion", parts: ["dismissedSuggestions"] },
+      { method: "instructions.import", parts: ["ownedInstructions", "dismissedSuggestions"] },
     ],
     checks: [{ key: "instructions.orientation", check: anyValidValue("instructions.orientation") }],
     stateChecks: [],
