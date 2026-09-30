@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CAPABILITY_FLAG_LIST,
+  DoctorToolName,
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
-  DoctorToolName,
   GH_MINIMUM_VERSION,
   MANAGED_TOOLS,
   MANAGED_TOOL_INSTALL_METHODS,

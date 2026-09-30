@@ -102,8 +102,8 @@ import {
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import {
-  MANAGED_TOOLS,
   DoctorToolName,
+  MANAGED_TOOLS,
   ManagedTool,
   ManagedToolAction,
   ManagedToolDetail,
