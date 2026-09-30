@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Canvas</title><style>html, body { margin: 0; } canvas { display: block; }</style></head>
+<body>
+  <!-- An app drawn on a canvas: only a point in a screenshot reaches it. -->
+  <canvas id="board" width="1280" height="800"></canvas>
+  <script>
+    const board = document.getElementById("board");
+    board.getContext("2d").fillRect(250, 150, 100, 100);
+    window.lastClick = null;
+    board.addEventListener("click", (event) => (window.lastClick = [event.offsetX, event.offsetY]));
+  </script>
+</body>
+</html>

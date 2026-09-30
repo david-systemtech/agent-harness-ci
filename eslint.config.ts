@@ -112,7 +112,8 @@ export default defineConfig([
       "The theme package depends on contracts and nothing else: pure maths, no UI and no session state, so every client and the environment can use it (ADR 0023).",
     ),
   },
-  // The browser package's source runs in every browser, so no Node built-in either; its tests read fixture pages with Node.
+  // The browser package's source runs in every browser, so no Node built-in either; its tests read fixture pages with Node,
+  // and its testing exports (`src/testing/`) serve the scripted CDP peer to other packages' tests over Node's sockets.
   {
     files: ["packages/browser/**/*.ts"],
     rules: {
@@ -122,7 +123,7 @@ export default defineConfig([
   },
   {
     files: ["packages/browser/src/**/*.ts"],
-    ignores: ["**/*.test.ts"],
+    ignores: ["**/*.test.ts", "packages/browser/src/testing/**"],
     rules: forbidImports(`^(@agent-harness/(?!contracts(/|$))|agent-harness(/|$)|(${nodeBuiltins})$)`, browserOnly),
   },
   {
