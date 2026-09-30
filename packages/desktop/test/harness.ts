@@ -5,6 +5,7 @@ import type { ShellPlatform } from "@agent-harness/client-runtime";
 import { startDesktop } from "../src/desktop.js";
 import type { DesktopPlatform } from "../src/platform.js";
 import type { ServiceWait } from "../src/service.js";
+import type { UpdateSystem } from "../src/update.js";
 import { shellBridge, type DesktopShell, type PreloadIpc } from "../src/preload/bridge.js";
 import { APP_URL } from "../src/schemes.js";
 import { fakeElectron, type FakeElectron } from "./fake-electron.js";
@@ -46,6 +47,7 @@ export const platformOn = (os: ShellPlatform, overrides: Partial<DesktopPlatform
   hostname: "desk",
   user: "seth",
   argv: ["/opt/agent-harness/agent-harness"],
+  executable: "/opt/agent-harness/agent-harness",
   paths: { data: scratch(), environment: scratch(), renderer: rendererBuild(), preload: "/opt/agent-harness/resources/preload.cjs" },
   ...overrides,
 });
@@ -61,7 +63,9 @@ export interface Started {
  * Starts the desktop on `platform` (Linux, a fresh data directory and a
  * renderer build, unless given) over `electron` (faked, ready and dark
  * unless given), and waits for its window to load. A fault it reports with
- * no caller to hand it to is thrown, unless the test hears it.
+ * no caller to hand it to is thrown, unless the test hears it. An update
+ * runs its commands and file calls on `system` (`test/fake-system.ts`) when
+ * given.
  */
 export const start = async ({
   electron = fakeElectron(),
@@ -70,8 +74,9 @@ export const start = async ({
     throw error;
   },
   serviceWait,
-}: { electron?: FakeElectron; platform?: DesktopPlatform; reportError?: (error: unknown) => void; serviceWait?: ServiceWait } = {}): Promise<Started> => {
-  await startDesktop(electron, platform, { reportError, ...(serviceWait && { serviceWait }) });
+  system,
+}: { electron?: FakeElectron; platform?: DesktopPlatform; reportError?: (error: unknown) => void; serviceWait?: ServiceWait; system?: UpdateSystem } = {}): Promise<Started> => {
+  await startDesktop(electron, platform, { reportError, ...(serviceWait && { serviceWait }), ...(system && { updateSystem: system }) });
   return { electron, platform, shell: (from = APP_URL) => rendererShell(electron, from) };
 };
 
