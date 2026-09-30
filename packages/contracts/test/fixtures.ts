@@ -8,7 +8,7 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
-import { browserSchemaFixtures } from "./browser-fixtures.js";
+import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
@@ -548,6 +548,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...routineMethodFixtures,
   ...skillMethodFixtures,
   ...trustMethodFixtures,
+  ...browserMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -770,6 +771,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "extension.seen",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
@@ -812,6 +814,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "skills.updated", payload: {} },
       { type: "trust.updated", payload: {} },
       toolsUpdatedNotice.valid,
+      { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -840,6 +843,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
       { type: "setup.result-changed", payload: { step: "forges" } },
       toolsUpdatedNotice.invalid,
+      { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       validEnvelope,
     ],
   },

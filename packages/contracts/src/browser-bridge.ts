@@ -272,6 +272,15 @@ export const PortFile = z
   .meta({ description: "The port file in the extension's folder: the listener's port, the environment's id and name, and the harness version." });
 export type PortFile = z.infer<typeof PortFile>;
 
+/** The path the listener takes the extension's socket at. */
+export const BRIDGE_PATH = "/bridge";
+
+/**
+ * Where the extension dials the port its port file names: IPv4 loopback,
+ * the one address the listener binds, at `BRIDGE_PATH`.
+ */
+export const bridgeUrl = (port: number): string => `ws://127.0.0.1:${port}${BRIDGE_PATH}`;
+
 // The extension's id -------------------------------------------------------------
 
 /**
