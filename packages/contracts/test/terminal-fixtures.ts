@@ -18,8 +18,10 @@ const runId = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
 const v1 = "c232ab00-9414-11ec-b3c8-9f6bdeced846";
 const at = "2026-09-24T01:02:03.456Z";
 
-const terminal = { id, sessionId, openedAt: at, cols: 80, rows: 24, exitCode: null, signal: null };
+const terminal = { id, owner: "session", sessionId, openedAt: at, cols: 80, rows: 24, exitCode: null, signal: null };
 const exitedTerminal = { ...terminal, exitCode: 130, signal: 2 };
+/** A tool terminal (#362): the Managed tools registry's, naming no session. */
+const toolTerminal = { ...terminal, owner: "managed-tools", sessionId: null };
 const snapshot = { terminal, scrollback: "$ ls\r\nREADME.md\r\n$ ", firstSequence: 1, lastSequence: 4, truncated: false };
 const change = { runId, toolCallId: "toolu_1", tool: "Edit", status: "ok" };
 const file = { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b\n", changes: [change] };
@@ -34,11 +36,25 @@ export const terminalSchemaFixtures: Record<string, Fixtures> = {
   },
   "terminals/terminal-exit-cause.json": { valid: ["exited", "closed", "deleted", "failed"], invalid: ["killed", ""] },
   "terminals/terminal-info.json": {
-    valid: [terminal, exitedTerminal],
-    invalid: [{ ...terminal, cols: 0 }, { ...terminal, rows: 1001 }, { ...terminal, exitCode: undefined }, { ...terminal, id: "t-1" }],
+    valid: [terminal, exitedTerminal, toolTerminal, { ...toolTerminal, exitCode: 0 }],
+    invalid: [
+      { ...terminal, cols: 0 },
+      { ...terminal, rows: 1001 },
+      { ...terminal, exitCode: undefined },
+      { ...terminal, id: "t-1" },
+      { ...terminal, owner: undefined },
+      { ...terminal, owner: "tools" },
+      { ...terminal, sessionId: null },
+      { ...toolTerminal, sessionId },
+      { ...toolTerminal, sessionId: undefined },
+    ],
   },
   "terminals/terminal-snapshot.json": {
-    valid: [snapshot, { terminal: exitedTerminal, scrollback: "", firstSequence: 0, lastSequence: 0, truncated: false }],
+    valid: [
+      snapshot,
+      { terminal: exitedTerminal, scrollback: "", firstSequence: 0, lastSequence: 0, truncated: false },
+      { ...snapshot, terminal: toolTerminal },
+    ],
     invalid: [{ ...snapshot, truncated: undefined }, { ...snapshot, firstSequence: -1 }, { ...snapshot, terminal: {} }],
   },
   "terminals/events/terminal.output.json": { valid: [{ data: "hi\r\n" }, { data: "" }], invalid: [{}, { data: 1 }] },
@@ -90,7 +106,7 @@ export const terminalMethodFixtures: Record<string, { params: Fixtures; result: 
       valid: [{ ...onTerminal, cols: 100, rows: 30 }],
       invalid: [{ ...onTerminal, cols: 100 }, { ...onTerminal, cols: 0, rows: 30 }, { commandId, cols: 100, rows: 30 }],
     },
-    result: { valid: [{ terminal }, { terminal: exitedTerminal }], invalid: [{}, { terminal: { ...terminal, cols: -1 } }] },
+    result: { valid: [{ terminal }, { terminal: exitedTerminal }, { terminal: toolTerminal }], invalid: [{}, { terminal: { ...terminal, cols: -1 } }] },
   },
   "terminals.close": {
     params: { valid: [onTerminal], invalid: noTerminal },
@@ -98,7 +114,7 @@ export const terminalMethodFixtures: Record<string, { params: Fixtures; result: 
   },
   "terminals.list": {
     params: { valid: [{ sessionId }], invalid: [{}, { sessionId: "s-1" }] },
-    result: { valid: [{ terminals: [] }, { terminals: [terminal, exitedTerminal] }], invalid: [{}, { terminals: [{}] }] },
+    result: { valid: [{ terminals: [] }, { terminals: [terminal, exitedTerminal] }], invalid: [{}, { terminals: [{}] }, { terminals: [{ ...terminal, owner: undefined }] }] },
   },
   "terminals.subscribe": {
     params: { valid: [{ afterSequence: 0, id }, { afterSequence: 12, id }], invalid: [{ id }, { afterSequence: 0 }, { afterSequence: -1, id }] },
