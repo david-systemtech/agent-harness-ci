@@ -1,6 +1,6 @@
 import type { SessionSummary } from "@agent-harness/contracts";
 import type { EnvironmentView } from "../projections/environments.js";
-import type { ListFreshness, SessionListView, SessionRow } from "../projections/session-list.js";
+import type { ListFreshness, MergedGroupHeading, SessionListView, SessionRow } from "../projections/session-list.js";
 import { wakeWords } from "./when.js";
 
 /**
@@ -118,6 +118,8 @@ export interface FoldingHeading extends HeadingOf<"pinned" | "group" | "snoozed"
   readonly folded: boolean;
   /** A command about one of its groups awaits its receipt (the runtime's `awaitingReceipt`), or, while it is folded, one about a session under it. */
   readonly pending: boolean;
+  /** A merged group's heading: the group, with the member group on each environment that a command about it targets; null for the pinned block and the shelves. */
+  readonly group: MergedGroupHeading | null;
 }
 
 /** An environment's heading, over its ungrouped active sessions: it does not fold. */
@@ -163,7 +165,7 @@ export const sessionHeadings = (input: HeadingsInput): SessionHeading[] => {
   });
 
   /** A folding heading and, unless folded, its rows; while filtering, only one with rows the filter matches, open. */
-  const folding = (kind: FoldingHeading["kind"], key: string, text: string, block: SessionBlock, pending = false) => {
+  const folding = (kind: FoldingHeading["kind"], key: string, text: string, block: SessionBlock, group: MergedGroupHeading | null = null) => {
     const folded = input.open !== true && isFolded(input.folded, key);
     const visible = shown(block.rows);
     if (matches !== null && (folded || visible.length === 0)) return;
@@ -175,14 +177,15 @@ export const sessionHeadings = (input: HeadingsInput): SessionHeading[] => {
       rows: folded ? [] : visible.map((row) => rowOf(row, block)),
       folded,
       // A folded heading speaks for the rows it hides; an open one leaves it to them.
-      pending: pending || (folded && block.rows.some((row) => row.awaitingReceipt)),
+      pending: (group?.awaitingReceipt ?? false) || (folded && block.rows.some((row) => row.awaitingReceipt)),
+      group,
     });
   };
 
   if (list.pinned.length > 0) folding("pinned", PINNED_HEADING, "Pinned", { kind: "pinned", rows: list.pinned });
   for (const group of list.groups) {
     if (group.shelves.active.length === 0) continue;
-    folding("group", groupHeading(group.key), group.name, { kind: "active", rows: group.shelves.active }, group.awaitingReceipt);
+    folding("group", groupHeading(group.key), group.name, { kind: "active", rows: group.shelves.active }, group);
   }
 
   for (const view of input.environments) {

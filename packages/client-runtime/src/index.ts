@@ -297,6 +297,22 @@ export {
   type SessionHeading,
 } from "./sidebar/headings.js";
 export { WHEN_EXAMPLES, parseWhen, presetTimes, wakeWords, whenWords, type WhenPreset } from "./sidebar/when.js";
+export {
+  arrange,
+  dropOnto,
+  keysFor,
+  noManualOrder,
+  stepIn,
+  type ArrangeAnswer,
+  type Arrangement,
+  type DropTarget,
+  type KeyMove,
+  type Placed,
+  type Refusal,
+  type UnorderedShelf,
+} from "./sidebar/arrange.js";
+export { changeHeading, groupChoices, hasTag, snoozeStands, toggleOf, type GroupChoices, type HeadingChange, type Toggle, type Toggled } from "./sidebar/organise.js";
+export { askRestorable, type DeletedRow, type Restorable } from "./sidebar/restore.js";
 export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
