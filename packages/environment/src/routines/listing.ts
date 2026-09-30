@@ -11,9 +11,9 @@ import type { StoredRoutine } from "./routine-store.js";
  * wire"): its definition and state, its effective mode with the clamp, and
  * what needs attention, read from the environment as it is now, so the
  * attention follows an account's change without a save. The account, model
- * and clamp attention are here; the scripts', endpoints', skills', firings'
- * and deliveries' are the tickets' that add them, and the next due time the
- * scheduler's.
+ * and clamp attention are here, and `failing` while the failure streak is
+ * not zero (#523); the scripts', endpoints', skills' and deliveries' are
+ * the tickets' that add them, and the next due time the scheduler's.
  */
 
 /** Where a routine's account is looked up: the account store's live accounts by identity, and the host's facts and default account. */
@@ -55,6 +55,7 @@ const attentionOf = (routine: StoredRoutine, account: AccountFacts | null, mode:
     account_signed_out: account !== null && !account.signedIn,
     model_unavailable: account !== null && model !== null && !account.models.some((option) => option.id === model),
     clamped: mode.clamped,
+    failing: routine.state.failureStreak > 0,
   };
   return ROUTINE_ATTENTION.filter((code) => holds[code] === true);
 };
