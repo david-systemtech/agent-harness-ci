@@ -87,7 +87,7 @@ describe("a row", () => {
 
     await app.user.click(row("Train tidy"));
     const transcript = await screen.findByRole("region", { name: "Transcript" });
-    expect(app.presentation.values.read().paneLayout.session).toEqual({ environmentId: LAPTOP_ID, sessionId: TRAIN });
+    expect(app.shown()).toEqual({ environmentId: LAPTOP_ID, sessionId: TRAIN });
     expect(row("Train tidy").getAttribute("aria-current")).toBe("true");
     expect(row("Fix the rail").hasAttribute("aria-current")).toBe(false);
     expect(transcript).toBeDefined();
@@ -144,7 +144,7 @@ describe("the filter", () => {
     expect(within(sidebar()).queryAllByRole("region")).toEqual([]);
 
     await app.user.click(row("Old thing"));
-    await waitFor(() => expect(app.presentation.values.read().paneLayout.session).toEqual({ environmentId: LAPTOP_ID, sessionId: OLD }));
+    await waitFor(() => expect(app.shown()).toEqual({ environmentId: LAPTOP_ID, sessionId: OLD }));
 
     await typeIn(app, filter, "zzz");
     expect(within(sidebar()).getByText("No session matches “inzzz”.")).toBeDefined();

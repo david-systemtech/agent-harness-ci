@@ -65,7 +65,7 @@ const actionsOn = async (app: RenderedApp, transcript: HTMLElement, text: string
 const sent = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
 
 /** The session the pane shows, as presentation holds it. */
-const inPane = (app: RenderedApp) => app.presentation.values.read().paneLayout.session;
+const inPane = (app: RenderedApp) => app.shown();
 
 /** The composer's box. */
 const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;

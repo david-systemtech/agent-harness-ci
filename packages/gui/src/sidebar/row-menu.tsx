@@ -1,6 +1,7 @@
 import { groupChoices, presetTimes, rowKey, snoozeStands, toggleOf, whenWords, type HeadingRow } from "@agent-harness/client-runtime";
 import type { CommandMethodName } from "@agent-harness/contracts";
 import { useMemo } from "react";
+import { usePaneGrid } from "../grid/grid.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -18,7 +19,9 @@ import { notDone, quoted } from "./words.js";
  * a snooze stands; Tags, one at a time; Move to group, the merged headings
  * (the one it is in dim), a new group, or none (`commands.moveToGroup`, the
  * runtime's `groupChoices`); Fork, at the session's end, the fork opening in
- * the focused pane once the environment accepts it; and Delete, asked once.
+ * the focused pane once the environment accepts it; Open in a new pane, which
+ * splits the focused pane right and opens the session there (#407), dim with
+ * the reason while the grid holds eight panes; and Delete, asked once.
  * Each is drawn as the connection answers for its command
  * (`commands.admits`; Fork as its verb, `verbs.fork`): one that cannot be
  * sent is dim, the capability's line under its name. An organisation command
@@ -36,9 +39,11 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   const runtime = useRuntime();
   const organise = useOrganise();
   const openInPane = useOpenInPane();
+  const grid = usePaneGrid();
   const { row } = line;
   const { environmentId, summary } = row;
   const sessionId = summary.id;
+  const session = { environmentId, sessionId };
   const list = useObservable(runtime.projections.sessionList);
   const verbs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId])).verbs;
   const admits = (method: CommandMethodName) => runtime.commands.admits(environmentId, method);
@@ -112,6 +117,9 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
       <ContextMenuSeparator />
       <Entry offer={verbs.fork} onSelect={fork}>
         Fork
+      </Entry>
+      <Entry offer={grid.openingBeside(session)} onSelect={() => grid.openBeside(grid.focused.id, "right", session)}>
+        Open in a new pane
       </Entry>
       <Entry offer={admits("sessions.delete")} onSelect={handOn(() => organise.open({ kind: "delete", row: key }))}>
         Delete…

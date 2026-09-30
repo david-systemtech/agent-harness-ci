@@ -130,6 +130,7 @@ import { createManagedTools, type ManagedTools } from "../managed-tools/registry
 import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { followDeliveries } from "../routines/delivery.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -139,7 +140,7 @@ import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
-import { createTerminalService } from "../terminals/service.js";
+import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { createBrowserService } from "../browser/service.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
@@ -555,6 +556,14 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /**
+   * Tool terminals (#362): terminals the Managed tools registry owns rather
+   * than a session, each running one command through the user's login
+   * shell, streamed and answered through the terminal methods by its id,
+   * and closed thirty minutes after its command exits. The registry's
+   * runner (#376) opens them; the tests open them here.
+   */
+  readonly toolTerminals: ToolTerminals;
   /** Set up's in-process seams (#571). */
   readonly setup: {
     /** Settles once this start's pass (#571), run past the settle, has checked every registered step: what a routines start pass (#535) and a test wait on. */
@@ -950,6 +959,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
 
+  // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
+  // them, so an end the recovery sweep or the host's close appends is delivered too.
+  closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
@@ -1590,6 +1602,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },
+    toolTerminals: terminalService.tools,
     processEnvironments,
     startPairing,
     setup: { startPass: setupScheduler.startPass },

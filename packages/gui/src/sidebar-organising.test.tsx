@@ -87,9 +87,9 @@ const sent = (app: RenderedApp, environment: string, method: string) => app.envi
 describe("a row's context menu", () => {
   it("holds Rename, Pin, Archive, Settle, Snooze, Tags, Move to group, Fork and Delete, each toggle as the session stands", async () => {
     const app = await settled(await two());
-    expect(offered(await menuOf(app, "Fix the rail"))).toEqual(["Rename", "Pin", "Archive", "Settle", "Snooze▸", "Tags…", "Move to group▸", "Fork", "Delete…"]);
+    expect(offered(await menuOf(app, "Fix the rail"))).toEqual(["Rename", "Pin", "Archive", "Settle", "Snooze▸", "Tags…", "Move to group▸", "Fork", "Open in a new pane", "Delete…"]);
     await app.user.keyboard("{Escape}");
-    expect(offered(await menuOf(app, "Pinned one"))).toEqual(["Rename", "Unpin", "Archive", "Settle", "Snooze▸", "Tags…", "Move to group▸", "Fork", "Delete…"]);
+    expect(offered(await menuOf(app, "Pinned one"))).toEqual(["Rename", "Unpin", "Archive", "Settle", "Snooze▸", "Tags…", "Move to group▸", "Fork", "Open in a new pane", "Delete…"]);
   });
 
   it("pins, archives and settles, each sent once with its command id, the row marked until the environment's receipt", async () => {
@@ -292,7 +292,7 @@ describe("Fork", () => {
     await waitFor(() => expect(sent(app, "desk", "sessions.fork")).toHaveLength(1));
     const [fork] = sent(app, "desk", "sessions.fork");
     expect(fork).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: SPARE, id: expect.any(String) });
-    await waitFor(() => expect(app.presentation.values.read().paneLayout.session).toEqual({ environmentId: DESK_ID, sessionId: fork?.["id"] }));
+    await waitFor(() => expect(app.shown()).toEqual({ environmentId: DESK_ID, sessionId: fork?.["id"] }));
   });
 });
 

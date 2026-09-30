@@ -22,14 +22,41 @@ export interface PaneSession {
   readonly sessionId: string;
 }
 
+/** One session pane of the grid: its id, which its divider's place is kept by, and the session it shows, null while it shows none. */
+export interface GridPane {
+  readonly id: string;
+  readonly session: PaneSession | null;
+  /** Its width, as a share of its row in percent. */
+  readonly width: number;
+}
+
+/** A row of the grid: its id, its panes left to right, and its height as a share of the grid in percent. */
+export interface GridRow {
+  readonly id: string;
+  readonly panes: readonly GridPane[];
+  readonly height: number;
+}
+
 /**
- * The session pane region's layout (glossary: Pane): its one session pane
- * and the session it shows, null while it shows none. The grid (#407) lays
- * out up to eight.
+ * The session pane region's layout (docs/specs/gui.md, "The seven panes and
+ * the grid"; glossary: Pane): the grid's rows top to bottom, each of one or
+ * more panes, eight panes at most, and the pane focused. A session shows in
+ * one pane at a time. How it changes is `grid/layout.ts`'s.
  */
 export interface PaneLayout {
-  readonly session: PaneSession | null;
+  readonly rows: readonly GridRow[];
+  /** The focused pane's id: one of the grid's. */
+  readonly focused: string;
 }
+
+/** The most panes the grid holds (docs/specs/gui.md, "Chosen defaults": the existing limit). */
+export const PANES_MOST = 8;
+
+/** The grid before anything is split: one pane, with no session. */
+const ONE_PANE: PaneLayout = Object.freeze({
+  rows: Object.freeze([Object.freeze({ id: "row-1", height: 100, panes: Object.freeze([Object.freeze({ id: "pane-1", session: null, width: 100 })]) })]),
+  focused: "pane-1",
+});
 
 /**
  * The panes a session pane's side column holds (docs/specs/gui.md, "The
@@ -139,7 +166,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   sidebarWidth: null,
   sidebarShown: true,
   collapsedHeadings: Object.freeze({}),
-  paneLayout: Object.freeze({ session: null }),
+  paneLayout: ONE_PANE,
   sideColumns: Object.freeze({}),
   textSize: 14,
   readingWidth: "comfortable",
@@ -166,6 +193,70 @@ const readSideColumn = (stored: unknown): SideColumn | undefined => {
   return { open: kept, shown: kept.find((pane) => pane === shown) ?? first, hidden: hidden === true };
 };
 
+/** A share in percent as stored: a number above none and up to the whole. */
+const isShare = (stored: unknown): stored is number => typeof stored === "number" && stored > 0 && stored <= 100;
+
+/** Shares scaled to fill the whole, 100 percent, each kept in proportion. */
+const toWhole = (shares: readonly number[]): readonly number[] => {
+  const sum = shares.reduce((total, share) => total + share, 0);
+  return shares.map((share) => (share * 100) / sum);
+};
+
+/** A pane's session as stored: its two ids, or null for none; undefined when it is neither. */
+const readPaneSession = (stored: unknown): PaneSession | null | undefined => {
+  if (stored === null) return null;
+  const ids = stored as { readonly environmentId?: unknown; readonly sessionId?: unknown } | undefined;
+  return typeof ids?.environmentId === "string" && typeof ids.sessionId === "string" ? { environmentId: ids.environmentId, sessionId: ids.sessionId } : undefined;
+};
+
+/** A pane or a row as stored: an object with a string id and a share. */
+const readPart = (stored: unknown, share: "width" | "height"): { readonly id: string; readonly share: number; readonly held: Record<string, unknown> } | undefined => {
+  if (typeof stored !== "object" || stored === null) return undefined;
+  const held = stored as Record<string, unknown>;
+  return typeof held["id"] === "string" && isShare(held[share]) ? { id: held["id"], share: held[share], held } : undefined;
+};
+
+/**
+ * The grid as stored: rows of panes, one to eight panes in all, every id
+ * once, each share a number, scaled so a row's widths and the rows' heights
+ * each fill the whole. A session shown twice is kept in its first pane
+ * only; a focused pane the grid does not hold is its first. Undefined for
+ * anything else.
+ */
+const readPaneLayout = (stored: unknown): PaneLayout | undefined => {
+  if (typeof stored !== "object" || stored === null) return undefined;
+  const { rows: storedRows, focused } = stored as { readonly rows?: unknown; readonly focused?: unknown };
+  if (!Array.isArray(storedRows) || storedRows.length === 0) return undefined;
+  const ids = new Set<string>();
+  const shown = new Set<string>();
+  const rows: { id: string; height: number; panes: GridPane[] }[] = [];
+  for (const storedRow of storedRows) {
+    const row = readPart(storedRow, "height");
+    const storedPanes = row?.held["panes"];
+    if (row === undefined || ids.has(row.id) || !Array.isArray(storedPanes) || storedPanes.length === 0) return undefined;
+    ids.add(row.id);
+    const panes: GridPane[] = [];
+    for (const storedPane of storedPanes) {
+      const pane = readPart(storedPane, "width");
+      const session = readPaneSession(pane?.held["session"]);
+      if (pane === undefined || ids.has(pane.id) || session === undefined) return undefined;
+      ids.add(pane.id);
+      const key = session === null ? null : sideColumnKey(session);
+      panes.push({ id: pane.id, session: key === null || shown.has(key) ? null : session, width: pane.share });
+      if (key !== null) shown.add(key);
+    }
+    const widths = toWhole(panes.map((pane) => pane.width));
+    rows.push({ id: row.id, height: row.share, panes: panes.map((pane, at) => ({ ...pane, width: widths[at] ?? pane.width })) });
+  }
+  const panes = rows.flatMap((row) => row.panes);
+  if (panes.length > PANES_MOST) return undefined;
+  const heights = toWhole(rows.map((row) => row.height));
+  return {
+    rows: rows.map((row, at) => ({ ...row, height: heights[at] ?? row.height })),
+    focused: panes.find((pane) => pane.id === focused)?.id ?? (panes[0] as GridPane).id,
+  };
+};
+
 /** How each key's stored value is read back: undefined for a value this build cannot read, which takes the default. */
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
   sidebarWidth: (stored) => (stored === null || (typeof stored === "number" && stored > 0 && stored < 100) ? stored : undefined),
@@ -175,13 +266,7 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
     const folds = Object.entries(stored);
     return folds.every(([, shut]) => typeof shut === "boolean") ? (Object.fromEntries(folds) as CollapsedHeadings) : undefined;
   },
-  paneLayout: (stored) => {
-    if (typeof stored !== "object" || stored === null || !("session" in stored)) return undefined;
-    const { session } = stored;
-    if (session === null) return { session: null };
-    const ids = session as { readonly environmentId?: unknown; readonly sessionId?: unknown } | undefined;
-    return typeof ids?.environmentId === "string" && typeof ids.sessionId === "string" ? { session: { environmentId: ids.environmentId, sessionId: ids.sessionId } } : undefined;
-  },
+  paneLayout: (stored) => readPaneLayout(stored),
   sideColumns: (stored) => {
     if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return undefined;
     const columns: Record<string, SideColumn> = {};

@@ -4,6 +4,25 @@ import { describe, expect, it } from "vitest";
 import { PRESENTATION_KEYS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { PRESENTATION_DEFAULTS, openPresentation } from "./presentation.js";
 
+/** The grid before anything is split. */
+const ONE_EMPTY_PANE = { rows: [{ id: "row-1", height: 100, panes: [{ id: "pane-1", session: null, width: 100 }] }], focused: "pane-1" };
+
+/** A pair of panes over a third across the grid, the right one of the pair focused. */
+const TWO_ROWS = {
+  rows: [
+    {
+      id: "row-1",
+      height: 60,
+      panes: [
+        { id: "pane-1", session: { environmentId: "env-1", sessionId: "session-1" }, width: 30 },
+        { id: "pane-2", session: null, width: 70 },
+      ],
+    },
+    { id: "row-3", height: 40, panes: [{ id: "pane-4", session: { environmentId: "env-2", sessionId: "session-1" }, width: 100 }] },
+  ],
+  focused: "pane-2",
+};
+
 /**
  * The GUI's client-local presentation (ADR 0003; glossary: Pane): what is
  * open, laid out, folded or preferred on this client, in one module over the
@@ -45,18 +64,18 @@ describe("the presentation", () => {
     expect(reported).toHaveLength(2);
   });
 
-  it("holds the session the pane shows and the transcript's display preferences, each read back only when it is one this build can show", async () => {
+  it("holds the grid's panes and the transcript's display preferences, each read back only when it is one this build can show", async () => {
     const documents = inMemoryDocuments();
     const first = await openPresentation(documents);
-    expect(first.values.read()).toMatchObject({ paneLayout: { session: null }, textSize: 14, readingWidth: "comfortable", reasoningShown: true, streamingFade: true });
-    first.set("paneLayout", { session: { environmentId: "env-1", sessionId: "session-1" } });
+    expect(first.values.read()).toMatchObject({ paneLayout: ONE_EMPTY_PANE, textSize: 14, readingWidth: "comfortable", reasoningShown: true, streamingFade: true });
+    first.set("paneLayout", TWO_ROWS);
     first.set("textSize", 17);
     first.set("readingWidth", "full");
     first.set("reasoningShown", false);
     first.set("streamingFade", false);
     await first.close();
     expect((await openPresentation(documents)).values.read()).toMatchObject({
-      paneLayout: { session: { environmentId: "env-1", sessionId: "session-1" } },
+      paneLayout: TWO_ROWS,
       textSize: 17,
       readingWidth: "full",
       reasoningShown: false,
@@ -65,9 +84,36 @@ describe("the presentation", () => {
 
     const reported: unknown[] = [];
     const odd = inMemoryDocuments();
-    await odd.set("presentation", { format: 1, paneLayout: { session: { environmentId: 7 } }, textSize: 90, readingWidth: "vast", reasoningShown: "yes", streamingFade: null });
+    await odd.set("presentation", { format: 1, paneLayout: { session: { environmentId: "env-1", sessionId: "session-1" } }, textSize: 90, readingWidth: "vast", reasoningShown: "yes", streamingFade: null });
     expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toEqual(PRESENTATION_DEFAULTS);
     expect(String(reported[0])).toContain("paneLayout, textSize, readingWidth, reasoningShown, streamingFade");
+  });
+
+  it("reads the grid back only as rows of one to eight panes, each id once, its shares filling the whole, a session in one pane and the focus on a pane it holds", async () => {
+    const read = async (paneLayout: unknown) => {
+      const documents = inMemoryDocuments();
+      await documents.set("presentation", { format: 1, paneLayout });
+      return (await openPresentation(documents)).values.read().paneLayout;
+    };
+    const pane = (id: string, width: number, sessionId: string | null = null) => ({ id, width, session: sessionId === null ? null : { environmentId: "env-1", sessionId } });
+
+    // Shares that do not fill the whole are scaled to; a session shown twice stays in its first pane; a focus on no pane goes to the first.
+    expect(await read({ rows: [{ id: "row-1", height: 30, panes: [pane("pane-1", 1, "session-1"), pane("pane-2", 3, "session-1")] }], focused: "pane-9" })).toEqual({
+      rows: [{ id: "row-1", height: 100, panes: [pane("pane-1", 25, "session-1"), pane("pane-2", 75)] }],
+      focused: "pane-1",
+    });
+
+    const nine = Array.from({ length: 9 }, (_, at) => pane(`pane-${at + 1}`, 10));
+    for (const unreadable of [
+      { rows: [], focused: "pane-1" },
+      { rows: [{ id: "row-1", height: 100, panes: [] }], focused: "pane-1" },
+      { rows: [{ id: "row-1", height: 100, panes: nine }], focused: "pane-1" },
+      { rows: [{ id: "row-1", height: 100, panes: [pane("pane-1", 50), pane("pane-1", 50)] }], focused: "pane-1" },
+      { rows: [{ id: "row-1", height: 100, panes: [pane("pane-1", -5)] }], focused: "pane-1" },
+      { rows: [{ id: "row-1", height: 100, panes: [{ id: "pane-1", width: 100, session: { environmentId: 7 } }] }], focused: "pane-1" },
+    ]) {
+      expect(await read(unreadable)).toEqual(ONE_EMPTY_PANE);
+    }
   });
 
   it("holds whether to run an environment on this machine, preset on, read back only as on or off", async () => {
