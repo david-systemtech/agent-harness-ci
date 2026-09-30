@@ -451,8 +451,9 @@ export interface EnvironmentOptions {
   readonly stateImportSource?: SourceMachine;
   /**
    * The home whose `.agents/skills` Carry over's skills half reads beside
-   * the adopted directory (#513). Preset: this process's home; tests point
-   * it at a fixture.
+   * the adopted directory (#513), and whose `.claude.json` its inventory
+   * counts the personal MCP servers of for an adopted `~/.claude` (#580).
+   * Preset: this process's home; tests point it at a fixture.
    */
   readonly carryOverHome?: string;
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
@@ -1048,6 +1049,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // and on skills.get, never watched.
   const ownSkills = createOwnDirectory({ log, environmentId: record.id, path: ownSkillsPath, trash });
   closers.push(() => ownSkills.close());
+  // Carry over's skills half (#513): skills.carryOver, which carryOver.run runs with the skills tick and whose dry run its
+  // inventory counts (#580). The home's .agents/skills is read beside the adopted directory, and its .claude.json too.
+  const carryOverHome = options.carryOverHome ?? homedir();
+  const carrySkills = skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: carryOverHome });
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1482,7 +1487,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       own: ownSkills,
       defaultAccountId: () => accounts.defaultId(),
-      carryOver: skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: options.carryOverHome ?? homedir() }),
+      carryOver: carrySkills,
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
@@ -1494,8 +1499,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
     }),
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
-    // at through the availability watcher and given the identity the environment's resolver finds there.
-    ...carryOverMethods({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path) }),
+    // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
+    // into the auto memory's directories in the queue key changes take, the skills tick and the rest of the inventory (#580).
+    ...carryOverMethods({
+      log,
+      environmentId: record.id,
+      host,
+      availability,
+      identityAt: (path) => environmentResolver.identityAt(path),
+      autoMemory,
+      skills: carrySkills,
+      home: carryOverHome,
+    }),
     // The state import's detection (#581); its run is the switch-over build's (#94), which offers the stateImport flag.
     ...stateImportMethods({ machine: stateImportSource }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).

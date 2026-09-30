@@ -4,9 +4,15 @@ import {
   ENVIRONMENT_STREAM_KIND,
   type CarryOverFailure,
   type CarryOverImportedPayload,
+  type CarryOverMemoryAssignedPayload,
+  type CarryOverMemoryImported,
+  type CarryOverMemoryInventory,
   type CarryOverSessionsInventory,
+  type CarryOverSkillsInventory,
   type SessionArchivedPayload,
+  type SkillsCarryOverReport,
 } from "@agent-harness/contracts";
+import { readDoesNotCarry, readMemoryFolders } from "../adapters/claude/adopted-directory.js";
 import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
@@ -15,8 +21,12 @@ import { createSessionIn, type SessionCreationChecks } from "../sessions/methods
 import { acceptAnyRunParameters } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
+import type { SkillsCarryOver } from "../skills/carry-over.js";
+import type { AutoMemory } from "../workspace/auto-memory.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { adoptedAccount, isCarryOverRefusal, type CarryOverRefusal as Refusal } from "./adopted.js";
+import { memoryDigest } from "../workspace/carry-memory.js";
+import { carryOverMemory } from "./memory.js";
 import {
   failureOf,
   findDirectories,
@@ -28,22 +38,31 @@ import {
 } from "./sessions.js";
 
 /**
- * Carry over's methods, the sessions half (setup spec, "2. Carry over"; ADR
- * 0021; #578): `carryOver.inventory` counts the sessions an adopted
- * account's adapter lists, and `carryOver.run` imports those this
- * environment does not hold, as the client session that ran it.
+ * Carry over's methods (setup spec, "2. Carry over"; ADR 0021):
+ * `carryOver.inventory` counts what an adopted account's directory holds
+ * (the sessions its adapter lists, #578; its memory, its skills and
+ * commands as `skills.carryOver`'s dry run answers them, the subagents and
+ * plugins not carried and what does not carry, #580); `carryOver.run`
+ * imports the sessions this environment does not hold, copies the memory
+ * (`memory.ts`) and, with the skills tick, runs `skills.carryOver` in the
+ * same command, as the client session that ran it; and
+ * `carryOver.assignMemory` copies a memory folder no transcript maps to the
+ * repository a person picks, and records the assignment.
  *
  * `carryOver.run` is a prepared command: the listing, and the look at each
- * working directory with the identity of those that are there, come first,
- * outside any transaction, while the account's import counts as under way;
- * then, in the command's transaction, each session not held by then is
+ * working directory with the identity of those that are there, the memory
+ * copies and the skills' copies (undone when the command is not accepted)
+ * come first, outside any transaction, while the account's import counts as
+ * under way; then, in the command's transaction, each session not held by
+ * then is
  * `session.created` (origin `import`), marked missing right after when its
  * directory is gone (`availability.markMissing`), and archived at its
  * last-modified time when it imports archived; and `carry-over.imported`
- * ends it with the counts and what failed. A session that cannot be
- * imported is named, and the rest are kept. A dry run answers the same
- * report and appends nothing. Nothing in the adopted directory is created,
- * linked or deleted: the adapter only reads it.
+ * ends it with the counts, the memory copied, the skills' report and what
+ * failed. A session or a memory folder that cannot be imported is named,
+ * and the rest are kept. A dry run answers the same report and writes
+ * nothing. Nothing in the adopted directory is created, linked or deleted:
+ * it is only read.
  */
 
 export interface CarryOverOptions {
@@ -56,6 +75,12 @@ export interface CarryOverOptions {
   readonly availability: Pick<AvailabilityWatcher, "look" | "markMissing">;
   /** The repository identity of a session working at a path: the resolver's rule. */
   readonly identityAt: (path: string) => Promise<string | null>;
+  /** The environment's auto memory, into which memory folders are copied (#329's queue). */
+  readonly autoMemory: Pick<AutoMemory, "carryIn">;
+  /** Carry over's skills half (#513): run with the skills tick, and its dry run counted by the inventory. */
+  readonly skills: Pick<SkillsCarryOver, "prepare" | "dryRun">;
+  /** The home whose `.claude.json` holds the personal MCP servers of an adopted `~/.claude`. */
+  readonly home: string;
 }
 
 /**
@@ -65,11 +90,24 @@ export interface CarryOverOptions {
  */
 const IMPORT_CHECKS: SessionCreationChecks = { validateRunParameters: acceptAnyRunParameters, clampMode: (mode) => mode };
 
-/** The adopted account an import reads, as its adapter is handed it, and that adapter. */
+/** The adopted account an import reads, as its adapter is handed it, that adapter, and the directory it adopted. */
 interface Source {
   readonly account: AccountRef;
   readonly adapter: Adapter;
+  readonly directory: string;
 }
+
+/** The skills part of the inventory, from `skills.carryOver`'s dry run. */
+const skillsInventory = (report: SkillsCarryOverReport): CarryOverSkillsInventory => {
+  const valid = [...report.copied, ...report.kept];
+  return {
+    skills: valid.filter((item) => item.kind === "skill").length + report.offered.length,
+    commands: valid.filter((item) => item.kind === "command").length,
+    new: report.copied.length,
+    offered: report.offered,
+    invalid: report.invalid.length,
+  };
+};
 
 /** A listed session the import will record, with what it found of its working directory. */
 interface Planned {
@@ -88,6 +126,8 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
    * so a run prepared after that finds what this one recorded held.
    */
   const importing = new Set<string>();
+  const looks = { look: (path: string) => availability.look(path), identityAt: options.identityAt };
+  const memory = carryOverMemory({ autoMemory: options.autoMemory, looks, reader });
 
   /** The adopted account `accountId` names with its adapter, or the refusal: not held, or not adopted. */
   const sourceOf = (accountId: string): Source | Refusal => {
@@ -95,7 +135,7 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
     if (isCarryOverRefusal(facts)) return facts;
     const adapter = host.adapters.get(facts.descriptor.provider);
     if (adapter === undefined) throw new Error(`The adapter of the account ${accountId}, ${facts.descriptor.provider}, is not in the host.`);
-    return { account: { id: facts.id, directory: facts.directory, ...(facts.label !== undefined && { label: facts.label }) }, adapter };
+    return { account: { id: facts.id, directory: facts.directory, ...(facts.label !== undefined && { label: facts.label }) }, adapter, directory: facts.directory };
   };
 
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */
@@ -154,7 +194,7 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
     const held = heldProviderSessions(reader);
     const directories = await findDirectories(
       sessions.map((session) => session.workingDirectory),
-      { look: (path) => availability.look(path), identityAt: options.identityAt },
+      looks,
       false,
     );
     const counts: CarryOverSessionsInventory = {
@@ -163,11 +203,27 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
       missingDirectory: sessions.filter((session) => directories.get(session.workingDirectory)?.kind === "missing").length,
       new: sessions.filter((session) => !held.has(session.providerSessionId)).length,
     };
-    return { accountId, sessions: counts };
+    const mapped = await memory.map(accountId, source.directory);
+    const planned = await memory.copy(mapped.mapped, true);
+    const memoryCounts: CarryOverMemoryInventory = {
+      folders: mapped.mapped.length + mapped.unmappable.length + mapped.failed.length,
+      repositories: new Set(mapped.mapped.map((folder) => folder.key)).size,
+      unmappable: [...mapped.unmappable],
+      new: planned.folders.filter((folder) => folder.outcome !== "kept").length,
+    };
+    const skills = await options.skills.dryRun(accountId);
+    return {
+      accountId,
+      sessions: counts,
+      memory: memoryCounts,
+      skills: skillsInventory(skills),
+      notCarried: skills.notCarried,
+      doesNotCarry: await readDoesNotCarry(source.directory, options.home),
+    };
   };
 
   const run: PreparedCommand<"carryOver.run"> = {
-    prepare: (params) => {
+    prepare: (params, context) => {
       const { accountId, dryRun } = params;
       const refused = (rejected: Refusal): MethodHandler<"carryOver.run"> => () => ({ aggregate: environmentStream, rejected });
       const source = sourceOf(accountId);
@@ -200,6 +256,13 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
           if (directory.kind === "failed") failed.push(failureOf(session, directory.message));
           else planned.push({ session, directory });
         }
+        // The memory, copied now (a dry run's said), outside the transaction: a copy the command then fails is kept, and found held next time.
+        const mapped = await memory.map(accountId, source.directory);
+        const copies = await memory.copy(mapped.mapped, dryRun);
+        const memoryReport: CarryOverMemoryImported = { folders: [...copies.folders], unmappable: [...mapped.unmappable] };
+        failed.push(...mapped.failed, ...copies.failed);
+        // The skills tick: skills.carryOver, prepared in this command, its copies undone with it.
+        const skills = params.skills ? await options.skills.prepare({ commandId: params.commandId, accountId, dryRun }, context) : null;
         return (_params, command) => {
           const attribution = { tx: command.tx, actor: command.actor, commandId: command.commandId };
           const heldNow = heldProviderSessions(reader);
@@ -221,7 +284,23 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
             if (importsArchived(session)) counts.archived++;
             if (directory.kind === "missing") counts.missingDirectory++;
           }
-          const report: CarryOverImportedPayload = { accountId, sessions: counts, failed: failures };
+          let skillsReport: SkillsCarryOverReport | undefined;
+          if (skills !== null) {
+            const answer = skills({ commandId: params.commandId, accountId, dryRun }, command);
+            if (answer.rejected !== undefined) {
+              failures.push({ providerSessionId: null, message: answer.rejected.message ?? `The skills could not be carried: ${answer.rejected.code}.` });
+            } else {
+              skillsReport = answer.result;
+              if (answer.events !== undefined && answer.events.length > 0) log.append(environmentStream, answer.events, attribution);
+            }
+          }
+          const report: CarryOverImportedPayload & { memory: CarryOverMemoryImported } = {
+            accountId,
+            sessions: counts,
+            memory: memoryReport,
+            ...(skillsReport !== undefined && { skills: skillsReport }),
+            failed: failures,
+          };
           if (!dryRun) log.append(environmentStream, [{ type: "carry-over.imported", payload: report }], attribution);
           return { aggregate: environmentStream, result: { ...report, dryRun } };
         };
@@ -230,5 +309,34 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
     },
   };
 
-  return { "carryOver.inventory": inventory, "carryOver.run": run };
+  const assignMemory: PreparedCommand<"carryOver.assignMemory"> = {
+    prepare: ({ accountId, folder, repositoryIdentity }) => {
+      const refused = (rejected: Refusal): MethodHandler<"carryOver.assignMemory"> => () => ({ aggregate: environmentStream, rejected });
+      const source = sourceOf(accountId);
+      if ("code" in source) return refused(source);
+      if (importing.has(accountId)) {
+        return refused({ code: "conflict", message: `An import of the account ${accountId} is under way.`, data: { reason: "import_in_progress", accountId } });
+      }
+      importing.add(accountId);
+      const prepared = async (): Promise<MethodHandler<"carryOver.assignMemory">> => {
+        const found = (await readMemoryFolders(source.directory)).find((candidate) => candidate.folder === folder);
+        const digest = found === undefined ? null : await memoryDigest(found.path);
+        if (found === undefined || digest === null) {
+          const message = `The directory of the account ${accountId} holds no memory folder ${folder} with a file in it.`;
+          return refused({ code: "not_found", message, data: { kind: "memory-folder", accountId, folder } });
+        }
+        const copies = await memory.copy([{ folder, path: found.path, key: repositoryIdentity, digest }], false);
+        const [copy] = copies.folders;
+        if (copy === undefined) throw new ContractError({ code: "internal", message: copies.failed[0]?.message ?? `The memory folder ${found.path} was not copied.`, data: {} });
+        const payload: CarryOverMemoryAssignedPayload = { accountId, repositoryIdentity, copy };
+        return (_params, command) => {
+          log.append(environmentStream, [{ type: "carry-over.memory-assigned", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+          return { aggregate: environmentStream, result: payload };
+        };
+      };
+      return prepared().finally(() => importing.delete(accountId));
+    },
+  };
+
+  return { "carryOver.inventory": inventory, "carryOver.run": run, "carryOver.assignMemory": assignMemory };
 };
