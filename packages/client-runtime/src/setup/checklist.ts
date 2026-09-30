@@ -1,4 +1,4 @@
-import { FIRST_ROW, type LastGood, type SettingsRowId, type StepState } from "@agent-harness/contracts";
+import { FIRST_ROW, REGISTERED_STEP_IDS, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepState } from "@agent-harness/contracts";
 import type { SetupCounts, SetupReach, SetupStepView, SetupView } from "../projections/setup.js";
 import { clockTime } from "../transcript/format.js";
 
@@ -9,6 +9,20 @@ import { clockTime } from "../transcript/format.js";
  * shows, a step's line, and the counts, so the window and the terminal say
  * the same of one environment (ADR 0004).
  */
+
+/** Whether this build registers `step`, so `setup.check` can ask about it alone. */
+export const isRegisteredStep = (step: StepId): step is RegisteredStepId => (REGISTERED_STEP_IDS as readonly StepId[]).includes(step);
+
+/**
+ * The steps a row of Settings is home to that this build can ask about
+ * alone, which its pane checks as it opens (ADR 0031: a client calls
+ * `setup.check` when a step's pane opens); none on Set up's own row, which
+ * checks every step, or on a row no step lives on.
+ */
+export const homedChecks = (row: SettingsRowId): readonly RegisteredStepId[] => {
+  const { homeOf } = settingsRow(row);
+  return typeof homeOf === "string" ? [] : homeOf.filter(isRegisteredStep);
+};
 
 /** Each state in words, as a dot is named and a line says it. */
 export const STEP_STATE_WORDS: { readonly [State in StepState]: string } = { done: "done", "needs-attention": "needs attention", skipped: "skipped" };

@@ -252,6 +252,39 @@ describe("the Set up pane", () => {
   });
 });
 
+describe("a step's pane", () => {
+  it("checks the steps it is home to as it opens, on the environments it shows, the results held showing meanwhile", async () => {
+    const app = await twoEnvironments();
+    const desk = app.environment("desk");
+    const laptop = app.environment("laptop");
+    await openSettings(app);
+    await waitFor(() => expect(railDots()).toContain("Permissions: needs attention"));
+    const rows = within(within(settings()).getByRole("navigation", { name: "Settings rows" }));
+    const asked = (environment: typeof desk) => environment.requests("setup.check").map((request) => request.params);
+    const before = { desk: asked(desk).length, laptop: asked(laptop).length };
+    const release = desk.holdSetupChecks();
+
+    // An environment row, on the environment picked: its step alone, its dot held meanwhile.
+    await app.user.click(rows.getByRole("button", { name: "Permissions" }));
+    await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }]));
+    expect(railDots()).toContain("Permissions: needs attention");
+    // Accounts is home to Account and Carry over, which this build does not register: Account alone.
+    await app.user.click(rows.getByRole("button", { name: "Accounts" }));
+    await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }, { step: "account" }]));
+    // A client row, on the home environment; an everywhere row, on every environment.
+    await app.user.click(rows.getByRole("button", { name: "Theme" }));
+    await waitFor(() => expect(asked(desk).slice(before.desk).at(-1)).toEqual({ step: "appearance" }));
+    await app.user.click(rows.getByRole("button", { name: "Your machines" }));
+    await waitFor(() => expect(asked(desk).slice(before.desk).at(-1)).toEqual({ step: "your-machines" }));
+    await waitFor(() => expect(asked(laptop).slice(before.laptop)).toEqual([{ step: "your-machines" }]));
+    // A row no step lives on checks nothing.
+    const count = asked(desk).length;
+    await app.user.click(rows.getByRole("button", { name: "Service" }));
+    expect(asked(desk)).toHaveLength(count);
+    release();
+  });
+});
+
 /** The full checklist opened from the Set up pane on the card of `step`, by its label. */
 const cardOf = async (app: RenderedApp, step: string) => {
   await app.user.click(within(await setupPane(app)).getByRole("button", { name: "Open the full checklist" }));

@@ -1,7 +1,8 @@
-import { REGISTERED_STEP_IDS, SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
+import { SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { saveSetting } from "../settings/editor.js";
 import { adminCall } from "../status/actions.js";
+import { isRegisteredStep } from "./checklist.js";
 
 /**
  * What each named action a step's result offers does (the Set up
@@ -54,13 +55,11 @@ export type SetupActionPlan =
   /** A row of Settings opened on the environment checked. */
   | { readonly kind: "row"; readonly row: SettingsRowId };
 
-const isRegistered = (step: StepId): step is RegisteredStepId => (REGISTERED_STEP_IDS as readonly StepId[]).includes(step);
-
 /** What `action`, offered by `step`'s result with its `targets`, does. */
 export const planSetupAction = (step: { readonly id: StepId; readonly home: SettingsRowId }, action: SetupAction, targets: readonly SetupTarget[] = []): SetupActionPlan => {
   switch (action) {
     case "check-again":
-      return { kind: "check", step: isRegistered(step.id) ? step.id : undefined };
+      return { kind: "check", step: isRegisteredStep(step.id) ? step.id : undefined };
     case "restore":
       return step.id === "permissions" || step.id === "appearance" ? { kind: "restore", step: step.id } : { kind: "row", row: step.home };
     case "start-service":

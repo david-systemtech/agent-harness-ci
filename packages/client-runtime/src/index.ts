@@ -120,7 +120,18 @@ export {
   type SetupView,
 } from "./projections/setup.js";
 export { SETUP_ACTION_WORDS, planSetupAction, restoreStep, type RestorableStep, type Restored, type SetupActionPlan } from "./setup/actions.js";
-export { STEP_STATE_WORDS, checkedAgoWords, countsWords, lastGoodWords, rowHealth, setupReachWords, stepLine, worstState } from "./setup/checklist.js";
+export {
+  STEP_STATE_WORDS,
+  checkedAgoWords,
+  countsWords,
+  homedChecks,
+  isRegisteredStep,
+  lastGoodWords,
+  rowHealth,
+  setupReachWords,
+  stepLine,
+  worstState,
+} from "./setup/checklist.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
