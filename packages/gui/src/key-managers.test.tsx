@@ -318,6 +318,29 @@ describe("the card's verbs", () => {
     expect(await within(pane()).findByText("No key manager is connected here.")).toBeDefined();
     expect(desk.keyManagerConnections()).toEqual([]);
   });
+
+  it("takes no press of Verify now or Inject its variables while either is on its way, nor a second press of Remove", async () => {
+    const app = await opened({ keyManagers: { connections: [{ label: "Work OpenBao", address: "https://bao.work.test", injects: false, injectedVariables: [] }] } });
+    await openKeyManagers(app);
+    const desk = app.environment("desk");
+    // The environment answers neither, as on a slow link.
+    for (const method of ["keyManagers.connections.verify", "keyManagers.connections.remove"]) desk.wire.answer(method, () => new Promise(() => undefined));
+    const work = await card("Work OpenBao");
+    await app.user.click(within(work).getByRole("button", { name: "Verify now" }));
+    // The card's one-line verbs wait for the one on its way.
+    for (const name of ["Verify now", "Inject its variables"]) {
+      await waitFor(() => expect(within(work).getByRole("button", { name }).hasAttribute("disabled")).toBe(true));
+      await app.user.click(within(work).getByRole("button", { name }));
+    }
+    await app.user.click(within(work).getByRole("button", { name: "Remove" }));
+    const remove = await dialog("Remove Work OpenBao?");
+    await app.user.click(within(remove).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(within(remove).getByRole("button", { name: "Remove" }).hasAttribute("disabled")).toBe(true));
+    await app.user.click(within(remove).getByRole("button", { name: "Remove" }));
+    expect(desk.requests("keyManagers.connections.verify")).toHaveLength(1);
+    expect(desk.requests("keyManagers.connections.setInjected")).toEqual([]);
+    expect(desk.requests("keyManagers.connections.remove")).toHaveLength(1);
+  });
 });
 
 describe("policies and injection", () => {
@@ -529,6 +552,27 @@ describe("the Move card", () => {
     // The Overwrite was offered for the old target: it goes with it.
     await waitFor(async () => expect(within(await item("https://github.com")).queryByRole("button", { name: "Overwrite" })).toBeNull());
     expect(within(await item("https://github.com")).getByText("To team/harness/forge-github (key token)")).toBeDefined();
+  });
+
+  it("holds Set the base path while a Move is on its way, so the Move's answer is not dropped", async () => {
+    const app = await opened({
+      keyManagers: {
+        connections: [{ label: "Home OpenBao", address: "https://bao.home.test", basePath: "personal/harness" }],
+        items: [{ name: "https://github.com", slug: "github" }],
+      },
+    });
+    await openKeyManagers(app);
+    const desk = app.environment("desk");
+    // The environment does not answer the Move, as on a slow link.
+    desk.wire.answer("keyManagers.move", () => new Promise(() => undefined));
+    await app.user.click(within(await item("https://github.com")).getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(desk.requests("keyManagers.move")).toHaveLength(1));
+    const base = within(await moveCard()).getByRole("textbox", { name: "Base path" });
+    await app.user.clear(base);
+    await app.user.type(base, "team/harness");
+    expect(within(await moveCard()).getByRole("button", { name: "Set the base path" }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(await moveCard()).getByRole("button", { name: "Set the base path" }));
+    expect(desk.requests("keyManagers.connections.setBasePath")).toEqual([]);
   });
 
   it("offers Copy value, sent directly, where the login cannot write: the value shows once, and a verify-only Move says a missing or different paste, then finishes the swap", async () => {
