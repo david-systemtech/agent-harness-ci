@@ -357,6 +357,7 @@ export {
   ARCHIVE_HEADING,
   PINNED_HEADING,
   SETTLED_HEADING,
+  SIDEBAR_VIEWS,
   SNOOZED_HEADING,
   activityOf,
   environmentHeading,
@@ -364,6 +365,7 @@ export {
   isFolded,
   isReachable,
   keepsFold,
+  repositoryHeading,
   rowKey,
   sessionHeadings,
   type BlockKind,
@@ -376,6 +378,7 @@ export {
   type RowActivity,
   type SessionBlock,
   type SessionHeading,
+  type SidebarView,
 } from "./sidebar/headings.js";
 export { WHEN_EXAMPLES, parseWhen, presetTimes, wakeWords, whenWords, type WhenPreset } from "./sidebar/when.js";
 export {

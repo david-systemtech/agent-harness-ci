@@ -83,6 +83,8 @@ export const refusalWords = (refusal: Refusal, title: string, environment: strin
       return `Not moved: ${noManualOrder(refusal.shelf)}.`;
     case "environment":
       return `Not moved: ${quoted(title)} is on ${environment}, and a session stays on its own environment.`;
+    case "repository":
+      return "Not moved: a repository is not a group; a session's repository is its workspace's.";
     case "filtered":
       return "Not moved: the filter may hide the sessions a move goes between; clear it first.";
   }

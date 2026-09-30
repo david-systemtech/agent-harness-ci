@@ -17,6 +17,12 @@ import { wakeWords } from "./when.js";
  * groups come in the runtime's sort; a pinned, snoozed, settled or archived
  * session is on its shelf whatever group it is in, so every session is on
  * one line. How each is drawn, and in what words, is each renderer's.
+ *
+ * By repository (docs/specs/workspace-picker.md, "The picker in the client
+ * runtime"), the merged groups give way to one heading per repository
+ * identity, across environments, under the list's label (left out while it
+ * has no active session), and each environment's heading, last, holds its
+ * active sessions with no identity; the pinned block and the shelves stay.
  */
 
 /**
@@ -33,20 +39,30 @@ export const SETTLED_HEADING = "shelf:settled";
 export const ARCHIVE_HEADING = "shelf:archive";
 /** A merged group's heading, by the group's name key (`groupNameKey`), so one fold holds across environments. */
 export const groupHeading = (nameKey: string): string => `group:${nameKey}`;
+/** A repository's heading, by its identity, so one fold holds across environments. */
+export const repositoryHeading = (repositoryIdentity: string): string => `repository:${repositoryIdentity}`;
 /** An environment's heading, which does not fold. */
 export const environmentHeading = (environmentId: string): string => `environment:${environmentId}`;
+
+/** How the active sessions are headed: by merged group, each environment's ungrouped ones under its name; or by repository. */
+export const SIDEBAR_VIEWS = ["groups", "repositories"] as const;
+export type SidebarView = (typeof SIDEBAR_VIEWS)[number];
 
 /** A heading's fold: as `collapsedHeadings` names it, else the default (the settled shelf and the archive folded). */
 export const isFolded = (folded: CollapsedHeadings, key: string): boolean => folded[key] ?? (key === SETTLED_HEADING || key === ARCHIVE_HEADING);
 
 /**
  * Which folds to keep as another is kept: every heading's but a merged
- * group's the list no longer holds, so the folds of groups long gone do not
- * pile up.
+ * group's or a repository's the list no longer holds, so the folds of
+ * groups and repositories long gone do not pile up.
  */
-export const keepsFold = (list: Pick<SessionListView, "groups">): ((heading: string) => boolean) => {
-  const groups = new Set(list.groups.map((group) => groupHeading(group.key)));
-  return (heading) => !heading.startsWith(groupHeading("")) || groups.has(heading);
+export const keepsFold = (list: Pick<SessionListView, "groups" | "repositories">): ((heading: string) => boolean) => {
+  const held = new Set([
+    ...list.groups.map((group) => groupHeading(group.key)),
+    ...list.repositories.flatMap((heading) => (heading.kind === "repository" ? [repositoryHeading(heading.repositoryIdentity)] : [])),
+  ]);
+  const listed = (heading: string) => heading.startsWith(groupHeading("")) || heading.startsWith(repositoryHeading(""));
+  return (heading) => !listed(heading) || held.has(heading);
 };
 
 /** An environment whose rows are the environment's word now, not the cached snapshot's. */
@@ -72,7 +88,7 @@ export const activityOf = (summary: Pick<SessionSummary, "activity" | "parkedPro
   return { state: state === "starting" || state === "running" ? state : "idle", parked: 0 };
 };
 
-export type HeadingKind = "pinned" | "group" | "environment" | "snoozed" | "settled" | "archive";
+export type HeadingKind = "pinned" | "group" | "repository" | "environment" | "snoozed" | "settled" | "archive";
 
 /**
  * The rows under one heading, which a manual move goes among: the pinned
@@ -111,19 +127,27 @@ interface HeadingOf<K extends HeadingKind> {
   readonly rows: readonly HeadingRow[];
 }
 
-/** The pinned block, a merged group or a shelf: headings that fold. */
-export interface FoldingHeading extends HeadingOf<"pinned" | "group" | "snoozed" | "settled" | "archive"> {
-  /** "Pinned", the group's merged name, "Snoozed", "Settled" or "Archive". */
+/** The pinned block, a merged group, a repository or a shelf: headings that fold. */
+export interface FoldingHeading extends HeadingOf<"pinned" | "group" | "repository" | "snoozed" | "settled" | "archive"> {
+  /** "Pinned", the group's merged name, the repository's label, "Snoozed", "Settled" or "Archive". */
   readonly text: string;
   readonly folded: boolean;
   /** A command about one of its groups awaits its receipt (the runtime's `awaitingReceipt`), or, while it is folded, one about a session under it. */
   readonly pending: boolean;
-  /** A merged group's heading: the group, with the member group on each environment that a command about it targets; null for the pinned block and the shelves. */
+  /** A merged group's heading: the group, with the member group on each environment that a command about it targets; null for the others. */
   readonly group: MergedGroupHeading | null;
+  /** A repository's heading: the repository identity its sessions share; null for the others. */
+  readonly repository: string | null;
 }
 
-/** An environment's heading, over its ungrouped active sessions: it does not fold. */
+/**
+ * An environment's heading, over its ungrouped active sessions, or, by
+ * repository, its active sessions with no repository identity: it does not
+ * fold.
+ */
 export interface EnvironmentHeading extends HeadingOf<"environment"> {
+  /** Which of its active sessions it holds: those in no group, or (by repository) those with no repository identity. */
+  readonly holds: "ungrouped" | "unidentified";
   readonly environment: EnvironmentView;
   /** It cannot be reached: its rows are the cached snapshot's. */
   readonly dim: boolean;
@@ -146,6 +170,8 @@ export interface HeadingsInput {
   readonly now: (environmentId: string) => Date;
   /** Every heading open whatever the fold: to find which heading a row is under. */
   readonly open?: boolean;
+  /** How the active sessions are headed; by merged group unless it says otherwise. */
+  readonly by?: SidebarView;
 }
 
 export const sessionHeadings = (input: HeadingsInput): SessionHeading[] => {
@@ -165,7 +191,13 @@ export const sessionHeadings = (input: HeadingsInput): SessionHeading[] => {
   });
 
   /** A folding heading and, unless folded, its rows; while filtering, only one with rows the filter matches, open. */
-  const folding = (kind: FoldingHeading["kind"], key: string, text: string, block: SessionBlock, group: MergedGroupHeading | null = null) => {
+  const folding = (
+    kind: FoldingHeading["kind"],
+    key: string,
+    text: string,
+    block: SessionBlock,
+    { group = null, repository = null }: Partial<Pick<FoldingHeading, "group" | "repository">> = {},
+  ) => {
     const folded = input.open !== true && isFolded(input.folded, key);
     const visible = shown(block.rows);
     if (matches !== null && (folded || visible.length === 0)) return;
@@ -179,22 +211,35 @@ export const sessionHeadings = (input: HeadingsInput): SessionHeading[] => {
       // A folded heading speaks for the rows it hides; an open one leaves it to them.
       pending: (group?.awaitingReceipt ?? false) || (folded && block.rows.some((row) => row.awaitingReceipt)),
       group,
+      repository,
     });
   };
 
+  const byRepository = input.by === "repositories";
   if (list.pinned.length > 0) folding("pinned", PINNED_HEADING, "Pinned", { kind: "pinned", rows: list.pinned });
-  for (const group of list.groups) {
-    if (group.shelves.active.length === 0) continue;
-    folding("group", groupHeading(group.key), group.name, { kind: "active", rows: group.shelves.active }, group);
+  if (byRepository) {
+    for (const heading of list.repositories) {
+      if (heading.kind !== "repository" || heading.shelves.active.length === 0) continue;
+      const { repositoryIdentity } = heading;
+      folding("repository", repositoryHeading(repositoryIdentity), heading.label, { kind: "active", rows: heading.shelves.active }, { repository: repositoryIdentity });
+    }
+  } else {
+    for (const group of list.groups) {
+      if (group.shelves.active.length === 0) continue;
+      folding("group", groupHeading(group.key), group.name, { kind: "active", rows: group.shelves.active }, { group });
+    }
   }
 
+  const holds: EnvironmentHeading["holds"] = byRepository ? "unidentified" : "ungrouped";
+  const held = (row: SessionRow) => (byRepository ? row.summary.repositoryIdentity === null : row.groupName === null);
   for (const view of input.environments) {
-    const block: SessionBlock = { kind: "active", rows: list.active.filter((row) => row.environmentId === view.environmentId && row.groupName === null) };
+    const block: SessionBlock = { kind: "active", rows: list.active.filter((row) => row.environmentId === view.environmentId && held(row)) };
     const visible = shown(block.rows);
     if (matches !== null && visible.length === 0) continue;
     headings.push({
       kind: "environment",
       key: environmentHeading(view.environmentId),
+      holds,
       block,
       rows: visible.map((row) => rowOf(row, block)),
       environment: view,

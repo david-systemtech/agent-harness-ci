@@ -15,14 +15,15 @@ import { freshnessWords, notDone, quoted } from "./words.js";
 /**
  * The sidebar's headings (docs/specs/gui.md, "The window and the sidebar"),
  * each a region named by its heading over its rows: the pinned block, a
- * merged group and the shelves fold, keeping the fold by heading name
+ * merged group, a repository and the shelves fold, keeping the fold by heading name
  * (`collapsedHeadings`, keyed as the terminal UI keys it), and say
  * `pending` while a command about one of their groups, or folded one about
  * a row they hide, awaits its receipt; an environment's heading does not
  * fold, and says its connection's phase with what it offers (a block's
  * action among them), since when it has not been reached, how many commands
  * wait for it, how current its list is until it is live, a list that
- * failed, and that it has no session. Each heading takes a session dropped
+ * failed, and that it has no session; by repository, its heading says it
+ * holds the sessions with no repository. Each heading takes a session dropped
  * on it (`drag.tsx`); a merged group's has a context menu that renames it,
  * in place, and deletes it (`heading-menu.tsx`).
  */
@@ -94,6 +95,7 @@ const Note = ({ children, tone = "text-ink-muted" }: { readonly children: string
 export const EnvironmentSection = ({ heading, rows }: { readonly heading: EnvironmentHeading; readonly rows: DrawRows }) => {
   const name = useId();
   const view: EnvironmentView = heading.environment;
+  const named = view.name ?? THIS_MACHINE;
   const freshness = freshnessWords(heading.list);
   const fault = heading.list?.fault ?? null;
   const target = useDropTarget({ kind: "heading", heading });
@@ -102,7 +104,7 @@ export const EnvironmentSection = ({ heading, rows }: { readonly heading: Enviro
       <div {...target.handlers} className={classes("flex items-center gap-1.5 rounded-sm", target.over && "bg-wash-strong")}>
         <EnvironmentDot view={view} />
         <h2 id={name} className={classes("min-w-0 truncate text-xs font-semibold", heading.dim ? "text-ink-faint" : "text-ink-muted")}>
-          {view.name ?? THIS_MACHINE}
+          {heading.holds === "unidentified" ? `${named} · no repository` : named}
         </h2>
         {view.pendingCommands > 0 && (
           <span className="text-xs">
