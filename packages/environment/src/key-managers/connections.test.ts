@@ -44,8 +44,9 @@ import { fileVault, VAULT_FILE } from "../serve/vault.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** An environment with no Set up step, whose Key manager check would verify connections as each restart here starts, beside the records, events and requests asserted (#383). */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  const t = await startTestEnvironment({ setupSteps: NO_SETUP_STEPS, ...options });
   onCleanup(() => t.close());
   return t;
 };
@@ -426,8 +427,7 @@ describe("the startup sign-in", () => {
     let answer = (): void => undefined;
     bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "agent-read"], after: new Promise<void>((resolve) => (answer = resolve)) });
     bao.approle(ROLE_ID, OTHER_SECRET_ID, { policies: ["default"] });
-    // With no Set up step, whose Key manager check would verify the connection as the environment starts, recording what it found (#383).
-    const again = await start({ dataDir, setupSteps: NO_SETUP_STEPS });
+    const again = await start({ dataDir });
     const reader = await again.client();
     expect((await list(reader))[0]?.status.kind).toBe("signing-in");
 
