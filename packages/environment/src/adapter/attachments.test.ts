@@ -7,7 +7,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { ATTACHMENTS_DIRECTORY } from "./attachment-stage.js";
 
@@ -126,6 +126,7 @@ describe("a queued message's attachment bytes", () => {
     const client = await t.client();
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
+    await t.adapter.reached(1);
     const sent = await sendImage(client, id);
     expect(sent).toMatchObject({ delivery: "queued", heldBy: "provider" });
 
@@ -155,6 +156,7 @@ describe("a queued message's attachment bytes", () => {
     const client = await t.client();
     const { id } = await create(client);
     await startRun(client, id);
+    await t.adapter.reached(1);
     const { messageId } = await sendImage(client, id);
     await vi.waitFor(() => expect(eventsOf(t, id).some((event) => event.type === "message.delivered" && event.payload["delivery"] === "steered")).toBe(true));
     await vi.waitFor(() => expect(existsSync(stagedDir(t.dataDir, messageId))).toBe(false));
@@ -189,6 +191,8 @@ describe("a queued message's attachment bytes", () => {
     const client = await t.client();
     const { id } = await create(client);
     await startRun(client, id);
+    // Past its skill set and instructions, and working: nothing more is appended while it is held.
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).some((event) => event.type === "assistant.text")).toBe(true), { timeout: WAIT_MS });
     // A file where the stage's directory should be: nothing can be written under it.
     writeFileSync(stagedDir(t.dataDir), "in the way");
     const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);

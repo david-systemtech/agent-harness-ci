@@ -426,8 +426,9 @@ describe("a workspace of any kind", () => {
     expect((await client.request("diffs.workingTree", { sessionId: id })).diff).toContain("+# hello");
 
     await client.apply("runs.start", { commandId: randomUUID(), sessionId: id, text: "Review it" });
-    // The run is launched once the start's transaction commits, before its answer is sent: asked once, never polled on a clock (#612).
+    // The run is launched once the start's transaction commits; its adapter is asked once its skill set is resolved and its
+    // instructions composed (#493, #496), which the fake says when it happens: nothing is polled on a clock (#612).
+    expect((await t.adapter.reached(1)).input.workspace).toEqual(worktree);
     expect(t.adapter.runs).toHaveLength(1);
-    expect(t.adapter.lastRun().input.workspace).toEqual(worktree);
   });
 });
