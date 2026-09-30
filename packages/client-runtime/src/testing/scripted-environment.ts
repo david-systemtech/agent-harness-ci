@@ -475,6 +475,7 @@ const providerOf = (changes: Partial<AdapterCapabilities> = {}): AdapterCapabili
     containment: false,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
     nativeProjectInstructions: true,
+    nativeSkillRoots: [".claude/skills", ".claude/commands"],
     modes: MODES.map((mode) => ({ mode, available: true as const, reason: null })),
     ...changes,
   });
