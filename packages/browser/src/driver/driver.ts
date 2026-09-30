@@ -155,6 +155,8 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
         return refused(`No element on the page matches the CSS selector ${selector}.`);
       case "hidden":
         return refused(`The element matching ${selector} has no visible part on the page to act on.`);
+      case "covered":
+        return refused(`The element matching ${selector} is covered at its centre by ${found.by}, which would take the click. Deal with that first, or click at a point.`);
       case "found":
         return found;
     }

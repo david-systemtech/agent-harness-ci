@@ -307,11 +307,23 @@ describe("click and type by selector", () => {
     const { peer, perform } = await driven();
     await perform("open", { url: "https://example.com/" });
     peer.inPage("locateElement", ({ args }) =>
-      args[0] === "#missing" ? { kind: "none" } : args[0] === "p[" ? { kind: "invalid", message: "'p[' is not a valid selector." } : args[0] === "#hidden" ? { kind: "hidden" } : { kind: "found", x: 1, y: 1, editable: false },
+      args[0] === "#missing"
+        ? { kind: "none" }
+        : args[0] === "p["
+          ? { kind: "invalid", message: "'p[' is not a valid selector." }
+          : args[0] === "#hidden"
+            ? { kind: "hidden" }
+            : args[0] === "#under"
+              ? { kind: "covered", by: "div#banner.cookie" }
+              : { kind: "found", x: 1, y: 1, editable: false },
     );
     expect(await perform("click", { target: { selector: "#missing" } })).toEqual({ ok: false, reason: "No element on the page matches the CSS selector #missing." });
     expect(await perform("click", { target: { selector: "p[" } })).toEqual({ ok: false, reason: "The CSS selector p[ is not valid: 'p[' is not a valid selector." });
     expect(await perform("click", { target: { selector: "#hidden" } })).toEqual({ ok: false, reason: "The element matching #hidden has no visible part on the page to act on." });
+    expect(await perform("click", { target: { selector: "#under" } })).toEqual({
+      ok: false,
+      reason: "The element matching #under is covered at its centre by div#banner.cookie, which would take the click. Deal with that first, or click at a point.",
+    });
     expect(await perform("type", { target: { selector: "#label" }, text: "x" })).toEqual({ ok: false, reason: "The element matching #label does not take typed text." });
     expect(mouse(peer)).toEqual([]);
   });

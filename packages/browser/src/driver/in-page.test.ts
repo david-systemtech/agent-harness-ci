@@ -55,6 +55,24 @@ describe("locateElement", () => {
     expect(editable("editable")).toBe(true);
   });
 
+  it("answers hidden for an element the browser reports not visible, though it has a box", () => {
+    const window = pageWith(`<button id="ghost" style="visibility: hidden">Go</button>`);
+    const ghost = window.document.querySelector("#ghost") as Element & { checkVisibility?: () => boolean };
+    boxed(ghost, 10, 10, 80, 30);
+    ghost.checkVisibility = () => false;
+    expect(runIn(window, locateElement, "#ghost")).toEqual({ kind: "hidden" });
+  });
+
+  it("answers covered, naming what takes a click at the element's centre, when that is neither it nor inside it", () => {
+    const window = pageWith(`<button id="buy">Buy <b id="label">now</b></button><div id="banner" class="cookie consent"></div>`);
+    boxed(window.document.querySelector("#buy"), 100, 100, 200, 40);
+    let hit: Element | null = window.document.querySelector("#banner");
+    window.document.elementFromPoint = () => hit;
+    expect(runIn(window, locateElement, "#buy")).toEqual({ kind: "covered", by: "div#banner.cookie.consent" });
+    hit = window.document.querySelector("#label");
+    expect(runIn(window, locateElement, "#buy")).toMatchObject({ kind: "found", x: 200, y: 120 });
+  });
+
   it("answers none for a selector that matches nothing, hidden for an element with no visible part, and invalid with why", () => {
     const window = pageWith(`<p id="gone"></p><p id="away"></p>`);
     boxed(window.document.querySelector("#gone"), 10, 10, 0, 0);
@@ -113,6 +131,12 @@ describe("showsText", () => {
     expect(runIn(window, showsText, "21.5 °C")).toBe(true);
     expect(runIn(window, showsText, "Living room")).toBe(true);
     expect(runIn(window, showsText, "Untitled")).toBe(false);
+  });
+
+  it("leaves out the fallback inside a frame, a canvas, a video or an object, which a page that shows them never shows", () => {
+    const window = pageWith(`<body><iframe>frame fallback</iframe><canvas>canvas fallback</canvas><video>video fallback</video><object>object fallback</object><p>shown</p></body>`);
+    for (const hidden of ["frame fallback", "canvas fallback", "video fallback", "object fallback"]) expect(runIn(window, showsText, hidden), hidden).toBe(false);
+    expect(runIn(window, showsText, "shown")).toBe(true);
   });
 
   it("leaves out what no one sees: scripts, styles, templates and the noscript fallback", () => {

@@ -13,6 +13,8 @@ export type LocatedElement =
   | { readonly kind: "invalid"; readonly message: string }
   | { readonly kind: "none" }
   | { readonly kind: "hidden" }
+  /** Another element takes a click at its centre: an overlay, a banner; `by` names it as a selector would (`div#banner.cookie`). */
+  | { readonly kind: "covered"; readonly by: string }
   | {
       readonly kind: "found";
       /** The centre of the element's part inside the viewport, in the viewport's pixels. */
@@ -25,8 +27,10 @@ export type LocatedElement =
 /**
  * The first element `selector` matches in the frame's document, scrolled
  * into the middle of the viewport, with the centre of its visible part: where
- * a real click lands on it. An element with no visible part (no size, or
- * clipped wholly out of the viewport) is `hidden`.
+ * a real click lands on it. An element with no visible part (no size,
+ * clipped wholly out of the viewport, or reported not visible) is `hidden`;
+ * one another element sits over at that centre, which would take the click,
+ * is `covered`.
  */
 export function locateElement(selector: string): LocatedElement {
   let element: Element | null;
@@ -43,6 +47,15 @@ export function locateElement(selector: string): LocatedElement {
   const right = Math.min(box.right, window.innerWidth);
   const bottom = Math.min(box.bottom, window.innerHeight);
   if (right <= left || bottom <= top) return { kind: "hidden" };
+  if (typeof element.checkVisibility === "function" && !element.checkVisibility({ visibilityProperty: true })) return { kind: "hidden" };
+  const x = (left + right) / 2;
+  const y = (top + bottom) / 2;
+  // What a click at the centre reaches: the element, or something inside it (a shadow tree's content answers as its host).
+  const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(x, y) : null;
+  if (hit !== null && hit !== element && !element.contains(hit)) {
+    const classes = Array.from(hit.classList, (name) => `.${name}`).join("");
+    return { kind: "covered", by: `${hit.localName}${hit.id === "" ? "" : `#${hit.id}`}${classes}` };
+  }
   const untypable = ["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"];
   const editable =
     element instanceof HTMLInputElement
@@ -50,7 +63,7 @@ export function locateElement(selector: string): LocatedElement {
       : element instanceof HTMLTextAreaElement
         ? !element.disabled && !element.readOnly
         : element instanceof HTMLElement && element.isContentEditable === true;
-  return { kind: "found", x: (left + right) / 2, y: (top + bottom) / 2, editable };
+  return { kind: "found", x, y, editable };
 }
 
 /**
@@ -83,11 +96,13 @@ export function selectFieldContents(selector: string): "selected" | "gone" | "no
  * with white space collapsed and case ignored, in the text a person sees,
  * the text inside open shadow roots included (a Lit app's is all there).
  * What no one sees is left out: scripts, styles, templates, the `noscript`
- * fallback, and an element the browser reports not visible. A block's edge
- * and a line break separate words, as they do on the screen.
+ * fallback, the fallback inside a frame, a canvas, a video or an object, and
+ * an element the browser reports not visible. A block's edge and a line
+ * break separate words, as they do on the screen.
  */
 export function showsText(text: string): boolean {
-  const unseen = new Set(["script", "style", "template", "noscript", "head"]);
+  // What never shows its content as text: a frame's, a canvas's and a video's fallback, and an object's while its resource shows.
+  const unseen = new Set(["script", "style", "template", "noscript", "head", "iframe", "canvas", "video", "audio", "object"]);
   const parts: string[] = [];
   const walk = (node: Node): void => {
     if (node.nodeType === Node.TEXT_NODE) {
