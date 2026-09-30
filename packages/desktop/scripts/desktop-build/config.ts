@@ -17,17 +17,17 @@ import type { DesktopTarget } from "./targets.js";
  * Windows the Start menu shortcut's AppUserModelID, which a notification's
  * sender must match. Reverse DNS of the forge that publishes the releases.
  */
-export const APP_ID = `dev.systemtech.${PRODUCT_NAME}`;
+const APP_ID = `dev.systemtech.${PRODUCT_NAME}`;
 
 /**
  * The Linux executable, the Arch package's name and its desktop entry's:
  * `/usr/bin/agent-harness` stays the CLI's name, which the package's link
  * would otherwise shadow on the `PATH`.
  */
-export const LINUX_EXECUTABLE = `${PRODUCT_NAME}-desktop`;
+const LINUX_EXECUTABLE = `${PRODUCT_NAME}-desktop`;
 
 /** Where the releases are published, which the packages name as the project's home page. */
-export const HOMEPAGE = "https://git.systemtech.dev:5526/david/agent-harness";
+const HOMEPAGE = "https://git.systemtech.dev:5526/david/agent-harness";
 
 const DESCRIPTION = "The agent-harness desktop: the window, and the environment on this machine.";
 
@@ -38,7 +38,7 @@ const DESCRIPTION = "The agent-harness desktop: the window, and the environment 
  * Arch's system Electron links (`http-parser`, `libappindicator-gtk3`, ...),
  * some no longer in Arch's repositories, which `pacman -U` would then refuse.
  */
-export const PACMAN_DEPENDS: readonly string[] = [
+const PACMAN_DEPENDS: readonly string[] = [
   "gtk3",
   "nss",
   "alsa-lib",

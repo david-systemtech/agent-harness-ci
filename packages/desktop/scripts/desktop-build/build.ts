@@ -80,7 +80,10 @@ export const buildDesktop = async (options: DesktopBuildOptions, seams: DesktopB
     log(`${target.platform}: packing ${target.name}`);
     await (seams.pack ?? electronBuilderPack)({ projectDir: folders.app, config: builderConfig(target, folders, electronVersion()), target });
     const built = join(folders.output, target.name);
-    if (!existsSync(built)) throw new DesktopBuildError(`electron-builder wrote no ${target.name} (it wrote ${readdirSync(folders.output).join(", ") || "nothing"}).`);
+    if (!existsSync(built)) {
+      const wrote = existsSync(folders.output) ? readdirSync(folders.output) : [];
+      throw new DesktopBuildError(`electron-builder wrote no ${target.name} (it wrote ${wrote.join(", ") || "nothing"}).`);
+    }
     copyFileSync(built, join(options.out, target.name));
     log(`${target.platform}: wrote ${target.name}`);
   } finally {

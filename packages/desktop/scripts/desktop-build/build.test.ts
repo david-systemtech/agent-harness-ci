@@ -228,7 +228,7 @@ describe("the desktop build", () => {
   });
 
   it("says so when electron-builder wrote no file of the platform's name, and removes what it staged either way", async () => {
-    const build = fixture("linux-x64", { pack: async ({ config }) => void mkdirSync(String(config.directories?.output), { recursive: true }) });
+    const build = fixture("linux-x64", { pack: async () => undefined });
     await expect(buildDesktop(build.options(), build.seams)).rejects.toThrow("electron-builder wrote no agent-harness-desktop-linux-x64.pacman (it wrote nothing).");
     expect(existsSync(build.work)).toBe(false);
     expect(readdirSync(build.out)).toEqual([]);
