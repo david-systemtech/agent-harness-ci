@@ -38,6 +38,7 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
+import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { browserToolServer } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
@@ -510,10 +511,13 @@ export interface EnvironmentOptions {
    * environment unpacks into `extension/current` for Chrome, and the ports
    * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
+   * And whether the environment has a headless browser a run can drive, asked
+   * at each run's start (#550); preset: none here, until #555's manager.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
+    readonly headless?: HeadlessAvailabilitySeam;
   };
 }
 
@@ -1110,6 +1114,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           containment: level,
           enforceable: containment,
         }),
+      // Each run's browser (#550): the session's field by whether a person is present, the operator's switch as it is at the
+      // run's start, and whether a headless browser is here.
+      resolveBrowser: (request) =>
+        resolveRunBrowser(request, { allowRuns: settings()["browser.headless.allowRuns"], headless: (options.browser?.headless ?? noHeadlessBrowser)() }),
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),

@@ -25,6 +25,7 @@ const extension = {
   thinking: "high",
   workspace: "/home/david/notes",
   attended: true,
+  browser: "headless",
   after: 42,
   ignoreUnsupported: true,
 };
@@ -110,8 +111,16 @@ const model = {
 /** Every completions schema the export writes, by path. */
 export const completionsSchemaFixtures: Record<string, Fixtures> = {
   "completions/extension.json": {
-    valid: [{}, extension, { sessionId: null, permissionMode: null, attended: null }],
-    invalid: [{ permissionMode: "default" }, { permissionMode: "dontAsk" }, { sessionId: "s-1" }, { after: -1 }, { systemPrompt: "x".repeat(200_001) }],
+    valid: [{}, extension, { sessionId: null, permissionMode: null, attended: null, browser: null }],
+    invalid: [
+      { permissionMode: "default" },
+      { permissionMode: "dontAsk" },
+      { sessionId: "s-1" },
+      { after: -1 },
+      { systemPrompt: "x".repeat(200_001) },
+      { browser: "chrome" },
+      { browser: { kind: "headless" } },
+    ],
   },
   "completions/chat-role.json": { valid: ["system", "developer", "user", "assistant", "tool"], invalid: ["function", ""] },
   "completions/content-part.json": { valid: [{ type: "text", text: "Hello" }, { type: "image_url", image_url: { url: "x" } }], invalid: [{ type: "" }, { text: "Hello" }] },

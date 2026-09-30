@@ -1353,9 +1353,9 @@ describe("the request's instructions, parameters and fields", () => {
     const answer = await complete(t, token, {
       model: "claude-max/opus",
       messages: [{ role: "user", content: [{ type: "text", text: "What is this?" }, { type: "image_url", image_url: { url: "data:," } }] }],
-      "agent-harness": { ignoreUnsupported: true, browser: "on" },
+      "agent-harness": { ignoreUnsupported: true, laterField: "on" },
     });
-    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.browser", "messages.0.content.1"]);
+    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.laterField", "messages.0.content.1"]);
   });
 
   it("takes thinking, and reasoning_effort as its alias, as the run's effort, refusing one the model does not take", async () => {

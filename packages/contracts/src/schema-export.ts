@@ -506,6 +506,9 @@ import {
   ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
+import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
+import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
+import { BrowserOnCreate } from "./methods/sessions.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
@@ -650,7 +653,7 @@ const pascal = (words: string): string =>
 /**
  * The session and group event types whose payloads are fixed, each with its
  * payload, the prompt types, the transcript vocabulary, the permission
- * types and the composed instructions among them; a type reserved by name
+ * types, the composed instructions and the browser's among them; a type reserved by name
  * for a workstream that has not fixed its payload yet would be left out.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
@@ -660,6 +663,7 @@ export const publishedEventPayloads = (): [string, z.ZodType][] =>
     ...TRANSCRIPT_EVENT_TYPES,
     ...PERMISSION_SESSION_EVENT_TYPES,
     ...INSTRUCTION_SESSION_EVENT_TYPES,
+    ...BROWSER_SESSION_EVENT_TYPES,
     ...GROUP_EVENT_TYPES,
   } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
@@ -754,6 +758,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/repository-identified-reason.json", title: "RepositoryIdentifiedReason", schema: RepositoryIdentifiedReason },
   { path: "sessions/absolute-path.json", title: "AbsolutePath", schema: AbsolutePath },
   { path: "sessions/requested-directory.json", title: "RequestedDirectory", schema: RequestedDirectory },
+  { path: "sessions/browser.json", title: "SessionBrowser", schema: SessionBrowser },
+  { path: "sessions/browser-chooser.json", title: "BrowserChooser", schema: BrowserChooser },
+  { path: "sessions/browser-on-create.json", title: "BrowserOnCreate", schema: BrowserOnCreate },
+  { path: "sessions/browser-resolution-reason.json", title: "BrowserResolutionReason", schema: BrowserResolutionReason },
+  { path: "sessions/run-browser-resolution.json", title: "RunBrowserResolution", schema: RunBrowserResolution },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },
