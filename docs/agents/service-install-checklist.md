@@ -256,27 +256,34 @@ section as not run.
 
 ## Release (`.forgejo/workflows/release.yml`)
 
-On a `v` tag, the release workflow (#358) runs three jobs in order.
+On a `v` tag, the release workflow (#358) runs its jobs in order.
 `check` fails a tag whose release is already published, then runs typecheck,
 lint, test and the schema export check. `image` pushes the version's image.
-`release` builds the three server artefacts on the `ci-x64` label, together
-with the asset list's other assets and `release.json`, each with a `.sha256`
-sidecar. It uploads every file to a draft release and publishes the draft
-last. `packages/cli/scripts/release/build.test.ts` and `publish.test.ts` run
-the build over a fixture workspace and the publisher against a fake Forgejo.
-`test/release-workflow.test.ts` runs the workflow's steps against a fake
-`pnpm`. The steps below prove the run on the real runners and forge. They
+`desktop-macos`, `desktop-windows` and `desktop-arch` (#359) each build one
+platform's desktop for the version, with the `desktop` workflow's steps, and
+put it in the generic package registry as `agent-harness-desktop`.
+`release` takes the three from there and builds the three server artefacts
+on the `ci-x64` label, together with the asset list's other assets, the
+desktops among them, and `release.json`, each with a `.sha256` sidecar. It
+uploads every file to a draft release whose notes say how to open an
+unsigned desktop the first time, publishes the draft last, and then removes
+the desktops' package. `packages/cli/scripts/release/build.test.ts` and
+`publish.test.ts` run the build over a fixture workspace and the publisher
+against a fake Forgejo. `test/release-workflow.test.ts` runs the workflow's
+steps against a fake `pnpm`, and `test/desktop-builds-script.test.ts` the
+hand-over against a fake registry. The steps below prove the run on the
+real runners and forge. They
 publish a release and an image, so the tag waits for David's go-ahead, and
 nothing here runs on the shared agent box. Record the result in the pull
 request that changes the workflow, the build or the publisher, or list the
 section as not run.
 
 1. The label: `vm-ci-1` and `desk-ci-1` carry `ci-x64:docker://node:24-bookworm` beside `ci` (`runners/ci.yaml` and `runners/windows-wsl/config.yaml` in `david/ci`), and no arm64 runner carries it. Until one does, the `release` job waits in the queue and nothing is published.
-2. With David's go-ahead, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet), and `release` starts after `image`, on a `ci-x64` runner. Its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh` and `release.json`. Its publish log creates a draft prerelease, uploads 18 files and publishes it. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines.
-3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 18 files, each asset beside its `.sha256`. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and eight assets (the three artefacts, then the schema archive, `install.sh`, `install.ps1`, `compose.yaml` and `host-updater.sh`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft.
-4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image` and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
-5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 18 files and not the stray one.
-6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag.
+2. With David's go-ahead, and the Mac awake, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet); the three desktop jobs start after `image`, `desktop-macos` on the Mac and the other two on `ci-x64` runners, `desktop-windows` in the `electronuserland/builder` Wine image, and each passes its checks and logs `put <its build> in the package agent-harness-desktop 0.0.1-test.1`; `release` starts after all three, on a `ci-x64` runner. Its log gets the three desktops, then its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, the three desktops and `release.json`. Its publish log creates a draft prerelease, uploads 24 files and publishes it, and its last step logs `removed the package agent-harness-desktop 0.0.1-test.1`. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines. A 401 from the hand-over means `PACKAGES_TOKEN` cannot write the owner's packages.
+3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 24 files, each asset beside its `.sha256`, and its `body` is the notes: "The desktop builds are not signed", then how to open the macOS zip, the Windows setup and the Arch package. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and eleven assets (the three artefacts, then the schema archive, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, and the three desktops with kind `desktop`, platform and format `darwin-arm64` `zip`, `win32-x64` `nsis` and `linux-x64` `pacman`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft, and `GET /api/v1/packages/david/generic/agent-harness-desktop/0.0.1-test.1` answers 404. Then, on the beta channel, an environment of an older version stages each desktop through `updates.desktop.stage` with that platform and format: the desktop checklist's "Restart to update (#355)" on each platform.
+4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image`, the desktop jobs and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
+5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 24 files and not the stray one.
+6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag, and the `agent-harness-desktop` package's `0.0.1-test.1` if a failed run left it.
 
 ## Host-side updater (`scripts/host-updater.sh`)
 
