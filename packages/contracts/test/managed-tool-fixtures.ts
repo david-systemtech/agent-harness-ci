@@ -1,9 +1,9 @@
 /**
- * Fixtures for the Managed tools schemas and `tools.list` (key-managers
- * spec, "Managed tools"; ADR 0026): a valid and an invalid instance of every
- * managed-tools schema the export writes, the table's entry, the row and the
- * notice's payload among them. `fixtures.ts` folds them into the package's
- * fixture table.
+ * Fixtures for the Managed tools schemas, `tools.list` and `tools.verify`
+ * (key-managers spec, "Managed tools"; ADR 0026): a valid and an invalid
+ * instance of every managed-tools schema the export writes, the table's
+ * entry, the row, a verify command's outcome and the notice's payload among
+ * them. `fixtures.ts` folds them into the package's fixture table.
  */
 
 interface Fixtures {
@@ -37,6 +37,9 @@ const claude = {
   action: "update",
 };
 const hung = { ...gh, version: null, status: "below-minimum" };
+const passed = { tool: "bao", outcome: "passed", reason: "bao looked up its run token at https://bao.systemtech.dev:8200: policies default, agent-read." };
+const sealed = { tool: "vault", outcome: "failed", reason: "OpenBao at https://bao.systemtech.dev:8200 is sealed: unseal it, then verify again." };
+const notInstalled = { tool: "gh", outcome: "not-installed", reason: "gh is not installed on this environment." };
 
 export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   "managed-tools/name.json": { valid: ["claude", "bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["codex", "openbao", ""] },
@@ -62,6 +65,9 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
     valid: [gh, missing, claude, hung],
     invalid: [{ ...gh, status: "outdated" }, { ...gh, version: "v2.63.2" }, { ...gh, path: "" }, { tool: "gh", status: "current", action: "update" }],
   },
+  "managed-tools/verifiable-name.json": { valid: ["bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["claude", "codex", ""] },
+  "managed-tools/verify-outcome.json": { valid: ["passed", "failed", "not-installed"], invalid: ["sealed", "skipped", ""] },
+  "managed-tools/verification.json": { valid: [passed, sealed, notInstalled], invalid: [{ ...passed, tool: "claude" }, { ...passed, outcome: "sealed" }, { ...passed, reason: "" }, { ...sealed, reason: "sealed\nunseal it" }, { tool: "bao", outcome: "passed" }] },
   "managed-tools/events/tools.updated.json": { valid: [{ tools: [gh] }, { tools: [missing, claude] }], invalid: [{ tools: [] }, {}, { tools: [{ ...gh, action: "ignore" }] }] },
 };
 
@@ -72,6 +78,10 @@ export const managedToolMethodFixtures: Record<string, { params: Fixtures; resul
       valid: [{ tools: [claude, gh, missing], probedAt: at }, { tools: [], probedAt: at }],
       invalid: [{ tools: [gh] }, { tools: [{ ...gh, method: "brew" }], probedAt: at }, { probedAt: at }],
     },
+  },
+  "tools.verify": {
+    params: { valid: [{ tool: "bao" }, { tool: "gh" }], invalid: [{}, { tool: "claude" }, { tool: "openbao" }] },
+    result: { valid: [passed, sealed, notInstalled], invalid: [{}, { ...passed, outcome: "unknown" }, { ...passed, reason: "two\nlines" }] },
   },
 };
 

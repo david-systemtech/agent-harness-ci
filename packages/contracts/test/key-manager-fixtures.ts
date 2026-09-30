@@ -78,6 +78,12 @@ const copy = {
 };
 const doppler = { ...copy, provider: "doppler", address: "https://api.doppler.com", method: null, mount: null, username: null, importedFrom: "secret-manager-1", copiedFrom: null };
 
+/** Each connection with its CLI's Managed tools row, as keyManagers.list answers it (#375). */
+const bao = { tool: "bao", label: "OpenBao CLI", path: "/usr/bin/bao", realpath: "/usr/bin/bao", version: "2.6.3", minimum: "2.1.1", method: "apt", status: "current", action: "update" };
+const noDoppler = { tool: "doppler", label: "Doppler CLI", path: null, realpath: null, version: null, minimum: "3.76.0", method: null, status: "not-installed", action: "install" };
+const listed = { ...record, cli: bao };
+const listedDoppler = { ...doppler, cli: noDoppler };
+
 const display = { provider: "openbao", label: "OpenBao", locator: "personal/harness/forge-github (key token)" };
 const holder = { kind: "forge-account", id: otherId, name: "https://git.systemtech.dev:5526" };
 const notSignedIn = { code: "credential_source_unavailable", message: "The key-manager connection OpenBao is awaiting a sign-in.", data: { connectionId } };
@@ -170,6 +176,10 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
       { ...record, tokenInformation: { ...tokenInformation, policies: ["root"] } },
       { id: connectionId },
     ],
+  },
+  "key-managers/listed-connection.json": {
+    valid: [listed, { ...copy, cli: { ...bao, tool: "vault", label: "Vault CLI", minimum: "1.14.0" } }, listedDoppler],
+    invalid: [record, { ...listed, cli: null }, { ...listed, cli: { ...bao, status: "outdated" } }],
   },
   "key-managers/events/key-manager.connection.added.json": {
     valid: [added, { ...added, credential: null, status: awaiting, tokenInformation: null, ticks: null, injects: false, copiedFrom }],
@@ -306,7 +316,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
 export const keyManagerMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "keyManagers.list": {
     params: { valid: [{}], invalid: [[], "all"] },
-    result: { valid: [{ connections: [] }, { connections: [record, copy, doppler] }], invalid: [{}, { connections: [{ ...record, status: null }] }] },
+    result: { valid: [{ connections: [] }, { connections: [listed, listedDoppler] }], invalid: [{}, { connections: [{ ...listed, status: null }] }, { connections: [record] }] },
   },
   "keyManagers.connections.add": {
     params: {

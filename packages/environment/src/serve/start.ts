@@ -124,6 +124,7 @@ import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
+import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
@@ -931,6 +932,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (forge.processEnvironment !== undefined) processEnvironments.register(forge.processEnvironment);
   // The injecting key-manager connections' blocks and each holder's run tokens (#368).
   processEnvironments.register(keyManagerConnections.processEnvironment);
+  // The managed tools' verify commands (#375): each a holder of the process environment, with a run token of its own.
+  const toolVerifier = createToolVerifier({ tools: managedTools, processEnvironments, connections: () => keyManagerConnections.list(), scrub, clock });
+  closers.push(() => toolVerifier.close());
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
@@ -1286,8 +1290,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...accountMethods({ accounts, host }),
     ...instructionMethods({ host }),
     ...forgeMethods(forge),
-    ...keyManagerMethods(keyManagerConnections, references, moves, options.keyManagerTimeoutMs),
-    ...managedToolsMethods(managedTools),
+    ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
+    ...managedToolsMethods(managedTools, toolVerifier),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,

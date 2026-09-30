@@ -376,6 +376,139 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
             "description": "When the connection was added."
+          },
+          "cli": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "claude",
+                  "bao",
+                  "vault",
+                  "doppler",
+                  "op",
+                  "bws",
+                  "gh"
+                ],
+                "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "What the row calls the tool: claude's is claude in your terminal."
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the name resolved on the login shell's PATH (on Windows, the machine and user Path a new logon composes); null when it is not installed."
+              },
+              "realpath": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The path with every link resolved, which the install method is read from; null when it is not installed."
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+                    "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The version its --version reported within five seconds; null when it is not installed or none was read."
+              },
+              "minimum": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+                    "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The tool's declared minimum; null for one that is never required."
+              },
+              "method": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "homebrew",
+                      "winget",
+                      "scoop",
+                      "mise",
+                      "asdf",
+                      "npm",
+                      "native",
+                      "apt",
+                      "dnf",
+                      "manual",
+                      "unknown"
+                    ],
+                    "description": "How a tool was installed: homebrew (a Cellar or Caskroom), winget (WinGet's packages or links), scoop, mise, asdf, npm (a node_modules path), native (claude's native installer, its versions directory), apt (a package dpkg owns), dnf (a package rpm owns), manual (nothing claims it) or unknown (the package owner could not be asked)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How it was installed; null when it is not installed."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "update-available",
+                  "below-minimum",
+                  "not-installed",
+                  "method-unknown"
+                ],
+                "description": "A managed tool's status: current; update-available (a newer version is known, a badge only); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told)."
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "install",
+                  "update",
+                  "copy"
+                ],
+                "description": "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop)."
+              }
+            },
+            "required": [
+              "tool",
+              "label",
+              "path",
+              "realpath",
+              "version",
+              "minimum",
+              "method",
+              "status",
+              "action"
+            ],
+            "description": "The Managed tools row of the CLI that serves the connection's provider, as the environment's last probe found it: for OpenBao bao's, else vault's when only vault is installed, else bao's, not installed; doppler's, op's or bws's for the others."
           }
         },
         "required": [
@@ -400,9 +533,10 @@
           "verifiedAt",
           "copiedFrom",
           "importedFrom",
-          "createdAt"
+          "createdAt",
+          "cli"
         ],
-        "description": "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set), whether it injects and the names of the variables runs receive from it; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id."
+        "description": "A key-manager connection as keyManagers.list answers it: its record, with the Managed tools row of the CLI that serves its provider."
       }
     }
   },

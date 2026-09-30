@@ -11,7 +11,8 @@ export type { InjectionAnswer };
  * variables and credential helper, #315; the key managers' block and run
  * tokens, #91), none by default, from which each holder's process
  * environment is built the same way, whatever started it. A holder is a
- * run's provider process or a session's terminal.
+ * run's provider process, a session's terminal, or a managed tool's verify
+ * command (#375), which serves no session.
  *
  * One injection answer is asked for each holder, with the level that
  * decided it (ADR 0011, ADR 0028; #367): the holder's own override (a
@@ -36,8 +37,8 @@ export type { InjectionAnswer };
  * The release calls each supplier's release once, a failure logged.
  */
 
-/** What a holder is (#368): a run's provider process or a session's terminal; the key managers' run tokens name it in their metadata. */
-export type HolderKind = "provider-process" | "terminal";
+/** What a holder is (#368): a run's provider process, a session's terminal or a managed tool's verify command (#375); the key managers' run tokens name it in their metadata. */
+export type HolderKind = "provider-process" | "terminal" | "verify-command";
 
 /**
  * The level that decided a holder's injection answer (#367): the
@@ -68,9 +69,9 @@ export const runOverrideOf = (actor: PolicyActor): RunInjectionOverride | null =
     ? { answer: actor.injection.answer, level: { kind: actor.kind, id: actor.injection.id } }
     : null;
 
-/** Who a holder serves: its session, the account its runs go through (null when neither the session nor the environment names one), who started it (a client, for a terminal), what it is, and its run's own injection override. */
+/** Who a holder serves: its session (null for a verify command, which serves none), the account its runs go through (null when neither the session nor the environment names one), who started it (a client, for a terminal), what it is, and its run's own injection override. */
 export interface ProcessEnvironmentScope {
-  readonly sessionId: string;
+  readonly sessionId: string | null;
   readonly accountId: string | null;
   readonly origin: RunActorKind;
   readonly holder: HolderKind;
@@ -79,7 +80,11 @@ export interface ProcessEnvironmentScope {
 }
 
 /** Who an injection answer is asked for: a holder, or a run in no session yet (a new session's `instructions.preview`), whose session is null (#380). */
-export type InjectionScope = Omit<ProcessEnvironmentScope, "sessionId"> & { readonly sessionId: string | null };
+export type InjectionScope = ProcessEnvironmentScope;
+
+/** A holder as a log line names it: its session's provider process or terminal, else what it is (#375). */
+export const holderName = (scope: Pick<ProcessEnvironmentScope, "sessionId" | "holder">): string =>
+  scope.sessionId === null ? `a ${scope.holder} serving no session` : `session ${scope.sessionId}'s ${scope.holder}`;
 
 /** The injection setting as the answer reads it: the environment's value and each account's entry. */
 export interface InjectionSetting {
@@ -181,7 +186,7 @@ const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope
       try {
         return { name: supplier.name, supplied: await supplier.supply(scope) };
       } catch (error) {
-        console.error(`The process-environment supplier ${supplier.name} failed for session ${scope.sessionId}; its variables are left out: ${describe(error)}`);
+        console.error(`The process-environment supplier ${supplier.name} failed for ${holderName(scope)}; its variables are left out: ${describe(error)}`);
         return null;
       }
     }),
@@ -200,7 +205,7 @@ const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope
         try {
           supplied.release();
         } catch (error) {
-          console.error(`Releasing what the process-environment supplier ${name} supplied for session ${scope.sessionId} failed:`, error);
+          console.error(`Releasing what the process-environment supplier ${name} supplied for ${holderName(scope)} failed:`, error);
         }
       }
     },
@@ -235,7 +240,7 @@ export const createProcessEnvironments = (injection: InjectionSeam = presetInjec
         try {
           return [{ supplier, key: supplier.key(scope) }];
         } catch (error) {
-          console.error(`The process-environment supplier ${supplier.name} could not give its key for session ${scope.sessionId}; it is left out: ${describe(error)}`);
+          console.error(`The process-environment supplier ${supplier.name} could not give its key for ${holderName(scope)}; it is left out: ${describe(error)}`);
           return [];
         }
       });
