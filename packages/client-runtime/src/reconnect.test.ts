@@ -638,7 +638,12 @@ describe("hello", () => {
   it("is ready on hello once the session list has answered, even with a refusal: a stream fault is never a phase", async () => {
     // The fake answers every method it has no responder for `not_found`, the two subscriptions included.
     const { wire, runtime } = await paired();
-    expect(wire.server.received().flatMap((frame) => (frame.type === "request" ? [frame.method] : []))).toEqual(["sessions.subscribe", "environment.subscribe"]);
+    // Once ready, a terminal UI's runtime reports its other connections, none here (#382).
+    expect(wire.server.received().flatMap((frame) => (frame.type === "request" ? [frame.method] : []))).toEqual([
+      "sessions.subscribe",
+      "environment.subscribe",
+      "environment.knownEnvironments.report",
+    ]);
     expect(record(runtime).phase).toBe("ready");
     expect(runtime.projections.sessionList.read().environments).toEqual([{ environmentId: wire.environmentId, freshness: "empty", fault: expect.any(String) }]);
   });
