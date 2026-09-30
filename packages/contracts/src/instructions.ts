@@ -3,7 +3,7 @@ import { AccountId, AccountLabel } from "./accounts.js";
 import { InstructionChannel, InstructionChannelKind, RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { OrderKey } from "./ordering.js";
-import { trimmedNamePattern } from "./primitives.js";
+import { normaliseTrimmedName, trimmedNamePattern } from "./primitives.js";
 import { Sha256 } from "./release.js";
 import { SkillName } from "./skill-rules.js";
 import { GitCommit, SkillOrigin, SkillSetFingerprint } from "./skills.js";
@@ -180,6 +180,9 @@ export const InstructionTitle = z
     description: `An owned instruction's title: 1 to ${MAX_INSTRUCTION_TITLE} characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed. A run reads it as the instruction's heading.`,
   });
 export type InstructionTitle = z.infer<typeof InstructionTitle>;
+
+/** An owned instruction's title as the environment keeps it: trimmed, every run of white space one space. */
+export const normaliseInstructionTitle = normaliseTrimmedName;
 
 export const InstructionBody = z
   .string()
