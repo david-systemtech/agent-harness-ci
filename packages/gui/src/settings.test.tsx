@@ -165,12 +165,13 @@ describe("a row's scope", () => {
     for (const label of ["Routines", "Your machines"]) {
       const everywhere = await openRow(app, label);
       expect(pickedIn(everywhere), label).toBeNull();
+      // Your machines ends with Add a machine, a card that is no environment's.
       expect(
         within(everywhere)
           .getAllByRole("heading", { level: 3 })
           .map((heading) => heading.textContent),
         label,
-      ).toEqual(["desk", "laptop"]);
+      ).toEqual(label === "Your machines" ? ["desk", "laptop", "Add a machine"] : ["desk", "laptop"]);
       for (const name of ["desk", "laptop"]) expect(within(everywhere).getByRole("region", { name }), `${label} ${name}`).toBeDefined();
     }
   });
