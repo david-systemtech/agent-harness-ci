@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { RoutineDefinitionInput, SessionCreatedPayload } from "@agent-harness/contracts";
+import type { RoutineDefinitionInput, SessionCreatedPayload, Workspace } from "@agent-harness/contracts";
+import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -8,7 +9,8 @@ import { end, fakeAdapter, gate, say, signedInAs, type Gate, type Script } from 
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { created, history, listed, ranNow, routineCommand, routineEvents, runNow, untilSettled, untilStarted, written } from "../../test/routines.js";
 import { get, refusal } from "../../test/sessions.js";
-import { makeDirectory, scriptedResolver } from "../../test/workspaces.js";
+import type { WireClient } from "../../test/wire-client.js";
+import { git, makeDirectory, scriptedResolver } from "../../test/workspaces.js";
 
 /**
  * A routine's firing through run now (routines spec, "A firing"; #523),
@@ -245,5 +247,131 @@ describe("the failure streak", () => {
     await fire();
     expect(await streak()).toBe(0);
     expect((await listed(client, state.id))?.attention).toEqual([]);
+  });
+});
+
+/** A repository of the test's own with one commit on `main`; answers its main checkout. */
+const repository = (): string => {
+  const checkout = join(tempDir("agent-harness-repository-"), "app");
+  git(tempDir(), "init", "-q", checkout);
+  writeFileSync(join(checkout, "README.md"), "# app\n");
+  git(checkout, "add", ".");
+  git(checkout, "commit", "-q", "-m", "first");
+  return checkout;
+};
+
+/** The firing's session's workspace, once it has started. */
+const workspaceOf = async (t: TestEnvironment, client: WireClient, routineId: string, firingId: string) =>
+  (await get(client, (await untilStarted(t, routineId, firingId)).payload["sessionId"] as string)).workspace;
+
+describe("a firing's workspace", () => {
+  it("goes through the resolver: a directory is checked, and one it cannot use is cannot-start workspace_unusable with the resolver's problem", async () => {
+    const t = await start();
+    const client = await t.client();
+    const directory = tempDir();
+    const { state } = await created(client, routine({ workspace: { kind: "directory", path: directory, repositoryIdentity: null } }));
+    const firingId = await ranNow(client, state.id);
+    expect(await workspaceOf(t, client, state.id, firingId)).toEqual({ kind: "directory", path: directory });
+    await untilSettled(t, state.id, firingId);
+
+    const gone = join(directory, "gone");
+    await routineCommand(client, "routines.update", { routineId: state.id, fields: { workspace: { kind: "directory", path: gone, repositoryIdentity: null } } });
+    const skipId = await ranNow(client, state.id);
+    expect((await untilSettled(t, state.id, skipId)).payload).toMatchObject({
+      reason: "cannot-start",
+      cannotStart: "workspace_unusable",
+      detail: `There is no directory ${gone} on this environment. (does_not_exist)`,
+    });
+    expect((await client.request("sessions.list", {})).sessions).toHaveLength(1);
+  });
+
+  it("makes a scratch directory per firing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ workspace: { kind: "scratch", repositoryIdentity: null } }));
+    const places = [];
+    for (let n = 0; n < 2; n += 1) {
+      const firingId = await ranNow(client, state.id);
+      places.push(await workspaceOf(t, client, state.id, firingId));
+      await untilSettled(t, state.id, firingId);
+    }
+    const [first, second] = places;
+    expect(first?.kind).toBe("scratch");
+    expect(second?.kind).toBe("scratch");
+    expect(first?.path).not.toBe(second?.path);
+    for (const place of places) expect(place?.path.startsWith(join(t.dataDir, "scratch"))).toBe(true);
+    expect(places.every((place) => existsSync(place?.path ?? ""))).toBe(true);
+  });
+
+  it("makes a worktree per firing, each on a branch of its own", async () => {
+    const t = await start();
+    const client = await t.client();
+    const checkout = repository();
+    const { state } = await created(client, routine({ workspace: { kind: "worktree", repository: checkout, repositoryIdentity: null } }));
+    const places = [];
+    for (let n = 0; n < 2; n += 1) {
+      const firingId = await ranNow(client, state.id);
+      places.push(await workspaceOf(t, client, state.id, firingId));
+      await untilSettled(t, state.id, firingId);
+    }
+    expect(places.map((place) => place.kind)).toEqual(["worktree", "worktree"]);
+    const [first, second] = places as [Extract<Workspace, { kind: "worktree" }>, Extract<Workspace, { kind: "worktree" }>];
+    expect(first.branch).not.toBe(second.branch);
+    expect(first.path).not.toBe(second.path);
+    const listed = git(checkout, "worktree", "list", "--porcelain");
+    expect(listed).toContain(first.path);
+    expect(listed).toContain(second.path);
+  });
+});
+
+describe("the firing's transaction", () => {
+  it("rolls back whole when the run's start refuses, and the resolver's undo removes the worktree it made: cannot-start start_refused, no session", async () => {
+    const t = await start();
+    const client = await t.client();
+    const checkout = repository();
+    const branches = git(checkout, "branch", "--list");
+    // haiku takes no effort, so the run's start refuses the one the routine names.
+    const { state } = await created(client, routine({ model: "haiku", effort: "high", workspace: { kind: "worktree", repository: checkout, repositoryIdentity: null } }));
+    const entryId = await ranNow(client, state.id);
+    expect((await untilSettled(t, state.id, entryId)).payload).toMatchObject({
+      skipId: entryId,
+      reason: "cannot-start",
+      cannotStart: "start_refused",
+      detail: "The model haiku does not take the effort high.",
+    });
+    expect((await client.request("sessions.list", {})).sessions).toEqual([]);
+    expect(t.env.log.readStream({ kinds: ["session"] })).toEqual([]);
+    expect(git(checkout, "branch", "--list")).toBe(branches);
+    expect(git(checkout, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
+    expect(t.adapter.runs).toHaveLength(0);
+  });
+
+  it("leaves no session when it fails between the resolver's prepare and the commit, and removes the scratch directory made for it", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ workspace: { kind: "scratch", repositoryIdentity: null } }));
+    const append = t.env.log.append.bind(t.env.log);
+    let failed = false;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => quiet.mockRestore());
+    vi.spyOn(t.env.log, "append").mockImplementation((stream, events, options) => {
+      if (!failed && events.some((event) => event.type === "session.created")) {
+        failed = true;
+        throw new Error("The disk is full.");
+      }
+      return append(stream, events, options);
+    });
+
+    const entryId = await ranNow(client, state.id);
+    expect((await untilSettled(t, state.id, entryId)).payload).toMatchObject({ reason: "cannot-start", cannotStart: "start_refused", detail: "The disk is full." });
+    expect((await client.request("sessions.list", {})).sessions).toEqual([]);
+    expect(readdirSync(join(t.dataDir, "scratch"))).toEqual([]);
+    expect(t.adapter.runs).toHaveLength(0);
+
+    // The next firing starts whole.
+    const next = await ranNow(client, state.id);
+    await untilStarted(t, state.id, next);
+    expect(await untilSettled(t, state.id, next)).toMatchObject({ type: "routine.firing-ended" });
+    expect(readdirSync(join(t.dataDir, "scratch"))).toHaveLength(1);
   });
 });
