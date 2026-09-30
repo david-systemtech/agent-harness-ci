@@ -130,6 +130,28 @@ describe("keyManagers.connections.verify", () => {
     ]);
   });
 
+  it("is seen whole once the base path it suggests is answered, never before: a client reading the records on its event reads the suggestion", async () => {
+    // A budget past the test's own timeout: the suggestion held is never cut short by it on a loaded runner.
+    const { t, bao, client } = await withOpenBao({ keyManagerTimeoutMs: 60_000 });
+    bao.kv("personal", 2);
+    const connection = await connected({ bao, client });
+    let answer = (): void => undefined;
+    bao.delay("GET sys/internal/ui/mounts", new Promise<void>((resolve) => (answer = resolve)));
+    const from = t.env.log.head();
+
+    const verifying = verify(client, connection.id);
+    await vi.waitFor(() => expect(bao.requests.map((request) => request.path)).toContain("sys/internal/ui/mounts"), EVENTUALLY);
+    // Asked for its suggestion, not yet answered: nothing the verification found is recorded or answered.
+    expect(await keyManagerEvents(client, from)).toEqual([]);
+    expect(await list(client)).toEqual([connection]);
+
+    answer();
+    const found: KeyManagerConnectionRecord = { ...connection, policies: FLAGGED, canMint: true, verifiedAt: MANUAL_CLOCK_START, suggestedBasePath: "personal/harness" };
+    expect(await verifying).toEqual([found]);
+    expect((await keyManagerEvents(client, from)).map((event) => event.type)).toEqual(["key-manager.connection.verified"]);
+    expect(await list(client)).toEqual([found]);
+  });
+
   it("appends nothing when it finds nothing new, keeping when it was verified beside the record and never moving when the status last changed", async () => {
     const { t, bao, client } = await withOpenBao();
     const connection = await connected({ bao, client });
@@ -370,6 +392,7 @@ describe("when a verification runs", () => {
     // The start signed in; its verification waits on the clock, which this test moves.
     expect(bao.requests.map((request) => request.path)).not.toContain("sys/capabilities-self");
     again.clock.advance(0);
+    // What a verification found is seen only as it ends, the base path it suggests answered (#689): the next is set fifteen minutes from now.
     await vi.waitFor(async () => expect((await list(reader))[0]).toMatchObject({ canMint: true, verifiedAt: MANUAL_CLOCK_START }), EVENTUALLY);
 
     again.clock.advance(15 * MINUTE - 1);
@@ -391,6 +414,7 @@ describe("when a verification runs", () => {
 
     await signIn(client, { connectionId: connection.id, credential: approle(OTHER_SECRET_ID) });
     t.clock.advance(0);
+    // Seen only as the sign-in's verification ends, its suggestion answered (#689): the update's is one of its own, never joined to it.
     await vi.waitFor(async () => expect((await list(client))[0]).toMatchObject({ canMint: false, policies: [{ name: "default" }, { name: "agent-read" }] }), EVENTUALLY);
 
     await update(client, { connectionId: connection.id, label: "Work" });

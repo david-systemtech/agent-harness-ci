@@ -29,6 +29,7 @@ import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { basePathProblem, suggestBasePath } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
+import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
 import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createRunTokens } from "./run-tokens.js";
@@ -55,12 +56,15 @@ import { createVerificationSchedule } from "./verifier.js";
  *   and the credential; a signIn or an update refuses instead, keeping what
  *   it held.
  * - **The login's token is held in memory only**, registered for scrubbing
- *   while held. After the startup gate every connection with a credential
+ *   while held, by the login scheduler (`logins.ts`, #369), which renews it,
+ *   says when it is due to be replaced, and counts the connection's login
+ *   generation. After the startup gate every connection with a credential
  *   signs in at once from it, `signing-in` until its outcome is recorded, so
  *   a restart logs in again.
- * - **A login the environment made is revoked** when it is replaced, signed
- *   out or removed, and when the command that made it is not accepted; a
- *   token a person gave is their own, never revoked, only let go.
+ * - **A login the environment made is revoked** when it is signed out or
+ *   removed, and when the command that made it is not accepted; one replaced
+ *   is revoked once no run token minted from it is held. A token a person
+ *   gave is their own, never revoked, only let go.
  * - **A replaced or removed credential's entry** is deleted once its command
  *   has committed; a start deletes every key-manager entry no connection
  *   holds, whatever an interrupted deletion left.
@@ -71,10 +75,12 @@ import { createVerificationSchedule } from "./verifier.js";
  * - **Verification** (#366) runs on the schedule `verifier.ts` keeps, one at
  *   a time per connection within the budget (ADR 0031's ten seconds), past
  *   which the connection is `unreachable`. It asks the key manager with the
- *   login held; with none held, or a login the environment made whose token
- *   OpenBao no longer knows (it lived out its time to live), it signs in
- *   from the kept credential first and records that as the environment's
- *   own sign-in. A token a person gave that OpenBao no longer knows is
+ *   login held; with none held, a login the environment made that is due
+ *   (#369: a third of its maximum life left), or one whose token OpenBao no
+ *   longer knows (it lived out its time to live), it signs in from the kept
+ *   credential first and records that as the environment's own sign-in: a
+ *   failure stands as the status its category gives. A token a person gave
+ *   that OpenBao no longer knows is
  *   `expired` once past the expiry its lookup gave, else
  *   `credential-rejected`. What changed of the status, token information,
  *   policies or `canMint` is recorded as `key-manager.connection.verified`,
@@ -93,6 +99,10 @@ import { createVerificationSchedule } from "./verifier.js";
  *   finds the login signed in asks the provider for one to suggest, within
  *   the budget again; the suggestion is kept in memory beside the record,
  *   as the verified-at times are, and answered on it until a base is set.
+ *   It is asked before anything the verification found is recorded (#689),
+ *   so a verification is seen whole, and only as it ends: a client reading
+ *   the records on its event reads the suggestion, and one that sees what it
+ *   recorded sees the next verification already scheduled from its end.
  */
 
 /** The environment's own sign-ins' actor. */
@@ -183,15 +193,6 @@ export interface KeyManagerConnections {
   close(): void;
 }
 
-/** A login the environment holds: its token, whether it made it, where and through which provider, and the token's scrub registration. */
-interface Login {
-  readonly token: string;
-  readonly minted: boolean;
-  readonly provider: ConnectionProvider;
-  readonly target: SignInTarget;
-  readonly release: ScrubRelease;
-}
-
 /** Why the key manager could not be asked: the credential stands as it was. */
 type CouldNotAsk = Exclude<LoginFailure["outcome"], "credential-rejected">;
 
@@ -239,8 +240,6 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
-  /** The logins held, by connection. */
-  const logins = new Map<string, Login>();
   /** The scrub registration of each credential held, by connection. */
   const credentials = new Map<string, ScrubRelease>();
   /** When each sign-in from the kept credential under way began, by connection. */
@@ -279,23 +278,11 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /** The line a key manager's own text becomes: registered values and shape rules scrubbed from it. */
   const scrubbed = (message: string): string => scrub.scrubOutput(message);
 
-  /** Lets go of a login: one the environment made is revoked first, while its token is still registered; a token a person gave is only let go. */
-  const letGo = async (connectionId: string, login: Login): Promise<void> => {
-    try {
-      if (!login.minted) return;
-      const revoked = await login.provider.revoke(login.target, login.token);
-      if (revoked.outcome !== "revoked") console.error(`Revoking the login of the key-manager connection ${connectionId} failed; it expires by itself: ${scrubbed(revoked.message)}`);
-    } finally {
-      login.release();
-    }
-  };
+  /** Lets go of a login no command or sign-in holds: one the environment made is revoked first, while its token is still registered. */
+  const letGo = (connectionId: string, login: LoginToken): Promise<void> => letGoOf(connectionId, login, scrub);
 
-  /** Holds `login` as the connection's, letting go of the one it replaces. */
-  const holdLogin = (connectionId: string, login: Login): void => {
-    const replaced = logins.get(connectionId);
-    logins.set(connectionId, login);
-    if (replaced !== undefined) void letGo(connectionId, replaced);
-  };
+  /** The logins held, renewed and replaced on the clock; a login due, or one the key manager no longer knows, is verified at once, which signs in again. */
+  const logins = createLogins({ clock, scrub, budgetMs, due: (connectionId) => void schedule.verify(connectionId) });
 
   /** Deletes a vault entry a committed command let go of; one left behind is deleted by the next start. */
   const deleteEntry = (entry: string): void => {
@@ -307,9 +294,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     moved(connectionId);
     suggestions.delete(connectionId);
     runTokens.revokeAll(connectionId);
-    const login = logins.get(connectionId);
-    logins.delete(connectionId);
-    if (login !== undefined) void letGo(connectionId, login);
+    logins.forget(connectionId);
     holdCredential(connectionId, null);
     if (entry !== null) deleteEntry(entry);
   };
@@ -364,17 +349,17 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       failure.outcome === "credential-rejected" ? { outcome: "refused", reason: "rejected", message: scrubbed(failure.message) } : { outcome: failure.outcome, message: scrubbed(failure.message) };
     const logged = await provider.logIn(target, credential, signal);
     if (logged.outcome !== "logged-in") return failed(logged);
-    const login: Login = { token: logged.token, minted: logged.minted, provider, target, release: scrub.register(logged.token, { owner: `key-manager:${connectionId}:login` }) };
+    const token: LoginToken = { token: logged.token, minted: logged.minted, provider, target, release: scrub.register(logged.token, { owner: `key-manager:${connectionId}:login` }) };
     const found = await provider.lookUp(target, logged.token, signal);
     if (found.outcome !== "found") {
-      await letGo(connectionId, login);
+      await letGo(connectionId, token);
       return failed(found);
     }
     if (found.root) {
-      await letGo(connectionId, login);
+      await letGo(connectionId, token);
       return { outcome: "refused", reason: "root_token", message: `${target.address} signs this credential in with the root policy, which the harness never holds: give it one without root.` };
     }
-    return { outcome: "signed-in", login, information: found.information };
+    return { outcome: "signed-in", login: { ...token, information: found.information, life: found.life }, information: found.information };
   };
 
   /** `record` with when it was last verified, the later of its own time and the one kept beside it, and the base path suggested while it has none. */
@@ -556,7 +541,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         log.append(stream, [{ type: "key-manager.connection.added", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
         command.tx.afterCommit(() => {
           holdCredential(connectionId, arrival);
-          if (signed !== null) holdLogin(connectionId, signed.login);
+          if (signed !== null) logins.hold(connectionId, signed.login);
           if (entry !== null) schedule.changed(connectionId);
         });
         return { aggregate: stream, result: { connection: recordOf(connectionId) } };
@@ -604,7 +589,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         command.tx.afterCommit(() => {
           moved(connectionId);
           holdCredential(connectionId, arrival);
-          holdLogin(connectionId, result.login);
+          logins.hold(connectionId, result.login);
           if (current.credential !== null) deleteEntry(current.credential);
           schedule.changed(connectionId);
         });
@@ -665,7 +650,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
             log.append(stream, [{ type: "key-manager.connection.signed-in", payload }], at);
             command.tx.afterCommit(() => {
               moved(connectionId);
-              holdLogin(connectionId, signed.login);
+              logins.hold(connectionId, signed.login);
             });
             return { aggregate: stream, result: { connection: settledRecordOf(connectionId) } };
           }
@@ -724,7 +709,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           return true;
         });
       if (signed === null) return;
-      if (recorded) holdLogin(connectionId, signed.login);
+      if (recorded) logins.hold(connectionId, signed.login);
       else await letGo(connectionId, signed.login);
     } catch (error) {
       console.error(`Signing the key-manager connection ${connectionId} in from its kept credential failed:`, error);
@@ -735,14 +720,16 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
   /**
    * What a verification of the connection verifies now: its credential, the
-   * commands that changed its login or address since, and its token role;
-   * null for one that is not verified (no credential, or a provider this
-   * version cannot sign in to).
+   * commands that changed its login or address since, its token role, and
+   * the login held and whether it is due (#369), so a verification asked for
+   * a login due waits for one running for it before and asks again; null for
+   * one that is not verified (no credential, or a provider this version
+   * cannot sign in to).
    */
   const subjectOf = (connectionId: string): string | null => {
     const held = liveConnection(reader, connectionId);
     if (held === null || held.credential === null || providers[held.record.provider] === undefined || targetOf(held.record) === null) return null;
-    return JSON.stringify([held.credential, epochOf(connectionId), held.record.tokenRole]);
+    return JSON.stringify([held.credential, epochOf(connectionId), held.record.tokenRole, logins.generation(connectionId), logins.isDue(connectionId)]);
   };
 
   /**
@@ -752,17 +739,16 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
    * an answer that echoes it is scrubbed still.
    */
   const dropDead = (connectionId: string, login: Login, dead: Login[]): void => {
-    if (logins.get(connectionId) !== login) return;
-    logins.delete(connectionId);
-    dead.push(login);
+    if (logins.drop(connectionId, login)) dead.push(login);
   };
 
   const failedWith = (status: KeyManagerStatus): Checked => ({ outcome: "failed", status });
 
   /**
    * What the key manager answers of the connection now: asked with the login
-   * held; with none held, or a login the environment made that the key
-   * manager no longer knows, after signing in from the kept credential.
+   * held; with none held, a login the environment made that is due, or one
+   * the key manager no longer knows, after signing in from the kept
+   * credential.
    */
   const ask = async (record: KeyManagerConnectionRecord, entry: string, provider: ConnectionProvider, target: SignInTarget, signal: AbortSignal, dead: Login[]): Promise<Checked> => {
     const connectionId = record.id;
@@ -786,8 +772,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (result.outcome === "refused") return failedWith(refusedStatus(record, result.message));
       return failedWith(statusNow(STATUS_OF[result.outcome], result.message));
     };
-    const held = logins.get(connectionId);
-    return held === undefined ? signInAgain() : verifyWith(held, false);
+    const held = logins.current(connectionId);
+    return held === undefined || logins.isDue(connectionId) ? signInAgain() : verifyWith(held, false);
   };
 
   /** Settles as `work` does, or as unreachable once the budget has passed, when the work's signal is aborted too; a login the work made after that is let go. */
@@ -881,20 +867,21 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const verifiedAt = clock.now().toISOString();
       let taken = false;
       try {
+        // Asked before anything is recorded, so the verification is seen whole: a client reading the records on its event reads the suggestion too (#689). On the wall clock, never the environment's, which a test may hold still.
+        const suggested =
+          !closed && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null
+            ? await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs))
+            : undefined;
         // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
         taken = !closed && recordFound(connectionId, subject, checked);
         if (taken) verifiedTimes.set(connectionId, verifiedAt);
+        if (taken && suggested !== undefined) suggestions.set(connectionId, suggested);
       } finally {
         // A login the verification made is held once what it found is recorded; otherwise, a failed write included, it is let go.
         if (checked.outcome === "verified" && checked.fresh) {
-          if (taken) holdLogin(connectionId, checked.login);
+          if (taken) logins.hold(connectionId, checked.login);
           else void letGo(connectionId, checked.login);
         }
-      }
-      if (taken && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null) {
-        // On the wall clock, never the environment's, which a test may hold still.
-        const suggested = await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs));
-        if (!closed) suggestions.set(connectionId, suggested);
       }
     } catch (error) {
       console.error(`Verifying the key-manager connection ${connectionId} failed:`, error);
@@ -911,14 +898,20 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const readable = (connectionId: string): ReadableConnection | null => {
     const held = liveConnection(reader, connectionId.toLowerCase());
     if (held === null) return null;
-    const login = logins.get(held.record.id);
+    const login = logins.current(held.record.id);
     return { record: standing(held.record), login: login === undefined ? null : { token: login.token, provider: login.provider, target: login.target } };
   };
 
   const runTokens = createRunTokens({
     source: {
-      injecting: () => listConnections(reader).flatMap((held) => (held.record.injects ? [{ record: standing(held.record), generation: held.generation }] : [])),
-      readable,
+      injecting: () =>
+        listConnections(reader).flatMap((held) =>
+          held.record.injects ? [{ record: standing(held.record), generation: held.generation, loginGeneration: logins.generation(held.record.id) }] : [],
+        ),
+      readable: (connectionId) => {
+        const held = liveConnection(reader, connectionId);
+        return held === null ? null : { record: standing(held.record), login: logins.minting(held.record.id) };
+      },
       signingIn: (connectionId) => startupSignIns.get(connectionId),
     },
     clock,
@@ -1056,9 +1049,9 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     close() {
       closed = true;
       schedule.close();
+      // The logins first: a run token let go on the close must not revoke a login it was the last of.
+      logins.close();
       runTokens.close();
-      for (const login of logins.values()) login.release();
-      logins.clear();
       for (const release of credentials.values()) release();
       credentials.clear();
     },
