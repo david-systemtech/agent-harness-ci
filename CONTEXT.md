@@ -325,7 +325,7 @@ One skill in a skill set: a folder holding `SKILL.md`, or a command file in the 
 _Avoid_: plugin skill, entry
 
 **Fingerprint**:
-What identifies a run's resolved skill set: a digest of its members' names, folders, origins and snapshot commits and of the native names it hides, so identical state gives the identical fingerprint; it names the set's generation, keys a kept provider process, and is carried in the manifest of the run's standing instructions. What a member's files say is read live and is not in it.
+What identifies a run's resolved skill set: a digest of each member's name, kind (skill or command), the path its link leads to, origin, snapshot commit and whether it is native, and of the native names it hides, so identical state gives the identical fingerprint; it names the set's generation, keys a kept provider process, and is carried in the manifest of the run's standing instructions. What a member's files say is read live and is not in it.
 _Avoid_: hash, version, skill-set id
 
 **Generation**:
