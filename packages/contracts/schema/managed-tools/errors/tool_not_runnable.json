@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolNotRunnableError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "tool_not_runnable"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "bao",
+            "vault",
+            "doppler",
+            "op",
+            "bws",
+            "gh"
+          ],
+          "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "install",
+            "update"
+          ],
+          "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192,
+              "pattern": "^[^\\r\\n]+$",
+              "description": "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The vendor's documented command, to copy and run where the harness cannot: the vendor script's update for a tool it installed by hand, else the install the table has for this platform. Null when there is none: vault, which the harness never installs or updates."
+        }
+      },
+      "required": [
+        "tool",
+        "action",
+        "command"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The harness does not run this tool's install or update here: a Copy-only row (installed by hand, or by mise, asdf or Scoop, or not known how), a tool no method available on the environment installs, or vault, which is never installed; data.command is the vendor's documented command to copy."
+}

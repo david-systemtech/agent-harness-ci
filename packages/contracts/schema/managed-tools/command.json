@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolCommand",
+  "minItems": 1,
+  "maxItems": 12,
+  "type": "array",
+  "items": {
+    "minItems": 1,
+    "maxItems": 3,
+    "type": "array",
+    "items": {
+      "minItems": 1,
+      "maxItems": 24,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^[^\\p{Cc}]+$",
+        "description": "One argument, given to the program as one word whatever it holds; never a control character."
+      },
+      "description": "A program and its arguments, as a fixed list: the first is the program."
+    },
+    "description": "One step of a command: its programs, each one's output piped into the next."
+  },
+  "description": "An install or update command as fixed argument lists: its steps, each run once the one before it has succeeded; never a fetched string or a shell line."
+}

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useWrittenOver } from "../settings/settings-values.js";
 import { Button } from "../ui/index.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
-import { Part } from "./part.js";
+import { Part } from "../settings/part.js";
 
 /**
  * The Unattended review (permissions spec, "The Unattended review view";

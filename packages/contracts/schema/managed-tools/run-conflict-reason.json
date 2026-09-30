@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolRunConflictReason",
+  "type": "string",
+  "enum": [
+    "tool_run_in_progress",
+    "exists",
+    "pty_unavailable"
+  ],
+  "description": "Why tools.run was refused in conflict: tool_run_in_progress (another tool run is under way on the environment, since package managers lock; data names its tool and terminal), exists (the terminal id was used on the environment already) or pty_unavailable (the environment cannot start a pseudo-terminal)."
+}

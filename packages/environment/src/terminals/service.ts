@@ -1,6 +1,7 @@
 import {
   ContractError,
   DEFAULT_TERMINAL_SIZE,
+  ENVIRONMENT_STREAM_KIND,
   MAX_TERMINALS_PER_SESSION,
   SESSION_STREAM_KIND,
   TERMINAL_STREAM_KIND,
@@ -51,12 +52,25 @@ export interface TerminalServiceOptions extends Omit<TerminalsOptions, "clock"> 
 /** Tool terminals as the environment opens them in process (#362): for the Managed tools registry, whose runner (#376) opens one per install or update. */
 export interface ToolTerminals {
   /**
+   * Why a tool terminal could not open with `id` now, as `open` would
+   * refuse it: `conflict` reason `exists` or `pty_unavailable`; undefined
+   * when it can. What `tools.run` decides in its transaction (#376).
+   */
+  refusal(id: string): CommandRejection<"conflict"> | undefined;
+  /**
    * Opens a tool terminal with `request`'s id (in any case; kept in
    * lowercase) and starts its command. Throws `ContractError` `conflict`,
    * reason `exists`, for an id used on this environment already, and reason
    * `pty_unavailable` where no pseudo-terminal can start, opening nothing.
    */
   open(request: OpenToolTerminal): ToolTerminal;
+  /**
+   * Opens a tool terminal whose id `refusal` passed in the transaction that
+   * recorded it (`tool.run-started`, #376), once that transaction has
+   * committed: the record names the id now, so it is not checked again. A
+   * pseudo-terminal that cannot start leaves it exited at once, failed.
+   */
+  openRecorded(request: OpenToolTerminal): ToolTerminal;
 }
 
 export interface TerminalService {
@@ -79,13 +93,13 @@ const notOpen = (id: string): Refusal => ({
   data: { kind: "terminal", id },
 });
 
-const conflict = (reason: string, message: string, data: Record<string, unknown> = {}): Refusal => ({
+const conflict = (reason: string, message: string, data: Record<string, unknown> = {}): CommandRejection<"conflict"> => ({
   code: "conflict",
   message,
   data: { reason, ...data },
 });
 
-const exists = (id: string): Refusal => conflict("exists", `A terminal ${id} was opened on this environment already.`, { id });
+const exists = (id: string): CommandRejection<"conflict"> => conflict("exists", `A terminal ${id} was opened on this environment already.`, { id });
 
 /** A tool terminal's write, resize or close by a client session without `admin`. */
 const toolTerminalNeedsAdmin = (id: string): Refusal => ({
@@ -117,7 +131,8 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
 
   /**
    * Whether `id` was ever a terminal here: open since the environment started,
-   * or named by an accepted command's receipt within the receipts' 30 days,
+   * named by an accepted command's receipt within the receipts' 30 days, or
+   * a tool run's terminal, which `tool.run-started` names for good (#376),
    * so an id is not reused across a restart. A rejected open never opened
    * anything, so its receipt does not count.
    */
@@ -128,7 +143,9 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
       TERMINAL_STREAM_KIND,
       id,
       new Date(clock.now().getTime() - RECEIPT_RETENTION_MS).toISOString(),
-    ).length > 0;
+    ).length > 0 ||
+    log.read("SELECT 1 FROM events WHERE stream_kind = ? AND type = 'tool.run-started' AND json_extract(payload, '$.terminalId') = ? LIMIT 1", ENVIRONMENT_STREAM_KIND, id)
+      .length > 0;
 
   const stopHearing = log.subscribe((event) => {
     if (event.streamKind === SESSION_STREAM_KIND && event.type === "session.deleted") terminals.closeSession(event.streamId);
@@ -163,7 +180,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
   };
 
   /** Why no terminal can start here, or undefined when one can. */
-  const noPty = (): Refusal | undefined => {
+  const noPty = (): CommandRejection<"conflict"> | undefined => {
     try {
       terminals.check();
       return undefined;
@@ -271,13 +288,18 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     },
   };
 
+  /** Why a tool terminal could not open with `id` (lowercase) now. */
+  const toolRefusal = (id: string): CommandRejection<"conflict"> | undefined => (used(id) ? exists(id) : undefined) ?? noPty();
+
   const tools: ToolTerminals = {
+    refusal: (id) => toolRefusal(id.toLowerCase()),
     open(request) {
       const id = request.id.toLowerCase();
-      const refused = (used(id) ? exists(id) : undefined) ?? noPty();
+      const refused = toolRefusal(id);
       if (refused !== undefined) throw new ContractError({ code: refused.code, message: refused.message ?? refused.code, data: refused.data ?? {} });
       return terminals.openTool({ ...request, id });
     },
+    openRecorded: (request) => terminals.openTool({ ...request, id: request.id.toLowerCase() }),
   };
 
   return {

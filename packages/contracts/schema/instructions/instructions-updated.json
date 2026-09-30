@@ -3,5 +3,5 @@
   "title": "InstructionsUpdatedPayload",
   "type": "object",
   "properties": {},
-  "description": "instructions.updated: an owned instruction changed and has committed; a client reads instructions.list and instructions.preview again."
+  "description": "instructions.updated: an owned instruction or the dismissed entries changed and have committed; a client reads instructions.list, instructions.diff and instructions.preview again."
 }

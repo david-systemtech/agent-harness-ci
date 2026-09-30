@@ -49,6 +49,20 @@ const passed = { tool: "bao", outcome: "passed", reason: "bao looked up its run 
 const sealed = { tool: "vault", outcome: "failed", reason: "OpenBao at https://bao.systemtech.dev:8200 is sealed: unseal it, then verify again." };
 const notInstalled = { tool: "gh", outcome: "not-installed", reason: "gh is not installed on this environment." };
 
+const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const terminalId = "4d3c2b1a-9e8f-4a7b-8c6d-5e4f3a2b1c0d";
+const brewInstall = [[["brew", "install", "gh"]]];
+const aptInstall = [
+  [["sudo", "install", "-d", "-m", "0755", "/etc/apt/keyrings"]],
+  [["printf", "%s\\n", "deb [signed-by=/etc/apt/keyrings/example.asc] https://example.test/deb stable main"], ["sudo", "tee", "/etc/apt/sources.list.d/example.list"]],
+  [["sudo", "apt-get", "install", "gh"]],
+];
+const entry = { tool: "gh", method: "homebrew", platforms: ["darwin", "linux"], needs: ["brew"], install: brewInstall, update: [[["brew", "upgrade", "gh"]]] };
+const toolTerminal = { id: terminalId, owner: "managed-tools", sessionId: null, openedAt: at, cols: 80, rows: 24, exitCode: null, signal: null };
+const runStarted = { tool: "gh", action: "install", method: "homebrew", terminalId, command: "brew install gh" };
+const runFinished = { tool: "gh", action: "install", method: "homebrew", terminalId, exitCode: 0, signal: null, cause: "exited", verification: { tool: "gh", outcome: "passed", reason: "gh auth status passed." } };
+const notRunnable = { code: "tool_not_runnable", message: "gh installed by mise is not updated by the harness.", data: { tool: "gh", action: "update", command: "brew install gh" } };
+
 export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   "managed-tools/name.json": { valid: ["claude", "bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["codex", "openbao", ""] },
   "managed-tools/version.json": { valid: ["2.63.2", "2.40", "2.1.0-beta.1", "1.14.0+ent"], invalid: ["v2.63.2", "2", "2.63.2 (2024-12-05)", ""] },
@@ -88,6 +102,26 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...detail, tool: "gh" }, { tool: "claude", doctor: doctorRead }, { ...detail, row: { ...claude, latest: "latest" } }],
   },
   "managed-tools/events/tools.updated.json": { valid: [{ tools: [gh] }, { tools: [missing, claude] }], invalid: [{ tools: [] }, {}, { tools: [{ ...gh, action: "ignore" }] }] },
+  "managed-tools/command-platform.json": { valid: ["darwin", "linux", "win32"], invalid: ["macos", "windows", ""] },
+  "managed-tools/command-method.json": { valid: ["homebrew", "winget", "apt", "dnf", "script", "npm"], invalid: ["native", "manual", "brew", ""] },
+  "managed-tools/installable-name.json": { valid: ["claude", "bao", "gh"], invalid: ["vault", "codex", ""] },
+  "managed-tools/command.json": { valid: [brewInstall, aptInstall], invalid: [[], [[]], [[[]]], "brew install gh", [[["brew", "install", "gh\nrm -rf ~"]]]] },
+  "managed-tools/command-entry.json": {
+    valid: [entry, { ...entry, method: "npm", install: null }, { ...entry, method: "apt", platforms: ["linux"], needs: ["apt-get", "sudo", "curl"], install: aptInstall }],
+    invalid: [{ ...entry, tool: "vault" }, { ...entry, platforms: [] }, { ...entry, method: "manual" }, { ...entry, update: null }, { ...entry, needs: ["brew install"] }],
+  },
+  "managed-tools/command-line.json": { valid: ["brew install gh", "curl -Ls --proto '=https' https://cli.doppler.com/install.sh | sh"], invalid: ["", "brew install gh\nbrew install doppler", "a\rb"] },
+  "managed-tools/runnable-action.json": { valid: ["install", "update"], invalid: ["copy", ""] },
+  "managed-tools/run-conflict-reason.json": { valid: ["tool_run_in_progress", "exists", "pty_unavailable"], invalid: ["in_progress", ""] },
+  "managed-tools/errors/tool_not_runnable.json": {
+    valid: [notRunnable, { ...notRunnable, data: { tool: "vault", action: "update", command: null } }],
+    invalid: [{ ...notRunnable, code: "conflict" }, { ...notRunnable, data: { tool: "gh", action: "copy", command: null } }, { ...notRunnable, data: { tool: "gh", action: "update", command: "a\nb" } }],
+  },
+  "managed-tools/events/tool.run-started.json": { valid: [runStarted], invalid: [{ ...runStarted, tool: "vault" }, { ...runStarted, command: "" }, { ...runStarted, terminalId: "t-1" }] },
+  "managed-tools/events/tool.run-finished.json": {
+    valid: [runFinished, { ...runFinished, exitCode: null, cause: "closed", verification: null }, { ...runFinished, exitCode: -1, cause: "failed" }],
+    invalid: [{ ...runFinished, cause: "deleted" }, { ...runFinished, exitCode: 1.5 }, { ...runFinished, verification: undefined }],
+  },
 };
 
 export const managedToolMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
@@ -106,7 +140,40 @@ export const managedToolMethodFixtures: Record<string, { params: Fixtures; resul
     params: { valid: [{ tool: "bao" }, { tool: "gh" }], invalid: [{}, { tool: "claude" }, { tool: "openbao" }] },
     result: { valid: [passed, sealed, notInstalled], invalid: [{}, { ...passed, outcome: "unknown" }, { ...passed, reason: "two\nlines" }] },
   },
+  "tools.run": {
+    params: {
+      valid: [
+        { commandId, tool: "gh", action: "install", id: terminalId },
+        { commandId, tool: "vault", action: "install", id: terminalId, cols: 120, rows: 40 },
+      ],
+      invalid: [{ commandId, tool: "gh", action: "copy", id: terminalId }, { commandId, tool: "gh", action: "install" }, { tool: "gh", action: "install", id: terminalId }],
+    },
+    result: {
+      valid: [
+        { terminal: toolTerminal, tool: "gh", action: "install", method: "homebrew", command: "brew install gh", doctor: null },
+        { terminal: toolTerminal, tool: "claude", action: "update", method: "script", command: "claude update", doctor: doctorRead },
+      ],
+      invalid: [
+        { terminal: { ...toolTerminal, owner: "session", sessionId: commandId }, tool: "gh", action: "install", method: "homebrew", command: "brew install gh", doctor: null },
+        { terminal: toolTerminal, tool: "vault", action: "install", method: "homebrew", command: "brew install gh", doctor: null },
+        { terminal: toolTerminal, tool: "gh", action: "install", method: "homebrew", command: "brew install gh" },
+        { terminal: toolTerminal, tool: "gh", action: "install", method: "homebrew", command: "brew install gh\nbrew install doppler", doctor: null },
+      ],
+    },
+  },
 };
 
 /** The notice as the environment stream carries it, for the notice fixtures. */
 export const toolsUpdatedNotice = { valid: { type: "tools.updated", payload: { tools: [gh] } }, invalid: { type: "tools.updated", payload: { tools: [] } } } as const;
+
+/** The tool run events as the environment stream carries them, for the notice fixtures. */
+export const toolRunNotices = {
+  valid: [
+    { type: "tool.run-started", payload: runStarted },
+    { type: "tool.run-finished", payload: runFinished },
+  ],
+  invalid: [
+    { type: "tool.run-started", payload: { ...runStarted, action: "copy" } },
+    { type: "tool.run-finished", payload: { ...runFinished, exitCode: undefined } },
+  ],
+} as const;

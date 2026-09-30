@@ -1,8 +1,20 @@
 # The release workflow (launcher-update spec, "The release"): what a `v` tag
-# on this repository publishes. #357 built its image job; #358 adds the rest
-# (typecheck, lint and test first, the server artefacts, release.json and a
-# draft release published last), whose artefact job `needs: image` for the
-# image's reference and digest.
+# on this repository publishes, one complete release per tag. Three jobs:
+#
+#   check    before anything is built or pushed: that the tag's release is not
+#            published already (a re-run over a published release stops
+#            here, pushing no image over it), then typecheck, lint, test and
+#            the JSON Schema export, as ci.yml runs them
+#   image    #357's: the version's image, pushed, its reference and digest
+#            handed on
+#   release  #356's build of the three server artefacts with that image's
+#            reference and digest, which also writes the release's other
+#            assets (the asset list below) and release.json, each with a
+#            .sha256 sidecar; then every file to a draft release, published
+#            last (scripts/release/publish.ts), so no reader sees a partial
+#            release, flagged prerelease exactly when the version has a
+#            prerelease part. A failed step leaves a draft at most, which
+#            readers pass over; a re-run replaces it.
 #
 # The image job builds the Dockerfile on the shared `build` runners, as
 # david/ci's image template (templates/image.yml) does, and pushes it to this
@@ -12,7 +24,9 @@
 # pulls whatever it points at by then (hermes:latest is rebuilt on every push
 # to main), and a rollback needs an exact reference. So the template's main
 # and commit tags are gone, and its pull request build is image.yml. The work
-# is .forgejo/scripts/image.sh, tested by test/image-script.test.ts.
+# is .forgejo/scripts/image.sh, tested by test/image-script.test.ts; the
+# release job's, by packages/cli/scripts/release/*.test.ts. The first run of
+# a tag is the service-install checklist's Release section.
 
 name: release
 
@@ -26,8 +40,56 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # The tag this run releases: v0.5.0.
+  TAG: ${{ github.ref_name }}
+
 jobs:
+  check:
+    runs-on: ci
+    timeout-minutes: 25
+    steps:
+      # Pinned to a commit, not a tag, as ci.yml's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ github.repository }}-
+      - run: pnpm install --frozen-lockfile
+
+      - name: The tag's release is not published yet
+        env:
+          # The job's own token, which can write this repository's releases
+          # (so it reads a draft too) on a push: Forgejo 16 gives a job write
+          # access to every unit of its own repository unless it runs for a
+          # fork's pull request (models/perm/access/repo_permission.go,
+          # GetActionRepoPermission). Packages are not a unit of the
+          # repository, hence the image job's PACKAGES_TOKEN.
+          RELEASE_TOKEN: ${{ github.token }}
+        run: pnpm --filter agent-harness publish-release --tag "$TAG" --check
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # ci.yml's worker count, for the same shared daemon.
+      - run: pnpm test --maxWorkers=4
+      - name: The JSON Schema export is current
+        # The release publishes packages/contracts/schema as it is committed.
+        run: |
+          set -euo pipefail
+          pnpm --filter @agent-harness/contracts export-schemas
+          if [ -n "$(git status --porcelain -- packages/contracts/schema)" ]; then
+            git status --short -- packages/contracts/schema
+            echo "::error::packages/contracts/schema is stale - run: pnpm --filter @agent-harness/contracts export-schemas, and commit the result"
+            exit 1
+          fi
+
   image:
+    needs: check
     runs-on: build
     timeout-minutes: 30
     # The pushed image's reference and digest, for release.json: a host pulls
@@ -47,3 +109,52 @@ jobs:
           # measured 2026-09-23).
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: bash .forgejo/scripts/image.sh publish
+
+  release:
+    needs: [check, image]
+    # An x86_64 runner with node:24-bookworm: the build compiles node-pty for
+    # the linux-x64 artefact and runs that artefact on the runner, so it
+    # refuses any other platform (#356). The `ci` label is not one, since it
+    # takes in mba-ci-1, an arm64 VM; `ci-x64` is the label only the x86_64
+    # ci runners carry (vm-ci-1 and desk-ci-1, in david/ci's runners). One
+    # job builds and publishes, so the three artefacts (about 160 MB each)
+    # never travel between jobs.
+    runs-on: ci-x64
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ github.repository }}-
+      - run: pnpm install --frozen-lockfile
+
+      # The asset list: every asset of the release beside the server
+      # artefacts and release.json, one `--asset <kind>=<path>` line each,
+      # which the build writes into release-assets with its sidecar and lists
+      # in release.json (kinds: the contracts' RELEASE_ASSET_KINDS). A file is
+      # published under its own name, the compose file with this release's
+      # image in place of its unreleased placeholder; a folder as
+      # agent-harness-<kind>.tar.gz. Adding an asset (install.ps1, a desktop
+      # build) is one more line here.
+      - name: Build the server artefacts and the release's assets
+        env:
+          IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out release-assets \
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST" \
+            --asset schema=packages/contracts/schema \
+            --asset install-script=scripts/install.sh \
+            --asset compose=scripts/compose.yaml \
+            --asset host-updater=scripts/host-updater.sh
+
+      - name: Upload every asset to a draft release, then publish it
+        env:
+          RELEASE_TOKEN: ${{ github.token }}
+        run: pnpm --filter agent-harness publish-release --tag "$TAG" --from release-assets

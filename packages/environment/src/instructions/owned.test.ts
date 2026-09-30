@@ -341,8 +341,8 @@ describe("instructions.list", () => {
     ];
     expect(answer.orientation).toEqual({ enabled: true, text: orientation.state.text, unreadRegistries: ["banks"], accounts });
     expect(answer.instructions).toEqual([
-      { ...first, accounts },
-      { ...second, accounts },
+      { ...first, newerVersion: null, accounts },
+      { ...second, newerVersion: null, accounts },
     ]);
     // The block is rendered as a preview of a new session of the default account renders it.
     expect(orientation.state.scopes.at(-1)).toMatchObject({ sessionId: null, accountId: "claude-max", origin: "client" });

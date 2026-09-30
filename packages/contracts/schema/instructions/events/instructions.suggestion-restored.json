@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsSuggestionRestoredPayload",
+  "type": "object",
+  "properties": {
+    "catalogueId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A catalogue instruction entry's id."
+    }
+  },
+  "required": [
+    "catalogueId"
+  ],
+  "description": "instructions.suggestion-restored: a dismissed catalogue entry is offered again, restored or ticked."
+}

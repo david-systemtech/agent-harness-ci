@@ -1,12 +1,14 @@
 /**
- * Builds a release's server artefacts, their sidecars and `release.json`
- * (launcher-update spec, "The release"; #356): `scripts/release/build.ts`,
- * run from the command line. The release workflow runs it on a linux-x64
- * runner, the one platform whose artefact needs its own runner (node-pty
- * compiles there); it builds the macOS and Windows artefacts there too.
+ * Builds a release's server artefacts, the other assets the workflow's asset
+ * list names (#358), their sidecars and `release.json` (launcher-update spec,
+ * "The release"; #356): `scripts/release/build.ts`, run from the command
+ * line. The release workflow runs it on a linux-x64 runner, the one platform
+ * whose artefact needs its own runner (node-pty compiles there); it builds
+ * the macOS and Windows artefacts there too.
  *
  *   pnpm --filter agent-harness build-artefacts --tag v0.5.0 --out release \
- *     --image-reference git.systemtech.dev:5526/david/agent-harness:0.5.0 --image-digest sha256:<hex>
+ *     --image-reference git.systemtech.dev:5526/david/agent-harness:0.5.0 --image-digest sha256:<hex> \
+ *     --asset install-script=scripts/install.sh
  */
 import { ArgumentsError, BUILD_USAGE, buildOptionsOf } from "./release/arguments.js";
 import { buildRelease } from "./release/build.js";

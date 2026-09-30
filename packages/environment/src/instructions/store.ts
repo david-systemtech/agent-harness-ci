@@ -6,6 +6,9 @@ import {
   type InstructionReach,
   type InstructionRemovedPayload,
   type InstructionScopeSetPayload,
+  type InstructionSuggestionDismissedPayload,
+  type InstructionSuggestionRestoredPayload,
+  type InstructionVersionResolvedPayload,
   type OwnedInstruction,
 } from "@agent-harness/contracts";
 import type { z } from "zod";
@@ -20,8 +23,9 @@ import { SESSION_INSTRUCTIONS_TABLES, projectSessionInstructions } from "./sessi
  * stream whose id is the environment's, as a read model rebuilt from the
  * log. A removed instruction keeps its row, marked, so its id is never used
  * again; every read leaves it out. The order is the positions' fractional
- * keys compared as plain strings, then the ids. Beside them, each session's
- * own instructions, from its latest `session.instructions-set`
+ * keys compared as plain strings, then the ids. Beside them, the catalogue
+ * entries dismissed on this environment (#509), and each session's own
+ * instructions, from its latest `session.instructions-set`
  * (`session-instructions.ts`, #506).
  */
 
@@ -38,6 +42,9 @@ export const INSTRUCTIONS_TABLES = {
     enabled INTEGER NOT NULL,
     position TEXT NOT NULL,
     removed INTEGER NOT NULL DEFAULT 0
+  ) STRICT`,
+  dismissed_suggestions: `CREATE TABLE dismissed_suggestions (
+    catalogue_id TEXT PRIMARY KEY
   ) STRICT`,
   ...SESSION_INSTRUCTIONS_TABLES,
 } as const;
@@ -86,9 +93,25 @@ export const instructionsProjector: Projector = {
         db.run("UPDATE owned_instructions SET position = ? WHERE id = ?", position, id);
         return;
       }
+      case "instructions.version-resolved": {
+        const resolved = event.payload as InstructionVersionResolvedPayload;
+        if (resolved.choice === "replace") db.run("UPDATE owned_instructions SET origin_version = ?, body = ? WHERE id = ?", resolved.version, resolved.body, resolved.id);
+        else db.run("UPDATE owned_instructions SET origin_version = ? WHERE id = ?", resolved.version, resolved.id);
+        return;
+      }
       case "instructions.removed": {
         const { id } = event.payload as Payload<typeof InstructionRemovedPayload>;
         db.run("UPDATE owned_instructions SET removed = 1 WHERE id = ?", id);
+        return;
+      }
+      case "instructions.suggestion-dismissed": {
+        const { catalogueId } = event.payload as Payload<typeof InstructionSuggestionDismissedPayload>;
+        db.run("INSERT OR IGNORE INTO dismissed_suggestions (catalogue_id) VALUES (?)", catalogueId);
+        return;
+      }
+      case "instructions.suggestion-restored": {
+        const { catalogueId } = event.payload as Payload<typeof InstructionSuggestionRestoredPayload>;
+        db.run("DELETE FROM dismissed_suggestions WHERE catalogue_id = ?", catalogueId);
         return;
       }
     }
@@ -133,6 +156,10 @@ export interface InstructionStore {
   used(id: string): boolean;
   /** The enabled owned instructions that reach `accountId`, in order: what its runs are handed. */
   handedTo(accountId: string): OwnedInstruction[];
+  /** The owned instructions copied from the catalogue entry `catalogueId`, in order. */
+  copiesOf(catalogueId: string): OwnedInstruction[];
+  /** The catalogue entries dismissed on this environment, in the order of their ids. */
+  dismissed(): string[];
 }
 
 export const createInstructionStore = (log: EventLog): InstructionStore => {
@@ -148,6 +175,8 @@ export const createInstructionStore = (log: EventLog): InstructionStore => {
     },
     used: (id) => reader.all("SELECT id FROM owned_instructions WHERE id = ?", id).length > 0,
     handedTo: (accountId) => list().filter((instruction) => instruction.enabled && reaches(instruction.scope, accountId)),
+    copiesOf: (catalogueId) => list().filter((instruction) => instruction.origin?.catalogueId === catalogueId),
+    dismissed: () => reader.all<{ catalogue_id: string }>("SELECT catalogue_id FROM dismissed_suggestions ORDER BY catalogue_id").map((row) => row.catalogue_id),
   };
 };
 

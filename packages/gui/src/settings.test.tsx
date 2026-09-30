@@ -242,23 +242,22 @@ describe("a row whose feature is not built", () => {
   it("shows its hint, its step's link and the generic editor for its keys, each drawn by its form", async () => {
     const app = await opened();
     await openSettings(app);
-    const service = await openRow(app, "Service");
-    expect(within(service).getByText("The environment's service, draining it, and how long sessions stay before they settle or compact.")).toBeDefined();
+    const instructions = await openRow(app, "Instructions");
+    expect(within(instructions).getByText("The standing instructions runs receive, beside the orientation block.")).toBeDefined();
     expect(
-      within(service)
+      within(instructions)
         .getAllByRole("group")
         .map((group) => within(group).getAllByText(/\./)[0]?.textContent),
-    ).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
-    expect((within(field(service, "sessions.transcriptCompactAfterDays")).getByRole("textbox") as HTMLInputElement).value).toBe("90");
+    ).toEqual(["instructions.orientation"]);
+    expect((await within(field(instructions, "instructions.orientation")).findByRole("switch")).getAttribute("aria-checked")).toBe("true");
 
     // A step's link opens the full checklist on its card; closing it comes back to Settings.
-    await app.user.click(within(service).getByRole("button", { name: "Open the Your machines step in Set up" }));
+    await app.user.click(within(instructions).getByRole("button", { name: "Open the Instructions step in Set up" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
-    expect(within(checklist).getByRole("region", { name: "Your machines" })).toBeDefined();
+    expect(within(checklist).getByRole("region", { name: "Instructions" })).toBeDefined();
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
-    const again = pane("Service");
-    expect(within(field(again, "sessions.autoSettleOnMerge")).getByRole("switch").getAttribute("aria-checked")).toBe("false");
-    expect((within(field(again, "sessions.autoSettleAfterIdle")).getByRole("textbox") as HTMLInputElement).value).toBe("14 days");
+    const again = pane("Instructions");
+    expect(within(field(again, "instructions.orientation")).getByRole("switch").getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox");
     expect(within(ceiling).getAllByRole("option").map((option) => option.textContent)).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);

@@ -349,8 +349,11 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "routine.endpoint-set":
       case "routine.endpoint-removed":
         return data;
-      // A probe changing managed-tool rows (#373) changes no status: the request cache refreshes tools.list on it (#384).
+      // A probe changing managed-tool rows (#373) changes no status: the request cache refreshes tools.list on it (#384). Nor does a
+      // tool run's start or end (#376): its terminal streams on its own, and the probe after it is heard as tools.updated.
       case "tools.updated":
+      case "tool.run-started":
+      case "tool.run-finished":
         return data;
       // Settings changed (#391): the status holds none of them; the request cache fetches settings.get and
       // permissions.settings.get again (`QUERY_REFRESH_NOTICES`).
@@ -362,7 +365,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // A trust decision recorded or revoked (#500) changes no status: the request cache reads trust.get and trust.list again.
       case "trust.updated":
         return data;
-      // An owned instruction changed (#505) changes no status: the request cache reads instructions.list and instructions.preview again.
+      // An owned instruction changed (#505) changes no status: the request cache reads instructions.list, instructions.preview and instructions.diff (#509) again.
       case "instructions.updated":
         return data;
       // An unpaired extension seen (#547) changes no status: the request cache reads browser.status again.

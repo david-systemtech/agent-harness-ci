@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 
-/** A part of the Permissions pane: a region named by its heading, the pane's settings, its denylist or its review. */
+/** A part of a row's pane: a region named by its heading, such as the Permissions pane's settings, denylist and review. */
 export const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
   const heading = useId();
   return (

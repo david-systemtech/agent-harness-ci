@@ -117,6 +117,8 @@ export interface TestEnvironmentOptions {
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
   /** An orientation seam in place of the OrientationRenderer's, which the composer and the Orientation row read (#505); preset: the renderer's. */
   readonly orientation?: EnvironmentOptions["orientation"];
+  /** The catalogue the suggested instructions are read from (#509); preset: this build's. */
+  readonly catalogue?: EnvironmentOptions["catalogue"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
@@ -362,6 +364,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
     ...(options.orientation !== undefined && { orientation: options.orientation }),
+    ...(options.catalogue !== undefined && { catalogue: options.catalogue }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),

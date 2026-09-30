@@ -260,19 +260,19 @@ the desktop's builds. `<data>` is the environment's data directory. The
 runtime checks at the local environment's first ready and hourly, stages the
 newer build through `updates.desktop.stage` and hands it to the shell for the
 next quit on its own; until the window shows "Restart to update", step 3
-applies it from the console. Until #788 the environment stages the build in
-the desktop's own data directory and removes the rest of it, so step 2's
-paired environments need pairing again; this section passes once #788 is
-fixed.
+applies it from the console. The environment stages the build in
+`<data>/desktop-builds/`, a folder of its own beside the desktop's
+`<data>/desktop` (#788).
 
 ### Every platform
 
 1. **What it runs.** `await desktopShell.update.current()` answers the
    version installed, the platform, the architecture and the format: `zip`
    on macOS from Applications, `nsis` on Windows, `pacman` on Arch.
-2. **At the quit.** Start the desktop, wait until `<data>/desktop/<newer>/`
-   holds the build, then quit. Start it again: `current()` answers the newer
-   version, and the paired environments connect without pairing again.
+2. **At the quit.** Start the desktop, wait until
+   `<data>/desktop-builds/<newer>/` holds the build, then quit. Start it
+   again: `current()` answers the newer version, and the paired environments
+   connect without pairing again.
 3. **Now.** With a newer release again, once it is staged: `await
    desktopShell.update.apply({ path: "<the staged file>", version:
    "<newer>", sha256: "<its SHA-256>" }, "now")`. The window closes and the
@@ -306,3 +306,28 @@ fixed.
    -Q` names the old version, and the desktop keeps running.
 3. **Not a package.** Run an unpacked copy of the app outside pacman's files:
    `current()` answers the format null.
+
+## This computer's gh (#419)
+
+On every platform, with `gh` 2.40 or later installed through the platform's
+usual package manager (Homebrew on macOS, `winget` on Windows, the
+distribution's package on Linux), and the window connected to an environment
+offering `forge` with `admin`:
+
+1. **Signed in.** Run `gh auth login` for github.com in a terminal, then
+   start the desktop from the dock, Start menu or launcher (not from that
+   terminal). In Settings, Forges, Add a forge, type `https://github.com` and
+   press Use the gh signed in on this computer: the card appears with
+   "The gh token <user>@<host> handed over once: it will not follow gh's
+   rotations.", and `gh auth token` in the terminal prints the token the
+   environment verified with.
+2. **Not signed in.** Run `gh auth logout --hostname github.com`, remove the
+   forge account, and press it again: the dialog says gh is not signed in to
+   github.com, and nothing is added.
+3. **Not installed.** Uninstall `gh` (or rename it), and press it again: the
+   same line, and the desktop's log shows no error.
+4. **The token variables.** Start the desktop from a terminal with `GH_TOKEN`
+   set to another token, running its binary so it inherits the terminal's
+   variables (on macOS the app bundle's `Contents/MacOS` executable, not
+   `open -a`, whose launch does not pass them on): the token handed over is
+   the one `gh` stores, not `GH_TOKEN`'s.

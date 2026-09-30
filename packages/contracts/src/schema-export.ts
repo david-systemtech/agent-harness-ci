@@ -143,6 +143,20 @@ import {
   ToolsUpdatedPayload,
   VerifiableToolName,
 } from "./managed-tools.js";
+import {
+  InstallableToolName,
+  MANAGED_TOOL_COMMANDS,
+  RunnableToolAction,
+  ToolCommand,
+  ToolCommandEntry,
+  ToolCommandLine,
+  ToolCommandMethod,
+  ToolCommandPlatform,
+  ToolNotRunnableError,
+  ToolRunConflictReason,
+  ToolRunFinishedPayload,
+  ToolRunStartedPayload,
+} from "./managed-tool-commands.js";
 import { AccountUsage, HandoffBasis, HandoffReason, HandoffRecommendation, HandoffTrigger, UsageUpdatedPayload, UsageVerdict, UsageWindow } from "./usage.js";
 import {
   AutoSettleAfterIdle,
@@ -402,6 +416,7 @@ import {
   TerminalExitedPayload,
   TerminalId,
   TerminalInfo,
+  ToolTerminalInfo,
   TerminalOutputPayload,
   TerminalRows,
   TerminalSnapshot,
@@ -478,12 +493,14 @@ import {
   InstructionAccount,
   InstructionAlwaysOnSkill,
   InstructionBody,
+  InstructionDiff,
   InstructionId,
   InstructionOrigin,
   InstructionReach,
   InstructionTitle,
   InstructionsEventType,
   InstructionsUpdatedPayload,
+  InstructionVersionChoice,
   OrientationRow,
   OwnedInstruction,
   OwnedInstructionRow,
@@ -944,6 +961,17 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "managed-tools/doctor-report.json", title: "ToolDoctorReport", schema: ToolDoctorReport },
   { path: "managed-tools/detail.json", title: "ManagedToolDetail", schema: ManagedToolDetail },
   { path: "managed-tools/events/tools.updated.json", title: "ToolsUpdatedPayload", schema: ToolsUpdatedPayload },
+  { path: "managed-tools/command-platform.json", title: "ToolCommandPlatform", schema: ToolCommandPlatform },
+  { path: "managed-tools/command-method.json", title: "ToolCommandMethod", schema: ToolCommandMethod },
+  { path: "managed-tools/installable-name.json", title: "InstallableToolName", schema: InstallableToolName },
+  { path: "managed-tools/command.json", title: "ToolCommand", schema: ToolCommand },
+  { path: "managed-tools/command-entry.json", title: "ToolCommandEntry", schema: ToolCommandEntry },
+  { path: "managed-tools/command-line.json", title: "ToolCommandLine", schema: ToolCommandLine },
+  { path: "managed-tools/runnable-action.json", title: "RunnableToolAction", schema: RunnableToolAction },
+  { path: "managed-tools/run-conflict-reason.json", title: "ToolRunConflictReason", schema: ToolRunConflictReason },
+  { path: "managed-tools/errors/tool_not_runnable.json", title: "ToolNotRunnableError", schema: ToolNotRunnableError },
+  { path: "managed-tools/events/tool.run-started.json", title: "ToolRunStartedPayload", schema: ToolRunStartedPayload },
+  { path: "managed-tools/events/tool.run-finished.json", title: "ToolRunFinishedPayload", schema: ToolRunFinishedPayload },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
@@ -1119,12 +1147,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "instructions/account.json", title: "InstructionAccount", schema: InstructionAccount },
   { path: "instructions/orientation-row.json", title: "OrientationRow", schema: OrientationRow },
   { path: "instructions/owned-instruction-row.json", title: "OwnedInstructionRow", schema: OwnedInstructionRow },
+  { path: "instructions/version-choice.json", title: "InstructionVersionChoice", schema: InstructionVersionChoice },
+  { path: "instructions/diff.json", title: "InstructionDiff", schema: InstructionDiff },
   { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
   { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
   { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },
   { path: "terminals/terminal-environment.json", title: "TerminalEnvironment", schema: TerminalEnvironment },
   { path: "terminals/terminal-exit-cause.json", title: "TerminalExitCause", schema: TerminalExitCause },
   { path: "terminals/terminal-info.json", title: "TerminalInfo", schema: TerminalInfo },
+  { path: "terminals/tool-terminal-info.json", title: "ToolTerminalInfo", schema: ToolTerminalInfo },
   { path: "terminals/terminal-snapshot.json", title: "TerminalSnapshot", schema: TerminalSnapshot },
   { path: `terminals/events/${TERMINAL_OUTPUT_TYPE}.json`, title: "TerminalOutputPayload", schema: TerminalOutputPayload },
   { path: `terminals/events/${TERMINAL_EXITED_TYPE}.json`, title: "TerminalExitedPayload", schema: TerminalExitedPayload },
@@ -1539,6 +1570,18 @@ export const publishedData = (): PublishedData[] => [
     entries: MANAGED_TOOLS,
   },
   {
+    path: "data/managed-tool-commands.json",
+    title: "Managed tool commands",
+    description: [
+      "The closed command table (ADR 0026): per tool, method and platform, the command that installs the tool and the one that updates it, as fixed argument lists: steps, each run once the one before has succeeded, of programs, each one's output piped into the next.",
+      "tools.run runs one in a tool terminal through the user's login shell, each argument quoted as one word; nothing fetched ever becomes a command.",
+      "Install takes the first method available on the environment in the order homebrew, winget, apt, dnf, script, available where every program it needs is on the login shell's PATH; Update takes the method the tool was installed by, claude's native installer being its script.",
+      "Every other install method (manual, unknown, mise, asdf, Scoop) is Copy only, and vault, never installed, has no entry: its row offers Install bao.",
+    ].join(" "),
+    schema: "managed-tools/command-entry.json",
+    entries: MANAGED_TOOL_COMMANDS,
+  },
+  {
     path: "data/catalogue-skills.json",
     title: "Catalogue skills",
     description: [
@@ -1606,9 +1649,12 @@ const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCas
 
 const serialise = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
-/** Every file of the export, by path under `schema/`: one per schema, one per case table, one per data table, and `index.json`. */
-export const jsonSchemaFiles = (): Map<string, string> => {
-  const entries = exportedSchemas();
+/**
+ * Every file of the export, by path under `schema/`: one per schema, one per
+ * case table, one per data table, and `index.json`. `entries` are the schemas
+ * it writes, the exported ones unless a test hands it edited ones.
+ */
+export const jsonSchemaFiles = (entries: readonly ExportedSchema[] = exportedSchemas()): Map<string, string> => {
   const tables = publishedCaseTables();
   const data = publishedData();
   const files = new Map<string, string>();

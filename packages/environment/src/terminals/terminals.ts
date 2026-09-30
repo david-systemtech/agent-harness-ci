@@ -124,6 +124,8 @@ export interface OpenToolTerminal {
   readonly rows: number;
   /** Put over the clean base. */
   readonly env: Readonly<Record<string, string>>;
+  /** When it opened, as its opener already answered it; preset now, on the environment's clock. */
+  readonly openedAt?: string;
 }
 
 /** A tool terminal as its opener holds it. */
@@ -464,7 +466,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     openTool(request) {
       let heard: (exit: TerminalExitedPayload) => void = () => undefined;
       const exited = new Promise<TerminalExitedPayload>((resolve) => (heard = resolve));
-      const terminal = admit({ ...request, openedAt: options.clock.now().toISOString() }, { kind: "managed-tools", exited: (exit) => heard(exit) });
+      const terminal = admit({ ...request, openedAt: request.openedAt ?? options.clock.now().toISOString() }, { kind: "managed-tools", exited: (exit) => heard(exit) });
       start(terminal, { command: () => throughShell(shell(), request.command), cwd: request.cwd, env: request.env }, {});
       return { terminal: infoOf(terminal), exited };
     },

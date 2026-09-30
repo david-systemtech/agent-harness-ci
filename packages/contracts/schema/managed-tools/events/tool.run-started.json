@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolRunStartedPayload",
+  "type": "object",
+  "properties": {
+    "tool": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "bao",
+        "doppler",
+        "op",
+        "bws",
+        "gh"
+      ],
+      "description": "The tool installed or updated: bao for vault's Install."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "install",
+        "update"
+      ],
+      "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "homebrew",
+        "winget",
+        "apt",
+        "dnf",
+        "script",
+        "npm"
+      ],
+      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package, which it only updates."
+    },
+    "terminalId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The tool terminal the command runs in, so its id is never used again."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": "^[^\\r\\n]+$",
+      "description": "The command line the login shell runs."
+    }
+  },
+  "required": [
+    "tool",
+    "action",
+    "method",
+    "terminalId",
+    "command"
+  ],
+  "description": "tool.run-started: a client session began installing or updating a tool in a tool terminal: the tool, the action, the method, the terminal and the command line."
+}
