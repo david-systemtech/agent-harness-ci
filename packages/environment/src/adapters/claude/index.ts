@@ -70,6 +70,8 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
   // A trusted repository's CLAUDE.md and rules load through the `project` settings source (#500): the composer adds nothing for them.
   nativeProjectInstructions: true,
+  // So do its `.claude/skills` and its own commands (#495): a member there is native, left out of the generation.
+  nativeSkillRoots: [".claude/skills", ".claude/commands"],
   // Every mode is the SDK permission mode of its name (permissions spec, the Claude mapping), available to every account.
   modes: CLAUDE_MODES.map((mode) => ({ mode, available: true, reason: null })),
 };

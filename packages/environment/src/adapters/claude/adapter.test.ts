@@ -1776,13 +1776,14 @@ describe("status, models and commands", () => {
     expect(fake.last().prompts).toEqual([]);
   });
 
-  it("describes itself: the four modes, the append channel, a trusted repository's instructions its own to load, a provider queue that steers, containment enforced", () => {
+  it("describes itself: the four modes, the append channel, a trusted repository's instructions, .claude/skills and commands its own to load, a provider queue that steers, containment enforced", () => {
     expect(CLAUDE_DESCRIPTOR).toMatchObject({
       containment: true,
       provider: "claude",
       modes: ["acceptEdits", "plan", "auto", "bypassPermissions"].map((mode) => ({ mode, available: true, reason: null })),
       instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
       nativeProjectInstructions: true,
+      nativeSkillRoots: [".claude/skills", ".claude/commands"],
       providerQueue: true,
       steering: true,
       planUsage: true,

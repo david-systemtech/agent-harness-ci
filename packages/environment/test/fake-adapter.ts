@@ -639,8 +639,10 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     // The fake stands in for an adapter that enforces containment, as the Claude adapter does (#140), so the gate's rules can be driven.
     containment: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
-    // Claude-shaped: a trusted repository's own instructions are the provider's to load; a test declares an adapter without.
+    // Claude-shaped: a trusted repository's own instructions, `.claude/skills` and commands are the provider's to load; a
+    // test declares an adapter without, or with other roots.
     nativeProjectInstructions: true,
+    nativeSkillRoots: [".claude/skills", ".claude/commands"],
     modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,
   };

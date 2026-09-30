@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunSkillSet",
+  "type": "object",
+  "properties": {
+    "generation": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The generation's directory: a plugin holding a link to every member that is not native. Null when there is nothing to link."
+    },
+    "fingerprint": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "A skill set's fingerprint: it covers the members' names, folders, origins and snapshot commits and the hidden native names, so two sets with one fingerprint hold the same; a provider process spawned under another is not reused."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The set's fingerprint; null while none is resolved for the run."
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "maxLength": 64
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "repository"
+                      },
+                      "repository": {
+                        "type": "string",
+                        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                        "description": "The identity of the repository the member was read from: its source's, or the trusted repository's."
+                      },
+                      "path": {
+                        "description": "The member's folder in that repository, from its root; . when the root is itself the skill.",
+                        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "repository",
+                      "path"
+                    ],
+                    "description": "The repository the member was read from, by its identity, and the member's folder there."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "manifest"
+                      },
+                      "repository": {
+                        "type": "string",
+                        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                        "description": "The identity of the repository the manifest says the member was copied from."
+                      },
+                      "path": {
+                        "description": "The member's folder in that repository, as the manifest names it.",
+                        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                        "type": "string"
+                      },
+                      "commit": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{4,64}$",
+                            "description": "The commit the member was copied at, as the manifest names it: its object name, full or abbreviated."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "licence": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The licence the manifest names, an SPDX identifier where it gives one; null when it names none."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "repository",
+                      "path",
+                      "commit",
+                      "licence"
+                    ],
+                    "description": "What a provenance manifest beside the member names: the repository and folder it was copied from, the commit and the licence."
+                  }
+                ],
+                "description": "Where a member comes from, which the readiness overlay is keyed by (repository identity and folder path): the repository it was read from, or what a provenance manifest beside a copy names."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it comes from; null for a member of the own directory with no provenance manifest, or of a repository with no identity."
+          },
+          "invocation": {
+            "type": "string",
+            "enum": [
+              "model+slash",
+              "slash-only"
+            ],
+            "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+          },
+          "native": {
+            "type": "boolean",
+            "description": "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation."
+          }
+        },
+        "required": [
+          "name",
+          "origin",
+          "invocation",
+          "native"
+        ],
+        "description": "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, and whether the provider loads it itself."
+      },
+      "description": "Every member of the set, native ones included, by name."
+    },
+    "hiddenNativeNames": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "maxLength": 64
+      },
+      "description": "The names of the native members switched off, which the adapter hides from its provider."
+    }
+  },
+  "required": [
+    "generation",
+    "fingerprint",
+    "members",
+    "hiddenNativeNames"
+  ],
+  "description": "A run's skill set as its adapter is handed it: the generation to map, the fingerprint, every member with its name, origin, invocation and whether it is native, and the native names to hide."
+}
