@@ -175,7 +175,8 @@ import { createMethodTable, type MethodTable } from "./methods.js";
 import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { createTrash } from "./trash.js";
-import { fileVault, holdVault, VAULT_FILE, type Vault } from "./vault.js";
+import { chooseVault, loadKeychainBinding } from "./keychain.js";
+import { holdVault, type Vault } from "./vault.js";
 
 /** The harness version the environment reports: its own package's, read from `src/` and `dist/` alike. */
 export const HARNESS_VERSION: string = (
@@ -280,7 +281,13 @@ export interface EnvironmentOptions {
   readonly user?: UserCheck;
   /** Preset: the IPC channel of a launcher that spawned the environment, else nothing (`processLauncherChannel`). */
   readonly launcher?: LauncherChannel;
-  /** Preset: the file vault in the data directory. Every entry is registered with the scrub registry while the environment holds it. */
+  /**
+   * Preset: the one the vault chooser picks (#364), which the start logs in
+   * one line with why: the OS keychain on macOS and Windows under the
+   * user's launch agent or logon task, where the binding loads and answers,
+   * the file vault in the data directory otherwise. Every entry is registered
+   * with the scrub registry while the environment holds it.
+   */
   readonly vault?: Vault;
   /** Registered and caught up from their cursors in the `projectors` step, after the environment's own (the session list). */
   readonly projectors?: readonly Projector[];
@@ -744,7 +751,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
-    const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
+    const { vault: chosen, reason } =
+      options.vault === undefined
+        ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding: loadKeychainBinding })
+        : { vault: options.vault, reason: undefined };
+    const vault = await holdVault(chosen, scrub);
+    // Logged once every entry is registered, so the scrub on standard error takes a value a keychain's error carried.
+    if (reason !== undefined) console.error(reason);
     const key = await ensureSigningKey(vault);
     const access = createAccessLog(log, loaded.id);
     const loadedClientSessions: ClientSessions = createClientSessions({
