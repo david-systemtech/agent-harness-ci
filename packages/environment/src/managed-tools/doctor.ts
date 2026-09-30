@@ -87,9 +87,9 @@ const reportedMethod = (fields: readonly ToolDoctorField[]): ManagedToolInstallM
   return REPORTED_METHODS[running] ?? null;
 };
 
-/** The summary's fields and the warnings in what `doctor` printed; no fields when it printed no summary. */
+/** The summary's fields and the warnings in what `doctor` printed, its escape sequences gone; no fields when it printed no summary. */
 const readDoctor = (printed: string): { readonly fields: ToolDoctorField[]; readonly warnings: ToolDoctorWarning[] } => {
-  const lines = stripVTControlCharacters(printed).split(/\r?\n/);
+  const lines = printed.split(/\r?\n/);
   const fields: ToolDoctorField[] = [];
   // The summary: the first run of field lines, ended by a blank line.
   const first = lines.findIndex((line) => FIELD.test(line));
@@ -101,7 +101,7 @@ const readDoctor = (printed: string): { readonly fields: ToolDoctorField[]; read
   const heading = lines.findIndex((line) => WARNINGS_HEADING.test(line.trim()));
   for (let at = heading + 1; heading !== -1 && at < lines.length && lines[at]?.trim() !== ""; at += 1) {
     const line = lines[at] ?? "";
-    const fix = /^\s+Fix:\s*(.+)$/.exec(line)?.[1];
+    const fix = /^\s+Fix:\s*(\S.*)$/.exec(line)?.[1];
     const last = warnings.at(-1);
     if (line.startsWith("- ") && line.slice(2).trim() !== "" && warnings.length < 32) warnings.push({ issue: cut(line.slice(2).trim(), TEXT_LENGTH), fix: null });
     else if (fix !== undefined && last !== undefined && last.fix === null) warnings[warnings.length - 1] = { ...last, fix: cut(fix.trim(), TEXT_LENGTH) };
@@ -129,7 +129,8 @@ export const createToolDoctor = (options: ToolDoctorOptions): ToolDoctor => {
     if (answer.outcome === "missing") return { outcome: "not-installed" };
     if (answer.outcome === "failed") return { outcome: "failed", reason: `${tool} doctor failed: ${answer.why}.` };
     if (answer.code !== 0) return { outcome: "failed", reason: `${tool} doctor exited with code ${answer.code ?? "none"}${said(answer)}.` };
-    const { fields, warnings } = readDoctor(scrub.scrubOutput(answer.stdout));
+    // Scrubbed once its escape sequences are gone, so a value one splits is found, as standard error's line is.
+    const { fields, warnings } = readDoctor(scrub.scrubOutput(stripVTControlCharacters(answer.stdout)));
     if (fields.length === 0) return { outcome: "failed", reason: `${tool} doctor printed no summary to read.` };
     return { outcome: "read", method: reportedMethod(fields), fields, warnings };
   };

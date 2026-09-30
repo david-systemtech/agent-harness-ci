@@ -174,6 +174,24 @@ posix("tools.detail", () => {
     expect(answer.doctor).toMatchObject({ fields: expect.arrayContaining([{ name: "Platform", value: "linux-x64 [redacted]" }]) });
   });
 
+  it("scrubs what doctor printed once its escape sequences are gone, so a held value split by one is redacted too", async () => {
+    const path = fakePath();
+    const held = "a-value-the-environment-holds";
+    nativeClaude(path, { stdout: NATIVE_DOCTOR.replace("Platform: linux-x64", "Platform: linux-x64 a-value-the-\u001b[1menvironment-holds") });
+    const { t, client } = await withTools(path);
+    t.scrub.register(held, { owner: "test:secret" });
+    const answer = await detail(client);
+    expect(JSON.stringify(answer)).not.toContain(held);
+    expect(answer.doctor).toMatchObject({ fields: expect.arrayContaining([{ name: "Platform", value: "linux-x64 [redacted]" }]) });
+  });
+
+  it("gives a warning no fix when its Fix line says nothing", async () => {
+    const path = fakePath();
+    nativeClaude(path, { stdout: NATIVE_DOCTOR.replace("  Fix: Run claude install to update configuration", "  Fix:   ") });
+    const { client } = await withTools(path);
+    expect((await detail(client)).doctor).toMatchObject({ warnings: [{ issue: "Running native installation but config install method is 'unknown'", fix: null }] });
+  });
+
   it("is a read method: a client session with the read scope alone may call it", async () => {
     const path = fakePath();
     nativeClaude(path, { stdout: NATIVE_DOCTOR });
