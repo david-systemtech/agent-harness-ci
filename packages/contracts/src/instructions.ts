@@ -3,7 +3,7 @@ import { InstructionChannelKind, RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Sha256 } from "./release.js";
 import { SkillName } from "./skill-rules.js";
-import { GitCommit, SkillOrigin } from "./skills.js";
+import { GitCommit, SkillOrigin, SkillSetFingerprint } from "./skills.js";
 
 /**
  * The composition of a run's standing instructions (skills-instructions
@@ -99,7 +99,7 @@ export const InstructionManifest = z
       description: "The layers the text holds, in their fixed order; a layer that gave nothing, or whose parts were all left out, is not listed.",
     }),
     alwaysOn: z.array(InstructionAlwaysOnSkill).meta({ description: "The always-on skills the text holds, in the order it holds them." }),
-    skillSetFingerprint: z.string().min(1).nullable().meta({ description: "The fingerprint of the run's skill set; null while none is resolved for it." }),
+    skillSetFingerprint: SkillSetFingerprint.nullable().meta({ description: "The fingerprint of the run's skill set; null while none is resolved for it." }),
     unreadRegistries: z.array(z.string().min(1)).meta({
       description: "The registries the orientation block could not read in time, each rendered as could not be read; empty when every one was read.",
     }),

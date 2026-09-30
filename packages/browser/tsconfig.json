@@ -1,9 +1,11 @@
 {
   // What runs in every browser: the extension's pages, a page's isolated world, the desktop shell's and the environment's
-  // Chromium drivers, and the environment's jsdom. So the DOM's types and no Node's.
+  // Chromium drivers, and the environment's jsdom. So the DOM's types and no Node's. The testing exports, which serve the
+  // scripted CDP peer to other packages' tests under Node, are their own project (tsconfig.testing.json).
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
+  "exclude": ["src/**/*.test.ts", "src/testing"],
   "references": [{ "path": "../contracts" }]
 }

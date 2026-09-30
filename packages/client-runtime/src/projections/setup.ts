@@ -94,6 +94,12 @@ export interface SetupStepView {
   readonly home: SettingsRowId;
   /** Whether the environment registers it: it has given a result for it. */
   readonly registered: boolean;
+  /**
+   * Whether it may be skipped (the step registry's `skippable`), for the
+   * first launch's Skip for now: false for a step this build's registry
+   * lacks, whose rule it cannot know.
+   */
+  readonly skippable: boolean;
   /** Its latest result; null for a step the environment has given none for. */
   readonly result: SetupResultView | null;
   /** This client asked `setup.check` about it half a second ago or more, and has had no answer yet. Never for a check this client did not ask. */
@@ -135,6 +141,9 @@ const nextAgeChange = (view: SetupView): number | null => {
   }
   return soonest;
 };
+
+/** The steps this build's registry lets be skipped. */
+const SKIPPABLE: ReadonlySet<StepId> = new Set(STEP_REGISTRY.filter((step) => step.skippable).map((step) => step.id));
 
 /** The row each step lives on, from the row registry (every step of the order has one, registered or not). */
 const HOME_ROWS: ReadonlyMap<StepId, SettingsRowId> = new Map(
@@ -234,6 +243,7 @@ export const createSetup = (host: SetupHost): Setup => {
         label: STEP_LABELS[id],
         home: HOME_ROWS.get(id) as SettingsRowId,
         registered: held !== undefined,
+        skippable: SKIPPABLE.has(id),
         // An answer is as fresh as the stream while the environment can be reached; the stream's results, once it is live.
         result: held === undefined ? null : resultView(held.result, now, !reachable || (!held.answered && !live)),
         pending: asking.some((ask) => ask.step === undefined || ask.step === id),

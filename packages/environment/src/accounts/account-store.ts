@@ -180,9 +180,26 @@ const stored = (row: AccountRow): StoredAccount => ({
   everSignedIn: row.signed_in_ever === 1,
 });
 
+/** An account as its status has stood: its record, and since when its status has been what it is. */
+export interface AccountStanding {
+  readonly record: AccountRecord;
+  /** When its status last changed (its latest `account.status-changed`), else when it was adopted or added. */
+  readonly since: string;
+}
+
+/**
+ * The accounts the environment holds, in the order they were adopted or
+ * added, each with since when its status has stood: the read model's own
+ * times, never the service's latest read, so a read that finds nothing new
+ * moves none (#381's accounts section).
+ */
+export const listAccountStandings = (reader: Reader): AccountStanding[] =>
+  reader
+    .all<AccountRow>(`SELECT ${COLUMNS} FROM accounts WHERE removed_at IS NULL ORDER BY position`)
+    .map((row) => ({ record: stored(row).record, since: row.status_at ?? row.created_at }));
+
 /** The accounts the environment holds, in the order they were adopted or added. */
-export const listAccounts = (reader: Reader): AccountRecord[] =>
-  reader.all<AccountRow>(`SELECT ${COLUMNS} FROM accounts WHERE removed_at IS NULL ORDER BY position`).map((row) => stored(row).record);
+export const listAccounts = (reader: Reader): AccountRecord[] => listAccountStandings(reader).map(({ record }) => record);
 
 /** The account `id` names, removed or not; null when the store never held it. */
 export const readAccount = (reader: Reader, id: string): StoredAccount | null => {

@@ -1,0 +1,15 @@
+{
+  // The testing exports (`@agent-harness/browser/testing`): the scripted CDP peer, which other packages' tests drive the
+  // page driver against over a loopback WebSocket or a pipe. They run under Node, so they have Node's types beside the
+  // DOM's, and are built into the package's `dist/testing` beside the shipped source, which never imports them.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src/testing"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [{ "path": "." }, { "path": "../contracts" }]
+}

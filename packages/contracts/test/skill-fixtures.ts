@@ -58,6 +58,13 @@ const ownMember = { ...member, path: "skills/tdd", origin: manifestOrigin, layer
 const commandMember = { ...member, kind: "command", path: "commands/tdd.md", origin: null, layer: own, whileActive: ["allowed-tools"] };
 const setMember = { ...ownMember, shadowedBy: null };
 const shadowed = { ...commandMember, shadowedBy: { layer: own, path: "skills/tdd" } };
+const runMember = { name: "tdd", origin: manifestOrigin, invocation: "model+slash", native: false };
+const runSkillSet = {
+  generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
+  fingerprint: "3f9a",
+  members: [runMember, { name: "release", origin: null, invocation: "slash-only", native: true }],
+  hiddenNativeNames: ["triage"],
+};
 const choices = [
   { kind: "enabled", name: "tdd", accountId: null, enabled: false },
   { kind: "enabled", name: "tdd", accountId: "claude-max", enabled: true },
@@ -185,6 +192,21 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
   },
   "skills/view.json": { valid: [view], invalid: [{ ...view, members: undefined }, { ...view, ownDirectory: 7 }] },
   "skills/skills-updated.json": { valid: [{}], invalid: [null, "updated"] },
+  "skills/native-root.json": { valid: [".claude/skills", ".agents/skills", ".claude/commands"], invalid: [".claude/agents", ".codex/skills", ""] },
+  "skills/set-fingerprint.json": { valid: ["3f9a", "c".repeat(64)], invalid: ["", 7, null] },
+  "skills/run-skill-set-member.json": {
+    valid: [runMember, { ...runMember, origin: null, invocation: "slash-only", native: true }],
+    invalid: [{ ...runMember, name: "Tdd" }, { ...runMember, native: undefined }, { ...runMember, invocation: "model" }],
+  },
+  "skills/run-skill-set.json": {
+    valid: [runSkillSet, { generation: null, fingerprint: null, members: [], hiddenNativeNames: [] }],
+    invalid: [
+      { ...runSkillSet, generation: "skills/generations/3f9a" },
+      { ...runSkillSet, fingerprint: "" },
+      { ...runSkillSet, hiddenNativeNames: ["Triage"] },
+      { ...runSkillSet, members: undefined },
+    ],
+  },
   "skills/member.json": {
     valid: [
       member,
