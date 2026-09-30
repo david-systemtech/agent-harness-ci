@@ -103,8 +103,10 @@ import {
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import {
   MANAGED_TOOLS,
+  DoctorToolName,
   ManagedTool,
   ManagedToolAction,
+  ManagedToolDetail,
   ManagedToolInstallMethod,
   ManagedToolName,
   ManagedToolRow,
@@ -112,6 +114,9 @@ import {
   ManagedToolVerification,
   ManagedToolVerifyOutcome,
   ManagedToolVersion,
+  ToolDoctorField,
+  ToolDoctorReport,
+  ToolDoctorWarning,
   ToolsUpdatedPayload,
   VerifiableToolName,
 } from "./managed-tools.js";
@@ -857,6 +862,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "managed-tools/verifiable-name.json", title: "VerifiableToolName", schema: VerifiableToolName },
   { path: "managed-tools/verify-outcome.json", title: "ManagedToolVerifyOutcome", schema: ManagedToolVerifyOutcome },
   { path: "managed-tools/verification.json", title: "ManagedToolVerification", schema: ManagedToolVerification },
+  { path: "managed-tools/doctor-name.json", title: "DoctorToolName", schema: DoctorToolName },
+  { path: "managed-tools/doctor-field.json", title: "ToolDoctorField", schema: ToolDoctorField },
+  { path: "managed-tools/doctor-warning.json", title: "ToolDoctorWarning", schema: ToolDoctorWarning },
+  { path: "managed-tools/doctor-report.json", title: "ToolDoctorReport", schema: ToolDoctorReport },
+  { path: "managed-tools/detail.json", title: "ManagedToolDetail", schema: ManagedToolDetail },
   { path: "managed-tools/events/tools.updated.json", title: "ToolsUpdatedPayload", schema: ToolsUpdatedPayload },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },

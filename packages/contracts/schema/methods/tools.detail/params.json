@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tools.detail params",
+  "type": "object",
+  "properties": {
+    "tool": {
+      "type": "string",
+      "enum": [
+        "claude"
+      ],
+      "description": "A managed tool with a doctor command, which tools.detail runs: claude."
+    }
+  },
+  "required": [
+    "tool"
+  ]
+}

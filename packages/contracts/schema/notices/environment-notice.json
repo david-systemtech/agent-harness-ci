@@ -4622,6 +4622,20 @@
                     ],
                     "description": "The version its --version reported within five seconds; null when it is not installed or none was read."
                   },
+                  "latest": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+                        "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The newest release known, from the source matching its install method (the Homebrew API, the npm registry, WinGet's manifests, GitHub releases), else the vendor's release feed: fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
+                  },
                   "minimum": {
                     "anyOf": [
                       {
@@ -4670,7 +4684,7 @@
                       "not-installed",
                       "method-unknown"
                     ],
-                    "description": "A managed tool's status: current; update-available (a newer version is known, a badge only); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told)."
+                    "description": "A managed tool's status: current; update-available (its version is behind the latest known, a badge only: it raises no notice and fails no check); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told). Below the minimum is said before method-unknown, and both before update-available."
                   },
                   "action": {
                     "type": "string",
@@ -4688,12 +4702,13 @@
                   "path",
                   "realpath",
                   "version",
+                  "latest",
                   "minimum",
                   "method",
                   "status",
                   "action"
                 ],
-                "description": "A managed tool as the environment's last probe found it: where, which version against its minimum, how it was installed, its status and its one action."
+                "description": "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status and its one action."
               },
               "description": "The rows that changed, as they are now, in the table's order."
             }
@@ -4701,14 +4716,14 @@
           "required": [
             "tools"
           ],
-          "description": "A probe changed managed-tool rows: those rows as they are now."
+          "description": "A probe, or a latest version fetched, changed managed-tool rows: those rows as they are now."
         }
       },
       "required": [
         "type",
         "payload"
       ],
-      "description": "A probe of the managed tools changed rows: those rows as they are now."
+      "description": "A probe of the managed tools, or a fetch of their latest versions, changed rows: those rows as they are now."
     },
     {
       "type": "object",

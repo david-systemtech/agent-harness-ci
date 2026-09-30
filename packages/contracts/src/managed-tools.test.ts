@@ -3,10 +3,12 @@ import {
   CAPABILITY_FLAG_LIST,
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
+  DoctorToolName,
   GH_MINIMUM_VERSION,
   MANAGED_TOOLS,
   MANAGED_TOOL_INSTALL_METHODS,
   ManagedTool,
+  ManagedToolDetail,
   ManagedToolRow,
   ManagedToolVerification,
   ManagedToolVersion,
@@ -22,8 +24,9 @@ import {
 /**
  * The Managed tools table and its registry's vocabulary (key-managers spec,
  * "Managed tools"; ADR 0011, ADR 0026): the tools as data, each with its
- * minimum and verify command, the rows `tools.list` answers, a
- * key-manager connection's CLI row, what `tools.verify` answers (#375), the
+ * minimum and verify command, the rows `tools.list` answers with the latest
+ * version known (#374), a key-manager connection's CLI row, what
+ * `tools.verify` answers (#375), what `tools.detail` answers (#374), the
  * notice a changed row raises and the capability flag.
  */
 
@@ -112,18 +115,23 @@ describe("a Managed tools row", () => {
     path: "/usr/local/bin/gh",
     realpath: "/opt/homebrew/Cellar/gh/2.63.2/bin/gh",
     version: "2.63.2",
+    latest: "2.63.2",
     minimum: "2.40.0",
     method: "homebrew",
     status: "current",
     action: "update",
   } as const;
 
-  it("carries the tool, where it was found, its version against its minimum, its install method, one status and one action", () => {
+  it("carries the tool, where it was found, its version against its minimum and the latest known, its install method, one status and one action", () => {
     expect(ManagedToolRow.parse(row)).toEqual(row);
-    const missing = { ...row, path: null, realpath: null, version: null, method: null, status: "not-installed", action: "install" } as const;
+    const behind = { ...row, latest: "2.101.0", status: "update-available" } as const;
+    expect(ManagedToolRow.parse(behind)).toEqual(behind);
+    const missing = { ...row, path: null, realpath: null, version: null, latest: null, method: null, status: "not-installed", action: "install" } as const;
     expect(ManagedToolRow.parse(missing)).toEqual(missing);
     expect(ManagedToolRow.safeParse({ ...row, status: "outdated" }).success).toBe(false);
     expect(ManagedToolRow.safeParse({ ...row, action: "ignore" }).success).toBe(false);
+    expect(ManagedToolRow.safeParse({ ...row, latest: "v2.101.0" }).success).toBe(false);
+    expect(ManagedToolRow.safeParse(Object.fromEntries(Object.entries(row).filter(([key]) => key !== "latest"))).success).toBe(false);
   });
 
   it("reads its install method from the path's shape, the system package owner, claude's native versions directory, else manual or unknown", () => {
@@ -135,8 +143,8 @@ describe("a key-manager connection's CLI", () => {
   const row = (tool: "bao" | "vault" | "doppler", version: string | null): ManagedToolRow => {
     const { label, minimum } = managedTool(tool);
     return version === null
-      ? { tool, label, path: null, realpath: null, version: null, minimum, method: null, status: "not-installed", action: "install" }
-      : { tool, label, path: `/usr/bin/${tool}`, realpath: `/usr/bin/${tool}`, version, minimum, method: "apt", status: "current", action: "update" };
+      ? { tool, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install" }
+      : { tool, label, path: `/usr/bin/${tool}`, realpath: `/usr/bin/${tool}`, version, latest: null, minimum, method: "apt", status: "current", action: "update" };
   };
 
   it("is served by the tools the table requires for its provider: bao or vault for OpenBao, doppler, op and bws for the others", () => {
@@ -173,10 +181,53 @@ describe("tools.verify", () => {
   });
 });
 
+describe("tools.detail", () => {
+  const claude = {
+    tool: "claude",
+    label: "claude in your terminal",
+    path: "/home/david/.local/bin/claude",
+    realpath: "/home/david/.local/share/claude/versions/2.1.283",
+    version: "2.1.283",
+    latest: "2.1.285",
+    minimum: null,
+    method: "native",
+    status: "update-available",
+    action: "update",
+  } as const;
+  const read = {
+    outcome: "read",
+    method: "npm",
+    fields: [
+      { name: "Running", value: "npm-global (2.1.283)" },
+      { name: "Config install method", value: "unknown" },
+    ],
+    warnings: [{ issue: "Running native installation but config install method is 'unknown'", fix: "Run claude install to update configuration" }],
+  } as const;
+
+  it("is a read query naming a tool with a doctor command, which only claude has", () => {
+    const detail = registry["tools.detail"];
+    expect(detail.params.safeParse({ tool: "claude" }).success).toBe(true);
+    for (const params of [{ tool: "gh" }, { tool: "bao" }, { tool: "codex" }, {}]) expect(detail.params.safeParse(params).success, JSON.stringify(params)).toBe(false);
+    expect(DoctorToolName.options).toEqual(["claude"]);
+  });
+
+  it("answers the row, whose method is the one detected, beside the fields doctor printed and the method it reports, so a difference shows", () => {
+    const answer = { tool: "claude", row: claude, doctor: read };
+    expect(registry["tools.detail"].result.parse(answer)).toEqual(answer);
+    expect(ManagedToolDetail.parse({ ...answer, doctor: { ...read, method: null, warnings: [{ issue: "Multiple installations found", fix: null }] } })).toMatchObject({ doctor: { method: null } });
+    expect(ManagedToolDetail.parse({ ...answer, doctor: { outcome: "failed", reason: "claude doctor gave no answer within 30 s." } })).toMatchObject({ doctor: { outcome: "failed" } });
+    expect(ManagedToolDetail.parse({ ...answer, doctor: { outcome: "not-installed" } })).toMatchObject({ doctor: { outcome: "not-installed" } });
+    expect(ManagedToolDetail.safeParse({ ...answer, doctor: { ...read, method: "npm-global" } }).success).toBe(false);
+    expect(ManagedToolDetail.safeParse({ ...answer, doctor: { outcome: "failed", reason: "two\nlines" } }).success).toBe(false);
+    expect(ManagedToolDetail.safeParse({ ...answer, doctor: { ...read, fields: [{ name: "", value: "x" }] } }).success).toBe(false);
+    expect(ManagedToolDetail.safeParse({ ...answer, tool: "gh" }).success).toBe(false);
+  });
+});
+
 describe("tools.list", () => {
-  it("is a read query taking an optional refresh, answering the rows in the table's order and when they were probed; tools.verify an admin query", () => {
+  it("is a read query taking an optional refresh, answering the rows in the table's order and when they were probed; tools.detail a read query and tools.verify an admin one", () => {
     const owned = methods.filter((m) => m.name.startsWith("tools."));
-    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({ "tools.list": ["query", "read"], "tools.verify": ["query", "admin"] });
+    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({ "tools.list": ["query", "read"], "tools.detail": ["query", "read"], "tools.verify": ["query", "admin"] });
     const list = registry["tools.list"];
     expect(list.params.safeParse({}).success).toBe(true);
     expect(list.params.safeParse({ refresh: true }).success).toBe(true);
@@ -191,7 +242,7 @@ describe("the tools.updated notice", () => {
     expect(eventTypeEntry("environment", "tools.updated")?.list).toBe(false);
     const notice = {
       type: "tools.updated",
-      payload: { tools: [{ tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install" }] },
+      payload: { tools: [{ tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, latest: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install" }] },
     };
     expect(EnvironmentNotice.parse(notice)).toEqual(notice);
     expect(EnvironmentNotice.safeParse({ type: "tools.updated", payload: { tools: [] } }).success).toBe(false);

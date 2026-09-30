@@ -1271,6 +1271,26 @@
       "title": "ManagedToolVerification"
     },
     {
+      "path": "managed-tools/doctor-name.json",
+      "title": "DoctorToolName"
+    },
+    {
+      "path": "managed-tools/doctor-field.json",
+      "title": "ToolDoctorField"
+    },
+    {
+      "path": "managed-tools/doctor-warning.json",
+      "title": "ToolDoctorWarning"
+    },
+    {
+      "path": "managed-tools/doctor-report.json",
+      "title": "ToolDoctorReport"
+    },
+    {
+      "path": "managed-tools/detail.json",
+      "title": "ManagedToolDetail"
+    },
+    {
       "path": "managed-tools/events/tools.updated.json",
       "title": "ToolsUpdatedPayload"
     },
@@ -4431,6 +4451,18 @@
       "title": "tools.list error"
     },
     {
+      "path": "methods/tools.detail/params.json",
+      "title": "tools.detail params"
+    },
+    {
+      "path": "methods/tools.detail/result.json",
+      "title": "tools.detail result"
+    },
+    {
+      "path": "methods/tools.detail/error.json",
+      "title": "tools.detail error"
+    },
+    {
       "path": "methods/tools.verify/params.json",
       "title": "tools.verify params"
     },
@@ -6290,6 +6322,15 @@
       "params": "methods/tools.list/params.json",
       "result": "methods/tools.list/result.json",
       "error": "methods/tools.list/error.json"
+    },
+    {
+      "name": "tools.detail",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/tools.detail/params.json",
+      "result": "methods/tools.detail/result.json",
+      "error": "methods/tools.detail/error.json"
     },
     {
       "name": "tools.verify",

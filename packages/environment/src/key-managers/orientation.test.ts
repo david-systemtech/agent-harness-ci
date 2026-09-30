@@ -7,6 +7,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import type { ManualClock } from "../../test/clock.js";
 import { bubblewrapProbe } from "../../test/containment.js";
 import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
+import { latestNoticed, startFakeReleaseSources } from "../../test/fake-release-sources.js";
 import { fakeToolPath } from "../../test/fake-tools.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import {
@@ -222,6 +223,26 @@ posix("the key managers section", () => {
     expect(keyManagersOf(below)).toContain("Its CLI (bao or vault): bao 2.0.0, below the minimum 2.1.1; vault is not installed.");
     expect(keyManagersOf(meets)).toContain("Its CLI (bao or vault): bao 2.6.3, which meets the minimum 2.1.1; vault is not installed.");
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([below, meets]);
+  });
+
+  it("is byte-identical once a newer CLI release is known, its row update-available, so the session's process is reused", async () => {
+    const released = await startFakeReleaseSources();
+    onCleanup(() => released.close());
+    released.github("openbao/openbao", ["v2.7.0"]);
+    const { t, bao, client } = await withOpenBao({ managedTools: { releaseOrigins: released.origins } }, { bao: "bao version 2.6.3" });
+    await tools(client);
+    await connected(client, bao, { label: "Home" });
+    const session = await create(client);
+    const before = await runTo(t, client, session.id);
+
+    const from = t.env.log.head();
+    await tools(client, true);
+    expect(await latestNoticed(client, from, "bao")).toMatchObject([{ tool: "bao", version: "2.6.3", latest: "2.7.0", status: "update-available" }]);
+    const after = await runTo(t, client, session.id, "After the release");
+
+    expect(after).toBe(before);
+    expect(keyManagersOf(after)).toContain("Its CLI (bao or vault): bao 2.6.3, which meets the minimum 2.1.1; vault is not installed.");
+    expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([before]);
   });
 
   it("never holds a credential, a login or run token, or the pinned CA", async () => {
