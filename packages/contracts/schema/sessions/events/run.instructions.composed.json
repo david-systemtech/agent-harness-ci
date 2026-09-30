@@ -222,7 +222,7 @@
             {
               "type": "string",
               "minLength": 1,
-              "description": "A skill set's fingerprint: it covers the members' names, folders, origins and snapshot commits and the hidden native names, so two sets with one fingerprint hold the same; a provider process spawned under another is not reused."
+              "description": "A skill set's fingerprint: it covers the members' names, folders, origins and snapshot commits, whether each is native and always-on, and the hidden native names, so two sets with one fingerprint hold the same; a provider process spawned under another is not reused."
             },
             {
               "type": "null"

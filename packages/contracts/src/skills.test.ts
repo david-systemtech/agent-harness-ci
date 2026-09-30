@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_RUN_SKILL_SET,
   ENVIRONMENT_NOTICE_TYPES,
+  EVENT_TYPES,
   EnvironmentNotice,
   NativeSkillRoot,
   PRODUCT_NAME,
@@ -13,6 +14,7 @@ import {
   RepositoryIdentity,
   RunSkillSet,
   SKILL_PLUGIN_NAME,
+  SKILLS_STREAM_KIND,
   SkillChoice,
   SkillMember,
   SkillsView,
@@ -22,6 +24,7 @@ import {
   SkillSourceFollow,
   approximateTokens,
   eventTypeEntry,
+  isListEvent,
   methods,
   readSkillMember,
   registry,
@@ -155,13 +158,13 @@ describe("a run's skill set", () => {
     generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
     fingerprint: "3f9a",
     members: [
-      { name: "tdd", origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" }, invocation: "model+slash", native: false },
-      { name: "release", origin: null, invocation: "slash-only", native: true },
+      { name: "tdd", origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" }, invocation: "model+slash", native: false, alwaysOn: true },
+      { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
     ],
     hiddenNativeNames: ["triage"],
   };
 
-  it("hands an adapter the generation, the fingerprint, every member with its name, origin, invocation and whether it is native, and the native names to hide, through the wire and the published schema", () => {
+  it("hands an adapter the generation, the fingerprint, every member with its name, origin, invocation, whether it is native and whether its account made it always-on, and the native names to hide, through the wire and the published schema", () => {
     const validate = published("skills/run-skill-set.json");
     for (const value of [set, EMPTY_RUN_SKILL_SET]) {
       expect(roundTrip(RunSkillSet, value)).toEqual(value);
@@ -172,6 +175,7 @@ describe("a run's skill set", () => {
     expect(RunSkillSet.safeParse({ ...set, fingerprint: "" }).success).toBe(false);
     expect(RunSkillSet.safeParse({ ...set, hiddenNativeNames: ["Triage"] }).success).toBe(false);
     expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], native: undefined }] }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], alwaysOn: undefined }] }).success).toBe(false);
   });
 
   it("names the plugin a generation is after the product, and knows the roots an adapter may load itself: a repository's two skill roots and its commands", () => {
@@ -203,28 +207,50 @@ describe("the skills methods and notice", () => {
     size: 4210,
     tokens: 1053,
   };
+  const offForLocal = { kind: "enabled", name: "tdd", accountId: "local", enabled: false } as const;
+  const alwaysOn = { kind: "always-on", name: "tdd", accountId: "claude-max", on: true } as const;
+  const inert = { kind: "enabled", name: "unslop", accountId: null, enabled: false } as const;
+  const choices = { enabled: true, alwaysOn: true, choices: [offForLocal, alwaysOn] };
   const view: SkillsViewType = {
     ownDirectory: "/home/david/.local/state/agent-harness/skills/own",
     sources: [],
-    choices: [],
+    choices: [offForLocal, alwaysOn, inert],
     accountId: "claude-max",
+    accounts: [
+      { accountId: "claude-max", channel: "system-prompt-append", reason: null },
+      { accountId: "local", channel: "none", reason: "Its adapter, Codex, has no instruction channel, so no always-on skill reaches its runs." },
+    ],
     members: [
-      { ...tdd, shadowedBy: null },
-      { ...tdd, kind: "command", path: "commands/tdd.md", origin: null, whileActive: ["allowed-tools"], shadowedBy: { layer: own, path: "skills/tdd" } },
-      { ...readSkillMember({}, { kind: "folder", name: "Notes" }), kind: "skill", path: "skills/Notes", origin: null, layer: own, size: 0, tokens: 0, shadowedBy: null },
+      { ...tdd, shadowedBy: null, ...choices },
+      { ...tdd, kind: "command", path: "commands/tdd.md", origin: null, whileActive: ["allowed-tools"], shadowedBy: { layer: own, path: "skills/tdd" }, ...choices },
+      {
+        ...readSkillMember({}, { kind: "folder", name: "Notes" }),
+        kind: "skill",
+        path: "skills/Notes",
+        origin: null,
+        layer: own,
+        size: 0,
+        tokens: 0,
+        shadowedBy: null,
+        enabled: true,
+        alwaysOn: false,
+        choices: [],
+      },
     ],
   };
 
-  it("are skills.get at read, and skills.own.create and .remove as admin commands", () => {
+  it("are skills.get at read, and skills.own.create and .remove, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("skills."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "skills.get": ["query", "read"],
       "skills.own.create": ["command", "admin"],
       "skills.own.remove": ["command", "admin"],
+      "skills.setAlwaysOn": ["command", "admin"],
+      "skills.setEnabled": ["command", "admin"],
     });
   });
 
-  it("take a session to skills.get, or none, and answer the own directory, the sources, the choices, the account and every member with what shadows it, through the wire and the published schema", () => {
+  it("take a session to skills.get, or none, and answer the own directory, the sources, the choices, the account, every account with its instruction channel, and every member with what shadows it and its choices, through the wire and the published schema", () => {
     const get = registry["skills.get"];
     expect(get.params.safeParse({}).success).toBe(true);
     expect(get.params.safeParse({ sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" }).success).toBe(true);
@@ -234,6 +260,8 @@ describe("the skills methods and notice", () => {
     expect(validate(JSON.parse(JSON.stringify(view))), JSON.stringify(validate.errors)).toBe(true);
     expect(validate({ ...view, members: [{ ...view.members[0], shadowedBy: { layer: own } }] })).toBe(false);
     expect(SkillsView.safeParse({ ...view, accountId: null }).success).toBe(true);
+    expect(validate({ ...view, members: [{ ...view.members[0], choices: undefined }] })).toBe(false);
+    expect(validate({ ...view, accounts: [{ accountId: "local", channel: "none" }] })).toBe(false);
   });
 
   it("list a choice by name: enabled for an account or the whole environment, or always-on for an account", () => {
@@ -248,6 +276,45 @@ describe("the skills methods and notice", () => {
     }
     expect(SkillChoice.safeParse({ kind: "always-on", name: "unslop", accountId: null, on: true }).success).toBe(false);
     expect(SkillChoice.safeParse({ kind: "enabled", name: "Unslop", accountId: null, enabled: true }).success).toBe(false);
+  });
+
+  it("take a name, an account or null for the whole environment, and on or off to skills.setEnabled, and a name, an account and on or off to skills.setAlwaysOn, and answer the choice through the wire and the published response", () => {
+    const setEnabled = registry["skills.setEnabled"].params;
+    expect(setEnabled.safeParse({ commandId, name: "tdd", accountId: null, enabled: false }).success).toBe(true);
+    expect(setEnabled.safeParse({ commandId, name: "tdd", accountId: "claude-max", enabled: true }).success).toBe(true);
+    expect(setEnabled.safeParse({ commandId, name: "tdd", enabled: false }).success).toBe(false);
+    expect(setEnabled.safeParse({ commandId, name: "Test_Driven", accountId: null, enabled: false }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["name"], params: { rule: "skill-name", reason: "character" } }),
+    ]);
+    const setAlwaysOn = registry["skills.setAlwaysOn"].params;
+    expect(setAlwaysOn.safeParse({ commandId, name: "unslop", accountId: "claude-max", on: true }).success).toBe(true);
+    expect(setAlwaysOn.safeParse({ commandId, name: "unslop", accountId: null, on: true }).success).toBe(false);
+    expect(setAlwaysOn.safeParse({ commandId, name: "-unslop", accountId: "claude-max", on: true }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["name"], params: { rule: "skill-name", reason: "leading_hyphen" } }),
+    ]);
+    for (const [name, choice] of [
+      ["skills.setEnabled", inert],
+      ["skills.setAlwaysOn", alwaysOn],
+    ] as const) {
+      const response = { receipt: { status: "accepted", sequence: 7, changed: true }, result: { choice } } as const;
+      expect(roundTrip(registry[name].response, response)).toEqual(response);
+      const validate = published(`methods/${name}/response.json`);
+      expect(validate(JSON.parse(JSON.stringify(response))), JSON.stringify(validate.errors)).toBe(true);
+    }
+  });
+
+  it("record each choice on the skills stream, skills.enabled-set and skills.always-on-set, neither of which changes the session list, in the table and the published schema", () => {
+    expect(SKILLS_STREAM_KIND).toBe("skills");
+    expect(Object.keys(EVENT_TYPES.skills)).toEqual(["skills.enabled-set", "skills.always-on-set"]);
+    for (const type of Object.keys(EVENT_TYPES.skills)) expect(isListEvent("skills", type), type).toBe(false);
+    const enabled = { name: "tdd", accountId: null, enabled: false };
+    const on = { name: "unslop", accountId: "claude-max", on: true };
+    expect(eventTypeEntry("skills", "skills.enabled-set")?.payload.parse(enabled)).toEqual(enabled);
+    expect(eventTypeEntry("skills", "skills.always-on-set")?.payload.parse(on)).toEqual(on);
+    expect(eventTypeEntry("skills", "skills.always-on-set")?.payload.safeParse({ ...on, accountId: null }).success).toBe(false);
+    expect(published("skills/events/skills.enabled-set.json")(enabled)).toBe(true);
+    expect(published("skills/events/skills.always-on-set.json")(on)).toBe(true);
+    expect(published("skills/event-type.json")("skills.always-on-set")).toBe(true);
   });
 
   it("refuse a name failing the skill-name rule, and a description that is empty, all white space or over 1,024 characters, as the params' issues", () => {

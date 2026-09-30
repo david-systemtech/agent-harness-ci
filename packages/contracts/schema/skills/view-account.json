@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsViewAccount",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "system-prompt-append",
+        "developer-instructions",
+        "prompt",
+        "none"
+      ],
+      "description": "Its adapter's instruction channel, which an always-on skill rides: none hands its runs no always-on skill."
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why no always-on skill reaches its runs, for a client to show beside the dimmed switch; null while its adapter has an instruction channel."
+    }
+  },
+  "required": [
+    "accountId",
+    "channel",
+    "reason"
+  ],
+  "description": "An account of the environment, with its adapter's instruction channel and, without one, why no always-on skill reaches its runs."
+}
