@@ -103,7 +103,16 @@ describe("the new-session card", () => {
     await headingTo(app, "laptop");
     await app.press(KEY.enter);
     await app.waitFor("New session on laptop: where it works");
-    await app.waitFor("environment ●LA laptop · account Work · model Opus 5 · workspace directory train");
+    await app.waitFor("environment LA laptop · account Work · model Opus 5 · workspace directory train");
+  });
+
+  it("redraws its environment chip when another client renames the environment while it is open (#327)", async () => {
+    const app = await launch();
+    await headingTo(app, "laptop");
+    await app.press(KEY.enter);
+    await app.waitFor("environment LA laptop · account Work");
+    app.environment("laptop").setLook({ name: "train box" });
+    await app.waitFor("environment TB train box · account Work");
   });
 
   it("changes the environment chip, an unusable environment greyed with its reason, and the chips after it follow the new environment's presets", async () => {
@@ -122,13 +131,13 @@ describe("the new-session card", () => {
     await app.waitUntil(() => app.runtime().projections.environments.read()[1]?.phase !== "ready", "laptop down");
     await headingTo(app, "desk");
     await app.press(KEY.enter);
-    await app.waitFor("environment ●DE desk · account Work · model Opus 5 · workspace directory harness");
+    await app.waitFor("environment DE desk · account Work · model Opus 5 · workspace directory harness");
 
     await rowTo(app, "Another environment");
     await app.press(KEY.enter);
     await app.waitFor("New session: where it runs");
-    expect(rowWith(app, "●DE desk")).toContain("the card's now");
-    await app.waitFor("●LA laptop (laptop cannot be reached.)");
+    expect(rowWith(app, "DE desk")).toContain("the card's now");
+    await app.waitFor("LA laptop (laptop cannot be reached.)");
     await rowTo(app, "laptop");
     await app.press(KEY.enter);
     await app.waitFor("laptop cannot be reached.");
@@ -137,7 +146,7 @@ describe("the new-session card", () => {
     await rowTo(app, "nas");
     await app.press(KEY.enter);
     await app.waitFor("New session on nas: where it works");
-    await app.waitFor("environment ●NA nas · account Home · model Sonnet 5 · workspace directory photos");
+    await app.waitFor("environment NA nas · account Home · model Sonnet 5 · workspace directory photos");
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "nas", "sessions.create").length === 1, "the create sent to nas");
     expect(params(sent(app, "nas", "sessions.create")[0])).toMatchObject({ workspace: { kind: "directory", path: "/tank/photos" }, account: "account-1", model: "claude-sonnet-5" });
@@ -201,7 +210,7 @@ describe("the workspace step", () => {
       account: "account-1",
       model: "claude-opus-5",
     });
-    await app.waitFor("› ●DE · New session");
+    await app.waitFor("› DE · New session");
     expect(app.frame()).toContain("The rail has the keys");
 
     await headingTo(app, "desk");
@@ -422,7 +431,7 @@ describe("from the composer", () => {
     await app.press(KEY.enter);
     await app.waitFor("Nothing said yet.");
     expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "directory", path: "/home/seth/code/harness" }, account: "account-1", model: "claude-opus-5" });
-    await app.waitFor("agent-harness · ●DE desk ready · New session · directory harness");
+    await app.waitFor("agent-harness · DE desk ready · New session · directory harness");
   });
 
   it("keeps the cursor on the preset's row when a directory another client starts a session in arrives while the card is up", async () => {
@@ -442,7 +451,7 @@ describe("from the composer", () => {
     const app = await launch({ flags: { workspace: "/home/seth/code/harness", environment: "laptop" } });
     await run(app, "/cwd");
     await app.waitFor("New session on laptop: where it works");
-    await app.waitFor("environment ●LA laptop · account Work · model Opus 5 · workspace directory train");
+    await app.waitFor("environment LA laptop · account Work · model Opus 5 · workspace directory train");
   });
 
   it("opens the card on /cwd with a session open on its environment, the open session's workspace preset as a row of its own", async () => {
@@ -461,7 +470,7 @@ describe("the header", () => {
   it("shows the open session's environment badge and its workspace, kind, directory name and a worktree's branch, read-only", async () => {
     const tree = { kind: "worktree", path: "/data/worktrees/harness-0a1b2c3d/review", repository: "/work/harness", branch: "review" } as const;
     const app = await launch({ desk: { sessions: [...(desk().sessions ?? []), { id: "0199aa00-0000-4000-8000-0000000000f4", title: "Review it", workspace: tree }] }, flags: { session: "0199aa00-0000-4000-8000-0000000000f4" } });
-    await app.waitFor("agent-harness · ●DE desk ready · Review it · worktree harness on review");
+    await app.waitFor("agent-harness · DE desk ready · Review it · worktree harness on review");
   });
 });
 

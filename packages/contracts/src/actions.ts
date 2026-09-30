@@ -613,7 +613,7 @@ export const ACTION_GROUPS = [
     command("help", "/help", "List these commands"),
     command("quit", "/quit", "Leave", { guiAbsent: "The GUI's window closes as the platform's windows do." }),
     command("account", "/account", "Switch the account this session's next run uses, or add one"),
-    command("environment", "/environment", "The environments: enable, disable, remove, set primary, client sessions"),
+    command("environment", "/environment [rename <name> | icon [icon] | colour [colour]]", "The environments: enable, disable, remove, set primary, client sessions; rename one, set its icon or colour"),
     command("pair", "/pair <link> | <address> <code> | create", "Pair with an environment, or create a code for another client"),
     command("containment", "/containment", "Set how contained this session's runs are"),
     command("setup", "/setup [environment]", "How far Set up is on an environment, and where to run it"),

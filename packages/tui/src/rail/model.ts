@@ -7,7 +7,7 @@ import {
   type SessionHeading,
 } from "@agent-harness/client-runtime";
 import { headingState, nameOf } from "../view.js";
-import { glyphOf, type Badge, type Glyph } from "./badge.js";
+import { UNLISTED_BADGE, glyphOf, type Badge, type Glyph } from "./badge.js";
 
 /**
  * The rail's lines (docs/specs/tui.md, "The rail: a projection of the
@@ -60,7 +60,6 @@ export interface RailInput extends HeadingsInput {
   readonly startingService: boolean;
 }
 
-const NO_BADGE: Badge = { icon: "●", abbreviation: "??", colour: "gray" };
 
 /** A heading's line, and the notes an environment's is followed by while there is no filter. */
 const headingLines = (heading: SessionHeading, input: RailInput): RailLine[] => {
@@ -98,7 +97,7 @@ export const railLines = (input: RailInput): RailLine[] =>
       (row): RailRow => ({
         kind: "row",
         ...row,
-        badge: input.badges.get(row.row.environmentId) ?? NO_BADGE,
+        badge: input.badges.get(row.row.environmentId) ?? UNLISTED_BADGE,
         glyph: glyphOf(row.row.summary),
         tags: row.row.summary.tags,
       }),

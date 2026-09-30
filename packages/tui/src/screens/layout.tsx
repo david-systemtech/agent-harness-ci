@@ -17,13 +17,22 @@ export const RAIL_MIN_COLUMNS = 100;
 
 /**
  * The header: the product, the environment it is about with its state, and
- * the workspace. With a session open it is the session's environment, drawn
- * with the environment's badge in its colour, then the session's title and
- * its workspace (kind, directory name, a worktree's branch), read-only.
+ * the workspace. The environment's name is drawn in its colour (`colour`, its
+ * badge's), its state in the phase's. With a session open it is the session's
+ * environment, its badge's two letters in its colour where the phase dot was,
+ * then the session's title and its workspace (kind, directory name, a
+ * worktree's branch), read-only.
  */
-export const Header = (props: { readonly current: EnvironmentView | undefined; readonly badge?: Badge; readonly startingService: boolean; readonly workspace: string }) => {
+export const Header = (props: {
+  readonly current: EnvironmentView | undefined;
+  readonly badge?: Badge;
+  readonly colour?: string;
+  readonly startingService: boolean;
+  readonly workspace: string;
+}) => {
   const { current, badge } = props;
   const state = current && headingState(current, props.startingService);
+  const phase = current?.phase === "ready" ? "green" : "yellow";
   return (
     <Box height={1}>
       <Text wrap="truncate-end">
@@ -31,18 +40,8 @@ export const Header = (props: { readonly current: EnvironmentView | undefined; r
         <Text dimColor> · </Text>
         {current ? (
           <Text>
-            {badge ? (
-              <Text color={badge.colour}>
-                {badge.icon}
-                {badge.abbreviation}
-              </Text>
-            ) : (
-              <Text color={current.phase === "ready" ? "green" : "yellow"}>●</Text>
-            )}
-            <Text color={current.phase === "ready" ? "green" : "yellow"}>
-              {" "}
-              {nameOf(current)} {state ?? "ready"}
-            </Text>
+            {badge ? <Text color={badge.colour}>{badge.abbreviation}</Text> : <Text color={phase}>●</Text>} <Text color={props.colour ?? phase}>{nameOf(current)}</Text>
+            <Text color={phase}> {state ?? "ready"}</Text>
           </Text>
         ) : (
           <Text dimColor>no environment</Text>

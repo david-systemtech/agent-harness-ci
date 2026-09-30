@@ -135,18 +135,18 @@ describe("the headings", () => {
     const wake = new Date(at(18));
     expect(railOf(app.frame())).toEqual([
       "▾ Pinned",
-      "  ●DE · Pinned one",
-      "  ●LA · Laptop pin",
+      "  DE · Pinned one",
+      "  LA · Laptop pin",
       "▾ Brandsolidate",
-      "  ●DE · Brand copy",
-      "  ●LA · Brand on laptop",
+      "  DE · Brand copy",
+      "  LA · Brand on laptop",
       "desk",
-      "  ●DE ● Fix the rail #wip",
-      "  ●DE · Spare",
+      "  DE ● Fix the rail #wip",
+      "  DE · Spare",
       "laptop",
-      "  ●LA ?2 Train tidy",
+      "  LA ?2 Train tidy",
       "▾ Snoozed",
-      expect.stringMatching(new RegExp(`^  ●DE · Later\\s+${String(wake.getHours()).padStart(2, "0")}:00$`)),
+      expect.stringMatching(new RegExp(`^  DE · Later\\s+${String(wake.getHours()).padStart(2, "0")}:00$`)),
       "▸ Settled 1",
       "▸ Archive 1",
     ]);
@@ -162,7 +162,7 @@ describe("the headings", () => {
     await headingTo(app, "Settled");
     await app.press(KEY.enter);
     await app.waitFor("▾ Settled");
-    expect(railOf(app.frame())).toContain("  ●DE · Done");
+    expect(railOf(app.frame())).toContain("  DE · Done");
     await headingTo(app, "Brandsolidate");
     await app.press(KEY.enter);
     await app.waitFor("▸ Brandsolidate 1");
@@ -172,7 +172,7 @@ describe("the headings", () => {
 
     const again = await launch({ script: { environments: [desk()] }, presentation });
     await again.waitFor("Fix the rail");
-    expect(railOf(again.frame())).toEqual(expect.arrayContaining(["▸ Brandsolidate 1", "▾ Settled", "  ●DE · Done"]));
+    expect(railOf(again.frame())).toEqual(expect.arrayContaining(["▸ Brandsolidate 1", "▾ Settled", "  DE · Done"]));
   });
 
   it("drops the fold of a group no longer listed when it keeps a fold", async () => {
@@ -190,12 +190,12 @@ describe("the headings", () => {
     await focusRail(app, "Spare");
     await cursorTo(app, "Later");
     // On the snoozed shelf the wake time sits at the right, some of the title kept beside it.
-    expect(rowWith(app, "Later")).toMatch(/●DE · Later.* \d\d:00$/);
+    expect(rowWith(app, "Later")).toMatch(/DE · Later.* \d\d:00$/);
     app.environment("desk").list.hold("sessions.pin");
     await app.press("p");
     // Pinned while the receipt is held, the row moves to the pinned block, which shows no wake time: the marker takes the right.
-    await app.waitUntil(() => rowWith(app, "●DE · ").includes("↻"), "the row pending");
-    expect(rowWith(app, "↻")).toMatch(/●DE · Later/);
+    await app.waitUntil(() => rowWith(app, "DE · ").includes("↻"), "the row pending");
+    expect(rowWith(app, "↻")).toMatch(/DE · Later/);
   });
 
   it("shows a down environment's sessions from the cached snapshot, dim, with since when it has not been reached and the commands waiting", async () => {
@@ -209,7 +209,7 @@ describe("the headings", () => {
       script: { environments: [desk(), laptop({ reach: "unpaired", discovery: "nothing" })] },
     });
     await app.waitFor(/laptop\s*│[\s\S]*unreachable since \d\d:\d\d/);
-    expect(railOf(app.frame())).toEqual(expect.arrayContaining(["  ●LA ?2 Train tidy", "  ●LA · Laptop pin"]));
+    expect(railOf(app.frame())).toEqual(expect.arrayContaining(["  LA ?2 Train tidy", "  LA · Laptop pin"]));
     await focusRail(app);
     await cursorTo(app, "Train tidy");
     await app.press("p");
@@ -226,7 +226,7 @@ describe("each row key issues its command once with a command id, the row pendin
     const release = app.environment("laptop").list.hold("sessions.pin");
     await app.press("p");
     await app.waitFor("Pinned “Train tidy”.");
-    expect(railOf(app.frame()).slice(0, 4)).toEqual(["▾ Pinned", "  ●DE · Pinned one", "  ●LA · Laptop pin", expect.stringMatching(/Train tidy\s+↻$/)]);
+    expect(railOf(app.frame()).slice(0, 4)).toEqual(["▾ Pinned", "  DE · Pinned one", "  LA · Laptop pin", expect.stringMatching(/Train tidy\s+↻$/)]);
     const [pin, ...more] = sent(app, "laptop", "sessions.pin");
     expect(more).toEqual([]);
     expect(params(pin)).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN });
@@ -245,7 +245,7 @@ describe("each row key issues its command once with a command id, the row pendin
     await cursorTo(app, "Fix the rail");
     await app.press("a");
     await app.waitFor("▸ Archive 1");
-    expect(railOf(app.frame())).not.toContain("  ●DE ● Fix the rail #wip");
+    expect(railOf(app.frame())).not.toContain("  DE ● Fix the rail #wip");
     expect(params(sent(app, "desk", "sessions.archive")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: FIX });
     await headingTo(app, "Archive");
     await app.press(KEY.enter);
@@ -295,7 +295,7 @@ describe("each row key issues its command once with a command id, the row pendin
     await app.waitFor(/Spare restorable until \w{3} 24 Oct/);
     await app.press(KEY.enter);
     await app.waitFor("Restored “Spare”.");
-    await app.waitFor("●DE · Spare");
+    await app.waitFor("DE · Spare");
     expect(params(sent(app, "desk", "sessions.restore")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: SPARE });
   });
 
@@ -325,7 +325,7 @@ describe("each row key issues its command once with a command id, the row pendin
     await app.waitFor("Add #review");
     await app.press(KEY.enter);
     await app.waitFor("Tagged “Fix the rail” #review.");
-    await app.waitFor("● Fix the rail #revi…");
+    await app.waitFor("● Fix the rail #revie…");
     expect(params(sent(app, "desk", "sessions.tag")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: FIX, tag: "review" });
     await app.press("t");
     await app.waitFor("#review Enter takes it off");
@@ -383,7 +383,7 @@ describe("each row key issues its command once with a command id, the row pendin
     await app.waitFor("Moved “Train tidy” into Brandsolidate.");
     expect(sent(app, "laptop", "groups.create")).toEqual([]);
     expect(params(sent(app, "laptop", "sessions.setGroup")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN, groupId: G_BRAND_LAPTOP });
-    await app.waitUntil(() => railOf(app.frame()).indexOf("  ●LA ?2 Train tidy") < railOf(app.frame()).indexOf("desk"), "the row under the merged heading");
+    await app.waitUntil(() => railOf(app.frame()).indexOf("  LA ?2 Train tidy") < railOf(app.frame()).indexOf("desk"), "the row under the merged heading");
   });
 
   it("g into a heading the session's environment lacks creates the group there first, with a client-minted id, then moves it", async () => {
@@ -400,7 +400,7 @@ describe("each row key issues its command once with a command id, the row pendin
     const create = params(sent(app, "laptop", "groups.create")[0]);
     expect(create).toEqual({ commandId: expect.stringMatching(UUIDV7), id: expect.stringMatching(UUIDV4), name: "Ops" });
     expect(params(sent(app, "laptop", "sessions.setGroup")[0])).toMatchObject({ sessionId: TRAIN, groupId: create["id"] });
-    await app.waitFor(/▾ Ops\s*\n\s+●DE[^\n]*\n\s+●LA \?2 Train tidy|▾ Ops[\s\S]*Train tidy/);
+    await app.waitFor(/▾ Ops\s*\n\s+DE[^\n]*\n\s+LA \?2 Train tidy|▾ Ops[\s\S]*Train tidy/);
 
     await cursorTo(app, "Spare");
     await app.press("g");
@@ -430,7 +430,7 @@ describe("each row key issues its command once with a command id, the row pendin
     await app.press(SHIFT_UP);
     await app.waitUntil(() => sent(app, "desk", "sessions.reorderActive").length === 2, "both keyed");
     expect(sent(app, "desk", "sessions.reorderActive").map((f) => params(f)["sessionId"]).sort()).toEqual([FIX, SPARE].sort());
-    await app.waitUntil(() => railOf(app.frame()).indexOf("  ●DE · Spare") < railOf(app.frame()).indexOf("  ●DE ● Fix the rail #wip"), "Spare above Fix the rail");
+    await app.waitUntil(() => railOf(app.frame()).indexOf("  DE · Spare") < railOf(app.frame()).indexOf("  DE ● Fix the rail #wip"), "Spare above Fix the rail");
 
     await cursorTo(app, "Later");
     await app.press(SHIFT_DOWN);
@@ -445,7 +445,7 @@ describe("reordering while the filter hides rows", () => {
     await focusRail(app);
     await app.press("/");
     await app.type("brand");
-    await app.waitFor("› ●DE · Brand copy");
+    await app.waitFor("› DE · Brand copy");
     await app.press(SHIFT_DOWN);
     await app.waitFor("Shift+↓ is absent while the filter hides rows: Esc clears it.");
     expect([...sent(app, "desk", "sessions.reorderActive"), ...sent(app, "laptop", "sessions.reorderActive")]).toEqual([]);
@@ -487,7 +487,7 @@ describe("an unreachable environment", () => {
     const rejected = app.runtime().projections.notices.read().filter((n) => n.kind === "command-rejected");
     expect(rejected).toHaveLength(1);
     expect(rejected[0]?.message).toBe("Archive on Train tidy was rejected: it no longer exists.");
-    await app.waitFor("●LA ?2 Train tidy");
+    await app.waitFor("LA ?2 Train tidy");
     expect(sent(app, "laptop", "sessions.archive")).toHaveLength(1);
   });
 });
@@ -623,7 +623,7 @@ describe("the filter and /search", () => {
     await app.press("/");
     await app.type("brand");
     await app.waitFor("/brand");
-    expect(railOf(app.frame())).toEqual(["/brand", "▾ Brandsolidate", "› ●DE · Brand copy", "  ●LA · Brand on laptop"]);
+    expect(railOf(app.frame())).toEqual(["/brand", "▾ Brandsolidate", "› DE · Brand copy", "  LA · Brand on laptop"]);
     await app.press("a");
     await app.waitFor("/branda");
     expect(sent(app, "desk", "sessions.archive")).toEqual([]);
@@ -647,7 +647,7 @@ describe("the filter and /search", () => {
     await cursorTo(app, "Session 1");
     // Two presses in one write: both land before the next frame is drawn.
     await app.type(KEY.down + KEY.down);
-    expect(railOf(app.frame())).toContain("› ●DE · Session 3");
+    expect(railOf(app.frame())).toContain("› DE · Session 3");
     await app.press("/");
     await app.type("sess");
     await app.waitFor("/sess");
@@ -661,13 +661,13 @@ describe("the filter and /search", () => {
     const before = [app.environment("desk").requests().length, app.environment("laptop").requests().length];
     await run(app, "/search brand");
     await app.waitFor("Search every environment");
-    await app.waitFor("●DE Brand copy Brandsolidate");
-    expect(flat(app.frame())).toContain("●LA Brand on laptop brandsolidate");
+    await app.waitFor("DE Brand copy Brandsolidate");
+    expect(flat(app.frame())).toContain("LA Brand on laptop brandsolidate");
     await app.type(" on");
-    await app.waitUntil(() => !flat(app.frame()).includes("●DE Brand copy"), "the search narrowed");
+    await app.waitUntil(() => !flat(app.frame()).includes("DE Brand copy"), "the search narrowed");
     await app.press(KEY.enter);
     await app.waitFor("The rail has the keys");
-    expect(railOf(app.frame())).toContain("› ●LA · Brand on laptop");
+    expect(railOf(app.frame())).toContain("› LA · Brand on laptop");
     expect([app.environment("desk").requests().length, app.environment("laptop").requests().length]).toEqual(before);
   });
 
@@ -725,10 +725,10 @@ describe("the filter and /search", () => {
     const app = await two();
     await app.waitFor("▸ Archive 1");
     await run(app, "/search old");
-    await app.waitFor("●LA Old thing archive");
+    await app.waitFor("LA Old thing archive");
     await app.press(KEY.enter);
     await app.waitFor("▾ Archive");
-    expect(railOf(app.frame())).toContain("› ●LA · Old thing");
+    expect(railOf(app.frame())).toContain("› LA · Old thing");
   });
 });
 
@@ -754,7 +754,7 @@ describe("starting a session on an environment", () => {
     await app.waitFor("New session on desk: where it works");
     await app.waitFor("/work/harness");
     expect(flat(app.frame())).toContain("/home/seth/code");
-    await app.waitFor("environment ●DE desk · account Work · model Opus 5 · workspace direct");
+    await app.waitFor("environment DE desk · account Work · model Opus 5 · workspace direct");
     // The cursor starts on the preset, the most recently used directory; another is a move away.
     expect(paneOf(app.frame()).find((line) => line.includes("/home/seth/code"))).toMatch(/^ › \/home\/seth\/code/);
     for (let i = 0; i < 5 && !paneOf(app.frame()).some((line) => line.startsWith(" › /work/harness")); i++) await app.press(KEY.down);
@@ -769,7 +769,7 @@ describe("starting a session on an environment", () => {
       account: account.id,
       model: "claude-opus-5",
     });
-    await app.waitFor("› ●DE · New session");
+    await app.waitFor("› DE · New session");
   });
 
   it("changes the account on its own step, which opens on the card's account and goes back to the card", async () => {
@@ -870,7 +870,7 @@ describe("starting a session on an environment", () => {
     await app.waitFor("● laptop ready");
     await run(app, "/cwd");
     await app.waitFor("New session on laptop: where it works");
-    expect(flat(app.frame())).toContain("environment ●LA laptop · account none · model none · workspace direct");
+    expect(flat(app.frame())).toContain("environment LA laptop · account none · model none · workspace direct");
   });
 
   it("names the environment's refusal of a path in one line on the step, which stays open for another path", async () => {
@@ -914,7 +914,7 @@ describe("a long rail", () => {
     expect(app.frame()).not.toContain("Session 01");
     await cursorTo(app, "Session 01");
     // Scrolled as little as keeps the cursor in sight: back at the first session, its heading just above the top.
-    expect(railOf(app.frame())[0]).toBe("› ●DE · Session 01");
+    expect(railOf(app.frame())[0]).toBe("› DE · Session 01");
     await app.press(KEY.up);
     expect(railOf(app.frame())[0]).toBe("desk");
   });
@@ -934,7 +934,7 @@ describe("under 100 columns", () => {
     expect(sent(app, "desk", "sessions.pin")).toHaveLength(1);
     await app.resize({ columns: 100, rows: 30 });
     expect(app.frame()).not.toContain("drawn here under 100 columns");
-    expect(railOf(app.frame())).toContain("› ●DE · Spare");
+    expect(railOf(app.frame())).toContain("› DE · Spare");
   });
 });
 
