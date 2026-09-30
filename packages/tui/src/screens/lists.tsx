@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { oneLine, type SessionRow, type UserMessageEntry, type VerbAvailability } from "@agent-harness/client-runtime";
+import { NO_DOCUMENTS, documentFacts, oneLine, type SessionDocument, type SessionRow, type UserMessageEntry, type VerbAvailability } from "@agent-harness/client-runtime";
 import type { SnippetTemplate } from "../composer/snippets.js";
 import { ListCard } from "../pickers/cards.js";
 import { messageWords } from "../session/use-fork-rewind.js";
@@ -9,8 +9,9 @@ import { clockTime } from "../view.js";
 /**
  * The lists the transcript and composer open (docs/specs/tui.md, "The
  * composer" and "The transcript"): `/resume`'s sessions, a filter typed at
- * it, `/snip`'s saved snippets, and Esc Esc's prompt picker. Each draws its
- * props; the cursor and the filter are the app's.
+ * it, `/snip`'s saved snippets, `/documents`' documents, and Esc Esc's
+ * prompt picker. Each draws its props; the cursor and the filter are the
+ * app's.
  */
 
 const Row = (props: { readonly selected: boolean; readonly children: React.ReactNode }) => (
@@ -72,6 +73,30 @@ export const SnippetsCard = (props: { readonly rows: readonly SnippetTemplate[];
       </Row>
     ))}
   </Box>
+);
+
+/**
+ * `/documents` (#427): the session's documents, newest first, each its path
+ * and what the window's Documents pane says of it (`documentFacts`: kind,
+ * size, revisions and when its last turn started); Enter opens one.
+ */
+export const DocumentsCard = (props: {
+  readonly documents: readonly SessionDocument[];
+  readonly now: Date;
+  readonly cursor: number;
+  readonly width: number;
+  readonly height: number;
+  readonly hint: string;
+}) => (
+  <ListCard
+    width={props.width}
+    title="Documents"
+    hint={props.hint}
+    rows={props.documents.map((document) => ({ key: document.path, cells: [{ text: document.path }], dim: false, note: { text: documentFacts(document, props.now).join(" · "), dim: true } }))}
+    cursor={props.cursor}
+    height={props.height}
+    empty={NO_DOCUMENTS}
+  />
 );
 
 /**

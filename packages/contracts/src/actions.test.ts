@@ -72,6 +72,8 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "asks.close": ["Esc"],
   "confirm.yes": ["y"],
   "confirm.no": ["n", "Esc"],
+  // A file or document read in the pager is copied whole (#427): the pager has the keys, so a typed `/copy` would be its search.
+  "pager.copy": ["y"],
 };
 
 /** The slash commands the harness adds (the tui spec's "The composer"), and the one rename. */
@@ -92,6 +94,7 @@ const ADDED_COMMANDS = [
   "search",
   "terminal",
   "files",
+  "documents",
   "notices",
   "reload",
   "fork",

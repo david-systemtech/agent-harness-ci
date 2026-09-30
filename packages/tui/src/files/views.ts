@@ -1,5 +1,5 @@
-import { DIFF_CUT_NOTE, binaryNote, fileMarks, sessionDiffNote, workingTreeNote, type Runtime } from "@agent-harness/client-runtime";
-import { DIFF_CAP, type SessionDiffFile } from "@agent-harness/contracts";
+import { DIFF_CUT_NOTE, binaryNote, fileCutNote, fileMarks, sessionDiffNote, workingTreeNote, type Runtime } from "@agent-harness/client-runtime";
+import { DIFF_CAP, FILES_READ_CAP, type SessionDiffFile } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import type { Line, Span } from "../transcript/lines.js";
 import { externalDiffTool, pipeThrough, type DiffToolDeps, type PipeDeps, type PipeResult } from "./diff-filter.js";
@@ -14,8 +14,10 @@ import { colouredDiff, diffPage, plainPage, sgrPage } from "./pages.js";
  * runs on, so a diff of a remote environment reads in the user's own tool
  * as a local one does.
  *
- * - **A file** is its text in the pager; a `binary` one is marked, and not
- *   drawn; one past the 2 MiB `files.read` reads is marked as its head.
+ * - **A file** is its text in the pager, which `pager.copy` copies whole as
+ *   read (#427); a `binary` one is marked, and not drawn; one past the
+ *   2 MiB `files.read` reads is marked as its head, and ends with how much
+ *   of it is not shown.
  * - **`/diff`** is two answers on one page, as its line in the shared list
  *   says: what this session changed (`diffs.session`, file by file), then
  *   the working tree against HEAD (`diffs.workingTree`), or why there is
@@ -44,10 +46,12 @@ export const systemDiffFilter = (columns: number, deps: Omit<DiffToolDeps, "colu
   return { label: tool.label, run: (text) => pipeThrough(tool.argv, tool.colouredInput === true ? colouredDiff(text) : text, spawn === undefined ? {} : { spawn }) };
 };
 
-/** A page for the pager: its title and its lines. */
+/** A page for the pager: its title and its lines, and what `pager.copy` copies from it. */
 export interface Page {
   readonly title: string;
   readonly lines: readonly Line[];
+  /** A file's text as read, and what the line saying it was copied calls it; none for a page that is no file's text. */
+  readonly copy?: { readonly text: string; readonly name: string };
 }
 
 export type Paged =
@@ -63,10 +67,15 @@ const line = (row: string, spans: readonly Span[]): Line => ({ row, spans });
 export const readFile = async (runtime: Runtime, target: Opened, path: string, width: number): Promise<Paged> => {
   const answer = await runtime.requests.call(target.environmentId, "files.read", { sessionId: target.sessionId, path });
   if (!answer.ok) return { ok: false, line: `Not read: ${answer.error.message}`, directory: answer.error.data?.["reason"] === "not_a_file" };
-  const { size, binary, text } = answer.result;
+  const { path: read, size, binary, truncated, text } = answer.result;
+  const title = `${read} · ${fileMarks(answer.result).join(" · ")}`;
+  if (binary || text === null) return { ok: true, page: { title, lines: [line("file:binary", [{ text: binaryNote(size), dim: true }])] } };
   // A text file ends in a newline; the page ends at the last line, not at the blank row after it, as the diff pages do.
-  const lines = binary || text === null ? [line("file:binary", [{ text: binaryNote(size), dim: true }])] : plainPage(text.replace(/\n$/, ""), width);
-  return { ok: true, page: { title: `${answer.result.path} · ${fileMarks(answer.result).join(" · ")}`, lines } };
+  const lines = plainPage(text.replace(/\n$/, ""), width);
+  if (!truncated) return { ok: true, page: { title, lines, copy: { text, name: read } } };
+  // The pager's limit is the read's: the page ends where the read did, saying how much is not shown.
+  const cut = line("file:cut", [{ text: fileCutNote(size), color: "yellow" }]);
+  return { ok: true, page: { title, lines: [...lines, cut], copy: { text, name: `the first ${String(FILES_READ_CAP / MIB)} MiB of ${read}` } } };
 };
 
 /** A diff as the pager draws it: through the filter when there is one, else coloured here; the filter's failure beside it. */

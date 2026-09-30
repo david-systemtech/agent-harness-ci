@@ -106,4 +106,9 @@ describe("the terminal's commands (#148)", () => {
     expect(parseCommand("/diff")).toEqual({ kind: "diff" });
     expect(parseCommand("/diff more").kind).toBe("usage");
   });
+
+  it("reads /documents bare (#427)", () => {
+    expect(parseCommand("/documents")).toEqual({ kind: "documents" });
+    expect(parseCommand("/documents notes.md")).toEqual({ kind: "usage", line: "Usage: /documents" });
+  });
 });

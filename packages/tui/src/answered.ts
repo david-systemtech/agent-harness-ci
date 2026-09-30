@@ -48,6 +48,7 @@ export const SCREEN_KEYS = [
   "pager.turn.prev",
   "pager.search",
   "pager.match",
+  "pager.copy",
   "pager.close",
   "confirm.yes",
   "confirm.no",
