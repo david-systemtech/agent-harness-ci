@@ -120,7 +120,9 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     }
   };
 
+  let closing = false;
   surface.upgrade(BRIDGE_PATH, (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (closing) return refuseUpgrade(socket, 503, { error: "closing", message: "The environment is stopping." });
     // The Host check is the surface's; the Origin is the extension's fixed id, which no web page can send.
     if (request.headers.origin !== EXTENSION_ORIGIN) {
       return refuseUpgrade(socket, 403, { error: "forbidden", message: "Only the extension may open a socket here." });
@@ -161,7 +163,8 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     listen: (ports) => (listened ??= bind(ports)),
     unpairedConnected: () => announced.size > 0,
     async close() {
-      const closing = [...sockets].map(
+      closing = true;
+      const closed = [...sockets].map(
         (socket) =>
           new Promise<void>((resolve) => {
             socket.once("close", () => resolve());
@@ -169,10 +172,10 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
           }),
       );
       let grace: Timer | undefined;
-      await Promise.race([Promise.all(closing), new Promise<void>((resolve) => (grace = options.clock.setTimeout(resolve, CLOSE_GRACE_MS)))]);
+      await Promise.race([Promise.all(closed), new Promise<void>((resolve) => (grace = options.clock.setTimeout(resolve, CLOSE_GRACE_MS)))]);
       grace?.cancel();
       for (const socket of sockets) socket.terminate();
-      await Promise.all(closing);
+      await Promise.all(closed);
       await surface.close();
     },
   };

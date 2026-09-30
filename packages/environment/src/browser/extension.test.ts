@@ -1,10 +1,30 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Server } from "node:net";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { PORT_FILE_NAME, PortFile, type ResultOf } from "@agent-harness/contracts";
+import {
+  BRIDGE_PATH,
+  EXTENSION_ORIGIN,
+  PORT_FILE_NAME,
+  decodeFromExtension,
+  encodeBridgeMessage,
+  type BridgeFromExtension,
+  type ResultOf,
+} from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { WebSocketServer } from "ws";
 import { useCleanups } from "../../test/cleanups.js";
-import { TEST_EXTENSION, TEST_EXTENSION_VERSION, writeExtensionBuild } from "../../test/fake-extension.js";
+import {
+  DialRefusedError,
+  TEST_EXTENSION,
+  TEST_EXTENSION_VERSION,
+  dialExtension,
+  readPortFile,
+  writeExtensionBuild,
+  type DialOptions,
+  type FakeExtension,
+} from "../../test/fake-extension.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS } from "../../test/wire-client.js";
 
@@ -39,7 +59,42 @@ const status = async (t: TestEnvironment): Promise<ResultOf<"browser.status">> =
   }
 };
 
-const portFileIn = (folder: string): PortFile => PortFile.parse(JSON.parse(readFileSync(join(folder, PORT_FILE_NAME), "utf8")));
+const portFileIn = readPortFile;
+
+/** The fake extension dialling the environment `t` from its folder, closed after the test. */
+const dial = async (t: Pick<TestEnvironment, "dataDir">, options?: DialOptions): Promise<FakeExtension> => {
+  const extension = await dialExtension(folderOf(t), options);
+  onCleanup(() => extension.close());
+  return extension;
+};
+
+/** Holds a loopback port, as another program would, until the test ends: answers the port. */
+const holdPort = async (port = 0): Promise<number> => {
+  const server: Server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => resolve());
+  });
+  onCleanup(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("The held port has no address.");
+  return address.port;
+};
+
+/** A loopback port free a moment ago, for a range two environments share. */
+const freePort = async (): Promise<number> => {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen({ host: "127.0.0.1", port: 0 }, () => resolve()));
+  const address = server.address();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (address === null || typeof address === "string") throw new Error("The free port has no address.");
+  return address.port;
+};
+
+const portOf = (answer: ResultOf<"browser.status">): number => {
+  if (answer.listener.state !== "listening") throw new Error(`The listener is not listening: ${answer.listener.message}`);
+  return answer.listener.port;
+};
 
 describe("the extension's folder", () => {
   it("is the built extension copied to extension/current at startup, with the port file written into it once the listener is bound", async () => {
@@ -130,5 +185,180 @@ describe("the port file", () => {
 
     await expect.poll(() => portFileIn(folderOf(t)).environmentName, { timeout: WAIT_MS }).toBe("Work laptop");
     expect(portFileIn(folderOf(t))).toMatchObject({ environmentId: t.env.id });
+  });
+});
+
+describe("the listener", () => {
+  it("binds the preferred port, else the next free one up to the last, on loopback only", async () => {
+    const held = await holdPort();
+    const t = await start({ browser: { ports: { preferred: held, last: held + 19 } } });
+
+    const port = portOf(await status(t));
+
+    expect(port).toBeGreaterThan(held);
+    expect(port).toBeLessThanOrEqual(held + 19);
+    expect(portFileIn(folderOf(t)).port).toBe(port);
+    // Nothing answers on the machine's other addresses.
+    const outward = Object.values(networkInterfaces())
+      .flat()
+      .find((entry) => entry !== undefined && !entry.internal && entry.family === "IPv4");
+    if (outward !== undefined) {
+      const connected = await new Promise<boolean>((resolve) => {
+        const socket = createConnection({ host: outward.address, port }, () => {
+          socket.destroy();
+          resolve(true);
+        });
+        socket.once("error", () => resolve(false));
+      });
+      expect(connected).toBe(false);
+    }
+  });
+
+  it("does not listen when every port of its range is taken: browser.status answers the port-in-use error, and the folder holds no port file", async () => {
+    const held = await holdPort();
+    const t = await start({ browser: { ports: { preferred: held, last: held } } });
+
+    const answer = await status(t);
+
+    expect(answer.listener).toEqual({ state: "not-listening", reason: "port-in-use", message: expect.stringContaining(`Port ${held}`) as string });
+    expect(answer.folder).toEqual({ path: folderOf(t), problem: null });
+    expect(existsSync(join(folderOf(t), PORT_FILE_NAME))).toBe(false);
+  });
+
+  it("gives two environments on one machine a folder and a port each, the second taking the next free port", async () => {
+    const first = await freePort();
+    const ports = { preferred: first, last: first + 19 };
+    const laptop = await start({ name: "Laptop", browser: { ports } });
+    const second = await start({ name: "Second", browser: { ports } });
+
+    const [a, b] = [portOf(await status(laptop)), portOf(await status(second))];
+
+    expect(b).toBeGreaterThan(a);
+    expect(folderOf(laptop)).not.toBe(folderOf(second));
+    expect(portFileIn(folderOf(laptop))).toMatchObject({ port: a, environmentId: laptop.env.id, environmentName: "Laptop" });
+    expect(portFileIn(folderOf(second))).toMatchObject({ port: b, environmentId: second.env.id, environmentName: "Second" });
+    expect(await (await dial(laptop)).announce()).toEqual({ type: "announced", environmentId: laptop.env.id, environmentName: "Laptop" });
+    expect(await (await dial(second)).announce()).toEqual({ type: "announced", environmentId: second.env.id, environmentName: "Second" });
+  });
+});
+
+describe("an extension's socket", () => {
+  it("is refused before any message when the upgrade's Host is not loopback", async () => {
+    const t = await start();
+    const head = t.env.log.head();
+    const port = portFileIn(folderOf(t)).port;
+
+    await expect(dial(t, { host: `rebound.example:${port}` })).rejects.toMatchObject({ status: 421 });
+
+    expect(t.env.log.head()).toBe(head);
+    expect((await status(t)).unpairedConnected).toBe(false);
+  });
+
+  it("is refused before any message when the upgrade does not carry the extension's Origin", async () => {
+    const t = await start();
+    const head = t.env.log.head();
+
+    for (const origin of [null, "https://example.com", "chrome-extension://abcdefghijklmnopabcdefghijklmnop"]) {
+      const refused = await dial(t, { origin }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(refused, String(origin)).toBeInstanceOf(DialRefusedError);
+      expect(refused).toMatchObject({ status: 403 });
+    }
+    expect(t.env.log.head()).toBe(head);
+  });
+
+  it("answers announce with the environment's id and name and keeps the socket: extension.seen on environment.subscribe, and browser.status's unpaired flag while it is open", async () => {
+    const t = await start({ name: "Laptop" });
+    const watcher = await t.client();
+    const { subscription } = await watcher.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    const extension = await dial(t);
+
+    expect(await extension.announce({ extensionVersion: "1.0.0-test", name: "Work" })).toEqual({ type: "announced", environmentId: t.env.id, environmentName: "Laptop" });
+
+    const frame = await watcher.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "extension.seen");
+    expect(frame).toMatchObject({ event: { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "1.0.0-test" }, actor: { kind: "system", id: "browser" } } });
+    expect((await status(t)).unpairedConnected).toBe(true);
+    extension.send({ type: "ping" });
+    expect(await extension.next((message) => message.type === "pong")).toEqual({ type: "pong" });
+    expect(extension.isOpen()).toBe(true);
+
+    await extension.close();
+    await expect.poll(async () => (await status(t)).unpairedConnected, { timeout: WAIT_MS }).toBe(false);
+  });
+
+  it("serves an extension one bridge version behind, and closes an older or a newer one with the Reload sentence", async () => {
+    const t = await start();
+    const behind = await dial(t);
+    expect(await behind.announce({ protocolVersion: 1 })).toMatchObject({ type: "announced", environmentId: t.env.id });
+
+    for (const protocolVersion of [0, 3]) {
+      const other = await dial(t);
+      const answer = await other.announce({ protocolVersion });
+      expect(answer).toEqual({
+        type: "refused",
+        reason: `This extension speaks bridge version ${protocolVersion} and this environment speaks 2. Open chrome://extensions and click Reload on the extension.`,
+      });
+      expect((await other.closed).code).toBe(1008);
+    }
+    expect(behind.isOpen()).toBe(true);
+  });
+
+  it("is closed with a sentence when it opens with anything but announce or hello, or sends what the codec refuses", async () => {
+    const t = await start();
+    for (const opening of ['{"type":"proof","mac":"00"}', "not json", JSON.stringify({ type: "result", id: "call-1", result: { ok: false, reason: "No." } })]) {
+      const extension = await dial(t);
+      extension.send(opening);
+      expect(await extension.next()).toMatchObject({ type: "refused", reason: expect.any(String) as string });
+      expect((await extension.closed).code).toBe(1008);
+    }
+    expect((await status(t)).unpairedConnected).toBe(false);
+  });
+});
+
+describe("the fake extension", () => {
+  it("reads the port file, dials with the extension's Origin, speaks version 2, and answers each call from its script", async () => {
+    // A scripted environment peer: it takes the socket at the bridge's path, answers announce, then calls two verbs.
+    const peer = new WebSocketServer({ host: "127.0.0.1", port: 0, path: BRIDGE_PATH });
+    onCleanup(() => new Promise<void>((resolve) => peer.close(() => resolve())));
+    await new Promise<void>((resolve) => peer.once("listening", () => resolve()));
+    const address = peer.address();
+    if (address === null || typeof address === "string") throw new Error("The peer has no port.");
+    const heard: BridgeFromExtension[] = [];
+    let origin: string | undefined;
+    peer.on("connection", (socket, request) => {
+      origin = request.headers.origin;
+      socket.on("message", (data) => {
+        const decoded = decodeFromExtension(String(data));
+        if (!decoded.ok) throw new Error(decoded.reason);
+        heard.push(decoded.message);
+        if (decoded.message.type !== "announce") return;
+        socket.send(encodeBridgeMessage({ type: "announced", environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", environmentName: "Peer" }));
+        socket.send(encodeBridgeMessage({ type: "call", id: "call-1", pageKey: "env/session", command: { verb: "navigate", args: { url: "https://example.com/" } } }));
+        socket.send(encodeBridgeMessage({ type: "call", id: "call-2", pageKey: "env/session", command: { verb: "screenshot", args: {} } }));
+      });
+    });
+    const folder = writeExtensionBuild(tempDir("agent-harness-unpacked-"), "1.2.0");
+    writeFileSync(
+      join(folder, PORT_FILE_NAME),
+      JSON.stringify({ port: address.port, environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", environmentName: "Peer", harnessVersion: "1.2.0" }),
+    );
+
+    const extension = await dialExtension(folder, {
+      script: { navigate: (call) => ({ ok: true, value: { url: call.command.args.url, title: "Example" } }) },
+    });
+    onCleanup(() => extension.close());
+    expect(await extension.announce()).toEqual({ type: "announced", environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", environmentName: "Peer" });
+
+    await expect.poll(() => heard.filter((message) => message.type === "result").length, { timeout: WAIT_MS }).toBe(2);
+    expect(origin).toBe(EXTENSION_ORIGIN);
+    expect(heard[0]).toEqual({ type: "announce", protocolVersion: 2, extensionVersion: "1.2.0", name: "Chrome" });
+    // Each result names its call, and may come in any order.
+    expect(heard.slice(1).sort((a, b) => ("id" in a && "id" in b ? a.id.localeCompare(b.id) : 0))).toEqual([
+      { type: "result", id: "call-1", result: { ok: true, value: { url: "https://example.com/", title: "Example" } } },
+      { type: "result", id: "call-2", result: { ok: false, reason: "The fake extension has no answer scripted for screenshot." } },
+    ]);
+    expect(extension.calls.map((call) => call.id)).toEqual(["call-1", "call-2"]);
   });
 });
