@@ -1395,6 +1395,62 @@
       "title": "SkillSource"
     },
     {
+      "path": "catalogue/skill-entry-id.json",
+      "title": "CatalogueSkillEntryId"
+    },
+    {
+      "path": "catalogue/tag.json",
+      "title": "CatalogueTag"
+    },
+    {
+      "path": "catalogue/licence-where.json",
+      "title": "CatalogueLicenceWhere"
+    },
+    {
+      "path": "catalogue/licence.json",
+      "title": "CatalogueLicence"
+    },
+    {
+      "path": "catalogue/skill-member.json",
+      "title": "CatalogueSkillMember"
+    },
+    {
+      "path": "catalogue/always-on-hint.json",
+      "title": "CatalogueAlwaysOnHint"
+    },
+    {
+      "path": "catalogue/skill-entry.json",
+      "title": "CatalogueSkillEntry"
+    },
+    {
+      "path": "catalogue/instruction-group-id.json",
+      "title": "CatalogueInstructionGroupId"
+    },
+    {
+      "path": "catalogue/instruction-group.json",
+      "title": "CatalogueInstructionGroup"
+    },
+    {
+      "path": "catalogue/instruction-entry-id.json",
+      "title": "CatalogueInstructionEntryId"
+    },
+    {
+      "path": "catalogue/instruction-version-number.json",
+      "title": "CatalogueInstructionVersionNumber"
+    },
+    {
+      "path": "catalogue/instruction-version.json",
+      "title": "CatalogueInstructionVersion"
+    },
+    {
+      "path": "catalogue/instruction-entry.json",
+      "title": "CatalogueInstructionEntry"
+    },
+    {
+      "path": "catalogue/catalogue.json",
+      "title": "Catalogue"
+    },
+    {
       "path": "trust/key-kind.json",
       "title": "TrustKeyKind"
     },
@@ -5313,6 +5369,21 @@
       "path": "data/managed-tools.json",
       "title": "Managed tools",
       "schema": "managed-tools/tool.json"
+    },
+    {
+      "path": "data/catalogue-skills.json",
+      "title": "Catalogue skills",
+      "schema": "catalogue/skill-entry.json"
+    },
+    {
+      "path": "data/catalogue-instruction-groups.json",
+      "title": "Catalogue instruction groups",
+      "schema": "catalogue/instruction-group.json"
+    },
+    {
+      "path": "data/catalogue-instructions.json",
+      "title": "Catalogue instructions",
+      "schema": "catalogue/instruction-entry.json"
     }
   ],
   "methods": [

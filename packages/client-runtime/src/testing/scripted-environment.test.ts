@@ -224,6 +224,25 @@ describe("the scripted environment in a DOM", () => {
     expect(view()).toMatchObject({ name: "studio box", icon: "nas", colour: "violet" });
   });
 
+  it("answers the look commands with the look as it now is, noticing each field that changed, and says the new look in discovery, as the environment does (#323)", async () => {
+    const { world, runtime, until } = await launch({ environments: [{ name: "desk", reach: "local", colour: "amber" }] });
+    const desk = world.environment("desk");
+    const view = () => runtime.projections.environments.read()[0];
+    await until(() => view()?.phase === "ready", "desk ready");
+    expect(view()).toMatchObject({ name: "desk", icon: null, colour: "amber" });
+
+    const renamed = await runtime.requests.call(desk.environmentId, "environment.rename", { commandId: "0199cc00-0000-4000-8000-000000000002", name: "  Tower   box " });
+    expect(renamed).toMatchObject({ ok: true, result: { receipt: { status: "accepted", changed: true }, result: { name: "Tower box", icon: "server", colour: "amber" } } });
+    await until(() => view()?.name === "Tower box", "the rename noticed");
+    const again = await runtime.requests.call(desk.environmentId, "environment.rename", { commandId: "0199cc00-0000-4000-8000-000000000003", name: "Tower box" });
+    expect(again).toMatchObject({ ok: true, result: { receipt: { status: "accepted", changed: false } } });
+
+    desk.setLook({ icon: "nas", colour: "teal" });
+    await until(() => view()?.colour === "teal" && view()?.icon === "nas", "another client's look noticed");
+    const discovery = await world.fetch(`${desk.wire.origin}${DISCOVERY_PATH}`);
+    expect(await discovery.json()).toMatchObject({ environmentName: "Tower box", environmentIcon: "nas", environmentColour: "teal" });
+  });
+
   it("reads a subagent's stored transcript while its provider declares them, and refuses as the environment does while it does not", async () => {
     const messages = [{ type: "user", uuid: "u1", message: { role: "user", content: "Find the parser" } }];
     const { world, runtime } = await launch({

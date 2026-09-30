@@ -173,3 +173,23 @@ verbs, or list the section as not run.
 7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
 8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
 9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.
+
+## Host-side updater (`scripts/host-updater.sh`)
+
+**Blocked until two releases publish their images and manifests** (#357,
+#358): the environment makes an update ready only for a release whose manifest
+names an image, and the updater pulls only that image. `test/host-updater-script.test.ts`
+runs the script against a fake `docker`, `curl` and `flock` and a held clock;
+these steps prove it against a real Docker on a Linux host, never the shared
+agent box. Install it as `docs/host-updater.md` says, beside the older
+release's `compose.yaml`, with cron or the systemd timer, and set
+`AGENT_HARNESS_NOTIFY_COMMAND='logger -t agent-harness "$AGENT_HARNESS_OUTCOME: $AGENT_HARNESS_MESSAGE"'`.
+Record the result in the pull request that changes the script, or list the
+section as not run.
+
+1. With nothing to update, the first tick logs "Nothing to update" and the next ticks log nothing; `docker compose exec environment agent-harness update status --data-dir /data` shows the updates managed outside, with the updater's last poll.
+2. `docker compose exec environment agent-harness update apply --version <newer> --now --data-dir /data`. Within five minutes the updater logs the pull and the begin, the stop (which waits for a run under way), the snapshot, the recreate and the watch, and ten minutes later `updated`; `logger` shows it once. `.env` holds `AGENT_HARNESS_IMAGE=<newer>` and `AGENT_HARNESS_PREVIOUS_IMAGE=<older>`, `docker image ls` holds only those two of the repository, `/data/snapshots` is empty, and `update status` shows the last update `updated`.
+3. Run the script by hand while a tick is under way (during step 2's stop): it exits at once, printing nothing.
+4. Ask for a release built to fail its start (the spec's manual rollback release: a version whose `serve` exits before it says ready). The updater logs the rollback at `trial` for `health`, `.env` names the older image again, the older version runs, `update status` shows the update failed and rolled back, and `/data/snapshots` holds nothing.
+5. `docker logout git.systemtech.dev:5526`, then ask for an update: the tick logs `pull-failed` once, and the container keeps running untouched; the next ticks log nothing more. `docker login` again and the next tick updates.
+6. `AGENT_HARNESS_UPDATER=0` on the crontab line or in the unit: ticks log nothing and call nothing.

@@ -110,8 +110,6 @@ export interface FakeWire {
    * (`readiness`, `protocolVersion`, `capabilities`, even `environmentId`).
    */
   discovery(answer: "unreachable" | "hanging" | Partial<DiscoveryDocument>): void;
-  /** Changes the name, icon or colour discovery and `hello` say from now on, as the environment's three look commands do. */
-  setLook(change: { readonly name?: string; readonly icon?: EnvironmentIcon; readonly colour?: EnvironmentColour }): void;
   /**
    * How requests for `method` are answered on every socket: a response
    * body, a promise of one (answered when it settles, so a test can hold an
@@ -139,6 +137,8 @@ export interface FakeWire {
   discoveries(): number;
   /** The last credential issued (pairing, the grant or a refresh). */
   credential(): ClientSessionCredential | undefined;
+  /** Changes the name, icon or colour discovery and `hello` say from now on, as `environment.rename`, `setIcon` and `setColour` do. */
+  look(changes: { readonly name?: string; readonly icon?: EnvironmentIcon; readonly colour?: EnvironmentColour }): void;
 }
 
 /** Lets everything the runtime is waiting on in microtasks finish: one turn of the event loop. */
@@ -162,7 +162,9 @@ interface FakeSocket {
 export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const { clock } = options;
   const environmentId = options.environmentId ?? uuidv7(clock.now());
-  let look: { name: string; icon: EnvironmentIcon | undefined; colour: EnvironmentColour | undefined } = { name: options.name ?? "fake", icon: options.icon, colour: options.colour };
+  let name = options.name ?? "fake";
+  let icon = options.icon;
+  let colour = options.colour;
   const address = options.address ?? { host: "fake.test", port: 7433 };
   const origin = originOf(address);
   let overrides: "unreachable" | "hanging" | Partial<DiscoveryDocument> = {};
@@ -178,9 +180,9 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
 
   const document = (): DiscoveryDocument => ({
     environmentId,
-    environmentName: look.name,
-    ...(look.icon !== undefined && { environmentIcon: look.icon }),
-    ...(look.colour !== undefined && { environmentColour: look.colour }),
+    environmentName: name,
+    ...(icon !== undefined && { environmentIcon: icon }),
+    ...(colour !== undefined && { environmentColour: colour }),
     harnessVersion: FAKE_HARNESS_VERSION,
     protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
     capabilities: [...(options.capabilities ?? [])],
@@ -359,9 +361,6 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     discovery(answer) {
       overrides = answer;
     },
-    setLook(change) {
-      look = { ...look, ...change };
-    },
     answer(method, responder) {
       responders.set(method, responder);
     },
@@ -373,5 +372,10 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     open: () => sockets.filter((s) => !s.closed).length,
     discoveries: () => reads,
     credential: () => issued,
+    look(changes) {
+      name = changes.name ?? name;
+      icon = changes.icon ?? icon;
+      colour = changes.colour ?? colour;
+    },
   };
 };
