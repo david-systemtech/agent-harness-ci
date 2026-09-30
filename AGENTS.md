@@ -113,6 +113,20 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts` runs the
   workflow's steps against a fake `pnpm`. A tag's real run is the checklist's Release
   section.
+- The desktop build, `pnpm --filter @agent-harness/desktop build-desktop --platform <p>
+  --tag v<version> --server <that platform's server artefact> --out <folder>`
+  (`packages/desktop/scripts/desktop-build/`, #423), builds one platform's desktop on
+  that platform: the macOS zip (darwin-arm64), the Windows NSIS setup (win32-x64) or the
+  Arch package (linux-x64). It bundles the main process and the preload, builds the `gui`
+  stamped with the version, checks that the server artefact is that platform's and
+  version's, and has electron-builder (a dev dependency of the desktop) pack them, the
+  artefact into the app's resources. Its tests fake electron-builder and the compile and
+  read what they are handed; `bundle.test.ts` bundles the main process and the `gui`
+  build with Vite, running neither. Never run electron-builder's packaging on the shared
+  agent box. The `desktop` workflow (`.forgejo/workflows/desktop.yml`) runs it by hand:
+  the Arch package on `ci-x64`, the zip on the Mac's `macos` runner. No runner has
+  Windows, so the setup is built by hand; building and installing each is the desktop
+  checklist's "Building a desktop" and "The packaged desktop".
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
@@ -136,7 +150,11 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
 - `agent-harness service install|uninstall|status|start` (`packages/cli/src/service/`)
   is tested with the service manager stubbed; `scripts/install.sh` is the
   headless installer, tested by `test/install-script.test.ts` against a fake
-  `curl`. What only a real launchd, `systemd --user` or Task Scheduler can prove
+  `curl`, and `scripts/install.ps1` its Windows twin, tested by
+  `test/install-ps1-script.test.ts` under PowerShell 7 against a fake
+  `curl.exe` and `whoami.exe` (CI puts `pwsh` on the job's PATH with
+  `.forgejo/scripts/pwsh.sh`; elsewhere those tests skip without one). What
+  only a real launchd, `systemd --user` or Task Scheduler can prove
   is the manual checklist in `docs/agents/service-install-checklist.md`, run (or listed as not run, per platform)
   when either changes. The container image (`Dockerfile`) and its compose file
   (`scripts/compose.yaml`) run the environment as a non-root user and are read

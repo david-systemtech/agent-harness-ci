@@ -9,7 +9,7 @@ import { clockTime } from "../transcript/format.js";
  */
 
 /** Why an environment is busy, in words. */
-const BUSY_WORDS: Readonly<Record<BusyReason, string>> = {
+export const BUSY_WORDS: Readonly<Record<BusyReason, string>> = {
   "run-starting": "a run is starting",
   "run-running": "a run is running",
   "terminal-running": "a terminal runs a command",

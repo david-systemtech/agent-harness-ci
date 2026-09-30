@@ -111,13 +111,14 @@ const originParts = (origin: SkillOrigin | null): readonly (string | null)[] | n
 
 /**
  * The fingerprint of a set: the members' names, kinds, folders, origins,
- * snapshot commits and whether each is native, by name, and the hidden
- * native names, sorted, so the same state in any order has one. What a
- * member's files say is read live through its link and is not covered.
+ * snapshot commits and whether each is native and always-on, by name, and
+ * the hidden native names, sorted, so the same state in any order has one.
+ * What a member's files say is read live through its link and is not
+ * covered.
  */
 export const fingerprintOf = (set: PlacedSet): string => {
   const members = [...set.members]
-    .map((member) => [member.name, member.kind, member.target, originParts(member.origin), member.commit, member.native] as const)
+    .map((member) => [member.name, member.kind, member.target, originParts(member.origin), member.commit, member.native, member.alwaysOn] as const)
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   const hidden = [...set.hiddenNativeNames].sort();
   return createHash("sha256")

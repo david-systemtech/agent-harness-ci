@@ -409,6 +409,7 @@ import {
   TranscriptItem,
   UpdateInterruptOutcome,
   UpdateInterruptReason,
+  HistoryImportOutcome,
 } from "./transcript.js";
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
@@ -634,6 +635,7 @@ import {
   GitCommit,
   RunSkillSet,
   RunSkillSetMember,
+  SKILLS_EVENT_TYPES,
   SkillCarriedItem,
   SkillCarryOverInvalid,
   SkillCarryOverOffer,
@@ -651,8 +653,11 @@ import {
   SkillSourceId,
   SkillNotCarried,
   SkillsCarryOverReport,
+  SkillsEventType,
   SkillsUpdatedPayload,
   SkillsView,
+  SkillsViewAccount,
+  SkillsViewMember,
 } from "./skills.js";
 import {
   TRUST_EVENT_TYPES,
@@ -1005,6 +1010,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/member-ref.json", title: "SkillMemberRef", schema: SkillMemberRef },
   { path: "skills/set-member.json", title: "SkillSetMember", schema: SkillSetMember },
   { path: "skills/choice.json", title: "SkillChoice", schema: SkillChoice },
+  { path: "skills/event-type.json", title: "SkillsEventType", schema: SkillsEventType },
+  ...Object.entries(SKILLS_EVENT_TYPES).map(([type, entry]) => ({ path: `skills/events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
+  { path: "skills/view-member.json", title: "SkillsViewMember", schema: SkillsViewMember },
+  { path: "skills/view-account.json", title: "SkillsViewAccount", schema: SkillsViewAccount },
   { path: "skills/view.json", title: "SkillsView", schema: SkillsView },
   { path: "skills/skills-updated.json", title: "SkillsUpdatedPayload", schema: SkillsUpdatedPayload },
   { path: "skills/native-root.json", title: "NativeSkillRoot", schema: NativeSkillRoot },
@@ -1070,6 +1079,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
   { path: "transcript/update-interrupt-outcome.json", title: "UpdateInterruptOutcome", schema: UpdateInterruptOutcome },
   { path: "transcript/update-interrupt-reason.json", title: "UpdateInterruptReason", schema: UpdateInterruptReason },
+  { path: "transcript/history-import-outcome.json", title: "HistoryImportOutcome", schema: HistoryImportOutcome },
   { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
   { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
   { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },

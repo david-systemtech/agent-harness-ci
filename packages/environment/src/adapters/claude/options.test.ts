@@ -58,8 +58,8 @@ const skillSet: RunSkillSet = {
   generation: "/data/skills/generations/3f9a",
   fingerprint: "3f9a",
   members: [
-    { name: "tdd", origin: null, invocation: "model+slash", native: false },
-    { name: "release", origin: null, invocation: "slash-only", native: true },
+    { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
+    { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
   ],
   hiddenNativeNames: ["triage"],
 };

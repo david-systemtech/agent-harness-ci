@@ -76,6 +76,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      # scripts/install.ps1's tests run under PowerShell 7, which the image
+      # lacks: pwsh.sh unpacks its pinned tarball, checked by SHA-256, and puts
+      # it on the PATH. The tarball is cached by the script that pins it.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/agent-harness-pwsh
+          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
+      - name: PowerShell 7 for the install.ps1 tests
+        run: bash .forgejo/scripts/pwsh.sh
       # Vitest sizes its pool to the 16 CPUs the job can see, but the three
       # ci jobs share one 8-CPU, 8 GB daemon: 16 workers peaked at 2.8 GB, 4
       # at 1.2 GB.

@@ -223,6 +223,19 @@ const payloads: Record<string, Fixtures> = {
     valid: [{ toMessageId: messageId, rewindSequence: 42 }],
     invalid: [{ toMessageId: messageId }, { rewindSequence: 42 }, { toMessageId: "m-1", rewindSequence: 42 }, { toMessageId: messageId, rewindSequence: -1 }],
   },
+  "session.history-imported": {
+    valid: [
+      { runId, providerSessionId: "provider-session-1", outcome: "appended", message: null },
+      { runId, providerSessionId: "provider-session-1", outcome: "unreadable", message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
+    ],
+    invalid: [
+      { runId, providerSessionId: "provider-session-1", outcome: "appended" },
+      { runId, providerSessionId: "", outcome: "appended", message: null },
+      { runId, providerSessionId: "provider-session-1", outcome: "skipped", message: null },
+      { runId, providerSessionId: "provider-session-1", outcome: "unreadable", message: "" },
+      { runId: "r-1", providerSessionId: "provider-session-1", outcome: "appended", message: null },
+    ],
+  },
   "run.update-interrupted": {
     valid: [
       { ...interrupted, outcome: "continued", reason: null, continuationRunId: "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d" },
@@ -369,6 +382,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   "transcript/interrupt-cause.json": { valid: ["user", "read-now", "restart", "parked", "timeout"], invalid: ["drain", ""] },
   "transcript/update-interrupt-outcome.json": { valid: ["continued", "waiting-on-prompt", "next-message"], invalid: ["dropped", ""] },
   "transcript/update-interrupt-reason.json": { valid: ["no-resume", "account", "mode", "workspace", "deleted", "completions"], invalid: ["restart", ""] },
+  "transcript/history-import-outcome.json": { valid: ["appended", "unreadable"], invalid: ["skipped", ""] },
   "transcript/attachment-kind.json": { valid: ["image", "file"], invalid: ["audio", ""] },
   "transcript/attachment-record.json": { valid: [attachment], invalid: [{ ...attachment, size: 1.5 }, { ...attachment, kind: "audio" }] },
   "transcript/attachment-input.json": {
@@ -396,7 +410,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
-  "transcript/transcript-item.json": { valid: items, invalid: [
+  "transcript/transcript-item.json": { valid: [...items, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." }], invalid: [
       { sequence: 3 },
       { kind: "plan-card" },
       { kind: 3, sequence: 3 },
@@ -405,6 +419,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
       { kind: "user-message", sequence: 3 },
       { kind: "tool-call", sequence: 3, runId, toolCallId: "t-1" },
       { kind: "prompt", sequence: 3, runId, promptId: "toolu_1", prompt: { kind: "permission" }, answer: null },
+      { kind: "history-unreadable", sequence: 2, message: "" },
     ],
   },
   "transcript/parked-prompt.json": { valid: [parkedPrompt], invalid: [{ ...parkedPrompt, promptId: "" }, { ...parkedPrompt, prompt: "Allow?" }, { ...parkedPrompt, prompt: { kind: "permission", toolName: "Bash" } }] },

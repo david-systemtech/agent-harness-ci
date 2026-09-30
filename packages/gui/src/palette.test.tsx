@@ -109,6 +109,8 @@ describe("its entries", () => {
     expect(entriesUnder("Anywhere")).toEqual([
       "Stop the runNothing is running in this session.",
       "Find in the conversationCtrl+F",
+      "New sessionCtrl+N",
+      "New session in a new paneCtrl+Shift+N",
       "Show or hide the sidebarCtrl+B",
       "Show or hide the terminalCtrl+J",
       "Split the focused pane to the rightCtrl+\\",
@@ -153,13 +155,15 @@ describe("its entries", () => {
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>}k{/Control}");
     expect(entriesUnder("Anywhere")).toEqual([
+      "New sessionCtrl+N",
+      "New session in a new paneCtrl+Shift+N",
       "Show or hide the sidebarCtrl+B",
       "Split the focused pane to the rightCtrl+\\",
       "Split the focused pane downwardsCtrl+Shift+\\",
       "Open or close SettingsCtrl+,",
     ]);
     expect(entriesUnder("Settings")).toHaveLength(19);
-    expect(entries()).toHaveLength(24);
+    expect(entries()).toHaveLength(26);
     expect(entries().at(-1)).toBe("Sessions on every environment…");
   });
 
@@ -265,6 +269,8 @@ describe("choosing an entry", () => {
     // Nothing is running, so Stop the run is dim and the first entry that can be chosen is highlighted.
     expect(highlighted()).toBe("Find in the conversationCtrl+F");
     await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("New sessionCtrl+N");
+    await app.user.keyboard("{ArrowDown}{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the sidebarCtrl+B");
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
@@ -274,7 +280,7 @@ describe("choosing an entry", () => {
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });

@@ -109,13 +109,18 @@
     "native": {
       "type": "boolean",
       "description": "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation."
+    },
+    "alwaysOn": {
+      "type": "boolean",
+      "description": "Whether the run's account made it always-on, so its body rides the run's standing instructions."
     }
   },
   "required": [
     "name",
     "origin",
     "invocation",
-    "native"
+    "native",
+    "alwaysOn"
   ],
-  "description": "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, and whether the provider loads it itself."
+  "description": "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, whether the provider loads it itself, and whether it is always-on for the run's account."
 }

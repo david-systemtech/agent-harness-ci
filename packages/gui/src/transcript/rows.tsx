@@ -95,6 +95,11 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <RewoundFold row={row} facts={facts} />;
     case "forked":
       return <ForkedRow entry={row.entry} />;
+    case "history-unreadable":
+      // An imported session whose history the account's directory no longer gave (#579): one line saying so, and why.
+      return (
+        <p className="text-[0.85em] text-ink-faint">The history could not be read: {row.entry.message}</p>
+      );
   }
 };
 

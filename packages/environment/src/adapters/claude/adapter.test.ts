@@ -47,6 +47,10 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
     if (hooks.sdk === undefined) throw new Error("The test installed no fake SDK.");
     return hooks.sdk.getSessionMessages(id, options);
   },
+  // A resume the store holds nothing of first copies it from the account's directory (#579); these runs' directories hold none.
+  importSessionToStore: async (id: string) => {
+    throw new Error(`Session ${id} not found`);
+  },
 }));
 
 const { createClaudeAdapter, CLAUDE_DESCRIPTOR, DEFAULT_TIMINGS } = await import("./index.js");
@@ -119,8 +123,8 @@ const skillSetOf = (fingerprint: string): RunSkillSet => ({
   generation: `/data/skills/generations/${fingerprint}`,
   fingerprint,
   members: [
-    { name: "tdd", origin: null, invocation: "model+slash", native: false },
-    { name: "release", origin: null, invocation: "slash-only", native: true },
+    { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
+    { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
   ],
   hiddenNativeNames: ["triage"],
 });

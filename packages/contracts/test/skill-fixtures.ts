@@ -58,11 +58,11 @@ const ownMember = { ...member, path: "skills/tdd", origin: manifestOrigin, layer
 const commandMember = { ...member, kind: "command", path: "commands/tdd.md", origin: null, layer: own, whileActive: ["allowed-tools"] };
 const setMember = { ...ownMember, shadowedBy: null };
 const shadowed = { ...commandMember, shadowedBy: { layer: own, path: "skills/tdd" } };
-const runMember = { name: "tdd", origin: manifestOrigin, invocation: "model+slash", native: false };
+const runMember = { name: "tdd", origin: manifestOrigin, invocation: "model+slash", native: false, alwaysOn: true };
 const runSkillSet = {
   generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
   fingerprint: "3f9a",
-  members: [runMember, { name: "release", origin: null, invocation: "slash-only", native: true }],
+  members: [runMember, { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false }],
   hiddenNativeNames: ["triage"],
 };
 const choices = [
@@ -70,12 +70,20 @@ const choices = [
   { kind: "enabled", name: "tdd", accountId: "claude-max", enabled: true },
   { kind: "always-on", name: "unslop", accountId: "claude-max", on: true },
 ];
+const tddChoices = { enabled: false, alwaysOn: false, choices: choices.slice(0, 2) };
+const viewMember = { ...setMember, ...tddChoices };
+const viewMembers = [viewMember, { ...shadowed, ...tddChoices }, { ...invalidMember, shadowedBy: null, enabled: true, alwaysOn: false, choices: [] }];
+const viewAccounts = [
+  { accountId: "claude-max", channel: "system-prompt-append", reason: null },
+  { accountId: "local", channel: "none", reason: "Its adapter, Codex, has no instruction channel, so no always-on skill reaches its runs." },
+];
 const view = {
   ownDirectory: "/home/david/.local/state/agent-harness/skills/own",
   sources: [source],
   choices,
   accountId: "claude-max",
-  members: [setMember, shadowed, { ...invalidMember, shadowedBy: null }],
+  accounts: viewAccounts,
+  members: viewMembers,
 };
 const commandId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const copiedSkill = { kind: "skill", name: "tdd", from: "/home/david/.claude/skills/tdd", path: "skills/tdd" };
@@ -102,12 +110,14 @@ export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "skills.get": {
     params: { valid: [{}, { sessionId: sourceId }], invalid: [{ sessionId: "s-1" }, { sessionId: null }, []] },
     result: {
-      valid: [view, { ...view, sources: [], choices: [], accountId: null, members: [] }],
+      valid: [view, { ...view, sources: [], choices: [], accountId: null, accounts: [], members: [] }],
       invalid: [
         { ...view, ownDirectory: "" },
         { ...view, accountId: undefined },
-        { ...view, members: [{ ...setMember, shadowedBy: undefined }] },
-        { ...view, members: [{ ...setMember, shadowedBy: { layer: own } }] },
+        { ...view, accounts: undefined },
+        { ...view, members: [{ ...viewMember, shadowedBy: undefined }] },
+        { ...view, members: [{ ...viewMember, shadowedBy: { layer: own } }] },
+        { ...view, members: [setMember] },
         { ...view, choices: [{ kind: "always-on", name: "tdd", accountId: null, on: true }] },
         { ...view, sources: undefined },
       ],
@@ -140,6 +150,26 @@ export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "skills.own.remove": {
     params: { valid: [{ commandId, name: "tdd" }], invalid: [{ commandId, name: "-tdd" }, { commandId }, { name: "tdd" }] },
     result: { valid: [{ member: ownMember }, { member: invalidMember }], invalid: [{}, { member: { ...ownMember, tokens: -1 } }] },
+  },
+  "skills.setAlwaysOn": {
+    params: {
+      valid: [
+        { commandId, name: "unslop", accountId: "claude-max", on: true },
+        { commandId, name: "unslop", accountId: "claude-max", on: false },
+      ],
+      invalid: [{ commandId, name: "unslop", accountId: null, on: true }, { commandId, name: "Unslop", accountId: "claude-max", on: true }, { commandId, name: "unslop", accountId: "claude-max" }, { name: "unslop", accountId: "claude-max", on: true }],
+    },
+    result: { valid: [{ choice: choices[2] }], invalid: [{}, { choice: { ...choices[2], accountId: null } }] },
+  },
+  "skills.setEnabled": {
+    params: {
+      valid: [
+        { commandId, name: "tdd", accountId: null, enabled: false },
+        { commandId, name: "tdd", accountId: "claude-max", enabled: true },
+      ],
+      invalid: [{ commandId, name: "tdd", enabled: false }, { commandId, name: "-tdd", accountId: null, enabled: false }, { commandId, name: "tdd", accountId: null }, { name: "tdd", accountId: null, enabled: false }],
+    },
+    result: { valid: [{ choice: choices[0] }, { choice: choices[1] }], invalid: [{}, { choice: { kind: "enabled", name: "tdd", enabled: false } }] },
   },
 };
 
@@ -218,13 +248,27 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
       { kind: "hidden", name: "tdd", accountId: null },
     ],
   },
-  "skills/view.json": { valid: [view], invalid: [{ ...view, members: undefined }, { ...view, ownDirectory: 7 }] },
+  "skills/event-type.json": { valid: ["skills.enabled-set", "skills.always-on-set"], invalid: ["skills.updated", "skills.source-added", ""] },
+  "skills/events/skills.enabled-set.json": {
+    valid: [
+      { name: "tdd", accountId: null, enabled: false },
+      { name: "tdd", accountId: "claude-max", enabled: true },
+    ],
+    invalid: [{ name: "tdd", enabled: false }, { name: "Tdd", accountId: null, enabled: false }, { name: "tdd", accountId: null }],
+  },
+  "skills/events/skills.always-on-set.json": {
+    valid: [{ name: "unslop", accountId: "claude-max", on: true }],
+    invalid: [{ name: "unslop", accountId: null, on: true }, { name: "unslop", accountId: "", on: true }, { name: "unslop", accountId: "claude-max" }],
+  },
+  "skills/view-member.json": { valid: viewMembers, invalid: [setMember, { ...viewMember, choices: [{ kind: "hidden", name: "tdd", accountId: null }] }, { ...viewMember, enabled: undefined }] },
+  "skills/view-account.json": { valid: viewAccounts, invalid: [{ accountId: "local", channel: "none" }, { accountId: "local", channel: "codex", reason: null }, { ...viewAccounts[1], reason: "" }] },
+  "skills/view.json": { valid: [view], invalid: [{ ...view, members: undefined }, { ...view, ownDirectory: 7 }, { ...view, accounts: undefined }] },
   "skills/skills-updated.json": { valid: [{}], invalid: [null, "updated"] },
   "skills/native-root.json": { valid: [".claude/skills", ".agents/skills", ".claude/commands"], invalid: [".claude/agents", ".codex/skills", ""] },
   "skills/set-fingerprint.json": { valid: ["3f9a", "c".repeat(64)], invalid: ["", 7, null] },
   "skills/run-skill-set-member.json": {
-    valid: [runMember, { ...runMember, origin: null, invocation: "slash-only", native: true }],
-    invalid: [{ ...runMember, name: "Tdd" }, { ...runMember, native: undefined }, { ...runMember, invocation: "model" }],
+    valid: [runMember, { ...runMember, origin: null, invocation: "slash-only", native: true, alwaysOn: false }],
+    invalid: [{ ...runMember, name: "Tdd" }, { ...runMember, native: undefined }, { ...runMember, alwaysOn: undefined }, { ...runMember, invocation: "model" }],
   },
   "skills/run-skill-set.json": {
     valid: [runSkillSet, { generation: null, fingerprint: null, members: [], hiddenNativeNames: [] }],

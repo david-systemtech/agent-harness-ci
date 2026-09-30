@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsEventType",
+  "type": "string",
+  "enum": [
+    "skills.enabled-set",
+    "skills.always-on-set"
+  ],
+  "description": "The event types of the skills stream: skills.enabled-set and skills.always-on-set."
+}

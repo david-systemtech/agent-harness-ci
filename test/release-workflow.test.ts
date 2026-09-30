@@ -77,6 +77,15 @@ describe("the release workflow", () => {
     expect(lines).toContain("  TAG: ${{ github.ref_name }}");
   });
 
+  it("puts PowerShell 7 on the check job's PATH before its tests, which run install.ps1 under it, as ci.yml does", () => {
+    const steps = runs(job("check"));
+    expect(steps.indexOf("bash .forgejo/scripts/pwsh.sh")).toBeGreaterThan(-1);
+    expect(steps.indexOf("bash .forgejo/scripts/pwsh.sh")).toBeLessThan(steps.indexOf("pnpm test --maxWorkers=4"));
+    const ci = readFileSync(join(root, ".forgejo", "workflows", "ci.yml"), "utf8").split("\n");
+    expect(ci.indexOf("        run: bash .forgejo/scripts/pwsh.sh")).toBeGreaterThan(-1);
+    expect(ci.indexOf("        run: bash .forgejo/scripts/pwsh.sh")).toBeLessThan(ci.indexOf("      - run: pnpm test --maxWorkers=4"));
+  });
+
   it("builds the image and the release only after the check, the release with the image job's reference and digest", () => {
     expect(job("image")).toContain("    needs: check");
     const release = job("release");
@@ -89,7 +98,7 @@ describe("the release workflow", () => {
     expect(job("release")).toContain("    runs-on: ci-x64");
   });
 
-  it("builds the three artefacts and the asset list's assets from this checkout: the schema export, install.sh, compose.yaml and host-updater.sh", async () => {
+  it("builds the three artefacts and the asset list's assets from this checkout: the schema export, install.sh, install.ps1, compose.yaml and host-updater.sh", async () => {
     const args = await pnpmCalledBy(script(job("release"), "Build the server artefacts and the release's assets"), {
       IMAGE_REFERENCE: "git.example.test:5526/david/agent-harness:0.5.0",
       IMAGE_DIGEST: `sha256:${"0".repeat(64)}`,
@@ -110,6 +119,8 @@ describe("the release workflow", () => {
       "schema=packages/contracts/schema",
       "--asset",
       "install-script=scripts/install.sh",
+      "--asset",
+      "install-script=scripts/install.ps1",
       "--asset",
       "compose=scripts/compose.yaml",
       "--asset",

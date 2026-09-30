@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { clockTime } from "@agent-harness/client-runtime";
 import { fakeShell } from "@agent-harness/client-runtime/testing";
+import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { encode } from "uqr";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -217,7 +218,7 @@ describe("Your machines", () => {
     const app = await opened({ laptop: { settings: { "updates.autoUpdate": false } } });
     const pane = await openMachines(app);
     const laptop = () => card(pane, "laptop");
-    const autoUpdate = () => within(within(laptop()).getByRole("group", { name: "updates.autoUpdate" })).getByRole("switch");
+    const autoUpdate = () => within(laptop()).getByRole("switch", { name: "Auto-update" });
     await waitFor(() => expect(within(laptop()).getAllByRole("listitem")).toHaveLength(3));
     await waitFor(() => expect(autoUpdate().getAttribute("aria-checked")).toBe("false"));
 
@@ -291,5 +292,146 @@ describe("Your machines", () => {
     const pane = await openMachines(app);
     await waitFor(() => expect(app.shell.calls.some(([member]) => member === "secrets.protection")).toBe(true));
     expect(within(pane).queryByText(/unprotected/)).toBeNull();
+  });
+});
+
+/** Where the server the desktop carries lies in an installed desktop. */
+const BUNDLED_PATH = "/opt/agent-harness/resources/server/agent-harness-linux-x64.tar.gz";
+
+describe("Your machines' update controls", () => {
+  it("shows each card's version, channel and auto-update, sets them through updates.settings.set, and sends Update now", async () => {
+    const app = await opened({ laptop: { updates: { status: { version: "0.5.0", newest: "0.6.0" } } } });
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    const scripted = app.environment("laptop");
+    expect(await within(laptop()).findByText("Version 0.5.0")).toBeDefined();
+    const channel = () => within(laptop()).getByRole("combobox", { name: "Channel" }) as HTMLSelectElement;
+    const autoUpdate = () => within(laptop()).getByRole("switch", { name: "Auto-update" });
+    await waitFor(() => expect(channel().value).toBe("stable"));
+    expect(autoUpdate().getAttribute("aria-checked")).toBe("true");
+
+    await app.user.selectOptions(channel(), "beta");
+    await waitFor(() => expect(channel().value).toBe("beta"));
+    await app.user.click(autoUpdate());
+    await waitFor(() => expect(autoUpdate().getAttribute("aria-checked")).toBe("false"));
+    expect(scripted.requests("updates.settings.set").map((request) => request.params["values"])).toEqual([{ "updates.channel": "beta" }, { "updates.autoUpdate": false }]);
+    expect(scripted.settings()).toMatchObject({ "updates.channel": "beta", "updates.autoUpdate": false });
+    // The pin, the idle window and the deferral cap stay the generic editor's.
+    for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]) expect(within(laptop()).getByRole("group", { name: key })).toBeDefined();
+    expect(within(laptop()).queryByRole("group", { name: "updates.channel" })).toBeNull();
+
+    await app.user.click(within(laptop()).getByRole("button", { name: "Update now" }));
+    expect(await within(laptop()).findByText("Updating to 0.6.0 once laptop is idle.")).toBeDefined();
+    expect(scripted.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
+    expect(app.environment("desk").requests("updates.apply")).toEqual([]);
+  });
+
+  it("shows a pending update's state and what it waits on", async () => {
+    const pending = { updateId: "0199aa00-0000-4000-8000-00000000000b", toVersion: "0.6.0", source: "channel", since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null } as const;
+    const app = await opened({
+      desk: { updates: { status: { pending: { state: "blocked", reason: "launcher", toVersion: "0.9.0", message: "0.9.0 needs a newer launcher: run service install from its release." } } } },
+      laptop: { updates: { status: { pending: { state: "waiting", ...pending, waitsOn: { reason: "parked-prompt", until: "2026-09-24T00:10:00.000Z" } } } } },
+    });
+    const pane = await openMachines(app);
+    expect(
+      await within(card(pane, "laptop")).findByText(
+        /^Waiting to update to 0\.6\.0 until laptop is idle: a run is parked on a prompt, until (\d+ \w{3} )?\d\d:\d\d unless more happens\. Forced at (\d+ \w{3} )?\d\d:\d\d\.$/,
+      ),
+    ).toBeDefined();
+    expect(within(card(pane, "desk")).getByText("The update to 0.9.0 is blocked: 0.9.0 needs a newer launcher: run service install from its release.")).toBeDefined();
+
+    app.environment("laptop").setUpdates({ status: { pending: { state: "draining", ...pending, cause: "cap" } } });
+    app.environment("laptop").notice("environment.update-started", { updateId: pending.updateId, fromVersion: "0.0.0-fake", toVersion: "0.6.0", cause: "cap" });
+    expect(await within(card(pane, "laptop")).findByText("Draining for the update to 0.6.0: new runs are refused.")).toBeDefined();
+  });
+
+  it("offers to update an environment older than this client to this client's version, and not one already updating that far", async () => {
+    const app = await opened(
+      {
+        desk: { updates: { status: { version: "0.5.0", pending: { state: "staging", updateId: "0199aa00-0000-4000-8000-00000000000c", toVersion: "0.6.0", source: "channel" } } } },
+        laptop: { updates: { status: { version: "0.5.0" } } },
+      },
+      { version: "0.6.0" },
+    );
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    expect(await within(laptop()).findByText("This client runs 0.6.0, newer than laptop's 0.5.0.")).toBeDefined();
+    expect(within(card(pane, "desk")).queryByText(/^This client runs/)).toBeNull();
+
+    await app.user.click(within(laptop()).getByRole("button", { name: "Update laptop to 0.6.0" }));
+    expect(await within(laptop()).findByText("Updating laptop to 0.6.0 once it is idle.")).toBeDefined();
+    expect(app.environment("laptop").requests("updates.apply").map((request) => ({ version: request.params["version"], when: request.params["when"] }))).toEqual([
+      { version: "0.6.0", when: "idle" },
+    ]);
+  });
+
+  it("offers an environment blocked on an older protocol this client's version, asked over the update route", async () => {
+    // This client speaks a protocol after this build's; laptop spoke it too when paired, then went back to this build's.
+    const newer = PROTOCOL_VERSION + 1;
+    const app = await opened({ laptop: { capabilities: ["self-update"], protocolVersion: newer } }, { version: "0.6.0", protocolVersion: newer });
+    const scripted = app.environment("laptop");
+    scripted.discovery({ protocolVersion: PROTOCOL_VERSION, capabilities: ["self-update"] });
+    scripted.bye("protocol", { protocolVersion: PROTOCOL_VERSION });
+    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("laptop is older than this client: update laptop to this client's version.");
+    const pane = await openMachines(app);
+    const laptop = card(pane, "laptop");
+    expect(within(laptop).getByText("This client runs 0.6.0, newer than laptop's 0.0.0-fake.")).toBeDefined();
+    await app.user.click(within(laptop).getByRole("button", { name: "Update laptop to 0.6.0" }));
+    expect(await within(laptop).findByText("Updating laptop to 0.6.0 once it is idle.")).toBeDefined();
+    expect(scripted.wire.updatePosts().map((post) => post.body)).toEqual([{ version: "0.6.0" }]);
+  });
+
+  it("says a refused offer of this client's version in one line, as the card's status", async () => {
+    const app = await opened(
+      { laptop: { updates: { status: { version: "0.5.0" } }, receipts: { "updates.apply": { rejected: "conflict", message: "laptop is pinned to 0.5.0.", data: { reason: "pinned" } } } } },
+      { version: "0.6.0" },
+    );
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    await app.user.click(await within(laptop()).findByRole("button", { name: "Update laptop to 0.6.0" }));
+    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "Not updated: laptop is pinned to 0.5.0.");
+  });
+
+  it("offers on the local environment's card the newer server the desktop carries, when auto-update is not effective there, and hands it over on a click", async () => {
+    const shell = fakeShell();
+    shell.answer("installer.bundledServer", async () => ({ version: "0.6.0", path: BUNDLED_PATH }));
+    const app = await opened({ desk: { settings: { "updates.autoUpdate": false } } }, { shell, version: "0.6.0" });
+    const pane = await openMachines(app);
+    const desk = () => card(pane, "desk");
+    expect(await within(desk()).findByText("This desktop carries the server 0.6.0, newer than desk's 0.0.0-fake.")).toBeDefined();
+    // The server it carries is this client's version: it is the offer, and nothing is downloaded.
+    expect(within(desk()).queryByText(/^This client runs/)).toBeNull();
+    expect(within(card(pane, "laptop")).queryByText(/^This desktop carries/)).toBeNull();
+
+    await app.user.click(within(desk()).getByRole("button", { name: "Install the bundled 0.6.0" }));
+    expect(await within(desk()).findByText("desk took the bundled 0.6.0: it updates once it is idle.")).toBeDefined();
+    expect(app.environment("desk").requests("updates.apply").map((request) => request.params)).toEqual([
+      { commandId: expect.any(String), version: "0.6.0", artefactPath: BUNDLED_PATH, when: "idle" },
+    ]);
+  });
+
+  it("says on the local environment's card that it took the newer server the desktop carries by itself, with auto-update effective", async () => {
+    const shell = fakeShell();
+    shell.answer("installer.bundledServer", async () => ({ version: "0.6.0", path: BUNDLED_PATH }));
+    const app = await opened({}, { shell });
+    const pane = await openMachines(app);
+    expect(await within(card(pane, "desk")).findByText("desk took the bundled 0.6.0: it updates once it is idle.")).toBeDefined();
+    expect(within(card(pane, "desk")).queryByRole("button", { name: /^Install the bundled/ })).toBeNull();
+  });
+
+  it("is read-only without admin, and says a refused Update now in one line", async () => {
+    const app = await opened({
+      desk: { receipts: { "updates.apply": { rejected: "conflict", message: "desk runs 0.0.0-fake already.", data: { reason: "current" } } } },
+      laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] },
+    });
+    const pane = await openMachines(app);
+    const laptop = card(pane, "laptop");
+    await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.");
+    await waitFor(() => expect(within(laptop).getByRole("combobox", { name: "Channel" }).hasAttribute("disabled")).toBe(true));
+    expect(within(laptop).getByRole("switch", { name: "Auto-update" }).hasAttribute("disabled")).toBe(true);
+    expect(within(laptop).getByRole("button", { name: "Update now" }).hasAttribute("disabled")).toBe(true);
+
+    await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update now" }));
+    expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "Not updated: desk runs 0.0.0-fake already.");
   });
 });

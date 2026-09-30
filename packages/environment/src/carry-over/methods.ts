@@ -13,7 +13,7 @@ import {
   type SkillsCarryOverReport,
 } from "@agent-harness/contracts";
 import { readDoesNotCarry, readMemoryFolders } from "../adapters/claude/adopted-directory.js";
-import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
+import type { AccountRef, ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
 import type { MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
@@ -28,12 +28,14 @@ import { adoptedAccount, isCarryOverRefusal, type CarryOverRefusal as Refusal } 
 import { memoryDigest } from "../workspace/carry-memory.js";
 import { carryOverMemory } from "./memory.js";
 import {
+  accountSource,
   failureOf,
   findDirectories,
   heldProviderSessions,
   importedTitle,
   importsArchived,
   listAccountSessions,
+  type AccountSource,
   type DirectoryFinding,
 } from "./sessions.js";
 
@@ -90,12 +92,8 @@ export interface CarryOverOptions {
  */
 const IMPORT_CHECKS: SessionCreationChecks = { validateRunParameters: acceptAnyRunParameters, clampMode: (mode) => mode };
 
-/** The adopted account an import reads, as its adapter is handed it, that adapter, and the directory it adopted. */
-interface Source {
-  readonly account: AccountRef;
-  readonly adapter: Adapter;
-  readonly directory: string;
-}
+/** The adopted account an import reads, as its adapter is handed it, with that adapter and the directory it adopted. */
+type Source = AccountSource & { readonly directory: string };
 
 /** The skills part of the inventory, from `skills.carryOver`'s dry run. */
 const skillsInventory = (report: SkillsCarryOverReport): CarryOverSkillsInventory => {
@@ -132,14 +130,11 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   /** The adopted account `accountId` names with its adapter, or the refusal: not held, or not adopted. */
   const sourceOf = (accountId: string): Source | Refusal => {
     const facts = adoptedAccount((id) => host.account(id), accountId);
-    if (isCarryOverRefusal(facts)) return facts;
-    const adapter = host.adapters.get(facts.descriptor.provider);
-    if (adapter === undefined) throw new Error(`The adapter of the account ${accountId}, ${facts.descriptor.provider}, is not in the host.`);
-    return { account: { id: facts.id, directory: facts.directory, ...(facts.label !== undefined && { label: facts.label }) }, adapter, directory: facts.directory };
+    return isCarryOverRefusal(facts) ? facts : { ...accountSource(host, facts), directory: facts.directory };
   };
 
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */
-  const listed = ({ account, adapter }: Source): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
+  const listed = ({ account, adapter }: AccountSource): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
 
   const listingFailed = (account: AccountRef, error: unknown): string =>
     `Listing the sessions in ${account.directory ?? "the account's directory"} failed: ${error instanceof Error ? error.message : String(error)}`;

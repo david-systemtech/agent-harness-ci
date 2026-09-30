@@ -166,7 +166,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The account the choice is for; null for the whole environment, which outranks an account's choice."
+                "description": "The account the choice is for; null for the whole environment, whose choice outranks an account's."
               },
               "enabled": {
                 "type": "boolean",
@@ -214,9 +214,9 @@
             "description": "A name made always-on, or not, for one account."
           }
         ],
-        "description": "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, which outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert."
+        "description": "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, whose choice outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert."
       },
-      "description": "Every choice made on the environment, an inert one among them."
+      "description": "Every choice made on the environment, an inert one among them: by name, then enabled before always-on, then the whole environment's before the accounts', by id."
     },
     "accountId": {
       "anyOf": [
@@ -231,6 +231,49 @@
         }
       ],
       "description": "The account the set is resolved for: the session's, else the environment's default account; null when the environment holds none."
+    },
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "system-prompt-append",
+              "developer-instructions",
+              "prompt",
+              "none"
+            ],
+            "description": "Its adapter's instruction channel, which an always-on skill rides: none hands its runs no always-on skill."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why no always-on skill reaches its runs, for a client to show beside the dimmed switch; null while its adapter has an instruction channel."
+          }
+        },
+        "required": [
+          "accountId",
+          "channel",
+          "reason"
+        ],
+        "description": "An account of the environment, with its adapter's instruction channel and, without one, why no always-on skill reaches its runs."
+      },
+      "description": "The environment's accounts, in the account list's order, each with whether an always-on skill reaches its runs."
     },
     "members": {
       "type": "array",
@@ -611,6 +654,95 @@
               }
             ],
             "description": "The member holding its name that wins over it by precedence, which leaves this one out of the set; null for a member in the set, and for an invalid one."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether its name is on for the view's account: the whole environment's choice, else the account's, else on. Off leaves it out of the set."
+          },
+          "alwaysOn": {
+            "type": "boolean",
+            "description": "Whether the view's account made its name always-on. A member switched off is never appended, whatever this says."
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "enabled"
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                      "maxLength": 64
+                    },
+                    "accountId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200,
+                          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The account the choice is for; null for the whole environment, whose choice outranks an account's."
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Whether the name is on: off leaves it out of the set whichever layers hold it."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "name",
+                    "accountId",
+                    "enabled"
+                  ],
+                  "description": "A name switched off, or on again, for one account or the whole environment."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "always-on"
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                      "maxLength": 64
+                    },
+                    "accountId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "description": "The account whose runs append the member."
+                    },
+                    "on": {
+                      "type": "boolean",
+                      "description": "Whether every run of the account appends the member's body."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "name",
+                    "accountId",
+                    "on"
+                  ],
+                  "description": "A name made always-on, or not, for one account."
+                }
+              ],
+              "description": "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, whose choice outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert."
+            },
+            "description": "Every choice naming its name, for the whole environment or any account."
           }
         },
         "required": [
@@ -627,11 +759,14 @@
           "tokens",
           "problems",
           "warnings",
-          "shadowedBy"
+          "shadowedBy",
+          "enabled",
+          "alwaysOn",
+          "choices"
         ],
-        "description": "A member as a resolved skill set lists it: the member, and the member that shadows it when one holding its name wins by precedence. In the set when it has no problem and nothing shadows it."
+        "description": "A member as skills.get lists it: the member, what shadows it, whether it is on and always-on for the view's account, and every choice naming it. In the set when it has no problem, nothing shadows it and it is on."
       },
-      "description": "Every member of every layer, whether in the set, shadowed or invalid: by name, and within a name by precedence, highest first, so the first valid one is the one in the set; members without a name last, by precedence."
+      "description": "Every member of every layer, whether in the set, shadowed, switched off or invalid: by name, and within a name by precedence, highest first, so the first valid one is the one that wins; members without a name last, by precedence."
     }
   },
   "required": [
@@ -639,7 +774,8 @@
     "sources",
     "choices",
     "accountId",
+    "accounts",
     "members"
   ],
-  "description": "The environment's skills as skills.get answers them: the own directory's path, the sources, the choices, and the members of the set resolved for one account, each with its layer and any member that shadows it."
+  "description": "The environment's skills as skills.get answers them: the own directory's path, the sources, the choices, the accounts with their instruction channels, and the members of the set resolved for one account, each with its layer, any member that shadows it and its choices."
 }

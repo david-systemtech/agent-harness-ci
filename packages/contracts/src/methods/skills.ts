@@ -3,23 +3,25 @@ import { AccountId } from "../accounts.js";
 import { commandParams, defineMethod } from "../method.js";
 import { SessionId } from "../sessions.js";
 import { SkillName } from "../skill-rules.js";
-import { SkillMember, SkillsCarryOverReport, SkillsView } from "../skills.js";
+import { SkillChoice, SkillMember, SkillsAlwaysOnSetPayload, SkillsCarryOverReport, SkillsEnabledSetPayload, SkillsView } from "../skills.js";
 
 /**
  * The skill set's methods this far (skills spec, "The own directory and
- * Carry over" and "Wire summary"; ADR 0009, ADR 0018, ADR 0021, ADR 0029):
- * the read of the environment's skills, the own directory's create and
- * remove, and Carry over's skills half.
- * The own directory is read at each run's start and on `skills.get`, never
- * watched; a read that finds it changed, and each command that changes it,
- * raises `skills.updated` on `environment.subscribe`.
+ * Carry over", "Choices" and "Wire summary"; ADR 0009, ADR 0018, ADR 0021,
+ * ADR 0029): the read of the environment's skills, the own directory's
+ * create and remove, Carry over's skills half, and the choices that switch
+ * a name off and make it always-on. The own directory is read at each
+ * run's start and on `skills.get`, never watched; a read that finds it
+ * changed, and each command that changes it or a choice, raises
+ * `skills.updated` on `environment.subscribe`.
  */
 
 /**
  * The environment's skills: the own directory's path, the sources, the
- * choices, and the set for a session's account and repository, or, without
- * a session, the default account's, each member with its layer and any
- * member that shadows it. Reads the own directory. A session the
+ * choices, the accounts with whether an always-on skill reaches their
+ * runs, and the set for a session's account and repository, or, without a
+ * session, the default account's, each member with its layer, any member
+ * that shadows it, and its choices. Reads the own directory. A session the
  * environment does not hold, or a deleted one, is `not_found` (data `kind:
  * session`).
  */
@@ -107,5 +109,43 @@ export const skillsCarryOver = defineMethod({
     dryRun: z.boolean().meta({ description: "Answer the report of what a run would do, and write nothing." }),
   }),
   result: SkillsCarryOverReport,
+  errors: [],
+});
+
+/** What a choice's command answers: the choice as the environment holds it now. */
+const choiceResult = z.object({ choice: SkillChoice.meta({ description: "The choice as the environment holds it now." }) });
+
+/**
+ * Makes a name always-on, or not, for one account: `skills.always-on-set`
+ * on the skills stream, then `skills.updated`. Nothing is always-on until
+ * this is sent. A name failing the skill-name rule is `invalid_params`; an
+ * account the environment does not hold is `not_found` (data `kind:
+ * account`). A choice the environment already holds appends nothing.
+ */
+export const skillsSetAlwaysOn = defineMethod({
+  name: "skills.setAlwaysOn",
+  scope: "admin",
+  kind: "command",
+  params: commandParams(SkillsAlwaysOnSetPayload.shape),
+  result: choiceResult,
+  errors: [],
+});
+
+/**
+ * Switches a name off, or on again, for one account or, with a null
+ * account, the whole environment, whose choice outranks an account's:
+ * `skills.enabled-set` on the skills stream, then `skills.updated`. Keyed
+ * by name, it applies to every layer holding the name, and to a name no
+ * layer holds once one does. A name failing the skill-name rule is
+ * `invalid_params`; an account the environment does not hold is
+ * `not_found` (data `kind: account`). A choice the environment already
+ * holds appends nothing.
+ */
+export const skillsSetEnabled = defineMethod({
+  name: "skills.setEnabled",
+  scope: "admin",
+  kind: "command",
+  params: commandParams(SkillsEnabledSetPayload.shape),
+  result: choiceResult,
   errors: [],
 });

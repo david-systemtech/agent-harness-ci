@@ -9,11 +9,12 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { API, DISCOVERY, DOWNLOAD, FAKE_CURL, HEALTH, LIST, releaseJson, type ReleaseSpec, TOKEN, write } from "./install-fakes.js";
 
 const script = join(import.meta.dirname, "..", "scripts", "install.sh");
 const run = promisify(execFile);
@@ -23,74 +24,6 @@ afterEach(() => {
   for (const cleanup of cleanups.reverse()) cleanup();
   cleanups = [];
 });
-
-const FORGE = "https://git.systemtech.dev:5526";
-const API = `${FORGE}/api/v1/repos/david/agent-harness/releases`;
-const LIST = `${API}?limit=50`;
-const DOWNLOAD = `${FORGE}/david/agent-harness/releases/download`;
-const ENVIRONMENT = "http://127.0.0.1:7433";
-const HEALTH = `${ENVIRONMENT}/health`;
-const DISCOVERY = `${ENVIRONMENT}/.well-known/agent-harness/environment`;
-const TOKEN = "token-for-tests";
-
-const write = (path: string, text: string, mode = 0o644) => {
-  writeFileSync(path, text);
-  chmodSync(path, mode);
-};
-
-/**
- * A fake curl: logs its URL; for the forge, checks the token arrives on stdin
- * and serves the fake release; for the environment's own URLs, refuses the
- * token and answers health and discovery while the fake service runs, health
- * saying `starting` for its first FAKE_STARTING_PROBES probes.
- */
-const FAKE_CURL = `#!/bin/sh
-out=""
-url=""
-config=""
-with_config=0
-while [ $# -gt 0 ]; do
-  case $1 in
-    -o | --max-time) [ "$1" = -o ] && out=$2; shift 2 ;;
-    -K) config=$(cat); with_config=1; shift 2 ;;
-    -*) shift ;;
-    *) url=$1; shift ;;
-  esac
-done
-printf 'curl %s\\n' "$url" >> "$FAKE_LOG"
-case $url in
-  http://127.0.0.1:*)
-    [ "$with_config" = 0 ] || { echo "curl: the forge token was sent to $url" >&2; exit 99; }
-    [ -f "$FAKE_STATE/running" ] || { echo "curl: (7) Failed to connect" >&2; exit 7; }
-    case $url in
-      */health)
-        probes=$(( $(cat "$FAKE_STATE/probes" 2>/dev/null || echo 0) + 1 ))
-        echo "$probes" > "$FAKE_STATE/probes"
-        if [ "$probes" -gt "\${FAKE_STARTING_PROBES:-0}" ]; then status=ready; else status=starting; fi
-        printf '{"status":"%s","version":"0.1.0"}' "$status" ;;
-      */.well-known/agent-harness/environment)
-        printf '{"environmentId":"env-for-tests","environmentName":"box","authPolicy":"%s","readiness":"ready"}' "\${FAKE_AUTH_POLICY:-tailnet}" ;;
-      *) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
-    esac
-    exit 0 ;;
-esac
-case $config in
-  *"Authorization: token $EXPECTED_TOKEN"*) ;;
-  *) echo "curl: (22) The requested URL returned error: 401" >&2; exit 22 ;;
-esac
-case $url in
-  *"/releases?limit=50") cat "$FAKE_RELEASES/list.json" ;;
-  */releases/tags/*)
-    tag=\${url##*/}
-    [ -f "$FAKE_RELEASES/$tag.json" ] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
-    cat "$FAKE_RELEASES/$tag.json" ;;
-  */releases/download/*)
-    asset=\${url#*/releases/download/}
-    [ -f "$FAKE_ASSETS/$asset" ] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
-    cp "$FAKE_ASSETS/$asset" "$out" ;;
-  *) echo "curl: (6) Could not resolve host" >&2; exit 6 ;;
-esac
-`;
 
 /**
  * The artefact's binary, and the shim its `service install` writes, which
@@ -127,16 +60,6 @@ case "$1 $2" in
 esac
 `;
 
-interface ReleaseSpec {
-  readonly tag: string;
-  readonly draft?: boolean;
-  readonly prerelease?: boolean;
-  /** The published digest: the tarball's, another, or none published. Preset: the tarball's. */
-  readonly checksum?: "right" | "wrong" | "none";
-  readonly assetName?: string;
-  readonly withoutBinary?: boolean;
-}
-
 interface Fixture {
   readonly home: string;
   readonly log: string;
@@ -148,19 +71,6 @@ interface Fixture {
   /** Forgets the calls so far, as a new run of the script would find the machine. */
   forget(): void;
 }
-
-const releaseJson = (spec: ReleaseSpec, assets: readonly string[]) => ({
-  id: 7,
-  tag_name: spec.tag,
-  target_commitish: "main",
-  name: `agent-harness ${spec.tag}`,
-  body: 'Notes, with commas, and a quoted \\"tag_name\\": \\"v6.6.6\\" and \\"draft\\": true in them.',
-  url: `${API}/7`,
-  draft: spec.draft ?? false,
-  prerelease: spec.prerelease ?? false,
-  author: { id: 1, login: "david" },
-  assets: assets.map((name, i) => ({ id: 10 + i, name, size: 1, browser_download_url: `${DOWNLOAD}/${spec.tag}/${name}` })),
-});
 
 /** A home, a fake PATH and a fake forge listing `releases` in that order, each with a Linux x64 artefact and its sidecar unless told. */
 const fixture = async (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Promise<Fixture> => {
@@ -584,6 +494,15 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
       expect(readdirSync(f.home)).toEqual([]);
     });
   }
+
+  it("gives pair's plan line the --data-dir and --port that the run passes it", async () => {
+    const f = await fixture();
+    const dataDir = join(f.home, "data");
+    const result = await install(f, ["--dry-run", "--data-dir", dataDir, "--port", "7500"]);
+    expect(result.code).toBe(0);
+    const bin = join(dataDir, "versions", "0.1.0", "bin", "agent-harness");
+    expect(result.stdout).toContain(`  ${bin} pair --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`);
+  });
 
   it("prints the plan of a re-run over a running service for --dry-run, changing nothing", async () => {
     const f = await fixture([{ tag: "v0.1.0" }, { tag: "v0.2.0" }]);

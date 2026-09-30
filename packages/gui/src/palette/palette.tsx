@@ -41,8 +41,12 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
  *   closes it (`app.palette`'s); a press outside it closes it.
  */
 
-/** The palette's words for an action whose shared-list words are the terminal's: "Stop the run" is `app.interrupt`. */
-const NAMES: Partial<Readonly<Record<ActionId, string>>> = { "app.interrupt": "Stop the run" };
+/** The palette's words for an action whose shared-list words are the terminal's, or longer than the window says it: "Stop the run" is `app.interrupt`. */
+const NAMES: Partial<Readonly<Record<ActionId, string>>> = {
+  "app.interrupt": "Stop the run",
+  "app.session.new": "New session",
+  "app.session.newInPane": "New session in a new pane",
+};
 
 /** An action the palette itself answers, which it does not list: its list's keys, and the key that opens it. */
 const answeredByPalette = (action: ListedAction): boolean => action.context === "picker" || action.id === "app.palette";
