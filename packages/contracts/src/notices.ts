@@ -150,74 +150,81 @@ export const ENVIRONMENT_NOTICE_TYPES = [
 ] as const;
 
 /**
- * `EnvironmentNoticeType`'s description, a line for each notice type, which
- * the description joins in `ENVIRONMENT_NOTICE_TYPES` order: the separator
- * before the type (none for the first), the type, and its gloss in brackets,
- * which the types of a group share at the group's last. A line each, so two
- * changes that add notices edit different lines rather than the one long
- * string (#799), and a type without its line is a type error. A new type's
- * line reads `, <type> (<gloss>)`.
+ * What each notice type tells a client, a line each, and a type without its
+ * line is a type error (#799). `EnvironmentNoticeType` makes each gloss its
+ * type's description, which the export writes on a line of its own beside the
+ * type, so two changes that add notices in different places edit different
+ * lines of the generated schema as well as of this file (#817). A new type's
+ * line reads `"<type>": "<what it tells a client>."`.
  */
-const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE_TYPES)[number]]: string } = {
-  "environment.started": "environment.started (startup finished)",
-  "environment.updated": ", environment.updated (a new harness version now runs)",
-  "environment.draining": ", environment.draining (new runs are refused before a restart)",
-  "environment.update-pending": ", environment.update-pending (an update waits for idle, the cap or a request)",
-  "environment.update-started": ", environment.update-started (an update began its drain)",
-  "environment.update-failed": ", environment.update-failed (an update did not take, and the version it went from runs)",
-  "environment.update-cancelled": ", environment.update-cancelled (a pending update was withdrawn)",
-  "environment.renamed": ", environment.renamed (the environment was renamed; a client redraws its badge)",
-  "environment.icon-set": ", environment.icon-set (the environment took another icon; a client redraws its badge)",
-  "environment.colour-set": ", environment.colour-set (the environment took another colour; a client redraws its badge)",
-  "account.updated": ", account.updated (an account changed; a client refreshes what it caches of the accounts)",
-  "signin.updated": ", signin.updated (the sign-in changed state: the verification URL, the end)",
-  "signin.executable-chosen": ", signin.executable-chosen (which executable sign-ins run, recorded once)",
-  "prompt.parked": ", prompt.parked (a run waits for a person's answer)",
-  "prompt.resolved": ", prompt.resolved (a parked prompt was answered)",
-  "usage.updated": ", usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings)",
-  "forge.account.added": ", and the forge's: forge.account.added",
-  "forge.account.updated": ", forge.account.updated",
-  "forge.account.primary-set": ", forge.account.primary-set",
-  "forge.account.verified": ", forge.account.verified",
-  "forge.account.capability-learned": ", forge.account.capability-learned",
-  "forge.account.git-rejected": ", forge.account.git-rejected",
-  "forge.account.removed": ", forge.account.removed",
-  "forge.origin-missing": " and forge.origin-missing (a client refreshes what it caches of the forge accounts)",
-  "key-manager.connection.added": ", and the key managers': key-manager.connection.added",
-  "key-manager.connection.signed-in": ", key-manager.connection.signed-in",
-  "key-manager.connection.signed-out": ", key-manager.connection.signed-out",
-  "key-manager.connection.updated": ", key-manager.connection.updated",
-  "key-manager.connection.policies-set": ", key-manager.connection.policies-set",
-  "key-manager.connection.base-path-set": ", key-manager.connection.base-path-set",
-  "key-manager.connection.injected-set": ", key-manager.connection.injected-set",
-  "key-manager.connection.verified": ", key-manager.connection.verified",
-  "key-manager.connection.removed": " and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections)",
-  "key-manager.moved": ", key-manager.moved (an item's stored value was moved into a key manager)",
-  "key-manager.stored-value-deleted": ", key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move)",
-  "key-manager.value-copied": " and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write)",
-  "routine.updated": ", and the routines': routine.updated (a routine changed; a client refreshes its routines list)",
-  "routine.delivered": ", routine.delivered (a routine's result for every connected client)",
-  "routine.delivery-failed": ", routine.delivery-failed (a routine's result could not be delivered to its webhook)",
-  "routine.endpoint-set": ", routine.endpoint-set",
-  "routine.endpoint-removed": " and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints)",
-  "settings.changed": ", settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings)",
-  "setup.result-changed": ", and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it)",
-  "skills.updated": ", skills.updated (the skill set changed; a client reads skills.get again)",
-  "trust.updated": ", trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again)",
-  "instructions.updated": ", instructions.updated (an owned instruction changed; a client reads instructions.list and instructions.preview again)",
-  "tools.updated": ", the Managed tools registry's tools.updated (a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list)",
-  "tool.run-started": ", tool.run-started",
-  "tool.run-finished": " and tool.run-finished (a tool's install or update began in a tool terminal, and ended with its exit code and verification)",
-  "extension.seen": ", extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load)",
-  "carry-over.imported": ", Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
-  "state-import.finished": ", state-import.finished (a state import ended, with its report and what failed; a client reads stateImport.detect again)",
-  "workspace.kept": ", workspace.kept (a worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why)",
-  "chrome.updated": ", chrome.updated (a paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again)",
+export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE_TYPES)[number]]: string } = {
+  "environment.started": "Startup finished.",
+  "environment.updated": "A new harness version now runs.",
+  "environment.draining": "New runs are refused before a restart.",
+  "environment.update-pending": "An update waits for idle, the cap or a request.",
+  "environment.update-started": "An update began its drain.",
+  "environment.update-failed": "An update did not take, and the version it went from runs.",
+  "environment.update-cancelled": "A pending update was withdrawn.",
+  "environment.renamed": "The environment was renamed; a client redraws its badge.",
+  "environment.icon-set": "The environment took another icon; a client redraws its badge.",
+  "environment.colour-set": "The environment took another colour; a client redraws its badge.",
+  "account.updated": "An account changed; a client refreshes what it caches of the accounts.",
+  "signin.updated": "The sign-in changed state: the verification URL, the end.",
+  "signin.executable-chosen": "Which executable sign-ins run, recorded once.",
+  "prompt.parked": "A run waits for a person's answer.",
+  "prompt.resolved": "A parked prompt was answered.",
+  "usage.updated": "An account's plan-usage reading changed; a client refreshes what it caches of the readings.",
+  "forge.account.added": "A forge account was added; a client refreshes what it caches of the forge accounts.",
+  "forge.account.updated": "A forge account's slug, aliases or credential changed; a client refreshes what it caches of the forge accounts.",
+  "forge.account.primary-set": "A forge account became the primary forge; a client refreshes what it caches of the forge accounts.",
+  "forge.account.verified": "A verification of a forge account found something changed; a client refreshes what it caches of the forge accounts.",
+  "forge.account.capability-learned": "An operation showed whether a forge account can do something; a client refreshes what it caches of the forge accounts.",
+  "forge.account.git-rejected": "git refused a forge account's credential; a client refreshes what it caches of the forge accounts.",
+  "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
+  "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
+  "key-manager.connection.added": "A key-manager connection was added; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.signed-in": "A key-manager connection's sign-in ended; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.signed-out": "A key-manager connection was signed out; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.updated": "A key-manager connection's label, address, CA or token role changed; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.policies-set": "Which of a key-manager connection's policies runs receive was ticked; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.base-path-set": "Where Move keeps the harness's secrets on a key-manager connection was set; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.injected-set": "A key-manager connection became the one of its provider whose variables runs receive; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.verified": "A verification of a key-manager connection found something changed; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.connection.removed": "A key-manager connection was removed; a client refreshes what it caches of the key-manager connections.",
+  "key-manager.moved": "An item's stored value was moved into a key manager.",
+  "key-manager.stored-value-deleted": "A stored value a move left behind was deleted; a client refreshes what it caches of the items to move.",
+  "key-manager.value-copied": "An item's stored value was answered once to a client session, to paste at a target the login cannot write.",
+  "routine.updated": "A routine changed; a client refreshes its routines list.",
+  "routine.delivered": "A routine's result, for every connected client.",
+  "routine.delivery-failed": "A routine's result could not be delivered to its webhook.",
+  "routine.endpoint-set": "A webhook endpoint was made or replaced; a client refreshes what it caches of the webhook endpoints.",
+  "routine.endpoint-removed": "A webhook endpoint was removed; a client refreshes what it caches of the webhook endpoints.",
+  "settings.changed": "Settings changed, with every settings.updated; a client refreshes what it caches of the settings.",
+  "setup.result-changed": "A Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it.",
+  "skills.updated": "The skill set changed; a client reads skills.get again.",
+  "trust.updated": "A trust decision was recorded or revoked; a client reads trust.get and trust.list again.",
+  "instructions.updated": "An owned instruction changed; a client reads instructions.list and instructions.preview again.",
+  "tools.updated": "The Managed tools registry's notice: a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list.",
+  "tool.run-started": "A tool's install or update began in a tool terminal.",
+  "tool.run-finished": "A tool's install or update in a tool terminal ended, with its exit code and verification.",
+  "extension.seen": "An unpaired extension opened its socket to the listener; the Browser card ticks Load.",
+  "carry-over.imported": "Carry over's notice: an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again.",
+  "state-import.finished": "A state import ended, with its report and what failed; a client reads stateImport.detect again.",
+  "workspace.kept": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why.",
+  "chrome.updated": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again.",
 };
 
-export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
-  description: `An environment notice's event type: ${ENVIRONMENT_NOTICE_TYPES.map((type) => ENVIRONMENT_NOTICE_GLOSSES[type]).join("")}.`,
-});
+/**
+ * A notice-type schema from the types, in their order, and a gloss for each:
+ * each type a literal its gloss describes, which the export writes as an
+ * `anyOf` entry of its own, never one description naming every type (#817).
+ */
+export const environmentNoticeTypeOf = <const Type extends string>(types: readonly Type[], glosses: { readonly [T in Type]: string }) =>
+  z.union(types.map((type) => z.literal(type).meta({ description: glosses[type] }))).meta({
+    description: "An environment notice's event type, each type described by what it tells a client.",
+  });
+
+export const EnvironmentNoticeType = environmentNoticeTypeOf(ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_NOTICE_GLOSSES);
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
 const EnvironmentStarted = z

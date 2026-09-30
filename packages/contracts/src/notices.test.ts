@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { validEnvironmentStartedEvent } from "../test/fixtures.js";
 import {
   ENVIRONMENT_NOTICE_TYPES,
@@ -75,9 +76,10 @@ describe("environment notices", () => {
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
 
-  it("are each named once in EnvironmentNoticeType's description, in their order, so none is left without its gloss (#799)", () => {
-    const named = (EnvironmentNoticeType.description ?? "").match(/(?<![\w.-])[a-z][a-z-]*(?:\.[a-z][a-z-]*)+(?![\w-])/g) ?? [];
-    expect(named.filter((word) => (ENVIRONMENT_NOTICE_TYPES as readonly string[]).includes(word))).toEqual(ENVIRONMENT_NOTICE_TYPES);
+  it("are each an entry of EnvironmentNoticeType's export, in their order, described by its own gloss (#799, #817)", () => {
+    const exported = z.toJSONSchema(EnvironmentNoticeType, { target: "draft-2020-12", io: "input" }) as { anyOf: { const: string; description: string }[] };
+    expect(exported.anyOf.map((entry) => entry.const)).toEqual(ENVIRONMENT_NOTICE_TYPES);
+    for (const entry of exported.anyOf) expect(entry.description, entry.const).toMatch(/^\S.*\.$/);
   });
 
   it("parse from the event envelope an event frame carries, the envelope's other fields left aside", () => {
