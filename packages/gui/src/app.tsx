@@ -7,6 +7,7 @@ import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
 import { SettingsProvider } from "./settings/settings-window.js";
 import { ChecklistProvider } from "./setup/checklist-window.js";
+import { WindowSidebarProvider } from "./sidebar/window-sidebar.js";
 import { RunChoicesProvider } from "./status/run-choices.js";
 import { WindowTheme } from "./theme/window-theme.js";
 import { WindowProvider } from "./window-context.js";
@@ -33,7 +34,8 @@ export interface AppProps {
  * dispatched through the GUI column of the shared action list, Settings,
  * Set up as the whole window on first launch (the full checklist), and the
  * command palette over it. What the window chose for a session's next runs
- * is held for the life of the window (`RunChoicesProvider`).
+ * is held for the life of the window (`RunChoicesProvider`), as is what the
+ * sidebar keeps while it is hidden (`WindowSidebarProvider`).
  */
 export const App = ({ runtime, presentation, clock, version, macOS, shell }: AppProps) => (
   <WindowProvider runtime={runtime} presentation={presentation} clock={clock} version={version} shell={shell}>
@@ -45,7 +47,9 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell }: App
             <ChecklistProvider>
               <CommandPalette>
                 <RunChoicesProvider>
-                  <Frame />
+                  <WindowSidebarProvider>
+                    <Frame />
+                  </WindowSidebarProvider>
                 </RunChoicesProvider>
               </CommandPalette>
             </ChecklistProvider>

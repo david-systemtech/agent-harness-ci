@@ -28,7 +28,7 @@ export const WindowSidebarProvider = ({ children }: { readonly children: ReactNo
 
 const useWindowSidebar = (): WindowSidebar => {
   const held = use(WindowSidebarContext);
-  if (held === null) throw new Error("The sidebar is drawn inside the window's frame, which holds what it keeps.");
+  if (held === null) throw new Error("The sidebar is drawn inside the App, which holds what it keeps while the window lasts.");
   return held;
 };
 
