@@ -1,5 +1,5 @@
 import type { SessionSummary } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { EnvironmentView } from "../projections/environments.js";
 import type { MergedGroupHeading, SessionListView, SessionRow } from "../projections/session-list.js";
 import { activityOf, keepsFold, rowKey, sessionHeadings, type HeadingsInput, type SessionHeading } from "./headings.js";
@@ -79,13 +79,13 @@ const read = (headings: readonly SessionHeading[]) =>
     ...heading.rows.map((line) => `  ${line.row.summary.title}${line.wake === null ? "" : ` ${line.wake}`}`),
   ]);
 
-/** A clock time on this machine's calendar, as a snoozed row's wake time says it on the day of its environment's now. */
-const clock = (iso: string) => {
-  const at = new Date(iso);
-  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
-};
-
 describe("the headings", () => {
+  const zone = process.env["TZ"];
+  afterEach(() => {
+    if (zone === undefined) delete process.env["TZ"];
+    else process.env["TZ"] = zone;
+  });
+
   it("come pinned, the merged groups, each environment's ungrouped sessions, snoozed with wake times, then settled and the archive folded", () => {
     const pinned = row("laptop", { title: "Pinned on the laptop" });
     const grouped = [row("desk", { title: "Brand on the desk" }, { groupName: "Brandsolidate" }), row("laptop", { title: "Brand on the laptop" }, { groupName: "brandsolidate" })];
@@ -132,10 +132,12 @@ describe("the headings", () => {
     ]);
   });
 
-  it("say a snoozed row's wake time from its own environment's now", () => {
+  it("say a snoozed row's wake time from its own environment's now, a clock time on this machine's calendar", () => {
+    // Read in UTC, whatever zone the runner is in.
+    process.env["TZ"] = "UTC";
     const later = row("desk", { title: "Later", snoozedUntil: "2026-09-24T10:30:00.000Z" });
     const [snoozed] = sessionHeadings(input({ list: listOf({ snoozed: [later] }), now: () => new Date("2026-09-24T10:00:00.000Z") })).filter((h) => h.kind === "snoozed");
-    expect(snoozed?.rows[0]?.wake).toBe(clock("2026-09-24T10:30:00.000Z"));
+    expect(snoozed?.rows[0]?.wake).toBe("10:30");
   });
 
   it("leave out an empty shelf and a group with no active session, but keep every environment's heading, saying it has no session", () => {

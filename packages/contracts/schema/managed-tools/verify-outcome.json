@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManagedToolVerifyOutcome",
+  "type": "string",
+  "enum": [
+    "passed",
+    "failed",
+    "not-installed"
+  ],
+  "description": "How a verify command came out: passed; failed; or not-installed, the tool not found where its row says, so nothing ran."
+}

@@ -16,8 +16,10 @@ import {
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
+import { focusedPane, showSession } from "../src/grid/layout.js";
 import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
-import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
+import { openPresentation, type PaneSession, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
+import type { StepCards } from "../src/setup/cards.js";
 
 export {
   scriptedWorld,
@@ -56,6 +58,8 @@ export interface RenderOptions {
   readonly firstLaunch?: boolean;
   /** The protocol version this client speaks: preset this build's, so a test can be the newer side of a mismatch. */
   readonly protocolVersion?: number;
+  /** The step cards the full checklist draws, by step id: preset this build's. */
+  readonly stepCards?: StepCards;
 }
 
 /** The desktop platform the window runs on, with what the test holds of it. */
@@ -77,8 +81,10 @@ export interface RenderedApp {
   readonly user: UserEvent;
   readonly view: RenderResult;
   environment(name: string): EnvironmentHandle;
-  /** Opens the `index`th session the script lists on `name` (from 0) in the pane, as presentation holds it. */
+  /** Opens the `index`th session the script lists on `name` (from 0) in the focused pane, as presentation holds it. */
   open(name: string, index?: number): void;
+  /** The session the focused pane shows, as presentation holds it; null while it shows none. */
+  shown(): PaneSession | null;
   /**
    * Closes the window, then opens it again on the same storage, as a
    * relaunch does: a new runtime and presentation over the same documents
@@ -94,9 +100,10 @@ interface Mount {
   readonly macOS: boolean;
   readonly documents: InMemoryDocumentStore;
   readonly protocolVersion: number | undefined;
+  readonly stepCards: StepCards | undefined;
 }
 
-const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
+const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, stepCards }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
   const reported: unknown[] = [];
   const network = inMemoryNetwork();
   const desktop = await desktopPlatform({
@@ -122,7 +129,7 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }:
     if (outcome.status !== "paired") throw new Error(`The harness could not pair ${name}: ${JSON.stringify(outcome)}.`);
   }
   const presentation = await openPresentation(platform.documents, platform.reportError);
-  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} version={platform.client.version} macOS={macOS} shell={shell} />);
+  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} version={platform.client.version} macOS={macOS} shell={shell} stepCards={stepCards} />);
   return {
     world,
     clock,
@@ -135,13 +142,15 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }:
     environment: (name) => world.environment(name),
     open(name, index = 0) {
       const environment = world.environment(name);
-      act(() => presentation.set("paneLayout", { session: { environmentId: environment.environmentId, sessionId: environment.sessionId(index) } }));
+      const layout = presentation.values.read().paneLayout;
+      act(() => presentation.set("paneLayout", showSession(layout, layout.focused, { environmentId: environment.environmentId, sessionId: environment.sessionId(index) })));
     },
+    shown: () => focusedPane(presentation.values.read().paneLayout).session,
     async remount() {
       view.unmount();
       await presentation.close();
       await runtime.close();
-      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion }, []);
+      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion, stepCards }, []);
     },
   };
 };
@@ -166,5 +175,5 @@ export const renderApp = async (script: Script, options: RenderOptions = {}): Pr
     for (const [key, value] of Object.entries(presentation) as [PresentationKey, never][]) left.set(key, value);
     await left.close();
   }
-  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion }, paired);
+  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion, stepCards: options.stepCards }, paired);
 };

@@ -3,8 +3,7 @@ import type { EventTypeEntry } from "./event-types.js";
 import { ClientSessionId, Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
 import { AbsolutePath, SessionId } from "./sessions.js";
-import { SkillSourceFolder } from "./skill-rules.js";
-import { SKILL_REPOSITORY_ROOTS } from "./skills.js";
+import { SKILL_REPOSITORY_ROOTS, SkillSourceFolder } from "./skill-rules.js";
 
 /**
  * The trust gate's shapes (skills spec, "The trust gate"; ADR 0009, ADR

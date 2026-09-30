@@ -1,5 +1,20 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { isFolded, keepsFold, rowKey, uuidv4, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
+import {
+  arrange,
+  isFolded,
+  keepsFold,
+  noManualOrder,
+  rowKey,
+  stepIn,
+  toggleOf,
+  uuidv4,
+  type CommandParams,
+  type DispatchAnswer,
+  type DispatchFailure,
+  type EnvironmentView,
+  type Runtime,
+  type SessionRow,
+} from "@agent-harness/client-runtime";
 import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
@@ -10,7 +25,6 @@ import { headingOver, isSelectable, railLines, type RailHeading, type RailInput,
 import type { Picker } from "./picker.js";
 import { newSessionCard, type CardOpening } from "./new-session.js";
 import { groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";
-import { movesFor } from "./reorder.js";
 import { setWorkspacePicker } from "./workspace-step.js";
 
 /**
@@ -84,14 +98,6 @@ export interface Rail {
   /** What the keys do at the cursor, for the line under the composer. */
   readonly hint: string | undefined;
 }
-
-/** Why a shelf has no manual order: the reorder keys answer absent with it. */
-const unordered = (kind: "snoozed" | "settled" | "archived"): string =>
-  kind === "snoozed"
-    ? "the snoozed shelf has no manual order; it is sorted by wake time"
-    : kind === "settled"
-      ? "the settled shelf has no manual order; it is sorted by when each settled, newest first"
-      : "the archive has no manual order; it is sorted by when each was archived, newest first";
 
 export const useRail = (options: RailOptions): Rail => {
   const { runtime, views, keymap, presentation, say, startingService } = options;
@@ -196,14 +202,19 @@ export const useRail = (options: RailOptions): Rail => {
   const send = <N extends CommandMethodName>(row: SessionRow, method: N, params: CommandParams<N>, verb: string) =>
     acts.send(row.environmentId, method, params, `${verb} ${titleOf(row)}${whenBack(acts, row.environmentId)}.`);
 
-  const archive = (row: SessionRow) =>
-    row.summary.archivedAt === null
-      ? send(row, "sessions.archive", { sessionId: row.summary.id }, "Archived")
-      : send(row, "sessions.unarchive", { sessionId: row.summary.id }, "Took out of the archive");
-  const pin = (row: SessionRow) =>
-    row.summary.pinnedAt === null ? send(row, "sessions.pin", { sessionId: row.summary.id }, "Pinned") : send(row, "sessions.unpin", { sessionId: row.summary.id }, "Unpinned");
-  const settle = (row: SessionRow) =>
-    row.summary.settledAt === null ? send(row, "sessions.settle", { sessionId: row.summary.id }, "Settled") : send(row, "sessions.unsettle", { sessionId: row.summary.id }, "Unsettled");
+  // Each toggle's command as the session stands (the runtime's `toggleOf`), said in the rail's words.
+  const archive = (row: SessionRow) => {
+    const { method, on } = toggleOf(row.summary, "archive");
+    send(row, method, { sessionId: row.summary.id }, on ? "Took out of the archive" : "Archived");
+  };
+  const pin = (row: SessionRow) => {
+    const { method, on } = toggleOf(row.summary, "pin");
+    send(row, method, { sessionId: row.summary.id }, on ? "Unpinned" : "Pinned");
+  };
+  const settle = (row: SessionRow) => {
+    const { method, on } = toggleOf(row.summary, "settle");
+    send(row, method, { sessionId: row.summary.id }, on ? "Unsettled" : "Settled");
+  };
   const remove = (row: SessionRow) =>
     options.ask({
       text: `Delete ${titleOf(row)} on ${environmentName(row.environmentId)}? /restore brings it back within 30 days. y/n`,
@@ -225,18 +236,16 @@ export const useRail = (options: RailOptions): Rail => {
     if (selected?.kind !== "row") return say("Put the cursor on a session first.");
     const { block, row } = selected;
     const moving = keysText(keymap, step < 0 ? "rail.moveUp" : "rail.moveDown");
-    if (block.kind !== "pinned" && block.kind !== "active") return say(`${moving} is absent here: ${unordered(block.kind)}.`);
+    // The keys between the neighbours, spread when there is no room, are the runtime's (`stepIn`), as the window's drag sends them.
+    const answer = stepIn(block, block.rows.findIndex((r) => rowKey(r) === rowKey(row)), step);
+    if (!("edge" in answer) && answer.kind === "refused" && answer.why === "shelf") return say(`${moving} is absent here: ${noManualOrder(answer.shelf)}.`);
     // The neighbours a move goes between may be rows the filter hides: a move waits for every row to be in sight.
     if (input.matches !== null) return say(`${moving} is absent while the filter hides rows: ${keysText(keymap, "rail.leave")} clears it.`);
-    const index = block.rows.findIndex((r) => rowKey(r) === rowKey(row));
-    const pinned = block.kind === "pinned";
-    const answer = movesFor(block.rows, index, step, (r) => (pinned ? r.summary.pinOrderKey : r.summary.activeOrderKey));
-    if ("edge" in answer) return say(`${titleOf(row)} is already at the ${answer.edge} of ${pinned ? "the pinned sessions" : "its heading"}.`);
+    if ("edge" in answer) return say(`${titleOf(row)} is already at the ${answer.edge} of ${block.kind === "pinned" ? "the pinned sessions" : "its heading"}.`);
     say(`Moved ${titleOf(row)} ${step < 0 ? "up" : "down"}${whenBack(acts, row.environmentId)}.`);
-    for (const move of answer.moves) {
-      const params = { sessionId: move.sessionId, orderKey: move.key };
-      hear(pinned ? runtime.commands.dispatch(move.environmentId, "sessions.reorderPinned", params) : runtime.commands.dispatch(move.environmentId, "sessions.reorderActive", params));
-    }
+    void arrange(runtime.commands, answer).then((answers) => {
+      for (const answered of answers) hear(Promise.resolve(answered));
+    });
   };
 
   const step = (action: "rail.move" | "rail.moveVi"): Handler => (name) => {

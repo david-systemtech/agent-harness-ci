@@ -106,7 +106,7 @@ The vocabulary (`SETUP_ACTIONS`) gains the verbs the decisions name that it lack
 - **First launch** (GUI spec): once the home environment is ready and the client-local first-launch mark is unset, Set up takes the whole window: the rail of eleven steps with dots, the card beside it, the environment picker. Continue past Account is disabled until one account is signed in (ADR 0018); every other step has Continue and, when skippable, Skip for now. Finishing the last step or closing sets the mark; "Open the full checklist" brings it back.
 - **The Set up pane** (row `setup.checklist`, ADR 0027): every step with its dot and one-line reason linking to its home row, counts (ADR 0027; the wording "8 done, 1 needs attention, 2 skipped" is a chosen default), Re-run, Open the full checklist, the environment checked with its picker, and "Set up another machine", which opens Your machines' Add a machine. Results come from `projections.setup`; the age shows once a result is older than its cadence ("checked 3 h ago").
 - **The rail's dots** show on home rows only, the worst state of the steps homed there; the Set up row shows the worst of all, for the environment last picked (GUI spec). The header's Set up line shows while a step on the home environment needs attention.
-- **Cards** are this spec's; a card may reuse its home pane's components (GUI spec).
+- **Cards** are this spec's; a card may reuse its home pane's components (GUI spec). Each is registered by step id in the window's frame (`packages/gui/src/setup/cards.ts`), and a step with none keeps the fallback card of #413 (#573).
 
 ### The terminal UI
 

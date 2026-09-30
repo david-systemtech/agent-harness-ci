@@ -92,7 +92,7 @@ describe("the denylist's presets", () => {
     expect(denylistHoldsPresets(state, PRESETS)).toBe(true);
   });
 
-  it("fail for a section missing some presets, naming three and counting the rest, with Restore", () => {
+  it("fail for a section missing some presets, naming three and counting the rest, with Restore, which names the section as its target", () => {
     const state = seeded();
     state.denylist.paths = state.denylist.paths.slice(0, 11);
     state.changedBy.paths = PERSON;
@@ -101,6 +101,7 @@ describe("the denylist's presets", () => {
         .slice(11, 14)
         .map((entry) => entry.pattern)
         .join(", ")} and 1 more); Restore puts them back.`,
+      targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }],
     });
   });
 
@@ -112,11 +113,17 @@ describe("the denylist's presets", () => {
     expect(denylistHoldsPresets(never, PRESETS)).toEqual({
       reason:
         "The browser domains section of the denylist holds none of its presets, and no person emptied it; Restore puts them back. The paths section of the denylist holds none of its presets, and no person emptied it; Restore puts them back. The command patterns section of the denylist holds none of its presets, and no person emptied it; Restore puts them back.",
+      targets: [
+        { action: "restore", kind: "denylist-section", id: "browserDomains", label: "browser domains" },
+        { action: "restore", kind: "denylist-section", id: "paths", label: "paths" },
+        { action: "restore", kind: "denylist-section", id: "commandPatterns", label: "command patterns" },
+      ],
     });
     const state = seeded();
     state.denylist.commandPatterns = [];
     expect(denylistHoldsPresets(state, PRESETS)).toEqual({
       reason: "The command patterns section of the denylist holds none of its presets, and no person emptied it; Restore puts them back.",
+      targets: [{ action: "restore", kind: "denylist-section", id: "commandPatterns", label: "command patterns" }],
     });
   });
 

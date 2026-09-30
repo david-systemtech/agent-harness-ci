@@ -1,4 +1,6 @@
 import { createContext, use, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useGridPaneId } from "../grid/grid.js";
+import { showSession } from "../grid/layout.js";
 import { usePresentation } from "../window-context.js";
 
 /** A line the pane says, and where: under its composer, or under the user message it is about (`under`, the message's id). */
@@ -84,15 +86,19 @@ export const useSayUnder = (): ((messageId: string, line: string | undefined) =>
 };
 
 /**
- * Opens a session in the pane (`paneLayout`), with a line its pane says
- * first: why it is the one opened (a rewind to a session's first message
- * opens the session the runtime started for it).
+ * Opens a session in the pane (`paneLayout`): the grid pane the caller is
+ * drawn in (a fork, a rewind or a hand-off opens where it was asked), else
+ * the focused one (the sidebar, the palette); a session another pane shows
+ * is focused there instead. With a line its pane says first: why it is the
+ * one opened (a rewind to a session's first message opens the session the
+ * runtime started for it).
  */
 export const useOpenInPane = (): ((environmentId: string, sessionId: string, line?: string) => void) => {
   const handed = use(HandedContext);
+  const here = useGridPaneId();
   const [, setLayout] = usePresentation("paneLayout");
   return (environmentId, sessionId, line) => {
     if (line !== undefined) handed?.set(paneKey(environmentId, sessionId), line);
-    setLayout({ session: { environmentId, sessionId } });
+    setLayout((held) => showSession(held, here ?? held.focused, { environmentId, sessionId }));
   };
 };

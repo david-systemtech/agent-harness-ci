@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManagedToolVerification",
+  "type": "object",
+  "properties": {
+    "tool": {
+      "type": "string",
+      "enum": [
+        "bao",
+        "vault",
+        "doppler",
+        "op",
+        "bws",
+        "gh"
+      ],
+      "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "not-installed"
+      ],
+      "description": "How a verify command came out: passed; failed; or not-installed, the tool not found where its row says, so nothing ran."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^\\r\\n]+$",
+      "description": "One line saying why: what passed (for bao or vault, the run token's policies; for gh, the hosts and logins it is signed in to), or what failed (OpenBao sealed, unreachable, a lookup refused, no connection injecting for the tool's provider), scrubbed of every secret."
+    }
+  },
+  "required": [
+    "tool",
+    "outcome",
+    "reason"
+  ],
+  "description": "A managed tool's verify command, as it came out: the tool, passed, failed or not installed, and one line saying why."
+}

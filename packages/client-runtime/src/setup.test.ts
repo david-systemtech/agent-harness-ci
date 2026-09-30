@@ -80,7 +80,7 @@ const withResults = async () => {
 };
 
 describe("projections.setup from the snapshot and the notices", () => {
-  it("lists the eleven steps in order with their labels and home rows, fills from the snapshot's setup and applies each notice, with no call of its own", async () => {
+  it("lists the eleven steps in order with their labels, home rows and whether each may be skipped, fills from the snapshot's setup and applies each notice, with no call of its own", async () => {
     const { runtime, wire, env, environment, adding } = await paired();
     const setup = runtime.projections.setup(env);
     const seen: unknown[] = [];
@@ -91,18 +91,19 @@ describe("projections.setup from the snapshot and the notices", () => {
     await adding;
     await flush();
 
-    expect(setup.read().steps.map(({ id, label, home }) => [id, label, home])).toEqual([
-      ["account", "Account", "accounts.accounts"],
-      ["carry-over", "Carry over", "accounts.accounts"],
-      ["your-machines", "Your machines", "environments.machines"],
-      ["forges", "Forges", "access.forges"],
-      ["key-manager", "Key manager", "access.key-managers"],
-      ["memory-bank", "Memory bank", "knowledge.banks"],
-      ["skills", "Skills", "knowledge.skills"],
-      ["instructions", "Instructions", "knowledge.instructions"],
-      ["browser", "Browser", "access.browser"],
-      ["permissions", "Permissions", "access.permissions"],
-      ["appearance", "Appearance", "appearance.theme"],
+    // Skippable as this build's registry says: Forges and Key manager; a step it lacks is not (#573).
+    expect(setup.read().steps.map(({ id, label, home, skippable }) => [id, label, home, skippable])).toEqual([
+      ["account", "Account", "accounts.accounts", false],
+      ["carry-over", "Carry over", "accounts.accounts", false],
+      ["your-machines", "Your machines", "environments.machines", false],
+      ["forges", "Forges", "access.forges", true],
+      ["key-manager", "Key manager", "access.key-managers", true],
+      ["memory-bank", "Memory bank", "knowledge.banks", false],
+      ["skills", "Skills", "knowledge.skills", false],
+      ["instructions", "Instructions", "knowledge.instructions", false],
+      ["browser", "Browser", "access.browser", false],
+      ["permissions", "Permissions", "access.permissions", false],
+      ["appearance", "Appearance", "appearance.theme", false],
     ]);
     expect(setup.read().steps.find((step) => step.id === "permissions")?.result).toMatchObject({ ...permissions, stale: false });
     expect(rows(runtime, env)).toEqual([

@@ -8,9 +8,12 @@ import {
   MANAGED_TOOL_INSTALL_METHODS,
   ManagedTool,
   ManagedToolRow,
+  ManagedToolVerification,
   ManagedToolVersion,
   compareToolVersions,
   eventTypeEntry,
+  keyManagerCliRow,
+  keyManagerClis,
   managedTool,
   methods,
   registry,
@@ -19,8 +22,9 @@ import {
 /**
  * The Managed tools table and its registry's vocabulary (key-managers spec,
  * "Managed tools"; ADR 0011, ADR 0026): the tools as data, each with its
- * minimum and verify command, the rows `tools.list` answers, the notice a
- * changed row raises and the capability flag.
+ * minimum and verify command, the rows `tools.list` answers, a
+ * key-manager connection's CLI row, what `tools.verify` answers (#375), the
+ * notice a changed row raises and the capability flag.
  */
 
 describe("the Managed tools table", () => {
@@ -127,10 +131,52 @@ describe("a Managed tools row", () => {
   });
 });
 
+describe("a key-manager connection's CLI", () => {
+  const row = (tool: "bao" | "vault" | "doppler", version: string | null): ManagedToolRow => {
+    const { label, minimum } = managedTool(tool);
+    return version === null
+      ? { tool, label, path: null, realpath: null, version: null, minimum, method: null, status: "not-installed", action: "install" }
+      : { tool, label, path: `/usr/bin/${tool}`, realpath: `/usr/bin/${tool}`, version, minimum, method: "apt", status: "current", action: "update" };
+  };
+
+  it("is served by the tools the table requires for its provider: bao or vault for OpenBao, doppler, op and bws for the others", () => {
+    expect(keyManagerClis("openbao")).toEqual(["bao", "vault"]);
+    expect(keyManagerClis("doppler")).toEqual(["doppler"]);
+    expect(keyManagerClis("onepassword")).toEqual(["op"]);
+    expect(keyManagerClis("bitwarden")).toEqual(["bws"]);
+  });
+
+  it("is bao's row when bao is installed, else vault's when vault is, else bao's, not installed", () => {
+    expect(keyManagerCliRow("openbao", [row("bao", "2.6.3"), row("vault", "1.15.0")])).toEqual(row("bao", "2.6.3"));
+    expect(keyManagerCliRow("openbao", [row("bao", null), row("vault", "1.15.0")])).toEqual(row("vault", "1.15.0"));
+    expect(keyManagerCliRow("openbao", [row("vault", null), row("bao", null)])).toEqual(row("bao", null));
+    expect(keyManagerCliRow("doppler", [row("bao", "2.6.3"), row("doppler", null)])).toEqual(row("doppler", null));
+  });
+});
+
+describe("tools.verify", () => {
+  it("is an admin query naming a tool with a verify command, claude having none", () => {
+    const verify = registry["tools.verify"];
+    for (const tool of ["bao", "vault", "doppler", "op", "bws", "gh"]) expect(verify.params.safeParse({ tool }).success, tool).toBe(true);
+    for (const params of [{ tool: "claude" }, { tool: "codex" }, {}]) expect(verify.params.safeParse(params).success, JSON.stringify(params)).toBe(false);
+    expect(MANAGED_TOOLS.filter((tool) => tool.verify !== null).map((tool) => tool.name)).toEqual(["bao", "vault", "doppler", "op", "bws", "gh"]);
+  });
+
+  it("answers the tool, passed, failed or not installed, and one line saying why", () => {
+    const passed = { tool: "bao", outcome: "passed", reason: "bao looked up its run token at https://bao.example.com:8200: policies default, reader." } as const;
+    expect(registry["tools.verify"].result.parse(passed)).toEqual(passed);
+    expect(ManagedToolVerification.parse({ ...passed, outcome: "failed", reason: "OpenBao at https://bao.example.com:8200 is sealed: unseal it, then verify again." })).toMatchObject({ outcome: "failed" });
+    expect(ManagedToolVerification.parse({ tool: "gh", outcome: "not-installed", reason: "gh is not installed on this environment." })).toMatchObject({ outcome: "not-installed" });
+    expect(ManagedToolVerification.safeParse({ ...passed, outcome: "unknown" }).success).toBe(false);
+    expect(ManagedToolVerification.safeParse({ ...passed, reason: "two\nlines" }).success).toBe(false);
+    expect(ManagedToolVerification.safeParse({ ...passed, reason: "" }).success).toBe(false);
+  });
+});
+
 describe("tools.list", () => {
-  it("is a read query taking an optional refresh, answering the rows in the table's order and when they were probed", () => {
+  it("is a read query taking an optional refresh, answering the rows in the table's order and when they were probed; tools.verify an admin query", () => {
     const owned = methods.filter((m) => m.name.startsWith("tools."));
-    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({ "tools.list": ["query", "read"] });
+    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({ "tools.list": ["query", "read"], "tools.verify": ["query", "admin"] });
     const list = registry["tools.list"];
     expect(list.params.safeParse({}).success).toBe(true);
     expect(list.params.safeParse({ refresh: true }).success).toBe(true);

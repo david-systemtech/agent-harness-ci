@@ -154,7 +154,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
-import { toolsList } from "./methods/tools.js";
+import { toolsList, toolsVerify } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -270,6 +270,7 @@ export const methods = [
   keyManagersMove,
   keyManagersMoveCopyValue,
   toolsList,
+  toolsVerify,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
@@ -346,9 +347,8 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and commands.
-  "routines.history": "#523",
-  "routines.runNow": "#523",
+  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and
+  // commands, and run now (#523) routines.runNow and routines.history.
   "routines.testPreCheck": "#526",
   "routines.scripts.list": "#526",
   "routines.export": "#528",

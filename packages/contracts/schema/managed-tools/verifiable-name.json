@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VerifiableToolName",
+  "type": "string",
+  "enum": [
+    "bao",
+    "vault",
+    "doppler",
+    "op",
+    "bws",
+    "gh"
+  ],
+  "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none."
+}

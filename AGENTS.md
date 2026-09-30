@@ -42,8 +42,8 @@ See `docs/agents/domain.md`.
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
-much as the environment's jsdom: on contracts alone, with no Node built-in and
-no environment code), `tui`, `gui` (the
+much as the environment's jsdom: on contracts and Mozilla Readability alone,
+with no Node built-in and no environment code), `tui`, `gui` (the
 desktop window's renderer, a React app whose bundle runs in a browser tab
 too), `desktop` (the Electron shell that carries the `gui` build), and `cli`,
 the `agent-harness` binary). Node 24 or later: the LTS
@@ -74,7 +74,14 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
 - The browser package's tests run under Node and parse their pages with jsdom
   (`packages/browser/test/pages.ts`; the fixtures in `test/fixtures/` are
   served pages, trimmed, their values faked), and are type-checked by
-  `packages/browser/tsconfig.test.json`, which has the DOM's types.
+  `packages/browser/tsconfig.test.json`, which has the DOM's types. The CDP
+  page driver is tested over the scripted CDP peer, the package's testing
+  export (`@agent-harness/browser/testing`, its own project
+  `tsconfig.testing.json`, the one part of the package that imports Node), on
+  a loopback WebSocket and a pipe. Its fixture-page suite against a real
+  Chromium skips unless `AGENT_HARNESS_CHROMIUM` names one; running it is the
+  manual checklist in `docs/agents/browser-checklist.md`. Never launch a
+  browser on the shared agent box.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency
   whose package downloads its binary the first time Node requires it, never
   on install, so CI and the agent box hold none. Its tests drive the main

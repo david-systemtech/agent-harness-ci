@@ -130,6 +130,19 @@
       "type": "boolean",
       "description": "The provider loads a trusted repository's own instruction files itself (Claude: CLAUDE.md through its project settings); without it the composer hands it the repository's AGENTS.md, else CLAUDE.md, in the project layer."
     },
+    "nativeSkillRoots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          ".claude/skills",
+          ".agents/skills",
+          ".claude/commands"
+        ],
+        "description": "A root of a trusted repository a provider may load itself: .claude/skills or .agents/skills (its skills), or .claude/commands (its own commands). Found in the workspace directory and each parent up to the repository's root."
+      },
+      "description": "The roots of a trusted repository the provider loads skills or commands from itself (Claude: .claude/skills and .claude/commands, through its project settings): a member there is native, left out of the generation and hidden, when switched off, the provider's own way."
+    },
     "modes": {
       "type": "array",
       "items": {
@@ -222,7 +235,8 @@
     "containment",
     "instructionChannel",
     "nativeProjectInstructions",
+    "nativeSkillRoots",
     "modes"
   ],
-  "description": "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel, whether it loads a trusted repository's own instructions itself, and its modes."
+  "description": "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel, whether it loads a trusted repository's own instructions itself and which of its skill roots, and its modes."
 }

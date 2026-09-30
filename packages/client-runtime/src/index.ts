@@ -65,6 +65,7 @@ export {
   type ConnectionRecord,
   type EnvironmentDescriptor,
 } from "./connections/records.js";
+export type { UpdateEnvironmentOutcome } from "./connections/environment-update.js";
 export type { Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
 export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject, type StepAction } from "./notices.js";
@@ -119,8 +120,32 @@ export {
   type SetupStepView,
   type SetupView,
 } from "./projections/setup.js";
-export { SETUP_ACTION_WORDS, planSetupAction, restoreStep, type RestorableStep, type Restored, type SetupActionPlan } from "./setup/actions.js";
-export { STEP_STATE_WORDS, checkedAgoWords, countsWords, lastGoodWords, rowHealth, setupReachWords, stepLine, worstState } from "./setup/checklist.js";
+export {
+  SETUP_ACTION_WORDS,
+  planSetupAction,
+  restoreStep,
+  setupActions,
+  updateEnvironment,
+  type ActingStep,
+  type ActionOutcome,
+  type CardAction,
+  type NamedItem,
+  type OfferedSetupAction,
+  type RestorableStep,
+  type SetupActionPlan,
+} from "./setup/actions.js";
+export {
+  STEP_STATE_WORDS,
+  checkedAgoWords,
+  countsWords,
+  homedChecks,
+  isRegisteredStep,
+  lastGoodWords,
+  rowHealth,
+  setupReachWords,
+  stepLine,
+  worstState,
+} from "./setup/checklist.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
@@ -297,6 +322,22 @@ export {
   type SessionHeading,
 } from "./sidebar/headings.js";
 export { WHEN_EXAMPLES, parseWhen, presetTimes, wakeWords, whenWords, type WhenPreset } from "./sidebar/when.js";
+export {
+  arrange,
+  dropOnto,
+  keysFor,
+  noManualOrder,
+  stepIn,
+  type ArrangeAnswer,
+  type Arrangement,
+  type DropTarget,
+  type KeyMove,
+  type Placed,
+  type Refusal,
+  type UnorderedShelf,
+} from "./sidebar/arrange.js";
+export { changeHeading, groupChoices, hasTag, snoozeStands, toggleOf, type GroupChoices, type HeadingChange, type Toggle, type Toggled } from "./sidebar/organise.js";
+export { askRestorable, type DeletedRow, type Restorable } from "./sidebar/restore.js";
 export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";

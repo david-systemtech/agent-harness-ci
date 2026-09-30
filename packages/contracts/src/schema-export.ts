@@ -110,8 +110,11 @@ import {
   ManagedToolName,
   ManagedToolRow,
   ManagedToolStatus,
+  ManagedToolVerification,
+  ManagedToolVerifyOutcome,
   ManagedToolVersion,
   ToolsUpdatedPayload,
+  VerifiableToolName,
 } from "./managed-tools.js";
 import { AccountUsage, HandoffBasis, HandoffReason, HandoffRecommendation, HandoffTrigger, UsageUpdatedPayload, UsageVerdict, UsageWindow } from "./usage.js";
 import {
@@ -398,6 +401,7 @@ import {
   KeyManagerTokenRole,
   KeyManagerUsername,
   KeyManagerVaultEntry,
+  ListedKeyManagerConnection,
 } from "./key-manager-connections.js";
 import {
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
@@ -462,6 +466,7 @@ import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, Set
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
+  NativeSkillRoot,
   SkillInvocation,
   SkillMemberProblem,
   SkillMemberWarning,
@@ -530,12 +535,15 @@ import {
 } from "./routines.js";
 import {
   GitCommit,
+  RunSkillSet,
+  RunSkillSetMember,
   SkillChoice,
   SkillLayer,
   SkillMember,
   SkillMemberKind,
   SkillMemberRef,
   SkillOrigin,
+  SkillSetFingerprint,
   SkillSetMember,
   SkillSource,
   SkillSourceBranch,
@@ -812,6 +820,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/imported-from.json", title: "KeyManagerImportedFrom", schema: KeyManagerImportedFrom },
   { path: "key-managers/label.json", title: "KeyManagerLabel", schema: KeyManagerLabel },
   { path: "key-managers/connection-record.json", title: "KeyManagerConnectionRecord", schema: KeyManagerConnectionRecord },
+  { path: "key-managers/listed-connection.json", title: "ListedKeyManagerConnection", schema: ListedKeyManagerConnection },
   { path: "key-managers/certificate.json", title: "KeyManagerCertificate", schema: KeyManagerCertificate },
   { path: "key-managers/reference-display.json", title: "KeyManagerReferenceDisplay", schema: KeyManagerReferenceDisplay },
   { path: "key-managers/reference-holder.json", title: "KeyManagerReferenceHolder", schema: KeyManagerReferenceHolder },
@@ -848,6 +857,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "managed-tools/status.json", title: "ManagedToolStatus", schema: ManagedToolStatus },
   { path: "managed-tools/action.json", title: "ManagedToolAction", schema: ManagedToolAction },
   { path: "managed-tools/row.json", title: "ManagedToolRow", schema: ManagedToolRow },
+  { path: "managed-tools/verifiable-name.json", title: "VerifiableToolName", schema: VerifiableToolName },
+  { path: "managed-tools/verify-outcome.json", title: "ManagedToolVerifyOutcome", schema: ManagedToolVerifyOutcome },
+  { path: "managed-tools/verification.json", title: "ManagedToolVerification", schema: ManagedToolVerification },
   { path: "managed-tools/events/tools.updated.json", title: "ToolsUpdatedPayload", schema: ToolsUpdatedPayload },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
@@ -870,6 +882,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/choice.json", title: "SkillChoice", schema: SkillChoice },
   { path: "skills/view.json", title: "SkillsView", schema: SkillsView },
   { path: "skills/skills-updated.json", title: "SkillsUpdatedPayload", schema: SkillsUpdatedPayload },
+  { path: "skills/native-root.json", title: "NativeSkillRoot", schema: NativeSkillRoot },
+  { path: "skills/set-fingerprint.json", title: "SkillSetFingerprint", schema: SkillSetFingerprint },
+  { path: "skills/run-skill-set-member.json", title: "RunSkillSetMember", schema: RunSkillSetMember },
+  { path: "skills/run-skill-set.json", title: "RunSkillSet", schema: RunSkillSet },
   { path: "skills/source-id.json", title: "SkillSourceId", schema: SkillSourceId },
   { path: "skills/git-commit.json", title: "GitCommit", schema: GitCommit },
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },

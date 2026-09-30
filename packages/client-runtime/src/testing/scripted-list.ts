@@ -23,7 +23,8 @@ import type { ScriptedFolders } from "./scripted-folders.js";
  * `sessions.subscribe` answered with a snapshot of the script's sessions
  * and groups and `synchronized`, and every organisation command a client
  * issues applied as the environment's deciders apply it, in short (a
- * missing session given another workspace among them): the
+ * missing session given another workspace, and a group renamed or deleted
+ * with its sessions taken out of it, among them): the
  * event carrying its summary patch and the command's id on the list, then
  * the accepted receipt. A command the script rejects
  * changes nothing. A test holds a method's answers to see a command wait
@@ -95,6 +96,8 @@ export const LIST_COMMANDS = [
   "sessions.restore",
   "sessions.setWorkspace",
   "groups.create",
+  "groups.rename",
+  "groups.delete",
 ] as const;
 
 const DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -309,6 +312,27 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
         kept.set(group.id, group);
         publish(envelope(GROUP_STREAM_KIND, group.id, "group.created", { op: "add", group }, commandId));
         return accepted({ group });
+      }
+      case "groups.rename": {
+        const group = kept.get(String(params["groupId"]));
+        if (!group) return rejected("not_found", "No such group.", { kind: "group" });
+        const name = normaliseGroupName(String(params["name"]));
+        if ([...kept.values()].some((g) => g.id !== group.id && g.name.toLowerCase() === name.toLowerCase())) {
+          return rejected("conflict", "A group has that name.", { reason: "name_taken" });
+        }
+        const renamed: Group = { ...group, name, updatedAt: now };
+        kept.set(group.id, renamed);
+        publish(envelope(GROUP_STREAM_KIND, group.id, "group.renamed", { op: "set", groupId: group.id, fields: { name, updatedAt: now } }, commandId));
+        return accepted({ group: renamed });
+      }
+      case "groups.delete": {
+        // Every member is taken out of it in the same stroke, one `session.group-set` each after the group's own event.
+        const group = kept.get(String(params["groupId"]));
+        if (!group) return rejected("not_found", "No such group.", { kind: "group" });
+        kept.delete(group.id);
+        publish(envelope(GROUP_STREAM_KIND, group.id, "group.deleted", { op: "remove", groupId: group.id }, commandId));
+        for (const member of store.all().filter((summary) => summary.groupId === group.id)) set(member.id, { groupId: null }, commandId, "session.group-set");
+        return accepted({ groupId: group.id });
       }
       default:
         return { error: { code: "not_found", message: `The scripted list has no method ${method}.`, data: {} } };

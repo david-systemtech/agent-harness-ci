@@ -65,6 +65,7 @@ export const capabilities = {
   containment: false,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
   nativeProjectInstructions: true,
+  nativeSkillRoots: [".claude/skills", ".claude/commands"],
   modes: [
     { mode: "plan", available: true, reason: null },
     { mode: "acceptEdits", available: true, reason: null },
@@ -318,12 +319,14 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   },
   "adapter/capability-flag.json": { valid: ["providerQueue", "steering", "imageInput"], invalid: ["midRunSteering", ""] },
   "adapter/capabilities.json": {
-    valid: [capabilities, { ...capabilities, provider: "fake", modes: [] }],
+    valid: [capabilities, { ...capabilities, provider: "fake", modes: [], nativeSkillRoots: [] }],
     invalid: [
       { ...capabilities, steering: "yes" },
       { ...capabilities, provider: "Fake" },
       { ...capabilities, instructionChannel: undefined },
       { ...capabilities, nativeProjectInstructions: undefined },
+      { ...capabilities, nativeSkillRoots: undefined },
+      { ...capabilities, nativeSkillRoots: [".claude/agents"] },
       { ...capabilities, modes: ["plan"] },
       { ...capabilities, modes: [{ mode: "auto", available: false, reason: null }] },
       { ...capabilities, modes: [{ mode: "default", available: true, reason: null }] },

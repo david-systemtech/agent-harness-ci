@@ -24,7 +24,6 @@ import { useClock, useFollowed, useObservable, useRuntime } from "../window-cont
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
-import { RunInfo } from "./run-info.js";
 
 export interface StatusLineProps {
   readonly environmentId: string;
@@ -49,8 +48,8 @@ export interface StatusLineProps {
  *   otherwise), its tokens and cost, the last run's once it has ended; or,
  *   while the account's window is out and no run is live, the hand-off offer
  *   in `accounts.handoff.recommend`'s words, which opens the hand-off picker.
- *   Run info (Mod+I) sits at its end. `/handoff` opens the hand-off picker
- *   whenever; naming another environment, it says that is milestone 2's.
+ *   Run info (Mod+I) is the pane's caption's. `/handoff` opens the hand-off
+ *   picker whenever; naming another environment, it says that is milestone 2's.
  */
 export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
   const runtime = useRuntime();
@@ -105,7 +104,6 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
       </div>
       <div className="flex min-w-0 items-center gap-2">
         {facts.offer !== undefined ? <HandoffOffer offer={facts.offer} /> : <RunLine facts={facts} />}
-        <RunInfo environmentId={environmentId} sessionId={sessionId} />
       </div>
     </section>
   );

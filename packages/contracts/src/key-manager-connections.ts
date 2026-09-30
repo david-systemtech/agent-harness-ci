@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { HTTP_ORIGIN } from "./forge.js";
 import { KeyManagerConnectionId, KeyManagerProvider, type KeyManagerReference } from "./key-managers.js";
+import { ManagedToolRow } from "./managed-tools.js";
 import { EnvironmentId, Timestamp } from "./primitives.js";
 
 /**
@@ -283,6 +284,15 @@ export const KeyManagerConnectionRecord = z
       "A key-manager connection the environment holds: its provider, label and address; for OpenBao its pinned CA, auth method, mount, username and token role; the login's policies with their write flags, the ticked policies, base path (or the one suggested while none is set), whether it injects and the names of the variables runs receive from it; its status, token information, whether it can mint and when it was last verified; where it came from, and when it was added. Never a secret or a token id.",
   });
 export type KeyManagerConnectionRecord = z.infer<typeof KeyManagerConnectionRecord>;
+
+/** A connection as `keyManagers.list` answers it (#375): its record, with its CLI's Managed tools row. */
+export const ListedKeyManagerConnection = KeyManagerConnectionRecord.extend({
+  cli: ManagedToolRow.meta({
+    description:
+      "The Managed tools row of the CLI that serves the connection's provider, as the environment's last probe found it: for OpenBao bao's, else vault's when only vault is installed, else bao's, not installed; doppler's, op's or bws's for the others.",
+  }),
+}).meta({ description: "A key-manager connection as keyManagers.list answers it: its record, with the Managed tools row of the CLI that serves its provider." });
+export type ListedKeyManagerConnection = z.infer<typeof ListedKeyManagerConnection>;
 
 // References ------------------------------------------------------------------
 

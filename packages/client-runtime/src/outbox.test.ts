@@ -532,6 +532,27 @@ describe("commands.dispatch", () => {
   });
 });
 
+describe("commands.admits", () => {
+  it("says whether dispatch would keep a command now: a sessions:write one with its scope whatever the phase, a runs:drive one only while the environment is reachable", async () => {
+    const { runtime, wire, id } = await paired();
+    expect(runtime.commands.admits(id, "sessions.archive")).toEqual({ status: "present" });
+    expect(runtime.commands.admits(id, "runs.interrupt")).toEqual({ status: "present" });
+    expect(runtime.commands.admits(randomUUID(), "sessions.archive")).toMatchObject({ status: "absent", reason: "unreachable" });
+
+    await cut(wire);
+    // An organisation command waits in the outbox while the environment cannot be reached; a run command never does.
+    expect(runtime.commands.admits(id, "sessions.archive")).toEqual({ status: "present" });
+    expect(runtime.commands.admits(id, "runs.interrupt")).toMatchObject({ status: "absent", reason: "unreachable" });
+  });
+
+  it("says a command the connection lacks the scope for is absent with the capability's line, as dispatch refuses it", async () => {
+    const { runtime, id } = await paired({ hello: { scopes: ["read", "runs:drive"] } });
+    const admitted = runtime.commands.admits(id, "sessions.pin");
+    expect(admitted).toMatchObject({ status: "absent", reason: "scope", message: expect.stringContaining("sessions:write") });
+    expect(await runtime.commands.dispatch(id, "sessions.pin", { sessionId: randomUUID() })).toMatchObject({ ok: false, error: { code: "scope", message: admitted.status === "absent" ? admitted.message : "" } });
+  });
+});
+
 describe("receipts and the overlay", () => {
   it("shows the command's effect at once, pending while unreachable, and keeps it until the event carrying its command id applies", async () => {
     const { runtime, wire, clock, id, list } = await paired({ list: true });
