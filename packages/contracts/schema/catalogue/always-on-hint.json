@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueAlwaysOnHint",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The member suggested always-on: one of the entry's members.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "characters": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "About how many characters its body adds to every run, as the reader measured it; a quarter of it is the approximate tokens."
+    }
+  },
+  "required": [
+    "name",
+    "characters"
+  ],
+  "description": "A member a skills entry suggests making always-on, never applied on tick, with about how many characters its body adds to every run."
+}

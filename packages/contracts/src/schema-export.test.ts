@@ -68,6 +68,9 @@ describe("the JSON Schema export", () => {
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
       { path: "data/settings-addresses.json", title: "Settings addresses", schema: "settings/address-row.json" },
       { path: "data/managed-tools.json", title: "Managed tools", schema: "managed-tools/tool.json" },
+      { path: "data/catalogue-skills.json", title: "Catalogue skills", schema: "catalogue/skill-entry.json" },
+      { path: "data/catalogue-instruction-groups.json", title: "Catalogue instruction groups", schema: "catalogue/instruction-group.json" },
+      { path: "data/catalogue-instructions.json", title: "Catalogue instructions", schema: "catalogue/instruction-entry.json" },
     ]);
     const tablePaths = new Set([...index.cases, ...index.data].map((c) => c.path));
     expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !tablePaths.has(p)));
@@ -209,6 +212,24 @@ describe("the JSON Schema export", () => {
     expect(table.entries).toEqual(contracts.MANAGED_TOOLS);
     expect(table.description).toContain("claude in your terminal");
     expect(validate({ name: "vault", label: "Vault CLI", minimum: null, verify: ["token", "lookup"], requiredFor: { kind: "key-manager", provider: "openbao" } })).toBe(false);
+  });
+
+  it("publishes the catalogue as data, its skills entries, instruction groups and instructions each valid against the schema the file names", () => {
+    const ajv = validator();
+    for (const path of filesOnDisk().filter((p) => p !== "index.json" && !p.startsWith("data/"))) ajv.addSchema(readJson(path), path);
+    const tables = Object.fromEntries(
+      ["data/catalogue-skills.json", "data/catalogue-instruction-groups.json", "data/catalogue-instructions.json"].map((path) => {
+        const table = readJson(path) as { description: string; schema: string; entries: unknown[] };
+        const validate = ajv.getSchema(table.schema);
+        if (validate === undefined) throw new Error(`${path} names ${table.schema}, which is not published`);
+        for (const entry of table.entries) expect(validate(entry), `${path}: ${JSON.stringify(entry)}`).toBe(true);
+        return [path, table.entries];
+      }),
+    );
+    expect(tables["data/catalogue-skills.json"]).toEqual(contracts.CATALOGUE.skills);
+    expect(tables["data/catalogue-instruction-groups.json"]).toEqual(contracts.CATALOGUE.instructions.groups);
+    expect(tables["data/catalogue-instructions.json"]).toEqual(contracts.CATALOGUE.instructions.entries);
+    expect(readJson("data/catalogue-skills.json").description).toContain("repository identity");
   });
 
   it("publishes the row, scope and address shapes", () => {
