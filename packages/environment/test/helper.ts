@@ -131,6 +131,8 @@ export interface TestEnvironmentOptions {
   readonly workspaces?: EnvironmentOptions["workspaces"];
   /** The scrub registry the environment holds; preset: a fresh one. */
   readonly scrub?: ScrubRegistry;
+  /** The machine the state import's source reader looks at (`machinePointedAt`); preset: one whose folders hold nothing, never this box's. */
+  readonly stateImportSource?: EnvironmentOptions["stateImportSource"];
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
   readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
   /** How long a forge call and a forge account's verification may take; preset: the environment's ten seconds. */
@@ -349,6 +351,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
+    stateImportSource: options.stateImportSource ?? { env: {}, platform: "linux", home: join(dataDir, "no-source-home") },
     ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
     managedTools: { readPath: async () => EMPTY_PATH, packageOwner: async () => ({ kind: "none" }), hostEnv: { PATH: EMPTY_PATH }, ...options.managedTools },
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),

@@ -1,5 +1,7 @@
-import { denylistPresets, type ContainmentReport, type EnvironmentLook } from "@agent-harness/contracts";
+import { denylistPresets, type AccountRecord, type ContainmentReport, type EnvironmentLook, type StateImportDetection } from "@agent-harness/contracts";
+import type { AdapterRegistry } from "../adapter/registry.js";
 import { themeMeetsRules } from "../appearance/contrast.js";
+import { carryOverStateChecks } from "../carry-over/step-checks.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { forgesStateChecks } from "../forge/step-checks.js";
@@ -16,7 +18,8 @@ import type { StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
- * (#141): the Your machines step's not-root line, release channel (#346),
+ * (#141): the Carry over step's three (#581), the Your machines step's
+ * not-root line, release channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348) and that the environment is named (#323), the
  * Forges step's seven (#319), the Key manager step's skip check (#367) and
@@ -25,7 +28,9 @@ import type { StateCheckers } from "./check.js";
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
  * denylist from its read model beside the presets for this environment's
- * data directory, the release channel from its checks (`updates/checks.ts`),
+ * data directory, the adopted accounts' directories, their listings, the
+ * imports the log records and the state import's detection
+ * (`carry-over/step-checks.ts`), the release channel from its checks (`updates/checks.ts`),
  * the updates from the update coordinator (`updates/coordinator.ts`), the
  * host-side updater's poll from its record (`updates/host-updater.ts`), the
  * forge accounts from the ForgeService (`forge/step-checks.ts`), the
@@ -37,6 +42,12 @@ import type { StateCheckers } from "./check.js";
 
 export interface StateChecksOptions {
   readonly log: EventLog;
+  /** The accounts the account store holds now: Carry over reads the adopted ones' directories. */
+  readonly accounts: () => readonly AccountRecord[];
+  /** The adapters, by provider: an adopted account's lists its directory's sessions. */
+  readonly adapters: Pick<AdapterRegistry, "get">;
+  /** Whether a source data folder or terminal-client state folder is on this machine (`stateImport.detect`). */
+  readonly detectStateImport: () => Promise<StateImportDetection>;
   /** What containment can enforce here, as the start's probe found it (#133). */
   readonly containment: ContainmentReport;
   /** Whether the environment runs as root: what `permissions.settings.get` answers. */
@@ -66,6 +77,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
   const report = () => readPermissionsReport(reader, options.containment, options.isRoot);
   const presets = denylistPresets(options.dataDir);
   return {
+    ...carryOverStateChecks({ accounts: options.accounts, adapters: options.adapters, reader, detect: options.detectStateImport }),
     "your-machines.not-root": () => runsAsNonRoot(report().isRoot),
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,

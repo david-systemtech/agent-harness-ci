@@ -18,6 +18,9 @@ const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateC
   checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, lastGood: undefined });
 
 const holding: StateCheckers = {
+  "carry-over.present": () => true,
+  "carry-over.readable": () => true,
+  "carry-over.last-import": () => true,
   "your-machines.not-root": () => true,
   "your-machines.release-channel": () => true,
   "your-machines.updates": () => true,
