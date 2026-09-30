@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  MAX_ROUTINE_TEXT,
   registry,
   type MessageSentPayload,
   type Mode,
@@ -19,7 +20,7 @@ import { bubblewrapProbe } from "../../test/containment.js";
 import { ask, end, fakeAdapter, gate, say, signedInAs, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { created, history, listed, ranNow, routineCommand, routineEvents, runNow, untilSettled, untilStarted, written } from "../../test/routines.js";
-import { get, refusal } from "../../test/sessions.js";
+import { deleteSession, get, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { git, makeDirectory, scriptedResolver } from "../../test/workspaces.js";
 
@@ -466,5 +467,104 @@ describe("the firing's run", () => {
     expect(await fire(desktop, high.state.id)).toMatchObject({
       mode: { requested: "bypassPermissions", effective: "bypassPermissions", ceiling: "bypassPermissions", clamped: false, clampReason: null },
     });
+  });
+});
+
+describe("a firing's end", () => {
+  /** A firing of a fresh routine run now, whose run plays `script`: its routine, its id, its session and its run. */
+  const firing = async (t: TestEnvironment, client: WireClient, script: Script, definition: RoutineDefinitionInput = routine()) => {
+    const { state } = await created(client, definition);
+    t.adapter.nextScripts.push(script);
+    const firingId = await ranNow(client, state.id);
+    const { sessionId, runId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string; runId: string };
+    return { routineId: state.id, firingId, sessionId, runId };
+  };
+
+  const usage = [{ model: "opus", inputTokens: 120, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, contextWindow: null }];
+
+  it("is succeeded when its run completes: the result text, else the last assistant text, else empty; with the usage and the duration", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = heldGate();
+    const withResult = await firing(t, client, async function* () {
+      yield say("Reading the sources.");
+      await held.opened;
+      yield end("completed", { resultText: "Three new releases; digest filed.", usage });
+    });
+    t.clock.advance(90_000);
+    held.open();
+    expect((await untilSettled(t, withResult.routineId, withResult.firingId)).payload).toEqual({
+      firingId: withResult.firingId,
+      outcome: "succeeded",
+      reason: null,
+      text: "Three new releases; digest filed.",
+      usage,
+      durationMs: 90_000,
+      baselineAdvanced: false,
+    });
+    expect((await history(client, withResult.routineId))[0]).toMatchObject({
+      endedAt: new Date(Date.parse(MANUAL_CLOCK_START) + 90_000).toISOString(),
+      outcome: "succeeded",
+      text: "Three new releases; digest filed.",
+      usage,
+      durationMs: 90_000,
+      baselineAdvanced: false,
+    });
+
+    const saidOnly = await firing(t, client, () => [say("First thought."), say("Nothing new upstream."), end()], routine({ name: "Said only" }));
+    expect((await untilSettled(t, saidOnly.routineId, saidOnly.firingId)).payload).toMatchObject({ outcome: "succeeded", text: "Nothing new upstream.", usage: null });
+
+    // Empty text succeeds: the body a delivery gives it is #525's.
+    const silentRun = await firing(t, client, () => [end()], routine({ name: "Said nothing" }));
+    expect((await untilSettled(t, silentRun.routineId, silentRun.firingId)).payload).toMatchObject({ outcome: "succeeded", reason: null, text: "" });
+  });
+
+  it("keeps at most 16,000 characters of the final text", async () => {
+    const t = await start();
+    const client = await t.client();
+    const long = "x".repeat(MAX_ROUTINE_TEXT + 500);
+    const run = await firing(t, client, () => [end("completed", { resultText: long })]);
+    expect((await untilSettled(t, run.routineId, run.firingId)).payload["text"]).toBe(long.slice(0, MAX_ROUTINE_TEXT));
+  });
+
+  it("is failed run_error when its run ends in error", async () => {
+    const t = await start();
+    const client = await t.client();
+    const run = await firing(t, client, () => [say("Trying."), end("error", { error: { message: "The provider failed.", code: null } })]);
+    expect((await untilSettled(t, run.routineId, run.firingId)).payload).toMatchObject({ outcome: "failed", reason: "run_error", text: "Trying." });
+  });
+
+  it("is cancelled when a person interrupts its run, and when its session is deleted", async () => {
+    const t = await start();
+    const client = await t.client();
+    const interrupted = await firing(t, client, heldRun(heldGate()));
+    await client.apply("runs.interrupt", { commandId: randomUUID(), runId: interrupted.runId });
+    expect((await untilSettled(t, interrupted.routineId, interrupted.firingId)).payload).toMatchObject({ outcome: "cancelled", reason: null, text: "Working" });
+
+    const deleted = await firing(t, client, heldRun(heldGate()), routine({ name: "Deleted session" }));
+    await deleteSession(client, deleted.sessionId);
+    expect((await untilSettled(t, deleted.routineId, deleted.firingId)).payload).toMatchObject({ outcome: "cancelled", reason: null });
+  });
+
+  it("is failed restart when the environment closes under its run, and when a crash cut its run and the next start's recovery ends it", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await start({ dataDir });
+    const client = await first.client();
+    const closed = await firing(first, client, heldRun(heldGate()));
+    await first.close();
+    const second = await start({ dataDir, clock: first.clock });
+    const reader = await second.client();
+    expect((await history(reader, closed.routineId))[0]).toMatchObject({ id: closed.firingId, outcome: "failed", reason: "restart", text: "Working" });
+
+    const cut = await firing(second, reader, heldRun(heldGate()), routine({ name: "Cut by a crash" }));
+    // The environment dies with the run mid-flight: its end never reaches the log.
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await reader.close();
+    second.env.log.close();
+    await second.close();
+    loud.mockRestore();
+    const third = await start({ dataDir, clock: first.clock });
+    expect((await history(await third.client(), cut.routineId))[0]).toMatchObject({ id: cut.firingId, outcome: "failed", reason: "restart" });
+    expect((await listed(await third.client(), cut.routineId))?.state).toMatchObject({ liveFiring: null, failureStreak: 1 });
   });
 });
