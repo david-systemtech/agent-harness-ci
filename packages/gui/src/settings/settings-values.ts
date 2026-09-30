@@ -3,12 +3,31 @@ import type { SettingsKey } from "@agent-harness/contracts";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
 
-/** A value written from this window, shown over the cached answer until the cache is fetched again. */
-interface Written {
+/** What this window wrote, shown over a cached answer until the cache is fetched again. */
+interface Written<T> {
   /** When the cached answer it is shown over was fetched. */
   readonly over: string | null;
-  readonly values: Readonly<Record<string, unknown>>;
+  readonly value: T;
 }
+
+/**
+ * What this window wrote over a cached answer fetched at `fetchedAt`: the
+ * value, until the cache is fetched again, and how to write another, from
+ * the one still shown (undefined once the cache has been fetched since), so
+ * a second write made before the cache is fetched again builds on the first.
+ */
+export const useWrittenOver = <T,>(fetchedAt: string | null): readonly [T | undefined, (next: (shown: T | undefined) => T) => void] => {
+  const [written, setWritten] = useState<Written<T> | undefined>(undefined);
+  const fetched = useRef(fetchedAt);
+  useLayoutEffect(() => {
+    fetched.current = fetchedAt;
+  });
+  const write = (next: (shown: T | undefined) => T) => {
+    const over = fetched.current;
+    setWritten((now) => ({ over, value: next(now?.over === over ? now.value : undefined) }));
+  };
+  return [written?.over === fetchedAt ? written.value : undefined, write];
+};
 
 export interface SettingsValues {
   /** `settings.get` as the request cache holds it. */
@@ -31,19 +50,12 @@ export const useSettingsValues = (environmentId: string): SettingsValues => {
   const runtime = useRuntime();
   const clock = useClock();
   const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "settings.get", {}), [runtime, environmentId]));
-  const [written, setWritten] = useState<Written | undefined>(undefined);
-  const fetchedAt = useRef(answer.fetchedAt);
-  useLayoutEffect(() => {
-    fetchedAt.current = answer.fetchedAt;
-  });
+  const [written, write] = useWrittenOver<Readonly<Record<string, unknown>>>(answer.fetchedAt);
   const read = answer.result?.values ?? null;
-  const values = read === null ? null : written?.over === answer.fetchedAt ? { ...read, ...written.values } : read;
+  const values = read === null ? null : written === undefined ? read : { ...read, ...written };
   const save = async (key: SettingsKey, value: unknown, acknowledgeBypass = false): Promise<SettingSaved> => {
     const saved = await saveSetting(runtime, environmentId, key, value, { commandId: uuidv7(clock.now()), acknowledgeBypass });
-    if (saved.ok) {
-      const over = fetchedAt.current;
-      setWritten((now) => ({ over, values: { ...(now?.over === over ? now.values : {}), ...saved.values } }));
-    }
+    if (saved.ok) write((shown) => ({ ...shown, ...saved.values }));
     return saved;
   };
   return { answer, values, save };
