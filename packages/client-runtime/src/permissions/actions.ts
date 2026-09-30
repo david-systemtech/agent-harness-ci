@@ -1,7 +1,7 @@
 import { DenylistInput, describeDenylistMatch, type Denylist, type DenylistEntry, type DenylistSection, type DenylistTestKind } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { adminCall } from "../status/actions.js";
-import { sectionGrammar } from "./words.js";
+import { DENYLIST_SECTION_NAMES, sectionGrammar } from "./words.js";
 
 /**
  * What the Permissions row sends, as both renderers send it and say it
@@ -67,7 +67,7 @@ const refusalOf = (section: DenylistSection, entries: readonly DenylistEntryInpu
   const index = issue?.path[1];
   if (issue?.path[2] === "pattern" && typeof index === "number") {
     const pattern = entries[index]?.pattern ?? "";
-    return pattern === "" ? "a pattern is needed." : `${pattern} is not a pattern ${section} takes: ${sectionGrammar(section)}`;
+    return pattern === "" ? "a pattern is needed." : `${pattern} is not a pattern ${DENYLIST_SECTION_NAMES[section].toLowerCase()} takes: ${sectionGrammar(section)}`;
   }
   return issue?.message ?? "the denylist cannot take it.";
 };
