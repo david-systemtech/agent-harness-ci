@@ -12,10 +12,10 @@ import { actorOfPolicy } from "../permissions/resolver.js";
 import { readRunPolicy } from "../permissions/review-store.js";
 import { decideStart, type PlannedRun } from "../runs/run-decider.js";
 import { latestRun, readRun, readSessionFacts } from "../runs/run-reads.js";
-import { isDirectory } from "../serve/files.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
 
 /**
@@ -37,8 +37,8 @@ import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
  * - `next-message` when it cannot go on by itself: the session's account is
  *   another now, signed out or no longer offers the run's model
  *   (`account`), its adapter cannot resume or it linked no provider session
- *   (`no-resume`), the workspace is gone (`workspace`), or the mode resolved
- *   now differs from the run's (`mode`);
+ *   (`no-resume`), the workspace is marked missing (`workspace`), or the mode
+ *   resolved now differs from the run's (`mode`);
  * - otherwise `continued`: one run as `system:updates` with the origin
  *   `update`, in the same transaction, resolved for the actor the cut run's
  *   policy names under the ceiling it was resolved under (as the run of the
@@ -46,6 +46,15 @@ import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
  *   provider session, whose first message is the environment's own: why the
  *   turn stopped, and to check the current state before repeating anything.
  *   The session's queued messages follow it.
+ *
+ * Before each run's transaction the availability watcher looks at its
+ * session's workspace (`check`, #691), within the look's time bound and
+ * its gate, and marks the session by what it found; the verdict reads that
+ * mark. So no look is a synchronous `stat` on the event loop: a workspace on
+ * a dead network mount counts as missing once its bound runs out, and while
+ * the watcher's gate holds a run is decided by the mark as it stands. The
+ * looks go one at a time, so the settle, which the start awaits before the
+ * wire opens, waits at most two bounds on dead mounts.
  *
  * Each run is settled in a transaction of its own, and one already marked is
  * passed over, so a second start appends nothing; a run whose settling fails
@@ -66,6 +75,8 @@ export interface InterruptedRunsOptions {
   readonly harnessVersion: string;
   /** Who the marks and the continuations name. */
   readonly actor: string;
+  /** What looks at each cut run's workspace, within its bound and its gate, before the transaction that marks the run (#328, #691). */
+  readonly availability: Pick<AvailabilityWatcher, "check">;
 }
 
 /** A run the update cut and nothing has marked yet, with the effort its start recorded. */
@@ -146,7 +157,7 @@ export const resumesOnAnswer = (reader: Reader, sessionId: string): boolean => {
 };
 
 /** The runs half of the settle, as this start passes its gate: never stops the start, whatever fails (said on standard error). */
-export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => {
+export const settleInterruptedRuns = async (options: InterruptedRunsOptions): Promise<void> => {
   const { log, host, actor } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   let latest: UpdateHistory["latest"];
@@ -176,7 +187,6 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
     const { account } = facts;
     if (account === null || !account.signedIn || facts.accountId !== run.accountId) return waitsForNextMessage("account");
     if (!account.descriptor.resume || run.providerSessionId === null) return waitsForNextMessage("no-resume");
-    if (!isDirectory(session.workspace.path)) return waitsForNextMessage("workspace");
     const model = account.models.find((option) => option.id === run.model);
     if (model === undefined) return waitsForNextMessage("account");
     const decision = decideStart(facts, {
@@ -188,7 +198,7 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
     });
     if (decision.rejected !== undefined) {
       if (decision.rejected.data.reason === "mode_unavailable") return waitsForNextMessage("mode");
-      // Marked missing before the stop (#328), though the directory is there now: the availability pass clears the mark.
+      // Found gone, or not answering, by the look before this transaction, or marked before it while the watcher's gate holds.
       if (decision.rejected.data.reason === "workspace_missing") return waitsForNextMessage("workspace");
       throw new Error(`The continuation of run ${cut.runId} was refused: ${decision.rejected.message}`);
     }
@@ -213,7 +223,17 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
       return verdict.run;
     });
 
+  /** Has the watcher look at the cut run's workspace and mark its session; a look that fails leaves the mark as it stands. */
+  const lookAt = async (cut: CutRun): Promise<void> => {
+    try {
+      await options.availability.check(cut.sessionId);
+    } catch (error) {
+      console.error(`Looking at the workspace of session ${cut.sessionId} before settling run ${cut.runId} failed; the run is decided by its mark as it stands:`, error);
+    }
+  };
+
   for (const cut of cuts) {
+    await lookAt(cut);
     let continuation: PlannedRun | undefined;
     try {
       continuation = mark(cut);

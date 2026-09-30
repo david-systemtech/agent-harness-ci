@@ -18,7 +18,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { ask, fakeAdapter, say, signedInAs, type FakeAdapter, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { testLauncher, type TestLauncherOptions } from "../../test/launcher.js";
-import { create } from "../../test/sessions.js";
+import { create, get } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
@@ -43,6 +43,13 @@ const { onCleanup, tempDir } = useCleanups();
 /** The version the first start runs, and the one the update goes to. */
 const RUNNING = "0.4.1";
 const TARGET = "0.5.0";
+
+/**
+ * How long a look at a workspace may take in the tests of one that never
+ * answers: short, since only that workspace's look ever reaches it, the
+ * scripted look answering every other path at once.
+ */
+const LOOK_BOUND_MS = 50;
 
 /** The environment's name, which the continuation's message says. */
 const NAME = "laptop";
@@ -454,6 +461,37 @@ describe("a run the update cut that cannot go on by itself", () => {
 
     expect(marksOf(again, id)).toEqual([nextMessage("workspace")]);
     expect(again.adapter.runs).toEqual([]);
+  });
+
+  it("waits for the next message, workspace, when its workspace does not answer within the look's bound, the start passing its gate and the other cut runs settled as before (#691)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const dead = tempDir("agent-harness-workspace-");
+    const healthy = tempDir("agent-harness-workspace-");
+    const { t, client, id } = await withWorkingRun(dataDir, { workspace: dead });
+    const other = (await create(client, { workspace: { kind: "directory", path: healthy } })).id;
+    await startRun(client, other);
+    await untilWorking(t, other);
+    await update(t, client);
+
+    const adapter: FakeAdapter = fakeAdapter();
+    const again = await start(dataDir, {
+      clock: t.clock,
+      harnessVersion: TARGET,
+      adapter,
+      workspaces: {
+        // Every other path answers at once; the bound is only ever reached by the dead mount's, which never answers.
+        lookTimeoutMs: LOOK_BOUND_MS,
+        isDirectory: async (path) => (path === dead ? new Promise<boolean>(() => undefined) : true),
+      },
+    });
+
+    // Past its gate, a start of its own noted, and serving a client, which reads the dead workspace marked missing.
+    expect(again.env.log.read("SELECT 1 FROM events WHERE type = 'environment.started'")).toHaveLength(2);
+    expect((await get(await again.client(), id)).workspaceMissingSince).not.toBeNull();
+    expect(marksOf(again, id)).toEqual([nextMessage("workspace")]);
+    expect(marksOf(again, other)).toEqual([{ outcome: "continued", reason: null, continuationRunId: continuationOf(again, other) }]);
+    await untilEnded(again, other, continuationOf(again, other));
+    expect(adapter.runs.map((run) => run.input.sessionId)).toEqual([other]);
   });
 
   it("waits for the next message, deleted, when its session was deleted before a start could settle it, which a start whose settling fails leaves to the next", async () => {
