@@ -1,4 +1,11 @@
-import { ContractError, normaliseEnvironmentName, type KnownEnvironment, type ListedEnvironment } from "@agent-harness/contracts";
+import {
+  ContractError,
+  normaliseEnvironmentName,
+  type EnvironmentNoticeType,
+  type KnownEnvironment,
+  type KnownEnvironmentsUpdatedPayload,
+  type ListedEnvironment,
+} from "@agent-harness/contracts";
 import type { ClientSessions } from "../auth/client-sessions.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import { formatActor } from "../event-log/envelope.js";
@@ -19,9 +26,9 @@ import type { MethodHandlers } from "../serve/methods.js";
  */
 
 /** Who drops a report its client session can no longer make: a revocation or an expiry. */
-export const KNOWN_ENVIRONMENTS_ACTOR = formatActor({ kind: "system", id: "known-environments" });
+const KNOWN_ENVIRONMENTS_ACTOR = formatActor({ kind: "system", id: "known-environments" });
 
-const NOTICE = "environment.known-environments-updated";
+const NOTICE = "environment.known-environments-updated" satisfies EnvironmentNoticeType;
 
 export interface KnownEnvironments {
   /** Takes the client session's report whole, in place of its last: its other connections but this environment, each name kept on one line. */
@@ -67,7 +74,7 @@ export const createKnownEnvironments = (options: KnownEnvironmentsOptions): Know
     if (JSON.stringify(next) === JSON.stringify(union)) return;
     union = next;
     try {
-      log.append(stream, [{ type: NOTICE, payload: { environments: next } }], { actor });
+      log.append(stream, [{ type: NOTICE, payload: { environments: next } satisfies KnownEnvironmentsUpdatedPayload }], { actor });
     } catch (error) {
       console.error("Noticing that the known environments changed failed:", error);
     }

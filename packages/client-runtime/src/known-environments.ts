@@ -40,7 +40,7 @@ export interface KnownEnvironmentsReportHost {
  * (a name or address it would refuse is left out, not the whole report), at
  * most the method's cap.
  */
-export const otherConnections = (records: readonly ConnectionRecord[], environmentId: string): KnownEnvironment[] =>
+const otherConnections = (records: readonly ConnectionRecord[], environmentId: string): KnownEnvironment[] =>
   records
     .filter((record) => record.environmentId !== environmentId && record.environmentId !== LOCAL_PLACEHOLDER_ID)
     .map((record) => ({ id: record.environmentId, name: record.descriptor.name, address: record.address }))
