@@ -110,6 +110,8 @@ export interface FakeWire {
    * (`readiness`, `protocolVersion`, `capabilities`, even `environmentId`).
    */
   discovery(answer: "unreachable" | "hanging" | Partial<DiscoveryDocument>): void;
+  /** Changes the name, icon or colour discovery and `hello` say from now on, as the environment's three look commands do. */
+  setLook(change: { readonly name?: string; readonly icon?: EnvironmentIcon; readonly colour?: EnvironmentColour }): void;
   /**
    * How requests for `method` are answered on every socket: a response
    * body, a promise of one (answered when it settles, so a test can hold an
@@ -160,7 +162,7 @@ interface FakeSocket {
 export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const { clock } = options;
   const environmentId = options.environmentId ?? uuidv7(clock.now());
-  const name = options.name ?? "fake";
+  let look: { name: string; icon: EnvironmentIcon | undefined; colour: EnvironmentColour | undefined } = { name: options.name ?? "fake", icon: options.icon, colour: options.colour };
   const address = options.address ?? { host: "fake.test", port: 7433 };
   const origin = originOf(address);
   let overrides: "unreachable" | "hanging" | Partial<DiscoveryDocument> = {};
@@ -176,9 +178,9 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
 
   const document = (): DiscoveryDocument => ({
     environmentId,
-    environmentName: name,
-    ...(options.icon !== undefined && { environmentIcon: options.icon }),
-    ...(options.colour !== undefined && { environmentColour: options.colour }),
+    environmentName: look.name,
+    ...(look.icon !== undefined && { environmentIcon: look.icon }),
+    ...(look.colour !== undefined && { environmentColour: look.colour }),
     harnessVersion: FAKE_HARNESS_VERSION,
     protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
     capabilities: [...(options.capabilities ?? [])],
@@ -356,6 +358,9 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     server,
     discovery(answer) {
       overrides = answer;
+    },
+    setLook(change) {
+      look = { ...look, ...change };
     },
     answer(method, responder) {
       responders.set(method, responder);

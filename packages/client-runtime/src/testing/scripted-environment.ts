@@ -41,6 +41,9 @@ import {
   type CapabilityFlags,
   type CommandEntry,
   type DiscoveryDocument,
+  type EnvironmentColour,
+  type EnvironmentIcon,
+  type EnvironmentLook,
   type EventEnvelope,
   type Frame,
   Group,
@@ -63,6 +66,7 @@ import {
   type TerminalExitCause,
   type TerminalInfo,
   type WorkspaceProblem,
+  normaliseEnvironmentName,
 } from "@agent-harness/contracts";
 import { uuidv4 } from "../ids.js";
 import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
@@ -107,6 +111,10 @@ export interface ScriptedEnvironment {
   readonly environmentId?: string;
   readonly protocolVersion?: number;
   readonly capabilities?: CapabilityFlags;
+  /** The icon discovery and `hello` say: preset none, as an environment from before icons says (#323). */
+  readonly icon?: EnvironmentIcon;
+  /** The colour discovery and `hello` say: preset none, as an environment from before colours says (#323). */
+  readonly colour?: EnvironmentColour;
   /** The scopes `hello` gives this terminal's client session: preset every scope. */
   readonly scopes?: readonly Scope[];
   /** What discovery answers at first: preset `ready`. */
@@ -500,6 +508,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...(spec.environmentId !== undefined && { environmentId: spec.environmentId }),
     ...(spec.protocolVersion !== undefined && { protocolVersion: spec.protocolVersion }),
     ...(spec.capabilities !== undefined && { capabilities: spec.capabilities }),
+    ...(spec.icon !== undefined && { icon: spec.icon }),
+    ...(spec.colour !== undefined && { colour: spec.colour }),
   });
   let discovery: ScriptedDiscovery = spec.discovery ?? "ready";
   let accepting = spec.autoAccept ?? true;
@@ -1675,8 +1685,32 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ceiling: Ceiling.parse("bypassPermissions"),
     });
   });
+  // Its name, icon and colour (#323), each set by its `admin` command as the environment does: the look answered, a
+  // value it holds already accepted unchanged, a change said as its notice and carried by discovery and `hello` from then
+  // on. An icon or colour the script names none of answers as a Linux machine's defaults.
+  let look: EnvironmentLook = { name: spec.name, icon: spec.icon ?? "server", colour: spec.colour ?? "blue" };
+  const LOOK_COMMANDS = [
+    { method: "environment.rename", field: "name", notice: "environment.renamed" },
+    { method: "environment.setIcon", field: "icon", notice: "environment.icon-set" },
+    { method: "environment.setColour", field: "colour", notice: "environment.colour-set" },
+  ] as const;
+  for (const command of LOOK_COMMANDS) {
+    wire.answer(command.method, (params) => {
+      const refusal = receiptFor(command.method);
+      if (refusal) return refusal;
+      const value = command.field === "name" ? normaliseEnvironmentName(String(params["name"])) : params[command.field];
+      const changed = look[command.field] !== value;
+      if (changed) {
+        look = { ...look, [command.field]: value };
+        wire.setLook({ [command.field]: value });
+        notice(command.notice, { [command.field]: value });
+      }
+      return { result: { receipt: { status: "accepted", sequence: changed ? sequence : ++sequence, changed }, result: { ...look } } };
+    });
+  }
   // Every other scripted command, `access.*` ones included, answers its receipt alone, as a retry answered from a stored receipt does.
   const ownResponders = new Set([
+    ...LOOK_COMMANDS.map((command) => command.method),
     "access.sessions.list",
     "access.sessions.revoke",
     "access.pairings.create",

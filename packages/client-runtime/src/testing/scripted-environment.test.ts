@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { DISCOVERY_PATH } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntime } from "../runtime.js";
 import { flush } from "./fake-wire.js";
@@ -194,6 +195,33 @@ describe("the scripted environment in a DOM", () => {
     desk.setSettings({ "permissions.defaultCeiling": "auto" });
     for (let i = 0; i < 10; i++) await flush();
     expect(asked()).toBe(before + 2);
+  });
+
+  it("renames itself and sets its icon and colour as the environment does: the look answered, its notice said, and a later hello carrying it (#416)", async () => {
+    const { world, runtime, until } = await launch({ environments: [{ name: "desk", reach: "local", icon: "desktop", colour: "teal" }] });
+    const desk = world.environment("desk");
+    const view = () => runtime.projections.environments.read()[0];
+    await until(() => view()?.phase === "ready", "desk ready");
+    expect(view()).toMatchObject({ name: "desk", icon: "desktop", colour: "teal" });
+
+    const renamed = await runtime.requests.call(desk.environmentId, "environment.rename", { commandId: "0199cc00-0000-4000-8000-000000000011", name: "  studio   box " });
+    expect(renamed).toMatchObject({ ok: true, result: { receipt: { status: "accepted", changed: true }, result: { name: "studio box", icon: "desktop", colour: "teal" } } });
+    await until(() => view()?.name === "studio box", "the new name followed");
+    await runtime.requests.call(desk.environmentId, "environment.setIcon", { commandId: "0199cc00-0000-4000-8000-000000000012", icon: "nas" });
+    await runtime.requests.call(desk.environmentId, "environment.setColour", { commandId: "0199cc00-0000-4000-8000-000000000013", colour: "violet" });
+    await until(() => view()?.icon === "nas" && view()?.colour === "violet", "the icon and colour followed");
+    // A value it holds already is accepted and changes nothing.
+    expect(await runtime.requests.call(desk.environmentId, "environment.setColour", { commandId: "0199cc00-0000-4000-8000-000000000014", colour: "violet" })).toMatchObject({
+      ok: true,
+      result: { receipt: { changed: false } },
+    });
+
+    // Discovery says the look from then on, and a socket opened again hears it in `hello`.
+    const discovered = await (await world.fetch(`${desk.wire.origin}${DISCOVERY_PATH}`)).json();
+    expect(discovered).toMatchObject({ environmentName: "studio box", environmentIcon: "nas", environmentColour: "violet" });
+    await runtime.connections.retryNow(desk.environmentId);
+    await until(() => view()?.phase === "ready" && desk.wire.opened() === 2, "desk back");
+    expect(view()).toMatchObject({ name: "studio box", icon: "nas", colour: "violet" });
   });
 
   it("reads a subagent's stored transcript while its provider declares them, and refuses as the environment does while it does not", async () => {
