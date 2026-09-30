@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseEnvironment, loginShell, processUser, type ShellUser } from "./shell.js";
+import { baseEnvironment, loginShell, processUser, throughShell, type ShellUser } from "./shell.js";
 
 const user = (shell: string | null): ShellUser => ({ username: "david", homedir: "/home/david", shell });
 const everyFile = () => true;
@@ -25,6 +25,19 @@ describe("the login shell", () => {
 
   it("is PowerShell on Windows, which has no login flag", () => {
     expect(loginShell("win32", user(null), everyFile)).toEqual({ file: "powershell.exe", args: [] });
+  });
+});
+
+describe("a command run through the login shell", () => {
+  it("is the command line after -c, keeping the login flag; alone for csh and tcsh, whose -l takes no other flag; after -Command for PowerShell", () => {
+    expect(throughShell({ file: "/bin/zsh", args: ["-l"] }, "brew upgrade gh")).toEqual({ file: "/bin/zsh", args: ["-l", "-c", "brew upgrade gh"] });
+    expect(throughShell({ file: "/bin/sh", args: [] }, "doppler update")).toEqual({ file: "/bin/sh", args: ["-c", "doppler update"] });
+    expect(throughShell({ file: "/bin/tcsh", args: ["-l"] }, "gh --version")).toEqual({ file: "/bin/tcsh", args: ["-c", "gh --version"] });
+    expect(throughShell({ file: "/usr/bin/csh", args: ["-l"] }, "gh --version")).toEqual({ file: "/usr/bin/csh", args: ["-c", "gh --version"] });
+    expect(throughShell({ file: "powershell.exe", args: [] }, "winget upgrade --exact --id GitHub.cli")).toEqual({
+      file: "powershell.exe",
+      args: ["-Command", "winget upgrade --exact --id GitHub.cli"],
+    });
   });
 });
 
