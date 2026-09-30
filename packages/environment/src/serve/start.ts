@@ -164,6 +164,7 @@ import { createReaper } from "../workspace/reaper.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
+import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
@@ -782,6 +783,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       lookProjector,
       trustProjector,
       instructionsProjector,
+      skillChoicesProjector,
       chromesProjector,
       ...(options.projectors ?? []),
     ]) {
@@ -1158,7 +1160,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trust: (place) => trustStore.of(place),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
-      skillSet: runSkillSets({ own: ownSkills, generations }),
+      skillSet: runSkillSets({ own: ownSkills, log, generations }),
       holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
@@ -1388,6 +1390,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
   });
+  // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
+  const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1435,7 +1439,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       environmentId: record.id,
       store: instructionStore,
-      accounts: () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null })),
+      accounts: listedAccounts,
       orientationOn,
       catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
@@ -1469,7 +1473,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
-    ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
+    ...skillsMethods({ log, environmentId: record.id, own: ownSkills, defaultAccountId: () => accounts.defaultId(), accounts: listedAccounts }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.

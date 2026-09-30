@@ -76,6 +76,7 @@ const fixture = (options: Partial<GenerationsOptions> = {}) => {
     commit: null,
     invocation: "model+slash",
     native: false,
+    alwaysOn: false,
   };
   const review: PlacedMember = { ...tdd, name: "review", kind: "command", target: join(own, "commands", "review.md") };
   return { dataDir, own, clock, generations, tdd, review, root: join(dataDir, GENERATIONS_DIRECTORY) };
@@ -90,6 +91,7 @@ const native = (name: string): PlacedMember => ({
   commit: null,
   invocation: "model+slash",
   native: true,
+  alwaysOn: false,
 });
 
 /** The generations under the root, by name. */
@@ -146,7 +148,7 @@ describe("a generation", () => {
 });
 
 describe("the fingerprint", () => {
-  it("is the same for identical state, and changes with each name, folder, origin, snapshot commit, native flag and hidden native name", async () => {
+  it("is the same for identical state, and changes with each name, folder, origin, snapshot commit, native flag, always-on flag and hidden native name", async () => {
     const { generations, tdd } = fixture();
     const of = async (members: readonly PlacedMember[], hiddenNativeNames: readonly string[] = []) =>
       (await generations.materialise({ members, hiddenNativeNames }, "scope")).fingerprint;
@@ -160,6 +162,7 @@ describe("the fingerprint", () => {
       await of([{ ...tdd, origin: { kind: "repository", repository: "github.com/mattpocock/skills", path: "tdd" } }]),
       await of([{ ...tdd, commit: "0123456789abcdef0123456789abcdef01234567" }]),
       await of([{ ...tdd, native: true }]),
+      await of([{ ...tdd, alwaysOn: true }]),
       await of([tdd], ["triage"]),
     ];
     expect(new Set([base, ...variants]).size).toBe(variants.length + 1);

@@ -216,8 +216,8 @@ describe("the run's skill set (#495)", () => {
     generation: `/data/skills/generations/${fingerprint}`,
     fingerprint,
     members: [
-      { name: "tdd", origin: null, invocation: "model+slash", native: false },
-      { name: "release", origin: null, invocation: "slash-only", native: true },
+      { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
+      { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
     ],
     hiddenNativeNames: ["triage"],
   });
