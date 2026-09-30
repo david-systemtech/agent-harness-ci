@@ -5,7 +5,7 @@ import { MENU_ITEM, OVERLAY, classes } from "./classes.js";
 /**
  * A menu opened by a right click, or the keyboard's menu key, on its trigger: `ContextMenu` holds a `ContextMenuTrigger`
  * and a `ContextMenuContent`, whose items may open a submenu (`ContextMenuSub`, a `ContextMenuSubTrigger` and a
- * `ContextMenuSubContent`) and sit under a `ContextMenuLabel`.
+ * `ContextMenuSubContent`).
  */
 export const ContextMenu = RadixContextMenu.Root;
 export const ContextMenuTrigger = RadixContextMenu.Trigger;
@@ -39,9 +39,4 @@ export const ContextMenuSubContent = ({ className, ...props }: ComponentProps<ty
 
 export const ContextMenuSeparator = ({ className, ...props }: ComponentProps<typeof RadixContextMenu.Separator>) => (
   <RadixContextMenu.Separator className={classes("my-1 h-px bg-line", className)} {...props} />
-);
-
-/** A heading over the items after it, which the highlight passes over. */
-export const ContextMenuLabel = ({ className, ...props }: ComponentProps<typeof RadixContextMenu.Label>) => (
-  <RadixContextMenu.Label className={classes("px-2 pt-2 pb-1 text-xs font-medium text-ink-muted", className)} {...props} />
 );
