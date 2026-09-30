@@ -43,6 +43,14 @@ let connection: CdpConnection | undefined;
 /** Every command the driver sent the browser, in order. */
 const sent: string[] = [];
 
+/** Ends a browser and waits for it to exit, so its profile is no longer written to when it is removed. */
+const ended = async (child: ChildProcess | undefined): Promise<void> => {
+  if (child === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  child.kill();
+  await exited;
+};
+
 /** A transport that records the method of every command it carries. */
 const recording = (transport: CdpTransport): CdpTransport => ({
   ...transport,
@@ -93,7 +101,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   connection?.close();
-  browser?.kill();
+  await ended(browser);
   if (profile !== undefined) rmSync(profile, { recursive: true, force: true });
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
 });
@@ -187,10 +195,11 @@ describe("the page driver in a real Chromium", () => {
       expect(await driver.perform({ pageKey: PAGE, command: { verb: "open", args: { url: at("frames.html") } } })).toMatchObject({ ok: true, value: { title: "Checkout" } });
       overSocket.close();
     } finally {
-      launched.kill();
+      await ended(launched);
       rmSync(other, { recursive: true, force: true });
     }
-  });
+    // A second browser's cold start is given longer than the preset 30 seconds.
+  }, 60_000);
 
   it("refuses a page whose cross-site frame the denylist lists, and leaves it at about:blank", async () => {
     const perform = drive("chrome", { ...plainPolicy, browserDomains: [listed("pay.other.test")] });

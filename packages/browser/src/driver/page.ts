@@ -152,7 +152,10 @@ export class CdpPage {
   private startsAtCommit = 0;
   private deepEnabling: Promise<void> | undefined;
   private deep = false;
+  /** Whether the page records its network: from attach when the host asks, else from the first deep verb. */
   private networkOn = false;
+  /** The sessions `Network` is enabled on: the page's own (undefined) and its child targets'. */
+  private readonly networkSessions = new Set<string | undefined>();
   private held: PageRefusal | undefined;
   /** Why the page went, once it has: its target closed or crashed, the connection closed. */
   gone: string | undefined;
@@ -187,7 +190,7 @@ export class CdpPage {
     await session.send("Emulation.setDeviceMetricsOverride", { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
     if (options.networkAtAttach) {
       page.networkOn = true;
-      await session.send("Network.enable");
+      await page.enableNetwork(undefined);
     }
     await session.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
     const main = page.mainFrame();
@@ -489,7 +492,19 @@ export class CdpPage {
   private async enableDeepOn(sessionId: string | undefined): Promise<void> {
     await this.session.send("Runtime.enable", {}, sessionId);
     await this.session.send("Log.enable", {}, sessionId);
-    if (!this.networkOn) await this.session.send("Network.enable", {}, sessionId);
+    await this.enableNetwork(sessionId);
+  }
+
+  /** `Network` on one session, once: a child target that attaches after it came on gets it too. */
+  private async enableNetwork(sessionId: string | undefined): Promise<void> {
+    if (this.networkSessions.has(sessionId)) return;
+    this.networkSessions.add(sessionId);
+    try {
+      await this.session.send("Network.enable", {}, sessionId);
+    } catch (error) {
+      this.networkSessions.delete(sessionId);
+      throw error;
+    }
   }
 
   /** The console lines and uncaught errors since the last read, and how many older ones the limit dropped. */
@@ -680,7 +695,7 @@ export class CdpPage {
     const setup = (async () => {
       await this.session.send("Page.enable", {}, sessionId);
       if (this.deep) await this.enableDeepOn(sessionId);
-      else if (this.networkOn) await this.session.send("Network.enable", {}, sessionId);
+      else if (this.networkOn) await this.enableNetwork(sessionId);
       await this.session.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
       const { frameTree } = await this.session.send("Page.getFrameTree", {}, sessionId);
       this.registerTree(frameTree as FrameTree, sessionId);
@@ -693,6 +708,7 @@ export class CdpPage {
 
   private childDetached(sessionId: string): void {
     if (!this.children.delete(sessionId)) return;
+    this.networkSessions.delete(sessionId);
     // Only the frames the target held: one swapped back into its parent's process is its parent's now.
     for (const frame of [...this.frames.values()]) if (frame.sessionId === sessionId) this.dropFrame(frame.id);
   }

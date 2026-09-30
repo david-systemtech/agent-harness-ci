@@ -84,7 +84,7 @@ export function selectFieldContents(selector: string): "selected" | "gone" | "no
  * the text inside open shadow roots included (a Lit app's is all there).
  * What no one sees is left out: scripts, styles, templates, the `noscript`
  * fallback, and an element the browser reports not visible. A block's edge
- * separates words, as it does on the screen.
+ * and a line break separate words, as they do on the screen.
  */
 export function showsText(text: string): boolean {
   const unseen = new Set(["script", "style", "template", "noscript", "head"]);
@@ -96,6 +96,11 @@ export function showsText(text: string): boolean {
     }
     if (node instanceof Element) {
       if (unseen.has(node.localName)) return;
+      // A line break separates the words either side of it, though it is laid out inline.
+      if (node.localName === "br") {
+        parts.push(" ");
+        return;
+      }
       if (typeof node.checkVisibility === "function" && !node.checkVisibility({ visibilityProperty: true })) return;
       const block = !window.getComputedStyle(node).display.startsWith("inline");
       if (block) parts.push(" ");

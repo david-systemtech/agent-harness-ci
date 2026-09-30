@@ -51,7 +51,21 @@ describe("lazy domains", () => {
     expect(["Runtime.enable", "Log.enable", "Network.enable"].map(onChild)).toEqual([1, 1, 1]);
 
     const later = peer.target(peer.sentOf("Page.navigate")[0]?.targetId as string).addCrossSiteFrame("https://ads.example/slot");
-    await expect.poll(() => peer.sentOf("Runtime.enable").filter((command) => command.targetId === later.targetId).length, { timeout: 30_000 }).toBe(1);
+    const onLater = (method: string) => peer.sentOf(method).filter((command) => command.targetId === later.targetId).length;
+    await expect.poll(() => onLater("Runtime.runIfWaitingForDebugger"), { timeout: 30_000 }).toBe(1);
+    expect(["Runtime.enable", "Log.enable", "Network.enable"].map(onLater)).toEqual([1, 1, 1]);
+  });
+
+  it("gives every cross-site frame's child target Network once, when the host asked for it at attach and a deep verb came after", async () => {
+    const { peer, perform } = await driven({ kind: "headless", networkAtAttach: true });
+    peer.document("https://shop.example/", { frames: [{ url: "https://pay.example/embed", crossSite: true }] });
+    await perform("open", { url: "https://shop.example/" });
+    await perform("console", {});
+    const page = peer.target(peer.sentOf("Page.navigate")[0]?.targetId as string);
+    const later = page.addCrossSiteFrame("https://ads.example/slot");
+    const on = (targetId: string, method: string) => peer.sentOf(method).filter((command) => command.targetId === targetId).length;
+    await expect.poll(() => on(later.targetId, "Runtime.runIfWaitingForDebugger"), { timeout: 30_000 }).toBe(1);
+    for (const target of [page.targetId, page.children[0]?.targetId as string, later.targetId]) expect(on(target, "Network.enable"), target).toBe(1);
   });
 
   it("turns them on before the load on a dev site, where debugging is the point: a listed host, or this machine's own address", async () => {

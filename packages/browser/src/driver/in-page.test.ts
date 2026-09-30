@@ -98,10 +98,11 @@ describe("showsText", () => {
     expect(runIn(window, showsText, "order shipped")).toBe(false);
   });
 
-  it("separates the words at a block's edge, as the screen does", () => {
-    const window = pageWith(`<div>first</div><div>second</div>`);
+  it("separates the words at a block's edge and a line break, as the screen does", () => {
+    const window = pageWith(`<div>first</div><div>second</div><p>Order<br>placed</p>`);
     expect(runIn(window, showsText, "first second")).toBe(true);
     expect(runIn(window, showsText, "firstsecond")).toBe(false);
+    expect(runIn(window, showsText, "Order placed")).toBe(true);
   });
 
   it("reads inside open shadow roots and the nodes slotted into them, as a Lit app renders", () => {
