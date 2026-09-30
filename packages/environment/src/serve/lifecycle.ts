@@ -2,6 +2,7 @@ import type {
   DrainStarted,
   DrainTrigger,
   EnvironmentActivity,
+  EnvironmentBinding,
   EnvironmentReadiness,
   EnvironmentStatus,
   LauncherQuery,
@@ -15,8 +16,9 @@ import { activityOf, type RunRegistry } from "./run-registry.js";
 
 /**
  * The environment's lifecycle (env spec, "Lifecycle"; ADR 0007): the status
- * document (readiness, idle or busy or draining, who manages updates) and the
- * drain. Runs are read through the run registry (`run-registry.ts`).
+ * document (readiness, idle or busy or draining, who manages updates, what it
+ * binds) and the drain. Runs are read through the run registry
+ * (`run-registry.ts`).
  */
 
 /** How long a drain waits for running runs before it cuts them and the environment closes (ADR 0007): the contracts' launcher module's, which the launcher waits a minute past. */
@@ -56,6 +58,8 @@ export interface LifecycleOptions {
   /** Whether a terminal's shell runs a command in its foreground, read each time the activity is: busy as a run is (#343). */
   readonly terminalRunning: () => boolean;
   readonly readiness: () => EnvironmentReadiness;
+  /** What the environment binds beside loopback and could bind, read each time the status is (#574). */
+  readonly binding: () => EnvironmentBinding;
   /** Called once, as a drain begins: readiness turns `draining`. */
   readonly onDraining: () => void;
   /**
@@ -113,6 +117,7 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
     readiness: options.readiness(),
     activity: activity(),
     updatesManagedOutside: options.updatesManagedOutside,
+    binding: options.binding(),
   });
 
   /**

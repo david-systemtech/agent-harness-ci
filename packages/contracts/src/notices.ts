@@ -45,6 +45,7 @@ import { TrustUpdatedPayload } from "./trust.js";
 import { InstructionsUpdatedPayload } from "./instructions.js";
 import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
+import { WorkspaceKeptPayload } from "./workspaces.js";
 
 /**
  * The environment's own notices: the events on its `environment` stream,
@@ -133,6 +134,9 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "tools.updated",
   "extension.seen",
   "carry-over.imported",
+  // A worktree the environment made stayed, unlocked, when the last session naming it was purged
+  // (the reaper's notice, which the client runtime raises, #330).
+  "workspace.kept",
 ] as const;
 
 /**
@@ -193,7 +197,8 @@ const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE
   "instructions.updated": ", instructions.updated (an owned instruction changed; a client reads instructions.list and instructions.preview again)",
   "tools.updated": ", the Managed tools registry's tools.updated (a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list)",
   "extension.seen": ", extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load)",
-  "carry-over.imported": ", and Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
+  "carry-over.imported": ", Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
+  "workspace.kept": ", workspace.kept (a worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why)",
 };
 
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
@@ -407,6 +412,12 @@ const CarryOverImported = describedNotice(
   "An import of an adopted account's directory ended, in the transaction of what it imported: the account, what it did with the sessions, and what failed.",
 );
 
+const WorkspaceKept = describedNotice(
+  "workspace.kept",
+  WorkspaceKeptPayload,
+  "A worktree the environment made stayed, unlocked, when the last session naming it was purged: its path, branch, the session's title and why.",
+);
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
@@ -463,6 +474,7 @@ export const EnvironmentNotice = z
     ToolsUpdated,
     ExtensionSeen,
     CarryOverImported,
+    WorkspaceKept,
   ])
   .meta({
     description:

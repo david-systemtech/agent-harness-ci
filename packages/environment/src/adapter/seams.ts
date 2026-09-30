@@ -103,13 +103,25 @@ export interface SkillSetScope {
 /**
  * Resolves the skill set a run is handed and a commands listing is made
  * under (ADR 0009), at each run's start, before its instructions are
- * composed, and at each listing: the materialiser's (#496), from the
- * account, the trust, the choices and the layers. Preset: the empty set,
- * with no fingerprint.
+ * composed, and at each listing: the environment's is `skills/run-skill-set.ts`
+ * (#496), from the account, the trust, the choices and the layers, over
+ * the materialiser. Preset: the empty set, with no fingerprint.
  */
 export type SkillSetSeam = (scope: SkillSetScope) => Promise<RunSkillSet>;
 
 export const noSkillSet: SkillSetSeam = async () => EMPTY_RUN_SKILL_SET;
+
+/**
+ * Holds a skill set's generation while a provider process uses it (#496):
+ * asked as each spawn of a run's process is supplied, and as each commands
+ * listing is made, its answer called once the pool lets that process go or
+ * the listing has answered, so the materialiser's sweep keeps the
+ * generation meanwhile. The environment's is the materialiser's hold
+ * (`skills/generations.ts`); preset: nothing held.
+ */
+export type GenerationHold = (generation: string) => () => void;
+
+export const holdNothing: GenerationHold = () => () => undefined;
 
 /**
  * What a run's standing instructions are composed for (skills spec, "The
@@ -117,15 +129,17 @@ export const noSkillSet: SkillSetSeam = async () => EMPTY_RUN_SKILL_SET;
  * made), account and workspace, its trust key and decision, who started it,
  * its effective containment level and its injection answer with the level
  * that decided it (#380), the bot it is for, the always-on names it asks for
- * beside its account's, and the instruction channel of its account's
- * adapter with whether that adapter loads a trusted repository's own
- * instructions itself (#500).
+ * beside its account's, the instruction channel of its account's adapter
+ * with whether that adapter loads a trusted repository's own instructions
+ * itself (#500), and the skill set resolved for it (#496).
  */
 export interface InstructionScope {
   readonly sessionId: string | null;
   readonly accountId: string;
   readonly workspace: Workspace;
   readonly trust: RunTrust;
+  /** The run's skill set, resolved before its instructions are composed: the manifest carries its fingerprint. */
+  readonly skillSet: RunSkillSet;
   /** Who started the run: a client, a routine, a bot or the completions surface. */
   readonly origin: RunActorKind;
   /** The run's effective containment level, its policy's: what the orientation block's environment section states. */

@@ -1,17 +1,21 @@
 import { execFile } from "node:child_process";
-import { BlockList, isIP, isIPv4 } from "node:net";
+import { BlockList, isIP, isIPv4, isIPv6 } from "node:net";
+import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 import { promisify } from "node:util";
 
 /**
  * What the environment finds on its machine to bind beside loopback: the
- * Tailscale address, and the tailnet name the Host check admits. Tests pass
- * their own; the environment's is `tailscaleDetector()`.
+ * Tailscale address, the tailnet name the Host check admits, and the LAN
+ * addresses a LAN bind may name. Tests pass their own; the environment's is
+ * `tailscaleDetector()`.
  */
 export interface InterfaceDetector {
   /** The machine's Tailscale IPv4 address; undefined when Tailscale is absent, stopped or logged out. */
   tailscaleAddress(): Promise<string | undefined>;
   /** The machine's own name on the tailnet (`desk.tail1234.ts.net`), lower case; undefined when there is none. */
   tailnetName(): Promise<string | undefined>;
+  /** The machine's LAN addresses as it holds them now: what `network.bindLan` may name (#574). */
+  lanAddresses(): readonly string[];
 }
 
 /** Runs a command and answers its standard output; undefined when it is missing, fails or times out. */
@@ -31,12 +35,39 @@ export const processRunner: CommandRunner = async (command, args) => {
   }
 };
 
+/** Addresses no LAN bind names: link-local ones, which need an interface to bind, and Tailscale's own ranges, the tailnet's to bind. */
+const notLan = new BlockList();
+notLan.addSubnet("169.254.0.0", 16, "ipv4");
+notLan.addSubnet("fe80::", 10, "ipv6");
+notLan.addSubnet("100.64.0.0", 10, "ipv4");
+notLan.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
+
+/**
+ * The LAN addresses among a machine's network interfaces (`os.networkInterfaces()`),
+ * each once in their order: every address but loopback, link-local and
+ * Tailscale's.
+ */
+export const lanAddressesOf = (interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): string[] => [
+  ...new Set(
+    Object.values(interfaces)
+      .flatMap((entries) => entries ?? [])
+      .filter((entry) => !entry.internal && !notLan.check(entry.address, isIPv6(entry.address) ? "ipv6" : "ipv4"))
+      .map((entry) => entry.address),
+  ),
+];
+
 /**
  * The environment's detector: `tailscale ip -4` for the address and
- * `tailscale status --json` for the name, through `run`. A machine without
- * the `tailscale` binary on its PATH, or with Tailscale stopped, has neither.
+ * `tailscale status --json` for the name, through `run`, and the machine's
+ * network interfaces, read each time, for its LAN addresses. A machine
+ * without the `tailscale` binary on its PATH, or with Tailscale stopped, has
+ * neither address nor name.
  */
-export const tailscaleDetector = (runner: CommandRunner = processRunner): InterfaceDetector => ({
+export const tailscaleDetector = (
+  runner: CommandRunner = processRunner,
+  readInterfaces: () => NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces,
+): InterfaceDetector => ({
+  lanAddresses: () => lanAddressesOf(readInterfaces()),
   async tailscaleAddress() {
     const first = (await runner("tailscale", ["ip", "-4"]))?.split(/\r?\n/)[0]?.trim();
     return first !== undefined && isIPv4(first) ? first : undefined;
@@ -73,7 +104,26 @@ export interface BindChoice {
   readonly bindLan?: boolean | undefined;
   /** The LAN address to bind when LAN binding is on. */
   readonly lanAddress?: string | undefined;
+  /** The LAN addresses the machine holds, the detector's: the LAN address bound must be one. Preset: none. */
+  readonly lanAddresses?: readonly string[] | undefined;
 }
+
+/**
+ * What a start binds beside loopback (#574): the start options where they
+ * are given, which override both keys for tests and the service verbs,
+ * else the binding keys as the settings hold them. A start option turning
+ * LAN binding on or off takes its own LAN address, or none.
+ */
+export const bindChoiceOf = (
+  keys: { readonly bindTailnet: boolean; readonly bindLan: string | null },
+  options: Pick<BindChoice, "bindTailnet" | "bindLan" | "lanAddress">,
+): Pick<BindChoice, "bindTailnet" | "bindLan" | "lanAddress"> =>
+  options.bindLan === undefined
+    ? { bindTailnet: options.bindTailnet ?? keys.bindTailnet, bindLan: keys.bindLan !== null, lanAddress: keys.bindLan ?? undefined }
+    : { bindTailnet: options.bindTailnet ?? keys.bindTailnet, bindLan: options.bindLan, lanAddress: options.lanAddress };
+
+/** An address as the machine names it: an IPv6 address compressed and in lower case, so `FD00:0::20` is `fd00::20`. */
+const canonical = (address: string): string => (isIPv6(address) ? new URL(`http://[${address}]`).hostname.slice(1, -1) : address);
 
 const wildcards = new BlockList();
 wildcards.addAddress("0.0.0.0", "ipv4");
@@ -92,8 +142,9 @@ const bindable = (address: string, what: string): string => {
 /**
  * What the environment binds (env spec, "Binding and discovery"): loopback
  * always; the Tailscale address when one is found and the tailnet setting is
- * on; the LAN address when LAN binding is on, which without an address
- * throws. Never the wildcard address: asking for it throws.
+ * on; the LAN address when LAN binding is on, which without an address, or
+ * with one the machine does not hold, throws saying so. Never the wildcard
+ * address: asking for it throws.
  */
 export const bindList = (choice: BindChoice): { readonly host: string; readonly interface: BoundInterface }[] => {
   const binds: { host: string; interface: BoundInterface }[] = [{ host: LOOPBACK, interface: "loopback" }];
@@ -103,7 +154,14 @@ export const bindList = (choice: BindChoice): { readonly host: string; readonly 
   if (choice.tailscaleAddress !== undefined && (choice.bindTailnet ?? true)) add(bindable(choice.tailscaleAddress, "Tailscale"), "tailnet");
   if (choice.bindLan === true) {
     if (choice.lanAddress === undefined) throw new Error("LAN binding is on, but no LAN address is given to bind: set lanAddress, or turn LAN binding off.");
-    add(bindable(choice.lanAddress, "LAN"), "lan");
+    const lan = bindable(choice.lanAddress, "LAN");
+    const held = choice.lanAddresses ?? [];
+    if (!held.some((address) => canonical(address) === canonical(lan))) {
+      throw new Error(
+        `The LAN address ${lan} is not an address this machine holds (it holds ${held.length === 0 ? "none" : held.join(", ")}): bind one it holds, or turn LAN binding off.`,
+      );
+    }
+    add(lan, "lan");
   }
   return binds;
 };

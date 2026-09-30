@@ -4,7 +4,7 @@ import { useOpenPairing } from "../connections/pairing.js";
 import { focusedPane } from "../grid/layout.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
-import { Button, Input } from "../ui/index.js";
+import { Button, Input, Switch } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { SidebarDialogs } from "./dialogs.js";
 import { useDropTarget } from "./drag.js";
@@ -20,8 +20,11 @@ import { useDraggedRow, useSidebarFilter } from "./window-sidebar.js";
  * draws (the client runtime's `sessionHeadings`), each row opening its
  * session in the focused pane. Typing in its filter narrows it to
  * `projections.search`'s rows, in the sidebar's order, with no headings;
- * clearing it brings the headings back. The folds are presentation
- * (`collapsedHeadings`); what is typed in the filter lasts while the window
+ * clearing it brings the headings back. A switch heads the active sessions
+ * by repository instead of by group (#422): one heading per repository
+ * across environments, then each environment's sessions with no identity.
+ * The switch and the folds are presentation (`sidebarView`,
+ * `collapsedHeadings`); what is typed in the filter lasts while the window
  * does, the sidebar hidden and shown again or not (`window-sidebar.tsx`).
  * Organising is one gesture (#398): a row's or a merged group's context
  * menu, or a drag, each command through the outbox once (`organise.tsx`);
@@ -41,6 +44,7 @@ const Headings = () => {
   const environments = useObservable(runtime.projections.environments);
   const list = useObservable(runtime.projections.sessionList);
   const [folded, setFolded] = usePresentation("collapsedHeadings");
+  const [by, setBy] = usePresentation("sidebarView");
   const [layout] = usePresentation("paneLayout");
   const openInPane = useOpenInPane();
   const openPairing = useOpenPairing();
@@ -50,8 +54,8 @@ const Headings = () => {
   const query = filter.trim();
 
   const headings = useMemo(
-    () => sessionHeadings({ list, environments, folded, matches: null, now: (environmentId) => runtime.environmentNow(environmentId) }),
-    [runtime, list, environments, folded],
+    () => sessionHeadings({ list, environments, folded, matches: null, by, now: (environmentId) => runtime.environmentNow(environmentId) }),
+    [runtime, list, environments, folded, by],
   );
 
   /** Folds or opens a heading; the folds of groups no longer listed are dropped as the choice is kept. */
@@ -79,6 +83,10 @@ const Headings = () => {
   return (
     <nav aria-label="Sessions" className="flex h-full flex-col gap-3 overflow-y-auto bg-inset p-3">
       <Input type="search" aria-label="Filter the sessions" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <label className="flex items-center gap-2 text-xs text-ink-muted">
+        <Switch aria-label="By repository" checked={by === "repositories"} onCheckedChange={(on) => setBy(on ? "repositories" : "groups")} />
+        <span>By repository</span>
+      </label>
       {query === "" ? (
         <>
           {dragged !== null && !headings.some((heading) => heading.kind === "pinned") && <EmptyPinned />}
