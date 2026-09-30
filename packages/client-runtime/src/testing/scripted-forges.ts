@@ -107,8 +107,7 @@ export const scriptedForges = (host: ForgesHost): ScriptedForgesHandle => {
   const accounts: ForgeAccountRecord[] = (script.accounts ?? []).map((fields, index) => {
     const id = fields.id ?? uuidv4();
     const origin = fields.origin ?? (index === 0 ? GITHUB_ORIGIN : `https://git-${index + 1}.example.test`);
-    vault.set(id, `stored-token-for-tests-${index + 1}`);
-    return withVariables({
+    const record = withVariables({
       id,
       origin,
       aliases: [],
@@ -125,6 +124,9 @@ export const scriptedForges = (host: ForgesHost): ScriptedForgesHandle => {
       copiedFrom: null,
       ...fields,
     });
+    // The vault keeps a token for a stored credential only.
+    if (record.credential.kind === "stored") vault.set(id, `stored-token-for-tests-${index + 1}`);
+    return record;
   });
 
   const find = (id: unknown) => accounts.find((account) => account.id === String(id).toLowerCase());

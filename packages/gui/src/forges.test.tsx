@@ -90,6 +90,10 @@ describe("a forge account's card", () => {
       "Copied from": "laptop",
     });
     expect(within(copied).getByText("No credential for https://git.example.test is on this environment: give it one in Set up, Forges.")).toBeDefined();
+    // The vault keeps a token for the stored credential only.
+    const [stored, awaiting] = app.environment("desk").forgeAccounts();
+    expect(app.environment("desk").forgeToken(stored?.id ?? "")).toBeDefined();
+    expect(app.environment("desk").forgeToken(awaiting?.id ?? "")).toBeUndefined();
   });
 });
 
