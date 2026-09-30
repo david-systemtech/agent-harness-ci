@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EnvironmentReadiness } from "./discovery.js";
+import { EnvironmentBinding } from "./network.js";
 import { Timestamp } from "./primitives.js";
 
 /**
@@ -72,8 +73,10 @@ export type EnvironmentActivity = z.infer<typeof EnvironmentActivity>;
 
 /**
  * The environment's state as `environment.status` answers it and
- * `environment.subscribe` snapshots it: readiness, activity, and whether its
- * updates are managed outside (a container with no launcher, ADR 0007).
+ * `environment.subscribe` snapshots it: readiness, activity, whether its
+ * updates are managed outside (a container with no launcher, ADR 0007), and
+ * what it binds and could bind (#574), which an environment that predates it
+ * leaves out.
  */
 export const EnvironmentStatus = z
   .object({
@@ -83,6 +86,9 @@ export const EnvironmentStatus = z
       description:
         "True when the environment runs in a container with no launcher: it never updates itself, and a host-side updater recreates it.",
     }),
+    binding: EnvironmentBinding.optional().meta({
+      description: "What the environment binds beside loopback and the LAN addresses it could bind; absent from an environment that predates it.",
+    }),
   })
-  .meta({ description: "The environment's readiness, whether it is idle, busy or draining, and who manages its updates." });
+  .meta({ description: "The environment's readiness, whether it is idle, busy or draining, who manages its updates, and what it binds." });
 export type EnvironmentStatus = z.infer<typeof EnvironmentStatus>;

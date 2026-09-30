@@ -46,6 +46,11 @@ const credentialPresets = {
   "credentials.injection": "allow",
   "credentials.injectionByAccount": {},
 };
+/** The binding keys (#574) at their presets: every value set holds them too. */
+const networkPresets = {
+  "network.bindTailnet": true,
+  "network.bindLan": null,
+};
 /** A theme other than the preset: an orange accent (ADR 0023's example). */
 const ember = { name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
 const presets = {
@@ -61,6 +66,7 @@ const presets = {
   "appearance.theme": DEFAULT_THEME,
   ...browserPresets,
   ...credentialPresets,
+  ...networkPresets,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -75,6 +81,8 @@ const changed = {
   "browser.reach": { "claude-max": { chrome: { environmentId: commandId, chromeId: null } } },
   "credentials.injection": "deny",
   "credentials.injectionByAccount": { "claude-max": "allow" },
+  "network.bindTailnet": false,
+  "network.bindLan": "192.168.1.20",
 };
 
 const idleSpans: Fixtures = {
@@ -98,6 +106,7 @@ const patches: Fixtures = {
     { "browser.headless.limits": { maxContexts: 0, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 } },
     { "browser.blockedSites": ["*.paypal.com"] },
     { "credentials.injection": "inherit" },
+    { "network.bindLan": "0.0.0.0" },
     { "credentials.injectionByAccount": { "claude-max": "inherit" } },
     { theme: "invalid-theme" },
     { "appearance.theme": "Ember" },
@@ -121,6 +130,8 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
       "appearance.theme",
       "credentials.injection",
       "credentials.injectionByAccount",
+      "network.bindTailnet",
+      "network.bindLan",
     ],
     invalid: ["theme", "updates.theme", "appearance.mode", "credentials.injectionByRoutine", ""],
   },
@@ -136,7 +147,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ "claude-max": "inherit" }, { "claude-max": null }, { "": "deny" }, ["deny"], "deny", null],
   },
   "settings/settings-values.json": {
-    valid: [presets, { ...permissionPresets, ...updatePresets, ...browserPresets, ...credentialPresets, ...changed }],
+    valid: [presets, { ...permissionPresets, ...updatePresets, ...browserPresets, ...credentialPresets, ...networkPresets, ...changed }],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "invalid-theme" }, changed],
   },
   "settings/settings-patch.json": patches,

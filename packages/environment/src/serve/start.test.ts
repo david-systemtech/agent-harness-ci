@@ -40,8 +40,8 @@ const { version: packageVersion } = JSON.parse(
 ) as { version: string };
 
 const notPrivileged: UserCheck = { isPrivileged: () => false };
-/** No Tailscale on the machine as far as these tests know, so none binds a real tailnet address. */
-const interfaces: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
+/** No Tailscale on the machine and no LAN address as far as these tests know, so none binds a real interface. */
+const interfaces: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined, lanAddresses: () => [] };
 const privileged: UserCheck = { isPrivileged: () => true };
 
 const { onCleanup, tempDir } = useCleanups();
@@ -541,14 +541,14 @@ describe("never root", () => {
 });
 
 describe("environment.status", () => {
-  it("is registered with its status result: readiness, activity, and who manages updates", async () => {
+  it("is registered with its status result: readiness, activity, who manages updates, and what it binds", async () => {
     const env = await start({ containerDetector: { inContainer: () => false } });
     const served = env.methods.get("environment.status");
     if (served?.kind !== "query" || !served.handler) throw new Error("environment.status has no handler");
     const { handler } = served;
     const clientSession = { id: "cs-1", kind: "tui", scopes: ["read"], ceiling: TOP_CEILING, local: true, expiresAt: 0 } as const;
     const result = await handler({}, { clientSession });
-    expect(result).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+    expect(result).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } });
     expect(registry["environment.status"].result.parse(result)).toEqual(result);
     expect(registry["environment.status"].scope).toBe("read");
   });

@@ -207,10 +207,11 @@ export const anyValidValue =
 /**
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
- * (#120), whose accounts it checks (#574); Your machines, for the update settings (#335), whose not-root line
- * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
- * rules and settings") and the transcript compaction window beside them
- * (#123), which sit on `environments.service`; Forges, whose forge
+ * (#120), whose accounts it checks (#574); Your machines, for the update
+ * settings (#335), whose not-root line #141 adds, the auto-settle keys
+ * (session-state spec, "Auto-settle: rules and settings") and the transcript
+ * compaction window beside them (#123), which sit on `environments.service`,
+ * and the binding keys (#574); Forges, whose forge
  * accounts go through the forge account commands (#319); Key manager, for
  * the injection setting (#367), whose connections go through the
  * key-manager commands; Browser, for the browser keys (#541); Permissions
@@ -261,7 +262,10 @@ export const STEP_REGISTRY = [
     // check of the release channel as it ends, which appends nothing and the environment names to its scheduler (#679).
     // The environment's name, icon and colour are state it writes through their three commands, whose notices re-run it
     // too, and its line says the environment is named (ADR 0025's "named"), which holds from the first start since each
-    // has its default (#323). The rest of its check (the discovery URL reachable and ready) is Set up's (#88).
+    // has its default (#323). It writes the two binding keys too, on its home row, which settings.update writes and the
+    // environment applies at its next start, done on any valid value; and its line says the environment is ready, not
+    // draining past its cap (ADR 0025), Check again when it is (#574). No tailnet address is a notice on its card, never
+    // a failure.
     id: "your-machines",
     home: "environments.machines",
     writes: [
@@ -273,6 +277,8 @@ export const STEP_REGISTRY = [
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
       "sessions.transcriptCompactAfterDays",
+      "network.bindTailnet",
+      "network.bindLan",
     ],
     writesState: [
       { method: "environment.rename", parts: ["name"] },
@@ -288,6 +294,8 @@ export const STEP_REGISTRY = [
       { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
       { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
       { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
+      { key: "network.bindTailnet", check: anyValidValue("network.bindTailnet") },
+      { key: "network.bindLan", check: anyValidValue("network.bindLan") },
     ],
     stateChecks: [
       { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
@@ -307,6 +315,7 @@ export const STEP_REGISTRY = [
         actions: ["check-again"],
       },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
+      { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
     ],
     links: [{ row: "environments.service" }],
     skippable: false,

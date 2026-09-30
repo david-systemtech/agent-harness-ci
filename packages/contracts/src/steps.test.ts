@@ -8,6 +8,7 @@ import {
   DEFAULT_CADENCE_MINUTES,
   DENYLIST_SECTIONS,
   EVENT_TYPES,
+  NETWORK_SETTINGS_KEYS,
   PERMISSION_SETTINGS_KEYS,
   SETTINGS,
   SETUP_ACTIONS,
@@ -340,7 +341,7 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys and the three session keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348), and that it is named (#323)", () => {
+  it("gives the Your machines entry the five update keys, the three session keys and the two binding keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346), whether the machine is behind (#347) and, managed outside, the host-side updater's poll (#348), that it is named (#323), and that it is ready, not draining past its cap (#574)", () => {
     expect(machines.writes).toEqual([
       "updates.autoUpdate",
       "updates.channel",
@@ -350,8 +351,10 @@ describe("the step registry", () => {
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
       "sessions.transcriptCompactAfterDays",
+      "network.bindTailnet",
+      "network.bindLan",
     ]);
-    expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS, ...SESSION_KEYS]);
+    expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS, ...SESSION_KEYS, ...NETWORK_SETTINGS_KEYS]);
     expect(machines.checks.map((check) => check.key)).toEqual(machines.writes);
     expect(machines).toMatchObject({ home: "environments.machines", links: [{ row: "environments.service" }], skippable: false });
     for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", row: "environments.machines" });
@@ -365,7 +368,26 @@ describe("the step registry", () => {
       },
       { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["check-again"] },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
+      { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
     ]);
+  });
+
+  it("puts the two binding keys under the Your machines entry, on its home row environments.machines, each written by settings.update and done on any valid value: the tailnet on or off, preset on, and the LAN off or an address that is not the wildcard, preset off (#574)", () => {
+    expect(NETWORK_SETTINGS_KEYS).toEqual(["network.bindTailnet", "network.bindLan"]);
+    for (const key of NETWORK_SETTINGS_KEYS) {
+      expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", row: "environments.machines" });
+      expect(SETTINGS[key], key).not.toHaveProperty("writtenBy");
+      expect(stepRegistryProblems(settings, steps).filter((problem) => problem.startsWith(key)), key).toEqual([]);
+    }
+    const checkOf = (key: string) => (machines.checks.find((check) => check.key === key) as LooseStep["checks"][number]).check;
+    const presets = presetSettings();
+    expect([presets["network.bindTailnet"], presets["network.bindLan"]]).toEqual([true, null]);
+    for (const value of [true, false]) expect(checkOf("network.bindTailnet")(value)).toBe(true);
+    for (const value of [null, "192.168.1.20", "10.0.0.7", "fd00::20"]) expect(checkOf("network.bindLan")(value), String(value)).toBe(true);
+    expect(checkOf("network.bindTailnet")(null)).toBe("network.bindTailnet does not hold a valid value.");
+    for (const value of ["0.0.0.0", "::", "0:0:0:0:0:0:0:0", "::ffff:0.0.0.0", "desk.local", "", false, true]) {
+      expect(checkOf("network.bindLan")(value), String(value)).toBe("network.bindLan does not hold a valid value.");
+    }
   });
 
   it("gives the Your machines entry the environment's name, icon and colour as state it writes, each through its own command (#323)", () => {

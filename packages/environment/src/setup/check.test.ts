@@ -25,6 +25,7 @@ const holding: StateCheckers = {
   "your-machines.updates": () => true,
   "your-machines.host-updater": () => true,
   "your-machines.named": () => true,
+  "your-machines.ready": () => true,
   "forges.present": () => true,
   "forges.identity": () => true,
   "forges.reads": () => true,
