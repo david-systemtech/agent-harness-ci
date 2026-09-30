@@ -17,7 +17,8 @@ const CHANNEL_WORDS: Readonly<Record<(typeof RELEASE_CHANNELS)[number], string>>
  * update with what it waits on, from `updates.status`; its channel and
  * auto-update, from `settings.get` and set through `updates.settings.set`,
  * and a pin that holds it; and Update now, `updates.apply` when idle. What
- * a write or Update now did, or why not, is one line. Each control is
+ * Update now did, or why it or a write was not taken, is one line; a write
+ * taken shows in its control, as in the generic editor. Each control is
  * read-only while the environment is not ready or the connection lacks its
  * method's scope; what holds the controls says why, once.
  */
