@@ -74,11 +74,8 @@ type RoutineMethodName =
 /** What a command on one routine decides: the event to append for it, with the change its notice names, or its refusal. */
 type Decision = { readonly event: EventInput; readonly change: RoutineChange; readonly rejected?: undefined } | { readonly rejected: CommandRejection<"not_found" | "conflict"> };
 
-const routineNotFound = (routineId: string): CommandRejection<"not_found"> & { readonly message: string; readonly data: { kind: string; routineId: string } } => ({
-  code: "not_found",
-  message: `No routine ${routineId} is on this environment.`,
-  data: { kind: "routine", routineId },
-});
+/** The refusal of a routine the environment does not hold, or has deleted. */
+const routineNotFound = (routineId: string) => ({ code: "not_found" as const, message: `No routine ${routineId} is on this environment.`, data: { kind: "routine", routineId } });
 
 const notFound = (routineId: string): Decision => ({ rejected: routineNotFound(routineId) });
 

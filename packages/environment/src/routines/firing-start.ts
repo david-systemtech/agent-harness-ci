@@ -163,8 +163,8 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 export const createFiringStarter = (options: FiringStarterOptions): FiringStarter => {
   const { log, clock, environmentId, host, resolver } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  /** The routines whose firing is starting: from the ask to its record's commit. */
-  const starting = new Set<string>();
+  /** The firing starting for each routine: from the ask to its record's commit. */
+  const starting = new Map<string, string>();
   const underWay = new Set<Promise<void>>();
   let closing = false;
 
@@ -257,29 +257,33 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     }
   };
 
+  /** Where the firing's session works, as the resolver places it; or why it cannot, a refusal or a throw alike `workspace_unusable`. */
+  const placeFor = async (firing: FiringStart, sessionId: string): Promise<{ readonly place: Place } | { readonly refused: CannotStart }> => {
+    try {
+      const resolved = await resolver.resolve(WorkspaceRequest.parse(firing.definition.workspace), sessionId);
+      return resolved.refused === undefined ? { place: resolved } : { refused: { reason: "workspace_unusable", detail: workspaceDetail(resolved.refused) } };
+    } catch (error) {
+      return { refused: { reason: "workspace_unusable", detail: messageOf(error) } };
+    }
+  };
+
   const begin = async (firing: FiringStart): Promise<void> => {
     const check = checked(firing.definition, routineAccount(firing.definition.account, { reader, accounts: options.accounts }));
     if ("refused" in check) return skip(firing, check.refused);
-    const { account } = check;
     const sessionId = randomUUID();
-    let place: Resolution;
-    try {
-      place = await resolver.resolve(WorkspaceRequest.parse(firing.definition.workspace), sessionId);
-    } catch (error) {
-      return skip(firing, { reason: "workspace_unusable", detail: messageOf(error) });
-    }
-    if (place.refused !== undefined) return skip(firing, { reason: "workspace_unusable", detail: workspaceDetail(place.refused) });
+    const placed = await placeFor(firing, sessionId);
+    if ("refused" in placed) return skip(firing, placed.refused);
+    const { place } = placed;
     if (closing) return discard(place);
-    const made = place;
     try {
       const outcome = log.command({ actor: routineActor(firing.routineId), commandId: firing.firingId }, (tx) => {
-        make(tx, firing, sessionId, made, account);
+        make(tx, firing, sessionId, place, check.account);
         return { aggregate: routineStream(firing.routineId), result: null };
       });
       // A retry under a firing id already made makes nothing: what it resolved goes again.
-      if (outcome.replayed) await discard(made);
+      if (outcome.replayed) await discard(place);
     } catch (error) {
-      await discard(made);
+      await discard(place);
       if (!(error instanceof ContractError)) console.error(`The firing ${firing.firingId} of the routine ${firing.routineId} could not start:`, error);
       skip(firing, { reason: "start_refused", detail: messageOf(error) });
     }
@@ -288,11 +292,12 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
   return {
     live: (routineId) => starting.has(routineId) || liveFiringOfRoutine(reader, routineId) !== null,
     start(firing) {
-      starting.add(firing.routineId);
+      const { routineId, firingId } = firing;
+      starting.set(routineId, firingId);
       const work = begin(firing)
-        .catch((error: unknown) => console.error(`Starting the firing ${firing.firingId} of the routine ${firing.routineId} failed:`, error))
+        .catch((error: unknown) => console.error(`Starting the firing ${firingId} of the routine ${routineId} failed:`, error))
         .finally(() => {
-          starting.delete(firing.routineId);
+          if (starting.get(routineId) === firingId) starting.delete(routineId);
           underWay.delete(work);
         });
       underWay.add(work);

@@ -304,19 +304,20 @@ export interface LiveFiringRecord {
   readonly entry: FiringEntry;
 }
 
-const liveFirings = (reader: Reader, where: string, param: string): LiveFiringRecord | null => {
+/** The live firing whose `column` is `value`; null when none is. */
+const liveFiringWhere = (reader: Reader, column: "e.run_id" | "e.routine_id", value: string): LiveFiringRecord | null => {
   const [row] = reader.all<{ routine_id: string; entry: string }>(
-    `SELECT e.routine_id, e.entry FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE ${where} = ?`,
-    param,
+    `SELECT e.routine_id, e.entry FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE ${column} = ?`,
+    value,
   );
   return row === undefined ? null : { routineId: row.routine_id, entry: JSON.parse(row.entry) as FiringEntry };
 };
 
 /** The live firing whose run `runId` is; null when no live firing's is. */
-export const liveFiringOfRun = (reader: Reader, runId: string): LiveFiringRecord | null => liveFirings(reader, "e.run_id", runId);
+export const liveFiringOfRun = (reader: Reader, runId: string): LiveFiringRecord | null => liveFiringWhere(reader, "e.run_id", runId);
 
 /** The routine's live firing; null when none is live. */
-export const liveFiringOfRoutine = (reader: Reader, routineId: string): LiveFiringRecord | null => liveFirings(reader, "e.routine_id", routineId);
+export const liveFiringOfRoutine = (reader: Reader, routineId: string): LiveFiringRecord | null => liveFiringWhere(reader, "e.routine_id", routineId);
 
 /** Where the routine's entry `entryId` stands in its history; null when it has no such entry. */
 export const entryPosition = (reader: Reader, routineId: string, entryId: string): number | null =>
