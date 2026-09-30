@@ -33,8 +33,7 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *   `default` (which its own renewal and revocation need), a time to live
  *   of one hour or, for a child, what is left of the login's maximum life
  *   if that is known and shorter, the display name `agent-harness` and
- *   metadata naming the session (when the holder serves one) and the
- *   holder kind; against the
+ *   metadata naming the holder kind and its session, if any; against the
  *   connection's token role when it has one, whose tokens may outlive the
  *   login. It is registered with the scrub registry for the holder's life,
  *   renewed every twenty minutes while the holder lives, and revoked when

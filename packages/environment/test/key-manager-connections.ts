@@ -56,7 +56,9 @@ export const setBasePath = (client: WireClient, connectionId: string, basePath: 
 export const setInjected = (client: WireClient, connectionId: string): Promise<ResponseOf<"keyManagers.connections.setInjected">> =>
   client.request("keyManagers.connections.setInjected", { commandId: randomUUID(), connectionId });
 
-export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> => (await client.request("keyManagers.list", {})).connections;
+/** The records `keyManagers.list` answers, less the CLI row it alone gives each (#375), so they compare with what the other methods answer. */
+export const list = async (client: WireClient): Promise<KeyManagerConnectionRecord[]> =>
+  (await client.request("keyManagers.list", {})).connections.map(({ cli: _cli, ...record }) => record);
 
 /** `keyManagers.move.list`: the items holding a stored value, with their targets (#371). */
 export const moveList = async (client: WireClient): Promise<ResultOf<"keyManagers.move.list">["items"]> => (await client.request("keyManagers.move.list", {})).items;
