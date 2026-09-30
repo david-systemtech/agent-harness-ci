@@ -272,6 +272,31 @@ export {
   type OutgoingMessage,
   type SendOutcome,
 } from "./composer/send.js";
+export {
+  ARCHIVE_HEADING,
+  PINNED_HEADING,
+  SETTLED_HEADING,
+  SNOOZED_HEADING,
+  activityOf,
+  environmentHeading,
+  groupHeading,
+  isFolded,
+  isReachable,
+  keepsFold,
+  rowKey,
+  sessionHeadings,
+  type BlockKind,
+  type CollapsedHeadings,
+  type EnvironmentHeading,
+  type FoldingHeading,
+  type HeadingKind,
+  type HeadingRow,
+  type HeadingsInput,
+  type RowActivity,
+  type SessionBlock,
+  type SessionHeading,
+} from "./sidebar/headings.js";
+export { WHEN_EXAMPLES, parseWhen, presetTimes, wakeWords, whenWords, type WhenPreset } from "./sidebar/when.js";
 export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
 export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";

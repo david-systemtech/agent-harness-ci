@@ -1,10 +1,12 @@
 import { snoozeLimit } from "@agent-harness/contracts";
 
 /**
- * When a snoozed session comes back (docs/specs/tui.md, "The rail"): the
- * snooze picker's presets (an hour, this evening, tomorrow morning, next
- * Monday) and a typed time, each an instant the command carries as absolute
- * UTC. The calendar is this terminal's (its evening, its Monday); the
+ * When a snoozed session comes back (docs/specs/tui.md, "The rail";
+ * docs/specs/gui.md, "The window and the sidebar"): the snooze picker's
+ * presets (an hour, this evening, tomorrow morning, next Monday) and a typed
+ * time, each an instant the command carries as absolute UTC, and a snoozed
+ * row's wake time, which the terminal UI's rail and the window's sidebar
+ * both say. The calendar is this client's (its evening, its Monday); the
  * instant it counts from is the environment's now, from the server-time
  * skew, so "an hour" is an hour on the environment that wakes the session.
  * The environment refuses a time not after its now or more than a calendar
@@ -30,7 +32,7 @@ export interface WhenPreset {
   readonly absent?: string;
 }
 
-/** The day of `from` at `hours:minutes` on this terminal's calendar, `days` on. */
+/** The day of `from` at `hours:minutes` on this client's calendar, `days` on. */
 const dayAt = (from: Date, days: number, hours: number, minutes = 0): Date =>
   new Date(from.getFullYear(), from.getMonth(), from.getDate() + days, hours, minutes);
 
@@ -146,10 +148,10 @@ const two = (n: number) => String(n).padStart(2, "0");
 const clockWords = (at: Date) => `${two(at.getHours())}:${two(at.getMinutes())}`;
 const weekdayWords = (at: Date) => (WEEKDAYS[at.getDay()] ?? "").slice(0, 3);
 
-/** A time in a picker: `Mon 28 Sep 09:00`, on this terminal's calendar. */
+/** A time in a picker: `Mon 28 Sep 09:00`, on this client's calendar. */
 export const whenWords = (at: Date): string => `${weekdayWords(at)} ${at.getDate()} ${MONTHS[at.getMonth()] ?? ""} ${clockWords(at)}`;
 
-/** Calendar days from the day of `from` to the day of `to` on this terminal's calendar, whatever a DST change between them does to the hours. */
+/** Calendar days from the day of `from` to the day of `to` on this client's calendar, whatever a DST change between them does to the hours. */
 const daysBetween = (from: Date, to: Date): number =>
   Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / DAY);
 
