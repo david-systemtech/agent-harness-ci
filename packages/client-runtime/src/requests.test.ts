@@ -525,6 +525,29 @@ describe("the request cache", () => {
     expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
   });
 
+  it("fetches stateImport.detect again when a state import ends, and no other query (#581)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    wire.answer("stateImport.detect", () => {
+      reads++;
+      return { result: { dataFolder: null, terminalFolder: reads > 1 ? null : { path: "/home/david/.local/state/source" } } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const detection = runtime.requests.cached(id, "stateImport.detect", {});
+    detection.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    const carried = { accounts: 0, archived: 0, pins: 0, groups: 0, forgeAccounts: 0, keyManagerConnections: 0, banks: 0, routines: 0, instructions: 0, skillSources: 0, alwaysOnSkills: 0, drafts: 0, devSites: 0 };
+    environment?.event(noticeEvent(1, wire.environmentId, "state-import.finished", { carried, reEnter: [], later: [], notCarried: [], failed: [] }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(detection.read()).toMatchObject({ result: { terminalFolder: null }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "carry-over.imported", { accountId: "claude-max", sessions: { listed: 0, imported: 0, archived: 0, missingDirectory: 0, held: 0 }, failed: [] }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+  });
+
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
     const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
     const cached = runtime.requests.cached(id, "groups.list", {});

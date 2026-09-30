@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportNotCarried",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What it is, for a person."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many the source held."
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "account",
+            "carry-over",
+            "your-machines",
+            "forges",
+            "key-manager",
+            "memory-bank",
+            "skills",
+            "instructions",
+            "browser",
+            "permissions",
+            "appearance"
+          ],
+          "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The step to set it up again on (Your machines for saved connections, Browser for pairings); null when none does."
+    }
+  },
+  "required": [
+    "label",
+    "count",
+    "step"
+  ],
+  "description": "Something a state import never carries: what, how many, and the step to set it up on again, if any."
+}

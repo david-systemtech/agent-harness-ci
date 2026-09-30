@@ -13,10 +13,14 @@
 # nothing runs as root, so Claude's root check never applies, and the Claude
 # adapter strips both from the provider's environment anyway.
 #
-# No release publishes this image yet (install.sh's artefact does not exist
-# either); build it from a checkout. The compose file's default image is the
-# release's, which the release workflow writes in (#358), so a checkout's
-# build is named with AGENT_HARNESS_IMAGE.
+# A release publishes this image: on a `v` tag the release workflow
+# (.forgejo/workflows/release.yml, #357) builds it for linux/amd64 only and
+# pushes it to the project's registry as
+# git.systemtech.dev:5526/david/agent-harness:<version>, that exact version
+# and no other tag, and a pull request's build (image.yml) is thrown away.
+# The compose file's default image is the release's, which the release
+# workflow writes in (#358), so a checkout's build is named with
+# AGENT_HARNESS_IMAGE.
 
 FROM node:24-bookworm AS build
 ENV CI=true

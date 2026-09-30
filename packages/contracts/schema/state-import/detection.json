@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportDetection",
+  "type": "object",
+  "properties": {
+    "dataFolder": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The folder's absolute path on the environment's machine."
+            },
+            "holds": {
+              "type": "object",
+              "properties": {
+                "profiles": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The provider logins it lists, one per config directory, of every provider. Zero when its file is absent; null when its file is there but could not be read."
+                },
+                "banks": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The memory banks its registry lists. Zero when its file is absent; null when its file is there but could not be read."
+                },
+                "routines": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The routines it lists, both those of the source's desktop and those of its headless service. Zero when its file is absent; null when its file is there but could not be read."
+                },
+                "instructions": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The custom instructions it lists, and the built-in ones whose text was taken over. Zero when its file is absent; null when its file is there but could not be read."
+                },
+                "skillSources": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The tracked skill repositories it lists. Zero when its file is absent; null when its file is there but could not be read."
+                },
+                "connections": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The key-manager connections it lists. Zero when its file is absent; null when its file is there but could not be read."
+                }
+              },
+              "required": [
+                "profiles",
+                "banks",
+                "routines",
+                "instructions",
+                "skillSources",
+                "connections"
+              ],
+              "description": "What a source data folder holds, by kind: profiles, banks, routines, instructions, skill sources and key-manager connections."
+            }
+          },
+          "required": [
+            "path",
+            "holds"
+          ],
+          "description": "A source data folder found on the environment's machine: where, and what it holds by kind."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The source data folder found on the environment's machine; null when none is."
+    },
+    "terminalFolder": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The folder's absolute path on the environment's machine."
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "description": "A source terminal client's state folder found on the environment's machine, holding its prompt history, snippets or preferences."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The source terminal client's state folder found on the environment's machine; null when none is."
+    }
+  },
+  "required": [
+    "dataFolder",
+    "terminalFolder"
+  ],
+  "description": "Whether a source data folder or a terminal-client state folder is on the environment's machine, and what the data folder holds: the Carry over card shows its state-import section when either is found."
+}
