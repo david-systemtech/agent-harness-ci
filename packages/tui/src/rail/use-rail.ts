@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { uuidv4, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
+import { isFolded, keepsFold, rowKey, uuidv4, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
 import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
 import { messageOf, nameOf } from "../view.js";
 import { badgesOf } from "./badge.js";
 import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
-import { groupHeading, headingOver, isFolded, isSelectable, railLines, rowKey, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
+import { headingOver, isSelectable, railLines, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
 import { newSessionCard, type CardOpening } from "./new-session.js";
 import { groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";
@@ -151,8 +151,7 @@ export const useRail = (options: RailOptions): Rail => {
 
   /** Folds or opens a heading; the folds of groups no longer listed are dropped as the choice is kept. */
   const setFolded = (key: string, fold: boolean) => {
-    const groups = new Set(runtime.projections.sessionList.read().groups.map((group) => groupHeading(group.key)));
-    presentation.setFolded(key, fold, (heading) => !heading.startsWith(groupHeading("")) || groups.has(heading));
+    presentation.setFolded(key, fold, keepsFold(runtime.projections.sessionList.read()));
   };
 
   const reveal = (key: string) => {

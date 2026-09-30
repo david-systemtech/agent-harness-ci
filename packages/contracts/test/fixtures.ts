@@ -8,7 +8,7 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
-import { browserSchemaFixtures } from "./browser-fixtures.js";
+import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
@@ -549,6 +549,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...routineMethodFixtures,
   ...skillMethodFixtures,
   ...trustMethodFixtures,
+  ...browserMethodFixtures,
   ...carryOverMethodFixtures,
 };
 
@@ -772,6 +773,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "extension.seen",
       "carry-over.imported",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
@@ -819,6 +821,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
         payload: { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] },
       },
       toolsUpdatedNotice.valid,
+      { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -848,6 +851,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: { step: "forges" } },
       { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
       toolsUpdatedNotice.invalid,
+      { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       validEnvelope,
     ],
   },

@@ -392,6 +392,32 @@ describe("the request cache", () => {
     expect([asked(), reads.get, reads.list]).toEqual([1, 3, 3]);
   });
 
+  it("fetches browser.status again on extension.seen, and no other query (#547)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    wire.answer("browser.status", () => {
+      reads++;
+      return {
+        result: {
+          listener: { state: "listening", port: 47615 },
+          folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
+          shippedVersion: "0.4.2",
+          unpairedConnected: reads > 1,
+        },
+      };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "browser.status", {});
+    status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    environment?.event(noticeEvent(1, wire.environmentId, "extension.seen", { protocolVersion: 2, extensionVersion: "0.4.2" }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
+  });
+
   it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;

@@ -1,4 +1,4 @@
-import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { clockTime, type EnvironmentView } from "@agent-harness/client-runtime";
 
 /**
  * What the window says of a connection (docs/specs/gui.md, "The local
@@ -6,6 +6,9 @@ import type { EnvironmentView } from "@agent-harness/client-runtime";
  * sidebar heading, and in a sentence where the window waits on it, and a
  * block with the action it offers, in the terminal UI's sense.
  */
+
+/** What the window calls the local environment before it has ever answered (#181), where it names it on its own. */
+export const THIS_MACHINE = "This machine";
 
 /** The runtime's placeholder for this machine's environment before it has answered (#181) has no name. */
 export const nameOf = (view: EnvironmentView): string => view.name ?? "this machine";
@@ -35,20 +38,29 @@ export const blockLine = (view: EnvironmentView): string => {
   }
 };
 
-/** The phase in a word or two, under the environment's sidebar heading; none while it is ready. */
+/** Since when an environment has not been reached, at this client's hour and minute. */
+const unreachableWords = (since: string): string => `Unreachable since ${clockTime(since)}`;
+
+/**
+ * The phase in a word or two, under the environment's sidebar heading: since
+ * when it has not been reached while it is on its way back (the runtime's
+ * `unreachableSince`, on this client's clock, which measured it); none while
+ * it is ready, or reached and catching its list up, which the list's
+ * freshness says.
+ */
 export const phaseWords = (view: EnvironmentView, starting: boolean): string | undefined => {
   switch (view.phase) {
     case "ready":
+    case "syncing":
       return undefined;
     case "service-down":
       return starting ? "Starting…" : "Not running";
     case "starting":
       return "Starting…";
     case "connecting":
-    case "syncing":
-      return "Connecting…";
+      return view.unreachableSince === null ? "Connecting…" : unreachableWords(view.unreachableSince);
     case "backoff":
-      return "Cannot be reached";
+      return view.unreachableSince === null ? "Cannot be reached" : unreachableWords(view.unreachableSince);
     case "draining":
     case "updating":
       return "Restarting for an update…";

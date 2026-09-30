@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserStatus",
+  "type": "object",
+  "properties": {
+    "listener": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "listening"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "The loopback port the extension dials, which the port file names."
+            }
+          },
+          "required": [
+            "state",
+            "port"
+          ],
+          "description": "The listener is bound on loopback."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "not-listening"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "port-in-use",
+                "bind-failed"
+              ],
+              "description": "port-in-use: every port of the range was taken (the error the Browser card shows); bind-failed: binding failed otherwise."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What happened, as a sentence for a person."
+            }
+          },
+          "required": [
+            "state",
+            "reason",
+            "message"
+          ],
+          "description": "The listener is not bound, so no Chrome can reach this environment until it starts again."
+        }
+      ],
+      "description": "The extension listener: its port, or why it has none."
+    },
+    "folder": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The folder Chrome loads unpacked: extension/current in the environment's data directory."
+        },
+        "problem": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the folder does not hold the shipped extension (none is carried, a copy or a rename failed), as a sentence; null when it does."
+        }
+      },
+      "required": [
+        "path",
+        "problem"
+      ],
+      "description": "The extension's folder: where it is, and what is wrong with it."
+    },
+    "shippedVersion": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The version of the extension the environment ships, its manifest's version name, which is the harness version; null when it carries none."
+    },
+    "unpairedConnected": {
+      "type": "boolean",
+      "description": "Whether an extension that holds no credential has announced itself and keeps its socket open."
+    }
+  },
+  "required": [
+    "listener",
+    "folder",
+    "shippedVersion",
+    "unpairedConnected"
+  ],
+  "description": "browser.status: the listener's port or error, the folder's path, the shipped version and whether an unpaired extension is connected."
+}

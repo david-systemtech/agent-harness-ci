@@ -359,6 +359,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // A trust decision recorded or revoked (#500) changes no status: the request cache reads trust.get and trust.list again.
       case "trust.updated":
         return data;
+      // An unpaired extension seen (#547) changes no status: the request cache reads browser.status again.
+      case "extension.seen":
+        return data;
       // An import of an adopted account's directory ending (#578) changes no status: the request cache reads carryOver.inventory again.
       case "carry-over.imported":
         return data;

@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "agent-harness",
+  "version": "1.0.0",
+  "version_name": "1.0.0-test",
+  "description": "A built extension as the environment carries one, for its tests: a manifest and a worker.",
+  "background": { "service_worker": "worker.js" }
+}

@@ -10,7 +10,6 @@ import {
   readingsOf,
   statusOf,
   type Clock,
-  type EnvironmentView,
   type Pressure,
   type Reading,
   type StatusFacts,
@@ -18,8 +17,7 @@ import {
 import { useEffect, useMemo, useReducer } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
-import { THIS_MACHINE } from "../frame/sidebar-region.js";
-import { environmentColour } from "../theme/paint.js";
+import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { classes } from "../ui/classes.js";
 import { Button } from "../ui/index.js";
 import { useClock, useFollowed, useObservable, useRuntime } from "../window-context.js";
@@ -124,24 +122,6 @@ const useSecondTicks = (clock: Clock, elapsed: number | undefined): void => {
     return () => timer.cancel();
     // Armed again each second, from the frame that drew the second before.
   }, [clock, second]);
-};
-
-/**
- * The environment's badge: its icon in its colour's token (ADR 0023: the
- * colour is a name, drawn with the theme's token for it), then its name.
- * The environment names its icon (#323: `laptop`, `server`), and the window
- * draws none of the ten yet (#675), so the badge is a dot in the colour.
- */
-const EnvironmentBadge = ({ view }: { readonly view: EnvironmentView | undefined }) => {
-  const colour = environmentColour(view?.colour ?? null);
-  return (
-    <span className="flex shrink-0 items-center gap-1 pr-1 font-medium text-ink">
-      <span aria-hidden="true" style={colour === undefined ? undefined : { color: colour }} className={colour === undefined ? "text-cyan" : undefined}>
-        ●
-      </span>
-      <span>{view?.name ?? THIS_MACHINE}</span>
-    </span>
-  );
 };
 
 /** A window's bar and percent by its pressure: out and high in the danger colour, raised in the warning's, low in success's. */
