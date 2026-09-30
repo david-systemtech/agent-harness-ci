@@ -268,29 +268,32 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
 
   const inTurn = oneAtATime();
   let handedOver: HandedOver | undefined;
-  let installingAtQuit = false;
+  /** A build is installing while the desktop runs, at `now`. */
+  let installingNow = false;
+  /** A quit is held back, to be let through once the installs before it and the one handed over for it are done. */
+  let quitHeld = false;
 
-  // The quit a build was handed over for: held back until it is installed, then let through.
-  // Every quit asked for meanwhile is held too, so none can leave the install half done.
+  // A quit while a build installs now, or one a build was handed over for, is held back until
+  // that is done, then let through; every quit asked for meanwhile is held with it, so no quit
+  // leaves an install half done. It installs what is handed over when its turn comes, so a
+  // build installed now meanwhile is not replaced by an earlier hand-over.
   app.on("will-quit", (details) => {
-    if (installingAtQuit) {
-      details.preventDefault();
-      return;
-    }
-    const handed = handedOver;
-    if (handed === undefined) return;
-    handedOver = undefined;
-    installingAtQuit = true;
+    if (!quitHeld && !installingNow && handedOver === undefined) return;
     details.preventDefault();
+    if (quitHeld) return;
+    quitHeld = true;
     void inTurn(async () => {
+      const handed = handedOver;
+      handedOver = undefined;
+      if (handed === undefined) return undefined;
       const found = await installable(handed.staged);
       return "install" in found ? found.install(handed.staged, handed.restart) : found;
     })
       .then((outcome) => {
-        if (outcome.outcome === "failed") report(new Error(`The desktop's update at the quit: ${outcome.message}`));
+        if (outcome?.outcome === "failed") report(new Error(`The desktop's update at the quit: ${outcome.message}`));
       }, report)
       .finally(() => {
-        installingAtQuit = false;
+        quitHeld = false;
         app.quit();
       });
   });
@@ -305,7 +308,8 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
         return APPLIED;
       }
       // What was handed over for the quit stays so until a build installs now: the runtime keeps it ready after a failure.
-      const outcome = await found.install(staged, true);
+      installingNow = true;
+      const outcome = await found.install(staged, true).finally(() => (installingNow = false));
       if (outcome.outcome === "applied" || outcome.failure === "cleanup") {
         if (outcome.outcome === "failed") report(new Error(`The desktop's update: ${outcome.message}`));
         handedOver = undefined;

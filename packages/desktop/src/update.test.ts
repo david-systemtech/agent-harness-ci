@@ -253,6 +253,28 @@ describe("apply on Arch", () => {
     return { system, ...(await installed("linux", EXECUTABLE, system)) };
   };
 
+  /** Holds `system`'s next pkexec run until the test finishes it, saying when it has started; later runs succeed at once. */
+  const holdNextPkexec = (system: FakeSystem) => {
+    let started = () => {};
+    let finish: (answer: CommandResult) => void = () => {};
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const held = new Promise<CommandResult>((resolve) => (finish = resolve));
+    system.answer("pkexec", () => {
+      system.answer("pkexec", () => succeeded);
+      started();
+      return held;
+    });
+    return { running, finish };
+  };
+
+  /** Whether the desktop has quit by now. */
+  const hasQuit = async (electron: FakeElectron) => {
+    let gone = false;
+    void electron.app.quitted.then(() => (gone = true));
+    await Promise.resolve();
+    return gone;
+  };
+
   it("at `now`, runs pacman -U on the staged package through pkexec, then starts the new build", async () => {
     const { system, shell, electron } = await onArch(succeeded);
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
@@ -315,28 +337,56 @@ describe("apply on Arch", () => {
   it("refuses every quit asked for while the install at the quit runs, and quits once it is done", async () => {
     const { system, shell, electron } = await onArch(succeeded);
     const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
-    // pacman says when it has started, and runs until the test lets it finish.
-    let started = () => {};
-    let finish = () => {};
-    const running = new Promise<void>((resolve) => (started = resolve));
-    system.answer("pkexec", () => {
-      started();
-      return new Promise<CommandResult>((resolve) => (finish = () => resolve(succeeded)));
-    });
-    let gone = false;
-    void electron.app.quitted.then(() => (gone = true));
+    const pacman = holdNextPkexec(system);
 
     await shell().update.apply(staged, "quit");
     electron.app.quit();
-    await running;
+    await pacman.running;
     // A second quit while pacman runs, as the dock's Quit or another Cmd-Q asks for.
     electron.app.quit();
-    await Promise.resolve();
-    expect(gone).toBe(false);
+    expect(await hasQuit(electron)).toBe(false);
 
-    finish();
+    pacman.finish(succeeded);
     await electron.app.quitted;
     expect(system.ran.filter(([command]) => command === "pkexec")).toEqual([["pkexec", "pacman", "-U", "--noconfirm", staged.path]]);
+  });
+
+  it("holds a quit asked for while a build installs now until it is done, then quits, starting the new build only when it installed", async () => {
+    const outcomes = [
+      { answer: succeeded, outcome: "applied", restarts: true },
+      { answer: { code: 1, stderr: "error: failed to commit transaction" }, outcome: "failed", restarts: false },
+    ];
+    for (const { answer, outcome, restarts } of outcomes) {
+      const { system, shell, electron } = await onArch(succeeded);
+      const pacman = holdNextPkexec(system);
+
+      const applying = shell().update.apply(stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst"), "now");
+      await pacman.running;
+      electron.app.quit();
+      expect(await hasQuit(electron)).toBe(false);
+
+      pacman.finish(answer);
+      expect(await applying).toMatchObject({ outcome });
+      await electron.app.quitted;
+      expect(electron.app.calls.some(([method]) => method === "relaunch")).toBe(restarts);
+    }
+  });
+
+  it("installs nothing at the quit over a build installed now while the quit was held", async () => {
+    const { system, shell, electron } = await onArch(succeeded);
+    const handed = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    const newer = stagedBuild("0.7.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    await shell().update.apply(handed, "quit");
+    const pacman = holdNextPkexec(system);
+
+    const applying = shell().update.apply(newer, "now");
+    await pacman.running;
+    electron.app.quit();
+    pacman.finish(succeeded);
+
+    expect(await applying).toEqual({ outcome: "applied" });
+    await electron.app.quitted;
+    expect(system.ran.filter(([command]) => command === "pkexec")).toEqual([["pkexec", "pacman", "-U", "--noconfirm", newer.path]]);
   });
 });
 
