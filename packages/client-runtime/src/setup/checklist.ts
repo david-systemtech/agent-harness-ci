@@ -1,4 +1,4 @@
-import { FIRST_ROW, type LastGood, type SettingsRowId, type StepState } from "@agent-harness/contracts";
+import { FIRST_ROW, REGISTERED_STEP_IDS, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepState } from "@agent-harness/contracts";
 import type { SetupCounts, SetupReach, SetupStepView, SetupView } from "../projections/setup.js";
 import { clockTime } from "../transcript/format.js";
 
@@ -9,6 +9,20 @@ import { clockTime } from "../transcript/format.js";
  * shows, a step's line, and the counts, so the window and the terminal say
  * the same of one environment (ADR 0004).
  */
+
+/** Whether this build registers `step`, so `setup.check` can ask about it alone. */
+export const isRegisteredStep = (step: StepId): step is RegisteredStepId => (REGISTERED_STEP_IDS as readonly StepId[]).includes(step);
+
+/**
+ * The steps a row of Settings is home to that this build can ask about
+ * alone, which its pane checks as it opens (ADR 0031: a client calls
+ * `setup.check` when a step's pane opens); none on Set up's own row, which
+ * checks every step, or on a row no step lives on.
+ */
+export const homedChecks = (row: SettingsRowId): readonly RegisteredStepId[] => {
+  const { homeOf } = settingsRow(row);
+  return typeof homeOf === "string" ? [] : homeOf.filter(isRegisteredStep);
+};
 
 /** Each state in words, as a dot is named and a line says it. */
 export const STEP_STATE_WORDS: { readonly [State in StepState]: string } = { done: "done", "needs-attention": "needs attention", skipped: "skipped" };
@@ -53,20 +67,27 @@ export const checkedAgoWords = (ageMs: number): string => {
 /**
  * A step's line: "Checking…" while this client's own check of it is pending
  * (ADR 0031's half second), else its result's reason, with its age once it
- * is older than its step's cadence; "Not checked yet." with no result.
+ * is older than its step's cadence, or marked stale and dated while it is not
+ * known to hold now (the Set up specification, "Running checks": an
+ * unreachable environment's cached results beneath its line, #573), "(stale,
+ * checked 10 min ago)"; "Not checked yet." with no result.
  */
 export const stepLine = (step: SetupStepView): string => {
   if (step.pending) return "Checking…";
-  if (step.result === null) return "Not checked yet.";
-  return step.result.olderThanCadence ? `${step.result.reason} (${checkedAgoWords(step.result.ageMs)})` : step.result.reason;
+  const { result } = step;
+  if (result === null) return "Not checked yet.";
+  if (result.stale) return `${result.reason} (stale, ${checkedAgoWords(result.ageMs)})`;
+  return result.olderThanCadence ? `${result.reason} (${checkedAgoWords(result.ageMs)})` : result.reason;
 };
 
-/** The counts, as the Set up pane says them: `4 done, 1 needs attention, 1 skipped`, and the steps the environment gives no result for. */
-export const countsWords = (counts: SetupCounts, steps: number): string => {
-  const words = `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped`;
-  const unchecked = steps - counts.registered;
-  return unchecked === 0 ? `${words}.` : `${words}; ${unchecked} not checked yet.`;
-};
+/**
+ * The counts, as the Set up pane says them (the Set up specification's
+ * chosen wording, #573): `8 done, 1 needs attention, 2 skipped`, over the
+ * steps the environment registers; a step it does not register is counted
+ * nowhere, its name drawn dim instead.
+ */
+export const countsWords = (counts: SetupCounts): string =>
+  `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped`;
 
 /**
  * The result that passed before one that could not check, beneath it,

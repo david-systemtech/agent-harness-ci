@@ -18,6 +18,7 @@ import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
 import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
 import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
+import type { StepCards } from "../src/setup/cards.js";
 
 export {
   scriptedWorld,
@@ -56,6 +57,8 @@ export interface RenderOptions {
   readonly firstLaunch?: boolean;
   /** The protocol version this client speaks: preset this build's, so a test can be the newer side of a mismatch. */
   readonly protocolVersion?: number;
+  /** The step cards the full checklist draws, by step id: preset this build's. */
+  readonly stepCards?: StepCards;
 }
 
 /** The desktop platform the window runs on, with what the test holds of it. */
@@ -94,9 +97,10 @@ interface Mount {
   readonly macOS: boolean;
   readonly documents: InMemoryDocumentStore;
   readonly protocolVersion: number | undefined;
+  readonly stepCards: StepCards | undefined;
 }
 
-const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
+const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, stepCards }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
   const reported: unknown[] = [];
   const network = inMemoryNetwork();
   const desktop = await desktopPlatform({
@@ -122,7 +126,7 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }:
     if (outcome.status !== "paired") throw new Error(`The harness could not pair ${name}: ${JSON.stringify(outcome)}.`);
   }
   const presentation = await openPresentation(platform.documents, platform.reportError);
-  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} version={platform.client.version} macOS={macOS} shell={shell} />);
+  const view = render(<App runtime={runtime} presentation={presentation} clock={clock} version={platform.client.version} macOS={macOS} shell={shell} stepCards={stepCards} />);
   return {
     world,
     clock,
@@ -141,7 +145,7 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion }:
       view.unmount();
       await presentation.close();
       await runtime.close();
-      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion }, []);
+      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion, stepCards }, []);
     },
   };
 };
@@ -166,5 +170,5 @@ export const renderApp = async (script: Script, options: RenderOptions = {}): Pr
     for (const [key, value] of Object.entries(presentation) as [PresentationKey, never][]) left.set(key, value);
     await left.close();
   }
-  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion }, paired);
+  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion, stepCards: options.stepCards }, paired);
 };
