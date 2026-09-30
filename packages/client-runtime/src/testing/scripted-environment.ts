@@ -29,9 +29,12 @@ import {
   SignIn,
   compareModes,
   lowerMode,
+  normaliseEnvironmentName,
   presetSettings,
   type AccountUsage,
   type ContainmentLevel,
+  type EnvironmentColour,
+  type EnvironmentIcon,
   type Mode,
   type SettingsValues,
   type SignInState,
@@ -107,6 +110,10 @@ export interface ScriptedEnvironment {
   readonly environmentId?: string;
   readonly protocolVersion?: number;
   readonly capabilities?: CapabilityFlags;
+  /** The icon discovery and `hello` say at first: preset none, as an environment from before icons says (#323). */
+  readonly icon?: EnvironmentIcon;
+  /** The colour discovery and `hello` say at first: preset none, as an environment from before colours says (#323). */
+  readonly colour?: EnvironmentColour;
   /** The scopes `hello` gives this terminal's client session: preset every scope. */
   readonly scopes?: readonly Scope[];
   /** What discovery answers at first: preset `ready`. */
@@ -252,6 +259,13 @@ export interface Script {
   readonly environments: readonly ScriptedEnvironment[];
 }
 
+/** What the look commands change: the name, as typed, the icon or the colour. */
+export interface LookChanges {
+  readonly name?: string;
+  readonly icon?: EnvironmentIcon;
+  readonly colour?: EnvironmentColour;
+}
+
 export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle {
   readonly name: string;
   readonly environmentId: string;
@@ -343,6 +357,12 @@ export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle 
   setSettings(values: Partial<SettingsValues>): void;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
+  /**
+   * Changes the environment's name, icon or colour as another client's
+   * `environment.rename`, `setIcon` or `setColour` would: what discovery and
+   * `hello` say from now on, and the notice of each field that changed.
+   */
+  setLook(changes: LookChanges): void;
   /** The terminals the environment has held, oldest first, closed ones included. */
   terminals(): readonly TerminalRecord[];
   /** A terminal it holds or held; fails for one it never did. */
@@ -500,6 +520,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...(spec.environmentId !== undefined && { environmentId: spec.environmentId }),
     ...(spec.protocolVersion !== undefined && { protocolVersion: spec.protocolVersion }),
     ...(spec.capabilities !== undefined && { capabilities: spec.capabilities }),
+    ...(spec.icon !== undefined && { icon: spec.icon }),
+    ...(spec.colour !== undefined && { colour: spec.colour }),
   });
   let discovery: ScriptedDiscovery = spec.discovery ?? "ready";
   let accepting = spec.autoAccept ?? true;
@@ -1675,8 +1697,41 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ceiling: Ceiling.parse("bypassPermissions"),
     });
   });
+  // The environment's name, icon and colour (#323): a look command, or `setLook`, changes what discovery and `hello` say and
+  // notices each field that changed; a value already held appends nothing (`changed: false`). The answer is the look as it
+  // now is, `server` and `blue` for a field the script left unset, as an environment that answers these always holds both.
+  let look: LookChanges & { readonly name: string } = { name: spec.name, ...(spec.icon && { icon: spec.icon }), ...(spec.colour && { colour: spec.colour }) };
+  const changeLook = (changes: LookChanges): boolean => {
+    const name = changes.name === undefined ? undefined : normaliseEnvironmentName(changes.name);
+    const changed: LookChanges = {
+      ...(name !== undefined && name !== look.name && { name }),
+      ...(changes.icon !== undefined && changes.icon !== look.icon && { icon: changes.icon }),
+      ...(changes.colour !== undefined && changes.colour !== look.colour && { colour: changes.colour }),
+    };
+    if (Object.keys(changed).length === 0) return false;
+    look = { ...look, ...changed };
+    wire.look(changed);
+    if (changed.name !== undefined) notice("environment.renamed", { name: changed.name });
+    if (changed.icon !== undefined) notice("environment.icon-set", { icon: changed.icon });
+    if (changed.colour !== undefined) notice("environment.colour-set", { colour: changed.colour });
+    return true;
+  };
+  const lookCommands: Readonly<Record<string, (params: Record<string, unknown>) => LookChanges>> = {
+    "environment.rename": (params) => ({ name: String(params["name"]) }),
+    "environment.setIcon": (params) => ({ icon: params["icon"] as EnvironmentIcon }),
+    "environment.setColour": (params) => ({ colour: params["colour"] as EnvironmentColour }),
+  };
+  for (const [method, changesOf] of Object.entries(lookCommands)) {
+    wire.answer(method, (params) => {
+      const refusal = receiptFor(method);
+      if (refusal) return refusal;
+      const changed = changeLook(changesOf(params));
+      return { result: { receipt: { status: "accepted", sequence, changed }, result: { name: look.name, icon: look.icon ?? "server", colour: look.colour ?? "blue" } } };
+    });
+  }
   // Every other scripted command, `access.*` ones included, answers its receipt alone, as a retry answered from a stored receipt does.
   const ownResponders = new Set([
+    ...Object.keys(lookCommands),
     "access.sessions.list",
     "access.sessions.revoke",
     "access.pairings.create",
@@ -1819,6 +1874,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     settings: () => values,
     setSettings: changeSettings,
     notice,
+    setLook: (changes) => void changeLook(changes),
     ...prompts,
     setSetup: setup.setSetup,
     holdSetupChecks: setup.holdSetupChecks,
