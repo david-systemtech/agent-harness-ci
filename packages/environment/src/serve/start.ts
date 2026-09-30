@@ -63,6 +63,7 @@ import { composeInstructions, type OrientationSeam } from "../instructions/compo
 import { instructionMethods } from "../instructions/methods.js";
 import { environmentSection } from "../instructions/environment-section.js";
 import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
+import { sessionInstructionsLayer, sessionInstructionsMethods } from "../instructions/session-instructions.js";
 import { createInstructionStore, instructionsProjector, ownedInstructionsLayer } from "../instructions/store.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector, listAccountStandings } from "../accounts/account-store.js";
@@ -1001,7 +1002,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const orientationSeam = options.orientation ?? orientation.seam;
   const orientationOn = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["instructions.orientation"];
   const instructionStore = createInstructionStore(log);
-  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore) });
+  // The session's own instructions (#506) fill the session layer.
+  const sessionLayer = sessionInstructionsLayer({ all: (sql, ...params) => log.read(sql, ...params) });
+  const instructions =
+    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), session: sessionLayer });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
@@ -1415,6 +1419,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
       },
     }),
+    ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier),

@@ -10,6 +10,8 @@ import {
   OrientationRow,
   OwnedInstruction,
   OwnedInstructionRow,
+  SessionInstructions,
+  SessionInstructionsSetPayload,
 } from "../instructions.js";
 import { commandParams, defineMethod } from "../method.js";
 import { OrderKey } from "../ordering.js";
@@ -162,5 +164,32 @@ export const instructionsRemove = defineMethod({
   kind: "command",
   params: commandParams(instructionTarget),
   result: z.object({ instructionId: InstructionId }),
+  errors: [],
+});
+
+/**
+ * `sessions.setInstructions` (skills spec, "Session instructions"; ADR
+ * 0009; #506): the session's own instructions, so a one-off constraint does
+ * not become a habit. At `runs:drive`, as `sessions.rewind` is, since it
+ * changes what the session's next run does. Recorded as
+ * `session.instructions-set`, which changes nothing listed; empty text
+ * clears them, and text over 20,000 characters is `invalid_params`. The
+ * session's next runs are handed them in the session layer, under
+ * `# Instructions for this session`; a live run keeps what it began with.
+ * The per-session snapshot carries them, and `sessions.fork` copies them.
+ * The text the session has already appends nothing (the receipt says
+ * `changed: false`). A session not on the environment, or deleted, is
+ * `not_found` (kind `session`). The result is the event's payload with the
+ * session.
+ */
+export const sessionsSetInstructions = defineMethod({
+  name: "sessions.setInstructions",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({
+    sessionId: SessionId,
+    text: SessionInstructions.meta({ description: "The session's instructions from its next run on, at most 20,000 characters; empty text clears them." }),
+  }),
+  result: z.object({ sessionId: SessionId, ...SessionInstructionsSetPayload.shape }),
   errors: [],
 });

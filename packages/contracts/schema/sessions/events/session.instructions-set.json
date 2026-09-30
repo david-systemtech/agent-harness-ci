@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionInstructionsSetPayload",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "maxLength": 20000,
+      "description": "A session's own instructions: Markdown, at most 20000 characters, which its runs are handed under # Instructions for this session, after the user, team-bank and project layers; empty when it has none."
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "description": "session.instructions-set: the session's own instructions were set (sessions.setInstructions), empty text clearing them, or a fork was made with its source's. The session's next runs are handed them; a live run keeps what it began with."
+}

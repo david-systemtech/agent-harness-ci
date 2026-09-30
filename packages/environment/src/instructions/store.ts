@@ -12,6 +12,7 @@ import type { z } from "zod";
 import type { EventLog, Projector, StreamRef } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { LayerSeam } from "./composer.js";
+import { SESSION_INSTRUCTIONS_TABLES, projectSessionInstructions } from "./session-instructions.js";
 
 /**
  * The instruction store (skills spec, "Owned instructions"; ADR 0030;
@@ -19,7 +20,9 @@ import type { LayerSeam } from "./composer.js";
  * stream whose id is the environment's, as a read model rebuilt from the
  * log. A removed instruction keeps its row, marked, so its id is never used
  * again; every read leaves it out. The order is the positions' fractional
- * keys compared as plain strings, then the ids.
+ * keys compared as plain strings, then the ids. Beside them, each session's
+ * own instructions, from its latest `session.instructions-set`
+ * (`session-instructions.ts`, #506).
  */
 
 export const INSTRUCTIONS_PROJECTOR = "instructions";
@@ -36,6 +39,7 @@ export const INSTRUCTIONS_TABLES = {
     position TEXT NOT NULL,
     removed INTEGER NOT NULL DEFAULT 0
   ) STRICT`,
+  ...SESSION_INSTRUCTIONS_TABLES,
 } as const;
 
 type Payload<S extends z.ZodType> = z.infer<S>;
@@ -44,6 +48,7 @@ export const instructionsProjector: Projector = {
   name: INSTRUCTIONS_PROJECTOR,
   tables: INSTRUCTIONS_TABLES,
   apply(event, db) {
+    projectSessionInstructions(event, db);
     if (event.streamKind !== INSTRUCTIONS_STREAM_KIND) return;
     switch (event.type) {
       case "instructions.created": {

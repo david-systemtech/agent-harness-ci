@@ -15,6 +15,7 @@ import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, RunTarget } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
+import { forkedInstructions } from "../instructions/session-instructions.js";
 import { environmentQueue, latestRun, providerQueue, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
 import { sessionTranscript } from "../runs/transcript.js";
 import type { Clock } from "../serve/clock.js";
@@ -412,6 +413,8 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       }
       const draft = anchor?.text.slice(0, MAX_DRAFT_LENGTH) ?? "";
       if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
+      // The source's own instructions, which the fork keeps (#506).
+      events.push(...forkedInstructions(reader, sourceId));
       const forked: SessionForkedPayload = { fromSessionId: sourceId, atMessageId, fromProviderSessionId };
       events.push({ type: "session.forked", payload: forked });
       log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });

@@ -8,6 +8,7 @@ import {
   GroupPatch,
   LIST_PATCH_KEY,
   SESSION_STREAM_KIND,
+  SessionInstructions,
   SessionListSnapshot,
   SessionSnapshot,
   SessionSummary,
@@ -40,21 +41,23 @@ export interface ListData {
  * sends it (`SessionSnapshot`, the claude-adapter spec's): its runs, the
  * settled items of its transcript (an item of a kind this client does not
  * know kept opaque), its parked prompts and the rewinds standing with what
- * each hid (#260). Held and cached as sent; `projections.session` (#142)
- * folds them with the events after them. A cache document from before #260
- * holds no rewinds, does not read, and is no cache.
+ * each hid (#260), and the session's own instructions (#506). Held and
+ * cached as sent; `projections.session` (#142) folds them with the events
+ * after them. A cache document from before #260 holds no rewinds, one from
+ * before #506 no instructions: neither reads, and is no cache.
  */
-export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds">;
+export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds" | "instructions">;
 
-const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [], rewinds: [] };
+const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 /**
- * The snapshot parts as a cache document holds them: `rewinds` required, where
- * the wire defaults it to none for an environment from before #260. A
- * document this runtime wrote always has them; one from before #260 has
- * none, and reading it as none standing would hide a fold the environment
- * holds until the next fresh snapshot, so it does not read.
+ * The snapshot parts as a cache document holds them: `rewinds` and
+ * `instructions` required, where the wire defaults them to none for an
+ * environment from before #260 and #506. A document this runtime wrote
+ * always has them; one from before has none, and reading it as none would
+ * hide a fold or the instructions the environment holds until the next fresh
+ * snapshot, so it does not read.
  */
-const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true }).extend({ rewinds: StandingRewind.array() });
+const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true }).extend({ rewinds: StandingRewind.array(), instructions: SessionInstructions });
 
 /** One session: its summary (null once it is gone), the rest of its snapshot as sent, and every event after that snapshot. */
 export interface SessionData {
@@ -217,8 +220,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
   // Past the bound, or holding an undo of a rewind nothing held says what it hid (#218): a fresh snapshot folds either.
   outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND || undoesUnheardRewind(data.snapshot, data.events),
   fromSnapshot(payload) {
-    const { summary, runs, items, parkedPrompts, rewinds } = SessionSnapshot.parse(payload);
-    return { summary, snapshot: { runs, items, parkedPrompts, rewinds }, events: [], eventBytes: 0 };
+    const { summary, runs, items, parkedPrompts, rewinds, instructions } = SessionSnapshot.parse(payload);
+    return { summary, snapshot: { runs, items, parkedPrompts, rewinds, instructions }, events: [], eventBytes: 0 };
   },
   apply(data, event) {
     const patch = summaryPatchOf(event);
@@ -234,8 +237,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
     const events = EventEnvelope.array().parse(stored["events"]);
     return {
       summary: SessionSummary.nullable().parse(stored["summary"]),
-      // A document from before #119 (a `transcript` field, no `snapshot`), or from before #260 (no `rewinds`), does not read: no cache, so the
-      // session subscribes from nothing.
+      // A document from before #119 (a `transcript` field, no `snapshot`), from before #260 (no `rewinds`) or from before #506 (no
+      // `instructions`) does not read: no cache, so the session subscribes from nothing.
       snapshot: StoredSnapshotParts.parse(stored["snapshot"]),
       events,
       eventBytes: sizeOf(events),

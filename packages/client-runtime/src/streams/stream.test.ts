@@ -159,6 +159,17 @@ describe("the session stream kind", () => {
     expect(() => kind.decode(stored)).toThrow();
   });
 
+  it("keeps the snapshot's instructions, reads one sent without them (an environment from before #506) as none, but not a cached document without them", () => {
+    const kind = sessionKind();
+    expect(kind.fromSnapshot({ sequence: 3, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "Only the CLI." }).snapshot.instructions).toBe("Only the CLI.");
+    const older = kind.fromSnapshot({ sequence: 3, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
+    expect(older.snapshot.instructions).toBe("");
+    const stored = JSON.parse(JSON.stringify(kind.encode(older))) as { snapshot: Record<string, unknown> };
+    expect(kind.decode(stored)).toEqual(older);
+    delete stored.snapshot["instructions"];
+    expect(() => kind.decode(stored)).toThrow();
+  });
+
   it("holds nothing after a bare synchronized, never a session that reads as gone, and is live once an event describes it", () => {
     const kind = sessionKind();
     const attached = step(kind, emptyStream(), { type: "attaching" }).state;
