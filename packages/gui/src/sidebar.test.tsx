@@ -330,6 +330,19 @@ describe("an environment that cannot be reached", () => {
   });
 });
 
+describe("a blocked environment", () => {
+  it("keeps its heading and rows, the heading saying the block with its action, which runs from there", async () => {
+    const app = await settled(await two());
+    app.environment("laptop").bye("revoked");
+    const heading = region("laptop");
+    expect(await within(heading).findByText("This client's access to laptop was revoked: pair it again.")).toBeDefined();
+    expect(within(sidebar()).getByRole("button", { name: /Train tidy/, description: "Cached: laptop is not answering." })).toBeDefined();
+
+    await app.user.click(within(heading).getByRole("button", { name: "Pair again" }));
+    expect(await screen.findByRole("dialog", { name: "Pair laptop again" })).toBeDefined();
+  });
+});
+
 describe("Mod+B", () => {
   it("hides and shows the sidebar, which stays as it was left when the window opens again", async () => {
     const app = await settled(await two());
