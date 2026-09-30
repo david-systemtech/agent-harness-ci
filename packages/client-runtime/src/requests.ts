@@ -207,8 +207,11 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * connections, each carrying its CLI's row (#375); an unpaired extension
  * opening its socket (`extension.seen`, #547) `browser.status`, whose
  * unpaired flag ticks the Browser card's Load sub-step; an import of an
- * adopted account's directory ending (`carry-over.imported`, #578) Carry
- * over's inventory, whose new sessions it imported; a state import
+ * adopted account's directory ending (`carry-over.imported`, #578), a
+ * memory folder assigned (`carry-over.memory-assigned`, #580) and the
+ * skill set changing (`skills.updated`, whose own directory the skills
+ * count is read against, #580) Carry over's inventory, whose new sessions,
+ * memory and skills they change; a state import
  * ending (`state-import.finished`, #581) the state import's detection; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
@@ -238,7 +241,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "tools.list": ["tools.updated"],
   "browser.status": ["extension.seen", "chrome.updated"],
   "browser.chromes.list": ["chrome.updated"],
-  "carryOver.inventory": ["carry-over.imported"],
+  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated"],
   "stateImport.detect": ["state-import.finished"],
   "environment.status": ["environment.draining"],
 };
