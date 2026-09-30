@@ -7,6 +7,7 @@ import {
   type InstructionRemovedPayload,
   type InstructionScopeSetPayload,
   type InstructionSuggestionDismissedPayload,
+  type InstructionSuggestionRestoredPayload,
   type InstructionVersionResolvedPayload,
   type OwnedInstruction,
 } from "@agent-harness/contracts";
@@ -104,7 +105,7 @@ export const instructionsProjector: Projector = {
         return;
       }
       case "instructions.suggestion-restored": {
-        const { catalogueId } = event.payload as Payload<typeof InstructionSuggestionDismissedPayload>;
+        const { catalogueId } = event.payload as Payload<typeof InstructionSuggestionRestoredPayload>;
         db.run("DELETE FROM dismissed_suggestions WHERE catalogue_id = ?", catalogueId);
         return;
       }

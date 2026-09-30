@@ -27,16 +27,39 @@ const refused = (path: string, message: string): ContractError => new ContractEr
 
 /** An ATX heading's text: `# Title`, up to six hashes, a closing run of hashes dropped. */
 const HEADING = /^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
-const FENCE = /^ {0,3}(```|~~~)/;
+/** A code fence line: its run of three or more backticks or tildes, and what follows the run. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/**
+ * The fence a line opens, or null. A backtick fence's info string holds no
+ * backtick; the line is then no fence at all.
+ */
+const opensFence = (line: string): string | null => {
+  const match = FENCE.exec(line);
+  if (match === null) return null;
+  const [, run = "", rest = ""] = match;
+  return run.startsWith("`") && rest.includes("`") ? null : run;
+};
+
+/** Whether `line` closes the fence `opener` opened: a bare run of its character, at least as long, then only spaces. */
+const closesFence = (line: string, opener: string): boolean => {
+  const match = FENCE.exec(line);
+  if (match === null) return false;
+  const [, run = "", rest = ""] = match;
+  return run[0] === opener[0] && run.length >= opener.length && rest.trim() === "";
+};
 
 /** The file's first heading outside a code fence as the title, and the text before and after it, a blank line apart, as the body; null with no heading. */
 export const splitAtFirstHeading = (text: string): { readonly title: string; readonly body: string } | null => {
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   let fence: string | null = null;
   for (const [index, line] of lines.entries()) {
-    const opened = FENCE.exec(line)?.[1];
-    if (opened !== undefined) fence = fence === null ? opened : fence === opened ? null : fence;
-    if (fence !== null || opened !== undefined) continue;
+    if (fence !== null) {
+      if (closesFence(line, fence)) fence = null;
+      continue;
+    }
+    fence = opensFence(line);
+    if (fence !== null) continue;
     const heading = HEADING.exec(line)?.[1];
     if (heading === undefined || heading.trim() === "") continue;
     const before = lines.slice(0, index).join("\n").replace(/^(?:[ \t]*\n)+/, "").trimEnd();

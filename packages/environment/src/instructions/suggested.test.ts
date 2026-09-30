@@ -19,6 +19,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { splitAtFirstHeading } from "./import.js";
 
 /**
  * Suggested instructions through the primary seam (skills-instructions
@@ -246,6 +247,14 @@ describe("removal", () => {
   });
 });
 
+describe("splitAtFirstHeading", () => {
+  it("skips a heading inside a code fence, which only a bare run of the opener's character, at least as long, closes", () => {
+    expect(splitAtFirstHeading("Intro.\n\n```text\nsome text\n```text\n# Ghost\n```")).toBeNull();
+    expect(splitAtFirstHeading("````\n```\n# Ghost\n````\n\n# Real\n\nBody.")).toEqual({ title: "Real", body: "````\n```\n# Ghost\n````\n\nBody." });
+    expect(splitAtFirstHeading("~~~\n```\n# Ghost\n~~~~~ \n# Real")).toEqual({ title: "Real", body: "~~~\n```\n# Ghost\n~~~~~" });
+  });
+});
+
 describe("import from a minted session", () => {
   /** A scratch session tagged as the Instructions step mints one, with `files` written into its workspace. */
   const minted = async (client: WireClient, files: Record<string, string>, tags = ["setup", "instructions"]) => {
@@ -289,10 +298,10 @@ describe("import from a minted session", () => {
     const outside = mkdtempSync(join(tmpdir(), "agent-harness-outside-"));
     onCleanup(() => rmSync(outside, { recursive: true, force: true }));
     writeFileSync(join(outside, "elsewhere.md"), "# Elsewhere\n\nNot mine.");
-    const { sessionId, root } = await minted(client, { "notes.txt": "# Notes", "headless.md": "No heading here.", "dir.md/keep.md": "# Inside" });
+    const { sessionId, root } = await minted(client, { "notes.txt": "# Notes", "headless.md": "No heading here.", "fenced.md": "```md\nsome text\n```md\n# Ghost\n```\n", "dir.md/keep.md": "# Inside" });
     symlinkSync(join(outside, "elsewhere.md"), join(root, "link.md"));
 
-    for (const path of ["../elsewhere.md", join(outside, "elsewhere.md"), "link.md", "notes.txt", "headless.md", "missing.md", "dir.md", "."]) {
+    for (const path of ["../elsewhere.md", join(outside, "elsewhere.md"), "link.md", "notes.txt", "headless.md", "fenced.md", "missing.md", "dir.md", "."]) {
       const refused = await refusal(client.request("instructions.import", { commandId: randomUUID(), id: randomUUID(), sessionId, path }));
       expect(refused.code, path).toBe("invalid_params");
     }
