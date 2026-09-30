@@ -14,6 +14,7 @@ import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { Clock, Timer } from "../serve/clock.js";
 import { createHttpSurface, refuseUpgrade, type HttpSurface } from "../serve/http.js";
 import { LOOPBACK } from "../serve/interfaces.js";
+import { textOf } from "../wire/wire.js";
 
 /**
  * The extension listener (browser spec, "The extension, its folder and its
@@ -90,8 +91,9 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
   };
 
   const onMessage = (socket: WebSocket, data: RawData, isBinary: boolean): void => {
-    if (isBinary) return refuse(socket, "The bridge carries JSON text, one message a frame, never binary.");
-    const decoded = decodeFromExtension(Buffer.isBuffer(data) ? data.toString("utf8") : Buffer.concat(data as Buffer[]).toString("utf8"));
+    const text = textOf(data, isBinary);
+    if (text === undefined) return refuse(socket, "The bridge carries JSON text, one message a frame, never binary.");
+    const decoded = decodeFromExtension(text);
     if (!decoded.ok) return refuse(socket, decoded.reason);
     const message = decoded.message;
     switch (message.type) {
@@ -146,8 +148,9 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
         const address = await surface.listen(LOOPBACK, port);
         return { state: "listening", port: address.port };
       } catch (error) {
+        // Taken, or on Windows reserved (an excluded port range answers EACCES): the next port may be free.
         const code = (error as NodeJS.ErrnoException).code;
-        if (code === "EADDRINUSE") continue;
+        if (code === "EADDRINUSE" || code === "EACCES") continue;
         return { state: "not-listening", reason: "bind-failed", message: `Binding ${LOOPBACK}:${port} for the extension failed: ${error instanceof Error ? error.message : String(error)}` };
       }
     }
@@ -155,7 +158,7 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     return {
       state: "not-listening",
       reason: "port-in-use",
-      message: `${range} on loopback ${candidates.length === 1 ? "is" : "are all"} in use, so no Chrome can reach this environment. Stop what holds ${candidates.length === 1 ? "it" : "one of them"}, then restart the environment.`,
+      message: `${range} on loopback ${candidates.length === 1 ? "is" : "are all"} in use or reserved, so no Chrome can reach this environment. Stop what holds ${candidates.length === 1 ? "it" : "one of them"}, then restart the environment.`,
     };
   };
 

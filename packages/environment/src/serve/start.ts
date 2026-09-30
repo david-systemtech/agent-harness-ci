@@ -183,7 +183,7 @@ const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url
  * spec; ADR 0024): the extension package's build beside the environment
  * package, as the workspace and the server artefact lay the packages out.
  */
-export const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
+const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
 
 /**
  * The port an environment listens on when none is given. A chosen default, not

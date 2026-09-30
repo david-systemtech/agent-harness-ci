@@ -59,8 +59,6 @@ const status = async (t: TestEnvironment): Promise<ResultOf<"browser.status">> =
   }
 };
 
-const portFileIn = readPortFile;
-
 /** The fake extension dialling the environment `t` from its folder, closed after the test. */
 const dial = async (t: Pick<TestEnvironment, "dataDir">, options?: DialOptions): Promise<FakeExtension> => {
   const extension = await dialExtension(folderOf(t), options);
@@ -111,7 +109,7 @@ describe("the extension's folder", () => {
       unpairedConnected: false,
     });
     const port = answer.listener.state === "listening" ? answer.listener.port : 0;
-    expect(portFileIn(folder)).toEqual({ port, environmentId: t.env.id, environmentName: "Laptop", harnessVersion: "1.0.0-test" });
+    expect(readPortFile(folder)).toEqual({ port, environmentId: t.env.id, environmentName: "Laptop", harnessVersion: "1.0.0-test" });
     // No staging folder is left beside it.
     expect(readdirSync(join(t.dataDir, "extension"))).toEqual(["current"]);
     expect(existsSync(join(folder, `${PORT_FILE_NAME}.tmp`))).toBe(false);
@@ -130,7 +128,7 @@ describe("the extension's folder", () => {
 
     expect(readFileSync(join(folder, "left-by-chrome.txt"), "utf8")).toBe("kept");
     expect(answer).toMatchObject({ folder: { path: folder, problem: null }, shippedVersion: TEST_EXTENSION_VERSION });
-    expect(portFileIn(folder).port).toBe(answer.listener.state === "listening" ? answer.listener.port : undefined);
+    expect(readPortFile(folder).port).toBe(answer.listener.state === "listening" ? answer.listener.port : undefined);
   });
 
   it("is replaced whole by a start of another harness version over the same data directory: the new manifest, and no file of the old", async () => {
@@ -146,7 +144,7 @@ describe("the extension's folder", () => {
 
     expect(readdirSync(folder).sort()).toEqual(["manifest.json", "new-worker.js", PORT_FILE_NAME]);
     expect(readFileSync(join(folder, "manifest.json"), "utf8")).toBe(readFileSync(join(newer, "manifest.json"), "utf8"));
-    expect(portFileIn(folder)).toMatchObject({ environmentId: second.env.id, harnessVersion: "1.1.0" });
+    expect(readPortFile(folder)).toMatchObject({ environmentId: second.env.id, harnessVersion: "1.1.0" });
     expect(await status(second)).toMatchObject({ folder: { path: folder, problem: null }, shippedVersion: "1.1.0" });
     // The staging folder was renamed into place and the old folder removed: nothing is left beside it.
     expect(readdirSync(join(dataDir, "extension"))).toEqual(["current"]);
@@ -155,14 +153,14 @@ describe("the extension's folder", () => {
   it("is made again, with its port file, when browser.status finds it missing", async () => {
     const t = await start();
     const folder = folderOf(t);
-    const before = portFileIn(folder);
+    const before = readPortFile(folder);
     rmSync(folder, { recursive: true, force: true });
 
     const answer = await status(t);
 
     expect(answer).toMatchObject({ folder: { path: folder, problem: null }, shippedVersion: TEST_EXTENSION_VERSION });
     expect(readdirSync(folder).sort()).toEqual(["manifest.json", PORT_FILE_NAME, "worker.js"]);
-    expect(portFileIn(folder)).toEqual(before);
+    expect(readPortFile(folder)).toEqual(before);
   });
 
   it("is not made when the environment carries no built extension, and browser.status says so, with no shipped version", async () => {
@@ -183,8 +181,8 @@ describe("the port file", () => {
 
     await admin.apply("environment.rename", { commandId: randomUUID(), name: "Work laptop" });
 
-    await expect.poll(() => portFileIn(folderOf(t)).environmentName, { timeout: WAIT_MS }).toBe("Work laptop");
-    expect(portFileIn(folderOf(t))).toMatchObject({ environmentId: t.env.id });
+    await expect.poll(() => readPortFile(folderOf(t)).environmentName, { timeout: WAIT_MS }).toBe("Work laptop");
+    expect(readPortFile(folderOf(t))).toMatchObject({ environmentId: t.env.id });
   });
 });
 
@@ -197,7 +195,7 @@ describe("the listener", () => {
 
     expect(port).toBeGreaterThan(held);
     expect(port).toBeLessThanOrEqual(held + 19);
-    expect(portFileIn(folderOf(t)).port).toBe(port);
+    expect(readPortFile(folderOf(t)).port).toBe(port);
     // Nothing answers on the machine's other addresses.
     const outward = Object.values(networkInterfaces())
       .flat()
@@ -209,6 +207,11 @@ describe("the listener", () => {
           resolve(true);
         });
         socket.once("error", () => resolve(false));
+        // A machine that drops rather than refuses answers nothing either.
+        socket.setTimeout(WAIT_MS, () => {
+          socket.destroy();
+          resolve(false);
+        });
       });
       expect(connected).toBe(false);
     }
@@ -235,8 +238,8 @@ describe("the listener", () => {
 
     expect(b).toBeGreaterThan(a);
     expect(folderOf(laptop)).not.toBe(folderOf(second));
-    expect(portFileIn(folderOf(laptop))).toMatchObject({ port: a, environmentId: laptop.env.id, environmentName: "Laptop" });
-    expect(portFileIn(folderOf(second))).toMatchObject({ port: b, environmentId: second.env.id, environmentName: "Second" });
+    expect(readPortFile(folderOf(laptop))).toMatchObject({ port: a, environmentId: laptop.env.id, environmentName: "Laptop" });
+    expect(readPortFile(folderOf(second))).toMatchObject({ port: b, environmentId: second.env.id, environmentName: "Second" });
     expect(await (await dial(laptop)).announce()).toEqual({ type: "announced", environmentId: laptop.env.id, environmentName: "Laptop" });
     expect(await (await dial(second)).announce()).toEqual({ type: "announced", environmentId: second.env.id, environmentName: "Second" });
   });
@@ -246,7 +249,7 @@ describe("an extension's socket", () => {
   it("is refused before any message when the upgrade's Host is not loopback", async () => {
     const t = await start();
     const head = t.env.log.head();
-    const port = portFileIn(folderOf(t)).port;
+    const port = readPortFile(folderOf(t)).port;
 
     await expect(dial(t, { host: `rebound.example:${port}` })).rejects.toMatchObject({ status: 421 });
 
