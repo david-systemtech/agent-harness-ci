@@ -38,7 +38,7 @@ const OPENING_LINES = 50;
 const PROMPT_MAX = 200;
 
 /** What a transcript's first lines say: the working directory its first record names, and its first prompt. */
-interface Opening {
+export interface Opening {
   readonly workingDirectory: string | null;
   readonly firstPrompt: string | null;
 }
@@ -61,7 +61,7 @@ const promptOf = (record: Record<string, unknown>): string | null => {
 };
 
 /** The working directory and first prompt a transcript's first lines give; nothing for a file that cannot be read. */
-const readOpening = async (path: string): Promise<Opening> => {
+export const readTranscriptOpening = async (path: string): Promise<Opening> => {
   let workingDirectory: string | null = null;
   let firstPrompt: string | null = null;
   const stream = createReadStream(path, { encoding: "utf8" });
@@ -134,7 +134,7 @@ export const listDirectorySessions = async (read: DirectoryListing): Promise<Pro
     let firstPrompt = info.firstPrompt || null;
     if (workingDirectory === null || firstPrompt === null) {
       const path = (await (paths ??= transcriptPaths(read.directory))).get(info.sessionId);
-      const opening: Opening = path === undefined ? { workingDirectory: null, firstPrompt: null } : await readOpening(path);
+      const opening: Opening = path === undefined ? { workingDirectory: null, firstPrompt: null } : await readTranscriptOpening(path);
       workingDirectory ??= opening.workingDirectory;
       firstPrompt ??= opening.firstPrompt;
     }
