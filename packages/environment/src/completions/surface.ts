@@ -26,7 +26,7 @@ import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, bearerToken, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
 import { appendDecided } from "../sessions/companions.js";
-import { decideTag } from "../sessions/decider.js";
+import { decideSetBrowser, decideTag, type FirstBrowser } from "../sessions/decider.js";
 import { createSessionIn } from "../sessions/methods.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -126,6 +126,13 @@ export interface CompletionsSurface {
 
 /** The scopes a turn needs. */
 const TURN_SCOPES: readonly Scope[] = ["sessions:write", "runs:drive"];
+
+/** The session a turn runs on: made fresh, forked from the one named, or the one named. */
+interface Target {
+  readonly sessionId: string;
+  readonly fresh: boolean;
+  readonly forked: boolean;
+}
 
 const notImplemented = (method: string, path: string): CompletionsRefusal =>
   new CompletionsRefusal(501, "not_implemented", `${method} ${path} is not served here; this environment serves ${CHAT_COMPLETIONS_PATH} and ${MODELS_PATH}.`);
@@ -380,13 +387,17 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     turn: TurnRequest,
     model: ResolvedModel,
     clientSession: VerifiedClientSession,
-    target: { sessionId: string; fresh: boolean },
+    target: Target,
     place: Place | null,
   ): Begun => {
-    const { sessionId, fresh } = target;
+    const { sessionId, fresh, forked } = target;
     const clientActor = formatActor({ kind: "client_session", id: clientSession.id });
     const ignored = [...turn.ignored];
     if (!fresh && turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
+    // A session the turn makes has no browser unless the request asks for the headless one, since a program brings its own
+    // tools (#550); a session it continues keeps its own.
+    const browser: FirstBrowser = { value: turn.extension.browser === "headless" ? { kind: "headless" } : { kind: "none" }, chosenBy: "completions" };
+    if (!fresh && !forked && turn.extension.browser !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.browser`);
     const refused = (refusal: { code: string; message: string; data: Record<string, unknown> }): ContractError => new ContractError(refusal);
     return log.atomically((tx) => {
       if (place !== null) {
@@ -400,6 +411,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
             repositoryIdentity: place.repositoryIdentity,
             account: model.account.id,
             model: model.model.id,
+            browser,
           },
           // The session is given no mode of its own: the request's permissionMode is its run's alone.
           { validateRunParameters: host.validateSessionInput, clampMode: () => null },
@@ -408,6 +420,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       } else {
         const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
         if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
+        if (forked) {
+          const chosen = decideSetBrowser(readSessionState(reader, sessionId), { sessionId, browser: browser.value, chosenBy: browser.chosenBy });
+          if (chosen.rejected === undefined) appendDecided(log, sessionStream(sessionId), chosen, { tx, actor: clientActor });
+        }
       }
       const actor = actorFor(turn, clientSession);
       const facts = host.startFacts(sessionId, actor);
@@ -487,7 +503,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
   };
 
   /** The session a turn runs on: fresh, the named one, or a fork of it; a rewind first when asked for. */
-  const target = async (turn: TurnRequest, model: ResolvedModel, clientSession: VerifiedClientSession): Promise<{ sessionId: string; fresh: boolean }> => {
+  const target = async (turn: TurnRequest, model: ResolvedModel, clientSession: VerifiedClientSession): Promise<Target> => {
     const { sessionId, forkSession, rewindToMessageId } = turn.extension;
     if (sessionId === null) {
       for (const [set, name] of [
@@ -496,7 +512,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       ] as const) {
         if (set) throw new CompletionsRefusal(400, "invalid_params", `${COMPLETIONS_NAMESPACE}.${name} needs a sessionId.`, { param: `${COMPLETIONS_NAMESPACE}.${name}` });
       }
-      return { sessionId: randomUUID(), fresh: true };
+      return { sessionId: randomUUID(), fresh: true, forked: false };
     }
     if (forkSession) {
       const forkId = randomUUID();
@@ -506,12 +522,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         { sessionId, id: forkId, ...(rewindToMessageId !== null && { atMessageId: rewindToMessageId }), account: model.account.id },
         `${COMPLETIONS_NAMESPACE}.forkSession`,
       );
-      return { sessionId: forkId, fresh: false };
+      return { sessionId: forkId, fresh: false, forked: true };
     }
     if (rewindToMessageId !== null) {
       await command(clientSession, "sessions.rewind", { sessionId, messageId: rewindToMessageId }, `${COMPLETIONS_NAMESPACE}.rewindToMessageId`);
     }
-    return { sessionId, fresh: false };
+    return { sessionId, fresh: false, forked: false };
   };
 
   /** Whether the client went away before its answer was written, and what to stop when it does. */
@@ -682,6 +698,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (turn.effortParam !== null) ignored.push(turn.effortParam);
     if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
     if (turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
+    if (turn.extension.browser !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.browser`);
     if (turn.extension.attachments.length > 0) ignored.push(`${COMPLETIONS_NAMESPACE}.attachments`);
     if (turn.extension.after !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.after`);
     ignored.push(...liveToolsIgnored(turn, sessionId));

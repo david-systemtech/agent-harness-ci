@@ -1,7 +1,8 @@
-import { Mode, type ContainmentLevel, type SessionCreatedPayload, type Workspace } from "@agent-harness/contracts";
+import { Mode, type ContainmentLevel, type SessionBrowser, type SessionCreatedPayload, type Workspace } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import { readSessionContainment, readSessionMode } from "../permissions/permissions-store.js";
 import type { Reader } from "../sessions/session-reads.js";
+import { browserOf } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 
 /**
@@ -10,7 +11,7 @@ import { sessionStream } from "../sessions/streams.js";
  * Inside a command they read that command's own transaction.
  */
 
-/** A session as a run needs it: whether it is there, its place and whether it is missing, the account and model it was created with, its mode and its own containment level. */
+/** A session as a run needs it: whether it is there, its place and whether it is missing, the account and model it was created with, its mode, its own containment level and its browser. */
 export interface SessionFacts {
   readonly deleted: boolean;
   readonly workspace: Workspace;
@@ -22,6 +23,8 @@ export interface SessionFacts {
   readonly mode: Mode | null;
   /** The containment level the session set for itself (`permissions.containment.set`); null when it set none, and the default applies. */
   readonly containment: ContainmentLevel | null;
+  /** The session's browser (`sessions.setBrowser`), which each run resolves at its start; null for none chosen. */
+  readonly browser: SessionBrowser | null;
 }
 
 /**
@@ -31,8 +34,8 @@ export interface SessionFacts {
  * one `permissions.mode.set` last gave it (`session_modes`) when it has.
  */
 export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Reader, sessionId: string): SessionFacts | null => {
-  const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null; workspace_missing_since: string | null }>(
-    "SELECT deleted_at, workspace, repository_identity, workspace_missing_since FROM sessions WHERE id = ?",
+  const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null; workspace_missing_since: string | null; browser: string | null }>(
+    "SELECT deleted_at, workspace, repository_identity, workspace_missing_since, browser FROM sessions WHERE id = ?",
     sessionId,
   );
   if (row === undefined) return null;
@@ -47,6 +50,7 @@ export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Read
     model: payload?.model ?? null,
     mode: readSessionMode(reader, sessionId) ?? payload?.mode ?? null,
     containment: readSessionContainment(reader, sessionId),
+    browser: browserOf(row.browser),
   };
 };
 

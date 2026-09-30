@@ -1,6 +1,6 @@
 import type { DeletedSessionSummary, SessionSummary } from "@agent-harness/contracts";
 import type { SessionState } from "./decider.js";
-import { tagsOf, toSummary, type Reader, type SessionRow } from "./session-tables.js";
+import { browserOf, tagsOf, toSummary, type Reader, type SessionRow } from "./session-tables.js";
 
 export type { Reader } from "./session-tables.js";
 
@@ -36,6 +36,7 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
     tags: tagsOf(reader, id),
     draft: row.draft,
     settledOverride: row.settled_override as SessionState["settledOverride"],
+    browser: browserOf(row.browser),
   };
 };
 

@@ -299,6 +299,7 @@ const fresh = {
   accountId: null,
   model: null,
   mode: null,
+  browser: null,
   pullRequests: [],
   draft: null,
 };
@@ -368,7 +369,7 @@ describe("the workspace", () => {
 });
 
 describe("the session summary", () => {
-  it("holds identity, title, filing, shelf, place, activity and forge", () => {
+  it("holds identity, title, filing, shelf, place, activity, mode, browser and forge", () => {
     expect(SUMMARY_KEYS).toEqual([
       "id",
       "createdAt",
@@ -396,6 +397,7 @@ describe("the session summary", () => {
       "accountId",
       "model",
       "mode",
+      "browser",
       "pullRequests",
       "draft",
     ]);

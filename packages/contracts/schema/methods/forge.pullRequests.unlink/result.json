@@ -408,6 +408,93 @@
           ],
           "description": "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again."
         },
+        "browser": {
+          "anyOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "chrome"
+                    },
+                    "environmentId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "The environment the Chrome is paired with."
+                    },
+                    "chromeId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "environmentId",
+                    "chromeId"
+                  ],
+                  "description": "A Chrome paired with an environment."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "headless"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "The headless browser of the environment the run is on."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "dock"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "The browser dock in the desktop window."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "description": "No browser: the run reads the web with web_read alone."
+                }
+              ],
+              "description": "A browser a session chose: a Chrome (a null chromeId the plain My Chrome), headless, the dock, or none."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The session's browser: a Chrome (a null chromeId the plain My Chrome), headless, the dock or none, as sessions.setBrowser or sessions.create last set it; null when none was chosen, so each run resolves a default. Each run resolves it again at its start."
+        },
         "pullRequests": {
           "type": "array",
           "items": {
@@ -504,6 +591,7 @@
         "accountId",
         "model",
         "mode",
+        "browser",
         "pullRequests",
         "draft"
       ],
