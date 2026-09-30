@@ -42,7 +42,7 @@ describe("the desktop workflow", () => {
       return { runner, platform, server: /--server (\S+)/.exec(build ?? "")?.[1], artefact: job.find((line) => line.includes("build-artefacts")) };
     });
     const withRunner = DESKTOP_TARGETS.filter((target) => target.runner !== null);
-    const byPlatform = (a: { readonly platform?: string }, b: { readonly platform?: string }) => String(a.platform).localeCompare(String(b.platform));
+    const byPlatform = (a: { readonly platform: string | undefined }, b: { readonly platform: string | undefined }) => String(a.platform).localeCompare(String(b.platform));
     expect(built.map(({ runner, platform }) => ({ runner, platform })).sort(byPlatform)).toEqual(withRunner.map(({ runner, platform }) => ({ runner, platform })).sort(byPlatform));
     for (const { platform, server, artefact } of built) {
       expect(server).toBe(`server/agent-harness-${platform}.tar.gz`);
