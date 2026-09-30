@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionInstructions",
+  "type": "string",
+  "maxLength": 20000,
+  "description": "A session's own instructions: Markdown, at most 20000 characters, which its runs are handed under # Instructions for this session, after the user, team-bank and project layers; empty when it has none."
+}

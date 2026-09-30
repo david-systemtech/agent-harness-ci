@@ -97,6 +97,8 @@ describe("the method registry", () => {
       "sessions.rewind": ["command", "runs:drive"],
       // Undoing one, beside it (ADR 0022, #218).
       "sessions.undoRewind": ["command", "runs:drive"],
+      // Setting a session's own instructions, as rewinding, changes what its next run does (#506).
+      "sessions.setInstructions": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -389,6 +391,7 @@ describe("the method registry", () => {
       | "sessions.fork"
       | "sessions.rewind"
       | "sessions.undoRewind"
+      | "sessions.setInstructions"
       | "groups.create"
       | "groups.rename"
       | "groups.reorder"

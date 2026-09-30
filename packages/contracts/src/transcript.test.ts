@@ -196,18 +196,21 @@ describe("the per-session snapshot", () => {
   };
   const item = { kind: "assistant-text", sequence: 4, runId, itemId: "i-1", text: "Done.", aborted: false };
 
-  it("is the summary, the runs, the items, the parked prompts and the rewinds standing at a sequence", () => {
-    expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts", "rewinds"]);
+  it("is the summary, the runs, the items, the parked prompts, the rewinds standing and the session's own instructions at a sequence", () => {
+    expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts", "rewinds", "instructions"]);
     expect(registry["sessions.subscribeSession"].result).toBe(SessionSnapshot);
     expect(SessionSnapshot.safeParse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [], rewinds: [] }).success).toBe(true);
   });
 
-  it("reads a snapshot without rewinds, an environment's from before #260, as one with no rewind standing", () => {
+  it("reads a snapshot without rewinds, an environment's from before #260, as one with no rewind standing, and one without instructions as none", () => {
     expect(SessionSnapshot.parse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [] }).rewinds).toEqual([]);
+    // An environment from before #506 sends no instructions: the session has none.
+    expect(SessionSnapshot.parse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [] }).instructions).toBe("");
     // Not in the export's required list either: a client in another language reads the older environment's too.
     const exported = JSON.parse(jsonSchemaFiles().get("transcript/session-snapshot.json") ?? "{}") as { required?: string[]; properties?: Record<string, { default?: unknown }> };
     expect(exported.required).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts"]);
     expect(exported.properties?.["rewinds"]?.default).toEqual([]);
+    expect(exported.properties?.["instructions"]?.default).toBe("");
     // A rewind's own fields are all required: only the older environment's missing field is defaulted.
     expect(StandingRewind.safeParse({ sequence: 8, toMessageId: messageId, text: "Two", undoable: true, items: [] }).success).toBe(false);
   });

@@ -627,6 +627,10 @@
       "title": "RunInstructionsComposedPayload"
     },
     {
+      "path": "sessions/events/session.instructions-set.json",
+      "title": "SessionInstructionsSetPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -1945,6 +1949,10 @@
     {
       "path": "instructions/body.json",
       "title": "InstructionBody"
+    },
+    {
+      "path": "instructions/session-instructions.json",
+      "title": "SessionInstructions"
     },
     {
       "path": "instructions/origin.json",
@@ -3669,6 +3677,22 @@
     {
       "path": "methods/sessions.undoRewind/error.json",
       "title": "sessions.undoRewind error"
+    },
+    {
+      "path": "methods/sessions.setInstructions/params.json",
+      "title": "sessions.setInstructions params"
+    },
+    {
+      "path": "methods/sessions.setInstructions/result.json",
+      "title": "sessions.setInstructions result"
+    },
+    {
+      "path": "methods/sessions.setInstructions/response.json",
+      "title": "sessions.setInstructions response"
+    },
+    {
+      "path": "methods/sessions.setInstructions/error.json",
+      "title": "sessions.setInstructions error"
     },
     {
       "path": "methods/groups.create/params.json",
@@ -5978,6 +6002,16 @@
       "result": "methods/sessions.undoRewind/result.json",
       "response": "methods/sessions.undoRewind/response.json",
       "error": "methods/sessions.undoRewind/error.json"
+    },
+    {
+      "name": "sessions.setInstructions",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setInstructions/params.json",
+      "result": "methods/sessions.setInstructions/result.json",
+      "response": "methods/sessions.setInstructions/response.json",
+      "error": "methods/sessions.setInstructions/error.json"
     },
     {
       "name": "groups.create",

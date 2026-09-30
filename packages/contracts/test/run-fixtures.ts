@@ -300,7 +300,15 @@ const parkedPrompt = { promptId: "toolu_2", sequence: 12, openedAt: at, prompt: 
 const hiddenMessage = { ...userMessage, sequence: 14, messageId: "6e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b", text: "Try the other way" };
 const nestedRewind = { sequence: 17, toMessageId: "7a9c1e3f-5b7d-4f9a-8c1e-3f5b7d9f1a3c", text: "Then this", undoable: false, items: [{ kind: "plan-card", sequence: 16, plan: "Kept opaque" }], rewinds: [] };
 const standingRewind = { sequence: 18, toMessageId: hiddenMessage.messageId, text: hiddenMessage.text, undoable: false, items: [hiddenMessage], rewinds: [nestedRewind] };
-const snapshot = { sequence: 19, summary: freshSummary, runs: [runSummary, runningSummary], items, parkedPrompts: [parkedPrompt], rewinds: [standingRewind] };
+const snapshot = {
+  sequence: 19,
+  summary: freshSummary,
+  runs: [runSummary, runningSummary],
+  items,
+  parkedPrompts: [parkedPrompt],
+  rewinds: [standingRewind],
+  instructions: "Only touch the CLI package in this session.",
+};
 
 /** Every adapter and transcript schema the export writes, by path. */
 export const runSchemaFixtures: Record<string, Fixtures> = {
@@ -411,12 +419,13 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "transcript/session-snapshot.json": {
-    // The last valid one is an environment's from before #260, with no rewinds: read as none standing.
+    // The last valid one is an environment's from before #260, with no rewinds or instructions: read as none standing, and none.
     valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
     invalid: [
       { sequence: 13, summary: freshSummary, transcript: {} },
       { ...snapshot, runs: [{}] },
       { ...snapshot, items: [{ sequence: 1 }] },
+      { ...snapshot, instructions: "t".repeat(20001) },
       { ...snapshot, rewinds: [{ ...standingRewind, rewinds: [{ ...nestedRewind, items: [{ sequence: 1 }] }] }] },
     ],
   },

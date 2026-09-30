@@ -2279,6 +2279,12 @@
       "items": {
         "$ref": "#/$defs/StandingRewind"
       }
+    },
+    "instructions": {
+      "default": "",
+      "description": "The session's own instructions (sessions.setInstructions), read at the head as the summary is; empty when it has none. Its next runs are handed them. Absent from an environment older than the field, read as none.",
+      "type": "string",
+      "maxLength": 20000
     }
   },
   "required": [
@@ -2288,7 +2294,7 @@
     "items",
     "parkedPrompts"
   ],
-  "description": "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts and the rewinds standing on it.",
+  "description": "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts, the rewinds standing on it, and its own instructions.",
   "$defs": {
     "StandingRewind": {
       "type": "object",
