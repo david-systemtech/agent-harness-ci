@@ -100,6 +100,7 @@ import {
   PairingId,
 } from "./primitives.js";
 import { BusyReason, DrainStarted, DrainTrigger, EnvironmentActivity, EnvironmentStatus } from "./lifecycle.js";
+import { BindAddress, BindLan, BindTailnet, EnvironmentBinding } from "./network.js";
 import {
   PairError,
   PairRequest,
@@ -110,9 +111,11 @@ import {
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import {
+  DoctorToolName,
   MANAGED_TOOLS,
   ManagedTool,
   ManagedToolAction,
+  ManagedToolDetail,
   ManagedToolInstallMethod,
   ManagedToolName,
   ManagedToolRow,
@@ -120,6 +123,9 @@ import {
   ManagedToolVerification,
   ManagedToolVerifyOutcome,
   ManagedToolVersion,
+  ToolDoctorField,
+  ToolDoctorReport,
+  ToolDoctorWarning,
   ToolsUpdatedPayload,
   VerifiableToolName,
 } from "./managed-tools.js";
@@ -293,7 +299,7 @@ import {
   AbsolutePath,
   RequestedDirectory,
 } from "./sessions.js";
-import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection } from "./workspaces.js";
+import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection, WorkspaceKeptPayload, WorkspaceKeptReason } from "./workspaces.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
   AccountIdentity,
@@ -487,6 +493,9 @@ import {
   ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
+import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
+import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
+import { BrowserOnCreate } from "./methods/sessions.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
@@ -631,7 +640,7 @@ const pascal = (words: string): string =>
 /**
  * The session and group event types whose payloads are fixed, each with its
  * payload, the prompt types, the transcript vocabulary, the permission
- * types and the composed instructions among them; a type reserved by name
+ * types, the composed instructions and the browser's among them; a type reserved by name
  * for a workstream that has not fixed its payload yet would be left out.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
@@ -641,6 +650,7 @@ export const publishedEventPayloads = (): [string, z.ZodType][] =>
     ...TRANSCRIPT_EVENT_TYPES,
     ...PERMISSION_SESSION_EVENT_TYPES,
     ...INSTRUCTION_SESSION_EVENT_TYPES,
+    ...BROWSER_SESSION_EVENT_TYPES,
     ...GROUP_EVENT_TYPES,
   } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
@@ -688,6 +698,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
   { path: "lifecycle/environment-activity.json", title: "EnvironmentActivity", schema: EnvironmentActivity },
   { path: "lifecycle/environment-status.json", title: "EnvironmentStatus", schema: EnvironmentStatus },
+  { path: "network/bind-address.json", title: "BindAddress", schema: BindAddress },
+  { path: "network/environment-binding.json", title: "EnvironmentBinding", schema: EnvironmentBinding },
   { path: "bootstrap/kind.json", title: "BootstrapKind", schema: BootstrapKind },
   { path: "bootstrap/grant.json", title: "BootstrapGrant", schema: BootstrapGrant },
   { path: "bootstrap/request.json", title: "BootstrapRequest", schema: BootstrapRequest },
@@ -733,6 +745,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/repository-identified-reason.json", title: "RepositoryIdentifiedReason", schema: RepositoryIdentifiedReason },
   { path: "sessions/absolute-path.json", title: "AbsolutePath", schema: AbsolutePath },
   { path: "sessions/requested-directory.json", title: "RequestedDirectory", schema: RequestedDirectory },
+  { path: "sessions/browser.json", title: "SessionBrowser", schema: SessionBrowser },
+  { path: "sessions/browser-chooser.json", title: "BrowserChooser", schema: BrowserChooser },
+  { path: "sessions/browser-on-create.json", title: "BrowserOnCreate", schema: BrowserOnCreate },
+  { path: "sessions/browser-resolution-reason.json", title: "BrowserResolutionReason", schema: BrowserResolutionReason },
+  { path: "sessions/run-browser-resolution.json", title: "RunBrowserResolution", schema: RunBrowserResolution },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },
@@ -898,6 +915,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "managed-tools/verifiable-name.json", title: "VerifiableToolName", schema: VerifiableToolName },
   { path: "managed-tools/verify-outcome.json", title: "ManagedToolVerifyOutcome", schema: ManagedToolVerifyOutcome },
   { path: "managed-tools/verification.json", title: "ManagedToolVerification", schema: ManagedToolVerification },
+  { path: "managed-tools/doctor-name.json", title: "DoctorToolName", schema: DoctorToolName },
+  { path: "managed-tools/doctor-field.json", title: "ToolDoctorField", schema: ToolDoctorField },
+  { path: "managed-tools/doctor-warning.json", title: "ToolDoctorWarning", schema: ToolDoctorWarning },
+  { path: "managed-tools/doctor-report.json", title: "ToolDoctorReport", schema: ToolDoctorReport },
+  { path: "managed-tools/detail.json", title: "ManagedToolDetail", schema: ManagedToolDetail },
   { path: "managed-tools/events/tools.updated.json", title: "ToolsUpdatedPayload", schema: ToolsUpdatedPayload },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
@@ -1092,6 +1114,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "workspaces/inspected-branch.json", title: "InspectedBranch", schema: InspectedBranch },
   { path: "workspaces/inspected-repository.json", title: "InspectedRepository", schema: InspectedRepository },
   { path: "workspaces/workspace-inspection.json", title: "WorkspaceInspection", schema: WorkspaceInspection },
+  { path: "workspaces/workspace-kept-reason.json", title: "WorkspaceKeptReason", schema: WorkspaceKeptReason },
+  { path: "workspaces/workspace-kept.json", title: "WorkspaceKeptPayload", schema: WorkspaceKeptPayload },
   { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
   { path: "actions/action-condition.json", title: "ActionCondition", schema: ActionCondition },
   { path: "actions/action.json", title: "Action", schema: Action },
@@ -1136,6 +1160,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
   { path: "settings/keys/credentials.injection.json", title: "CredentialInjection", schema: CredentialInjection },
   { path: "settings/keys/credentials.injectionByAccount.json", title: "CredentialInjectionByAccount", schema: CredentialInjectionByAccount },
+  { path: "settings/keys/network.bindTailnet.json", title: "BindTailnet", schema: BindTailnet },
+  { path: "settings/keys/network.bindLan.json", title: "BindLan", schema: BindLan },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },

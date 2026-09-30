@@ -99,6 +99,8 @@ describe("the method registry", () => {
       "sessions.undoRewind": ["command", "runs:drive"],
       // Setting a session's own instructions, as rewinding, changes what its next run does (#506).
       "sessions.setInstructions": ["command", "runs:drive"],
+      // The session's browser chooses what its next run may drive (browser spec, "The browser as a session field"; #550).
+      "sessions.setBrowser": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -380,6 +382,7 @@ describe("the method registry", () => {
       | "sessions.tag"
       | "sessions.untag"
       | "sessions.setDraft"
+      | "sessions.setBrowser"
       | "sessions.setGroup"
       | "sessions.settle"
       | "sessions.unsettle"
@@ -464,6 +467,7 @@ describe("the method registry", () => {
       | "keyManagers.move"
       | "keyManagers.move.copyValue"
       | "tools.list"
+      | "tools.detail"
       | "tools.verify"
       | "settings.get"
       | "settings.update"

@@ -38,6 +38,7 @@ import {
   sessionsRestore,
   sessionsRewind,
   sessionsUndoRewind,
+  sessionsSetBrowser,
   sessionsSetDraft,
   sessionsSetGroup,
   sessionsSettle,
@@ -165,7 +166,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
-import { toolsList, toolsVerify } from "./methods/tools.js";
+import { toolsDetail, toolsList, toolsVerify } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -204,6 +205,7 @@ export const methods = [
   sessionsReorderActive,
   sessionsTag,
   sessionsUntag,
+  sessionsSetBrowser,
   sessionsSetDraft,
   sessionsSetGroup,
   sessionsSettle,
@@ -289,6 +291,7 @@ export const methods = [
   keyManagersMove,
   keyManagersMoveCopyValue,
   toolsList,
+  toolsDetail,
   toolsVerify,
   settingsGet,
   settingsUpdate,

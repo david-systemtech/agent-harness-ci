@@ -6,6 +6,7 @@ import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } 
 import { PERMISSION_SESSION_EVENT_TYPES } from "./permissions.js";
 import { PROMPT_EVENT_TYPES } from "./prompts.js";
 import { ROUTINE_EVENT_TYPES, ROUTINE_STREAM_KIND } from "./routines.js";
+import { BROWSER_SESSION_EVENT_TYPES } from "./session-browser.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
 import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
 import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
@@ -56,9 +57,10 @@ const accessEventTypes = unlisted(ACCESS_EVENT_TYPES, (type) => ACCESS_EVENT_PAY
  * A session's stream: its organisation types (session-state), the prompt
  * types (a prompt opened and answered, #130), the transcript its runs leave
  * (the adapter's vocabulary), the permission types (a run's resolved
- * policy, the session's mode), and the instruction types (a run's composed
+ * policy, the session's mode), the instruction types (a run's composed
  * instructions, `run.instructions.composed`, and the session's own,
- * `session.instructions-set`), on the one stream so a purge takes them all.
+ * `session.instructions-set`), and the browser's (the session's browser
+ * set, a run's resolved), on the one stream so a purge takes them all.
  */
 const sessionEventTypes = {
   ...SESSION_EVENT_TYPES,
@@ -66,6 +68,7 @@ const sessionEventTypes = {
   ...TRANSCRIPT_EVENT_TYPES,
   ...PERMISSION_SESSION_EVENT_TYPES,
   ...INSTRUCTION_SESSION_EVENT_TYPES,
+  ...BROWSER_SESSION_EVENT_TYPES,
 } as const;
 
 /** Every event type, by the kind of stream it goes on. */
@@ -86,7 +89,7 @@ export type SessionEventType = keyof typeof sessionEventTypes;
 /** The event types of the `session` stream. */
 export const SessionEventType = z.enum(Object.keys(sessionEventTypes) as [SessionEventType, ...SessionEventType[]]).meta({
   description:
-    "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, the prompt events prompt.opened and prompt.answered, the transcript vocabulary a run leaves (run.started to run.ended, and run.update-interrupted for a run an update cut), the permission types run.policy.resolved, session.mode.set, session.containment.set and tool.decision, and the instruction types run.instructions.composed and session.instructions-set.",
+    "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, the prompt events prompt.opened and prompt.answered, the transcript vocabulary a run leaves (run.started to run.ended, and run.update-interrupted for a run an update cut), the permission types run.policy.resolved, session.mode.set, session.containment.set and tool.decision, the instruction types run.instructions.composed and session.instructions-set, and the browser types session.browser.set and run.browser.resolved.",
 });
 
 /** The stream kinds the table knows. */

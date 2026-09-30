@@ -167,7 +167,7 @@ export const composeInstructions =
       channel: scope.channel.kind,
       layers: manifestLayers(parts),
       alwaysOn: [],
-      skillSetFingerprint: null,
+      skillSetFingerprint: scope.skillSet.fingerprint,
       unreadRegistries: [...orientation.unreadRegistries],
       leftOut,
     };

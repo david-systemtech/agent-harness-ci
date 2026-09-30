@@ -19,6 +19,7 @@ import {
   type Registry,
 } from "@agent-harness/contracts";
 import type { z } from "zod";
+import type { Adapter } from "../src/adapter/contract.js";
 import type { Address } from "../src/serve/http.js";
 import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
@@ -27,6 +28,7 @@ import type { ContainerDetector } from "../src/serve/container.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
+import type { ReleaseOrigins } from "../src/managed-tools/latest.js";
 import { createScrubRegistry, type ScrubRegistry } from "../src/scrub/registry.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ContainmentProbe } from "../src/permissions/containment-probe.js";
@@ -61,8 +63,8 @@ export interface TestEnvironmentOptions {
   readonly clock?: ManualClock;
   /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
   readonly adapter?: FakeAdapter;
-  /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names; preset none. */
-  readonly otherAdapters?: readonly FakeAdapter[];
+  /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names (another fake, or the Claude adapter over a scripted SDK); preset none. */
+  readonly otherAdapters?: readonly Adapter[];
   /**
    * The accounts carried over from configuration into the account store on
    * the first start (#119's path, kept for this). Preset: one, `claude-max`,
@@ -97,7 +99,7 @@ export interface TestEnvironmentOptions {
   readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
-  /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
+  /** Preset: a machine with no Tailscale address, no tailnet name and no LAN address (`NO_INTERFACES`), so a test never binds a real interface. */
   readonly interfaces?: InterfaceDetector;
   readonly bindTailnet?: boolean;
   readonly bindLan?: boolean;
@@ -139,8 +141,10 @@ export interface TestEnvironmentOptions {
    * How the Managed tools registry probes, each part over the helper's
    * preset: a login shell whose PATH has nothing on it (`test/fake-tools.ts`
    * and `test/fake-gh.ts` put fake tools on one of their own), a package
-   * owner that owns nothing, and a host environment of that PATH alone, so
-   * a test never runs a real tool, shell or package manager.
+   * owner that owns nothing, a host environment of that PATH alone, and
+   * release sources nothing answers at (`UNREACHABLE_RELEASE_ORIGINS`), so
+   * a test never runs a real tool, shell or package manager, nor reads a
+   * real release source.
    */
   readonly managedTools?: EnvironmentOptions["managedTools"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's own, over its connections. */
@@ -183,6 +187,21 @@ export interface TestEnvironmentOptions {
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
 export const NO_RELEASE_SOURCE = { origin: "http://127.0.0.1:1", kind: "forgejo", repository: "david/agent-harness" } as const;
 
+/**
+ * Where a test environment reads its managed tools' latest versions unless
+ * told otherwise (`test/fake-release-sources.ts` fakes them): every kind of
+ * source at a loopback port nothing listens on, so a fetch fails at once and
+ * no test reaches the real sources.
+ */
+export const UNREACHABLE_RELEASE_ORIGINS: ReleaseOrigins = {
+  homebrew: "http://127.0.0.1:1/homebrew",
+  npm: "http://127.0.0.1:1/npm",
+  github: "http://127.0.0.1:1/github",
+  claude: "http://127.0.0.1:1/claude",
+  onePassword: "http://127.0.0.1:1/onepassword",
+  hashicorp: "http://127.0.0.1:1/hashicorp",
+};
+
 /** A PATH with nothing on it: where a test environment looks for its managed tools unless the test gives it one. */
 export const EMPTY_PATH = "/nonexistent/agent-harness-test-path";
 
@@ -192,8 +211,8 @@ export const TEST_BUNDLED_CLAUDE = "/nonexistent/agent-harness-sdk/claude";
 /** The bundled Claude Code's version a test environment reads unless told otherwise. */
 export const TEST_CLAUDE_CODE_VERSION = "2.1.0-test";
 
-/** A machine with no Tailscale address and no tailnet name. */
-export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
+/** A machine with no Tailscale address, no tailnet name and no LAN address. */
+export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined, lanAddresses: () => [] };
 
 /** What a pairing is minted with, and the client session its exchange asks for. */
 export interface PairOptions {
@@ -350,7 +369,13 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
-    managedTools: { readPath: async () => EMPTY_PATH, packageOwner: async () => ({ kind: "none" }), hostEnv: { PATH: EMPTY_PATH }, ...options.managedTools },
+    managedTools: {
+      readPath: async () => EMPTY_PATH,
+      packageOwner: async () => ({ kind: "none" }),
+      hostEnv: { PATH: EMPTY_PATH },
+      releaseOrigins: UNREACHABLE_RELEASE_ORIGINS,
+      ...options.managedTools,
+    },
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
     vault: options.vault ?? fileVault(join(dataDir, VAULT_FILE)),

@@ -22,6 +22,8 @@ export type CommandAnswer =
 export interface CommandOptions {
   /** Exactly the environment it runs in. */
   readonly env: Readonly<Record<string, string>>;
+  /** The directory it runs in; preset the environment's own. */
+  readonly cwd?: string;
   /** The clock its time runs on: the environment's. */
   readonly clock: Clock;
   readonly timeoutMs: number;
@@ -51,7 +53,14 @@ export const runCommand = (file: string, args: readonly string[], options: Comma
         : [file, [...args], false];
     let child;
     try {
-      child = spawn(command, argv, { env: { ...options.env }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, windowsVerbatimArguments: verbatim, detached: group });
+      child = spawn(command, argv, {
+        env: { ...options.env },
+        ...(options.cwd !== undefined && { cwd: options.cwd }),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        windowsVerbatimArguments: verbatim,
+        detached: group,
+      });
     } catch (error) {
       resolve({ outcome: "failed", why: `it could not be started (${error instanceof Error ? error.message : String(error)})` });
       return;

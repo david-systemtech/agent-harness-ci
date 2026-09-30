@@ -134,6 +134,7 @@ describe("a run's event stream", () => {
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       // The host's, once the run's instructions are composed and before its adapter is asked for it (#493).
       "run.instructions.composed",
@@ -152,8 +153,8 @@ describe("a run's event stream", () => {
       expect(event.payload["runId"], event.type).toBe(runId);
       expect(event.correlationId, event.type).toBe(runId);
     }
-    expect(events[3]?.actor).toBe("system:adapter-host");
-    const reported = events.slice(4, -1);
+    expect(events[4]?.actor).toBe("system:adapter-host");
+    const reported = events.slice(5, -1);
     expect(reported.filter((event) => event.type !== "tool.decision").map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
     expect(reported.find((event) => event.type === "tool.decision")).toMatchObject({ actor: "system:adapter-host", payload: { toolCallId: "t-1", decision: "allowed", decidedBy: "mode" } });
     expect(events.at(-1)).toMatchObject({ actor: "adapter:fake", payload: { reason: "completed", resultText: "Hello.", turnCount: 1, error: null } });
@@ -277,6 +278,34 @@ describe("the run's skill set (#495)", () => {
     await bare.host.commands("acct", workspace);
     expect(bare.adapter.commandListings.at(-1)?.scope).toEqual({ trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
   });
+
+  it("holds a generation from each spawn under it until the pool lets that process go, and through each commands listing (#496)", async () => {
+    const held: string[] = [];
+    const holdGeneration = (generation: string) => {
+      held.push(generation);
+      return () => void held.splice(held.indexOf(generation), 1);
+    };
+    const fingerprints = ["3f9a", "3f9a", "7c1e"];
+    const t = await setup(fakeAdapter({ commands: [] }), { skillSet: async () => setOf(fingerprints.shift() ?? "none"), holdGeneration });
+    await untilEnded(t, startRun(t));
+    await vi.waitFor(() => expect(held).toEqual(["/data/skills/generations/3f9a"]));
+    // The kept process serves the next run: no spawn, so no second hold.
+    await untilEnded(t, startRun(t));
+    expect(held).toEqual(["/data/skills/generations/3f9a"]);
+    // A changed fingerprint spawns a fresh process, which lets the one before it go.
+    await untilEnded(t, startRun(t));
+    await vi.waitFor(() => expect(held).toEqual(["/data/skills/generations/7c1e"]));
+
+    const listed = await setup(fakeAdapter({ commands: [] }), { skillSet: async () => setOf("5b2d"), holdGeneration });
+    held.length = 0;
+    const listing = vi.spyOn(listed.adapter, "commands").mockImplementation(async () => {
+      expect(held).toEqual(["/data/skills/generations/5b2d"]);
+      return [];
+    });
+    await listed.host.commands("acct", workspace);
+    expect(listing).toHaveBeenCalledOnce();
+    expect(held).toEqual([]);
+  });
 });
 
 describe("one end per run on every exit path", () => {
@@ -307,7 +336,7 @@ describe("one end per run on every exit path", () => {
     const runId = startRun(t);
     const ended = await onlyEnd(t, runId);
     expect(ended).toMatchObject({ actor: "system:adapter-host", payload: { reason: "error", error: { message: "The provider went away.", code: null } } });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
   });
 
   it("ends the run error when its stream stops without an end", async () => {
@@ -336,7 +365,7 @@ describe("one end per run on every exit path", () => {
     expect((await onlyEnd(t, runId)).payload).toMatchObject({ reason: "error" });
     // Its stream may still be open, so the provider's turn is stopped, never kept for the next.
     expect(t.adapter.lastRun()).toMatchObject({ disposed: true, released: false });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
   });
 
   it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
@@ -1126,7 +1155,7 @@ describe("a run composing its instructions (#493)", () => {
     held.open();
     await vi.waitFor(() => expect(begun.answered).toBe(1));
     expect(t.adapter.runs).toHaveLength(0);
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "message.requeued", "run.ended"]);
   });
 
   it("ends on a read-now, interrupted by it with no provider process begun, and the run of the queue reads what it was launched with", async () => {
@@ -1453,6 +1482,7 @@ describe("the adoption hook", () => {
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       "run.instructions.composed",
       "message.sent",
@@ -1460,11 +1490,12 @@ describe("the adoption hook", () => {
       "run.ended",
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.delivered",
       "assistant.text",
       "run.ended",
     ]);
-    expect(events[9]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
+    expect(events[11]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
     expect(t.adapter.runs.map((run) => run.adopted)).toEqual([false, true]);
   });
 });

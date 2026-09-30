@@ -24,6 +24,7 @@ import {
   decideReorderActive,
   decideReorderPinned,
   decideRestore,
+  decideSetBrowser,
   decideSetDraft,
   decideSetGroup,
   decideTag,
@@ -34,6 +35,7 @@ import {
   sessionNotFound,
   stampedAt,
   type Decision,
+  type FirstBrowser,
   type Refusal,
   type SessionState,
 } from "./decider.js";
@@ -54,7 +56,7 @@ import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
  * `sessions.create`, `sessions.rename`, `sessions.archive`,
  * `sessions.unarchive`, `sessions.pin`, `sessions.unpin`,
  * `sessions.reorderPinned`, `sessions.reorderActive`, `sessions.tag`,
- * `sessions.untag`, `sessions.setDraft`, `sessions.setGroup`,
+ * `sessions.untag`, `sessions.setDraft`, `sessions.setBrowser`, `sessions.setGroup`,
  * `sessions.settle`, `sessions.unsettle`, `sessions.snooze`,
  * `sessions.unsnooze`, `sessions.delete`, `sessions.restore` and
  * `sessions.purge` (the purge carried out by `deletion.ts`). The queries
@@ -99,6 +101,8 @@ export interface SessionCreation {
   readonly mode?: Mode | null | undefined;
   /** Where the session came from when no client asked for it: the Carry over import's (#578); absent for a command's. */
   readonly origin?: SessionOrigin | undefined;
+  /** The session's first browser and who chose it; none chosen when absent. */
+  readonly browser?: FirstBrowser | null | undefined;
 }
 
 /** A creation's refusal: the decider's, or an account that cannot run. */
@@ -143,6 +147,7 @@ const checkCreation = (log: EventLog, creation: Omit<SessionCreation, "workspace
     model: asked.model,
     mode,
     ...(creation.origin !== undefined && { origin: creation.origin }),
+    browser: creation.browser ?? null,
   };
   return { state, command, context: { groupExists: groupId !== null && groupExists(reader, groupId) } };
 };
@@ -331,6 +336,10 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
 
     "sessions.setDraft": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => decideSetDraft(state, { sessionId, draft: params.draft })),
+
+    // The browser the session's next run resolves (#550), chosen by the person at the client; at runs:drive, which the wire checks.
+    "sessions.setBrowser": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId) => decideSetBrowser(state, { sessionId, browser: params.browser, chosenBy: "person" })),
 
     "sessions.setGroup": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => {

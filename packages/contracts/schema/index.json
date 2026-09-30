@@ -147,6 +147,14 @@
       "title": "EnvironmentStatus"
     },
     {
+      "path": "network/bind-address.json",
+      "title": "BindAddress"
+    },
+    {
+      "path": "network/environment-binding.json",
+      "title": "EnvironmentBinding"
+    },
+    {
       "path": "bootstrap/kind.json",
       "title": "BootstrapKind"
     },
@@ -357,6 +365,26 @@
     {
       "path": "sessions/requested-directory.json",
       "title": "RequestedDirectory"
+    },
+    {
+      "path": "sessions/browser.json",
+      "title": "SessionBrowser"
+    },
+    {
+      "path": "sessions/browser-chooser.json",
+      "title": "BrowserChooser"
+    },
+    {
+      "path": "sessions/browser-on-create.json",
+      "title": "BrowserOnCreate"
+    },
+    {
+      "path": "sessions/browser-resolution-reason.json",
+      "title": "BrowserResolutionReason"
+    },
+    {
+      "path": "sessions/run-browser-resolution.json",
+      "title": "RunBrowserResolution"
     },
     {
       "path": "sessions/activity-state.json",
@@ -629,6 +657,14 @@
     {
       "path": "sessions/events/session.instructions-set.json",
       "title": "SessionInstructionsSetPayload"
+    },
+    {
+      "path": "sessions/events/session.browser.set.json",
+      "title": "SessionBrowserSetPayload"
+    },
+    {
+      "path": "sessions/events/run.browser.resolved.json",
+      "title": "RunBrowserResolvedPayload"
     },
     {
       "path": "sessions/events/group.created.json",
@@ -1277,6 +1313,26 @@
     {
       "path": "managed-tools/verification.json",
       "title": "ManagedToolVerification"
+    },
+    {
+      "path": "managed-tools/doctor-name.json",
+      "title": "DoctorToolName"
+    },
+    {
+      "path": "managed-tools/doctor-field.json",
+      "title": "ToolDoctorField"
+    },
+    {
+      "path": "managed-tools/doctor-warning.json",
+      "title": "ToolDoctorWarning"
+    },
+    {
+      "path": "managed-tools/doctor-report.json",
+      "title": "ToolDoctorReport"
+    },
+    {
+      "path": "managed-tools/detail.json",
+      "title": "ManagedToolDetail"
     },
     {
       "path": "managed-tools/events/tools.updated.json",
@@ -2083,6 +2139,14 @@
       "title": "WorkspaceInspection"
     },
     {
+      "path": "workspaces/workspace-kept-reason.json",
+      "title": "WorkspaceKeptReason"
+    },
+    {
+      "path": "workspaces/workspace-kept.json",
+      "title": "WorkspaceKeptPayload"
+    },
+    {
       "path": "actions/action-context.json",
       "title": "ActionContext"
     },
@@ -2241,6 +2305,14 @@
     {
       "path": "settings/keys/credentials.injectionByAccount.json",
       "title": "CredentialInjectionByAccount"
+    },
+    {
+      "path": "settings/keys/network.bindTailnet.json",
+      "title": "BindTailnet"
+    },
+    {
+      "path": "settings/keys/network.bindLan.json",
+      "title": "BindLan"
     },
     {
       "path": "settings/settings-values.json",
@@ -3487,6 +3559,22 @@
       "title": "sessions.untag error"
     },
     {
+      "path": "methods/sessions.setBrowser/params.json",
+      "title": "sessions.setBrowser params"
+    },
+    {
+      "path": "methods/sessions.setBrowser/result.json",
+      "title": "sessions.setBrowser result"
+    },
+    {
+      "path": "methods/sessions.setBrowser/response.json",
+      "title": "sessions.setBrowser response"
+    },
+    {
+      "path": "methods/sessions.setBrowser/error.json",
+      "title": "sessions.setBrowser error"
+    },
+    {
       "path": "methods/sessions.setDraft/params.json",
       "title": "sessions.setDraft params"
     },
@@ -4719,6 +4807,18 @@
       "title": "tools.list error"
     },
     {
+      "path": "methods/tools.detail/params.json",
+      "title": "tools.detail params"
+    },
+    {
+      "path": "methods/tools.detail/result.json",
+      "title": "tools.detail result"
+    },
+    {
+      "path": "methods/tools.detail/error.json",
+      "title": "tools.detail error"
+    },
+    {
       "path": "methods/tools.verify/params.json",
       "title": "tools.verify params"
     },
@@ -5884,6 +5984,16 @@
       "error": "methods/sessions.untag/error.json"
     },
     {
+      "name": "sessions.setBrowser",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setBrowser/params.json",
+      "result": "methods/sessions.setBrowser/result.json",
+      "response": "methods/sessions.setBrowser/response.json",
+      "error": "methods/sessions.setBrowser/error.json"
+    },
+    {
       "name": "sessions.setDraft",
       "scope": "sessions:write",
       "kind": "command",
@@ -6700,6 +6810,15 @@
       "params": "methods/tools.list/params.json",
       "result": "methods/tools.list/result.json",
       "error": "methods/tools.list/error.json"
+    },
+    {
+      "name": "tools.detail",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/tools.detail/params.json",
+      "result": "methods/tools.detail/result.json",
+      "error": "methods/tools.detail/error.json"
     },
     {
       "name": "tools.verify",

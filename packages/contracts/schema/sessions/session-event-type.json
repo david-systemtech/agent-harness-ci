@@ -57,7 +57,9 @@
     "session.containment.set",
     "tool.decision",
     "run.instructions.composed",
-    "session.instructions-set"
+    "session.instructions-set",
+    "session.browser.set",
+    "run.browser.resolved"
   ],
-  "description": "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, the prompt events prompt.opened and prompt.answered, the transcript vocabulary a run leaves (run.started to run.ended, and run.update-interrupted for a run an update cut), the permission types run.policy.resolved, session.mode.set, session.containment.set and tool.decision, and the instruction types run.instructions.composed and session.instructions-set."
+  "description": "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, the prompt events prompt.opened and prompt.answered, the transcript vocabulary a run leaves (run.started to run.ended, and run.update-interrupted for a run an update cut), the permission types run.policy.resolved, session.mode.set, session.containment.set and tool.decision, the instruction types run.instructions.composed and session.instructions-set, and the browser types session.browser.set and run.browser.resolved."
 }

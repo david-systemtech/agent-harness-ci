@@ -1,4 +1,4 @@
-import { writable, type CollapsedHeadings, type DocumentStore, type Observable } from "@agent-harness/client-runtime";
+import { SIDEBAR_VIEWS, writable, type CollapsedHeadings, type DocumentStore, type Observable, type SidebarView } from "@agent-harness/client-runtime";
 import { Theme } from "@agent-harness/contracts";
 
 /**
@@ -108,12 +108,15 @@ export interface PresentationValues {
   readonly sidebarWidth: number | null;
   /** Whether the sidebar is shown: `app.sidebar.toggle` (Mod+B) hides and shows it. */
   readonly sidebarShown: boolean;
+  /** How the sidebar heads the active sessions: by merged group and environment, or by repository (the sidebar's switch). */
+  readonly sidebarView: SidebarView;
   /**
    * Which of the sidebar's headings are folded, by heading name, keyed as
    * the terminal UI keys them (`block:pinned`, `group:<name key>`,
-   * `shelf:snoozed`, `shelf:settled`, `shelf:archive`): a merged heading
-   * spans environments, so no one environment could own the flag. One not
-   * named takes its default, the settled shelf and the archive folded.
+   * `repository:<identity>`, `shelf:snoozed`, `shelf:settled`,
+   * `shelf:archive`): a merged heading or a repository spans environments,
+   * so no one environment could own the flag. One not named takes its
+   * default, the settled shelf and the archive folded.
    */
   readonly collapsedHeadings: CollapsedHeadings;
   readonly paneLayout: PaneLayout;
@@ -165,6 +168,7 @@ export type PresentationKey = keyof PresentationValues;
 export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   sidebarWidth: null,
   sidebarShown: true,
+  sidebarView: "groups",
   collapsedHeadings: Object.freeze({}),
   paneLayout: ONE_PANE,
   sideColumns: Object.freeze({}),
@@ -261,6 +265,7 @@ const readPaneLayout = (stored: unknown): PaneLayout | undefined => {
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
   sidebarWidth: (stored) => (stored === null || (typeof stored === "number" && stored > 0 && stored < 100) ? stored : undefined),
   sidebarShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  sidebarView: (stored) => SIDEBAR_VIEWS.find((view) => view === stored),
   collapsedHeadings: (stored) => {
     if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return undefined;
     const folds = Object.entries(stored);

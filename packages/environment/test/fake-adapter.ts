@@ -318,6 +318,14 @@ export interface FakeAdapter extends Adapter {
   readonly deletedTranscriptAccounts: readonly (readonly AccountRef[])[];
   /** The most recent run. */
   lastRun(): FakeRunRecord;
+  /**
+   * Resolves with the `count`th run once the fake has been asked for it
+   * (created, or a turn it opened), at once when it has been: a run's launch
+   * resolves its skill set and composes its instructions before its adapter
+   * is asked (#493, #496), so a test that acts on the provider's run waits
+   * for it here.
+   */
+  reached(count: number): Promise<FakeRunRecord>;
   /** Every provider process started, in order. */
   readonly processes: readonly FakeProcessRecord[];
   /** The session's processes, in the order they were started. */
@@ -688,6 +696,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     ...options.capabilities,
   };
   const runs: FakeRunRecord[] = [];
+  /** Who waits for the fake to have been asked for a number of runs. */
+  const reachedWaiters: { readonly count: number; readonly resolve: (run: FakeRunRecord) => void }[] = [];
   const deletedTranscripts: string[] = [];
   const nextScripts: Script[] = [];
   const titleReads: string[] = [];
@@ -778,6 +788,10 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       withdrawals: [],
     };
     runs.push(record);
+    for (const waiter of reachedWaiters.filter((entry) => entry.count === runs.length)) {
+      reachedWaiters.splice(reachedWaiters.indexOf(waiter), 1);
+      waiter.resolve(record);
+    }
     // The gate as this run's script asks it, recording each ruling on the run; an adopted turn is handed the context it followed with.
     const gated: RunContext = {
       ...context,
@@ -1049,6 +1063,11 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       const last = runs.at(-1);
       if (last === undefined) throw new Error("The fake adapter has run nothing yet.");
       return last;
+    },
+    reached(count) {
+      const run = runs[count - 1];
+      if (run !== undefined) return Promise.resolve(run);
+      return new Promise((resolve) => reachedWaiters.push({ count, resolve }));
     },
   };
   return adapter;

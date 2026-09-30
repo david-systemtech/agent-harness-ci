@@ -191,6 +191,7 @@ describe("the per-session snapshot", () => {
     accountId: "claude-max",
     model: "opus",
     mode: "acceptEdits",
+    browser: null,
     pullRequests: [],
     draft: null,
   };
