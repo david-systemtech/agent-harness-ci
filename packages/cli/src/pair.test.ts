@@ -102,6 +102,44 @@ describe("agent-harness pair", () => {
     expect(answer.body).toMatchObject({ scopes: ["read", "runs:drive"], ceiling: "plan" });
   });
 
+  it("mints my own client's preset with --preset own-client, every scope up to bypassPermissions, and prints what the code grants", async () => {
+    const t = await start();
+    const cli = harness();
+    expect(await runCli(["pair", "--preset", "own-client", "--data-dir", t.dataDir], cli.context)).toBe(0);
+    expect(cli.err()).toBe("");
+    expect(cli.out()).toContain("  Preset: My own client\n  Scopes: read, sessions:write, runs:drive, terminal, admin\n  Ceiling: bypassPermissions\n");
+    const code = parsePairingLink(linkIn(cli.out()))?.code;
+    const answer = await t.pairExchange({ code, kind: "desktop", label: "laptop", protocolVersion: PROTOCOL_VERSION });
+    expect(ClientSessionCredential.parse(answer.body)).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
+  });
+
+  it("mints a program's preset with --preset program, read, sessions:write and runs:drive up to acceptEdits, or the ceiling it is given", async () => {
+    const t = await start();
+    const cli = harness();
+    expect(await runCli(["pair", "--preset", "program", "--data-dir", t.dataDir], cli.context)).toBe(0);
+    expect(cli.out()).toContain("  Preset: A program\n  Scopes: read, sessions:write, runs:drive\n  Ceiling: acceptEdits\n");
+    const code = parsePairingLink(linkIn(cli.out()))?.code;
+    const answer = await t.pairExchange({ code, kind: "program", label: "hermes", protocolVersion: PROTOCOL_VERSION });
+    expect(answer.body).toMatchObject({ scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" });
+
+    const lower = harness();
+    expect(await runCli(["pair", "--preset", "program", "--ceiling", "plan", "--data-dir", t.dataDir], lower.context)).toBe(0);
+    expect(lower.out()).toContain("  Ceiling: plan\n");
+  });
+
+  it("refuses a change the preset does not take, before it reaches the environment", async () => {
+    for (const [args, message] of [
+      [["--preset", "own-client", "--ceiling", "plan"], "My own client grants every scope, up to bypassPermissions: it takes no other scopes or ceiling."],
+      [["--preset", "program", "--scopes", "read"], "A program grants read, sessions:write and runs:drive: only its ceiling may be picked."],
+      [["--preset", "everything"], "--preset takes one of own-client, program, custom; got everything."],
+    ] as const) {
+      const cli = harness();
+      expect(await runCli(["pair", ...args], cli.context), args.join(" ")).toBe(2);
+      expect(cli.err()).toContain(message);
+      expect(cli.urls).toEqual([]);
+    }
+  });
+
   it("revokes its own local client session before it exits, so none is left behind", async () => {
     const t = await start();
     const cli = harness();
@@ -185,7 +223,7 @@ describe("agent-harness pair", () => {
     ]) {
       const cli = harness();
       expect(await runCli(args, cli.context), args.join(" ")).toBe(2);
-      expect(cli.err()).toContain("agent-harness pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]");
+      expect(cli.err()).toContain("agent-harness pair [--preset <own-client|program|custom>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]");
       if (args[1] === "--ceiling") expect(cli.err()).toContain("--ceiling takes one of plan, acceptEdits, auto, bypassPermissions");
     }
   });

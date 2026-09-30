@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { formatPairingCode, type Ceiling, type MintedPairing, type Scope } from "@agent-harness/contracts";
+import { formatPairingCode, type Ceiling, type MintedPairing, type PairingPreset, type Scope } from "@agent-harness/contracts";
 import { renderUnicodeCompact } from "uqr";
 import { LocalFailure, LocalRefusal, withLocalSession, type LocalTarget, type Net } from "./local-session.js";
 
 export interface PairArgs extends LocalTarget {
   readonly scopes?: readonly Scope[] | undefined;
   readonly ceiling?: Ceiling | undefined;
+  /** The pairing preset the scopes and ceiling are, named in what `pair` prints. */
+  readonly preset?: PairingPreset | undefined;
 }
 
 /** The label the verb's local client session is exchanged under, as `access.sessions.list` shows it. */
@@ -36,8 +38,8 @@ export const mintPairing = async (args: PairArgs, net: Net): Promise<MintedPairi
     return answer.result;
   });
 
-/** What `pair` prints: the link, a QR of the link for a phone's camera, and the short code for typing. */
-export const renderPairing = (pairing: MintedPairing): string =>
+/** What `pair` prints: the link, a QR of the link for a phone's camera, the short code for typing, and what the code grants, with the preset asked for. */
+export const renderPairing = (pairing: MintedPairing, preset?: PairingPreset): string =>
   [
     `Pair a client with this environment before ${pairing.expiresAt} (ten minutes, one use).`,
     "Open the link, scan the QR, or type the code:",
@@ -47,6 +49,7 @@ export const renderPairing = (pairing: MintedPairing): string =>
     renderUnicodeCompact(pairing.link, { border: 2 }),
     "",
     `  Code: ${formatPairingCode(pairing.code)}`,
+    ...(preset === undefined ? [] : [`  Preset: ${preset.name}`]),
     `  Scopes: ${pairing.scopes.join(", ")}`,
     `  Ceiling: ${pairing.ceiling}`,
     "",

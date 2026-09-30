@@ -192,7 +192,7 @@ describe("agent-harness serve", () => {
 
     const [address = "", intro, ...pairing] = cli.out().split("\n");
     expect(address).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\.well-known\//);
-    expect(intro).toBe(`No client has paired with this environment yet. Pair one with this code, or run agent-harness pair --data-dir ${dataDir} in the container for a new one.`);
+    expect(intro).toBe(`No client has paired with this environment yet. Pair one with this code, or run agent-harness pair --preset own-client --data-dir ${dataDir} in the container for a new one.`);
     const printed = pairing.join("\n");
     const link = /http:\/\/\S+\/pair#\S+/.exec(printed)?.[0] ?? "";
     const code = parsePairingLink(link)?.code ?? "";

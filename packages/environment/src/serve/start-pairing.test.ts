@@ -3,15 +3,14 @@ import { PROTOCOL_VERSION, SCOPES, parsePairingLink } from "@agent-harness/contr
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { DEFAULT_CEILING } from "../auth/client-sessions.js";
 import type { ContainerDetector } from "./container.js";
 
 /**
  * The first-start pairing (launcher-update spec, "Containers: the host-side
  * updater"; ADR 0025; #349): a declared container pairs from its own log, so
  * until a client first exchanges a pairing code, each start mints one for
- * `serve` to print. Through the in-process environment with the container
- * detection stubbed.
+ * `serve` to print, with my own client's grant. Through the in-process
+ * environment with the container detection stubbed.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -38,7 +37,8 @@ describe("a declared container's start", () => {
     const dataDir = join(tempDir(), "data");
     const first = await start({ dataDir, containerDetector: DECLARED });
     const minted = first.env.startPairing;
-    expect(minted).toMatchObject({ scopes: [...SCOPES], ceiling: DEFAULT_CEILING });
+    // My own client's grant, as the install script's pairing (ADR 0025; #577): every scope, and the top ceiling.
+    expect(minted).toMatchObject({ scopes: [...SCOPES], ceiling: "bypassPermissions" });
     expect(parsePairingLink(minted?.link ?? "")?.origin).toBe(`http://127.0.0.1:${first.address.port}`);
     await first.close();
 
