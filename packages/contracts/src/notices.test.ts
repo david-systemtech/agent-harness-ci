@@ -4,6 +4,7 @@ import {
   ENVIRONMENT_NOTICE_TYPES,
   ENVIRONMENT_STREAM_KIND,
   EnvironmentNotice,
+  EnvironmentNoticeType,
   EventEnvelope,
   UPDATE_CANCEL_CAUSES,
   UPDATE_CAUSES,
@@ -13,7 +14,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' and Move's (#365, #366, #371, #372), the routines' (#519), settings changed (#391), a Set up step's result changed (#569), the skill set changed (#494), the Managed tools registry's (#373), an unpaired extension seen (#547) and an import of an adopted account's directory ended (#578), on the environment stream", () => {
+  it("are these types, in this order, on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -66,6 +67,11 @@ describe("environment notices", () => {
       "carry-over.imported",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
+  });
+
+  it("are each named once in EnvironmentNoticeType's description, in their order, so none is left without its gloss (#799)", () => {
+    const named = (EnvironmentNoticeType.description ?? "").match(/(?<![\w.-])[a-z][a-z-]*(?:\.[a-z][a-z-]*)+(?![\w-])/g) ?? [];
+    expect(named.filter((word) => (ENVIRONMENT_NOTICE_TYPES as readonly string[]).includes(word))).toEqual(ENVIRONMENT_NOTICE_TYPES);
   });
 
   it("parse from the event envelope an event frame carries, the envelope's other fields left aside", () => {
