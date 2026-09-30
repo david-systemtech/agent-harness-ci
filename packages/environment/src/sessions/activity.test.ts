@@ -278,6 +278,7 @@ describe("a run's start", () => {
     const client = await t.client();
     const { id } = await create(client);
     const first = await startRun(client, id);
+    await t.adapter.reached(1);
     const sent = await run(client, "runs.send", { sessionId: id, text: "Queued for later" });
     expect(sent.result).toMatchObject({ delivery: "queued", heldBy: "provider" });
     await command(client, "sessions.settle", { sessionId: id });
@@ -346,6 +347,8 @@ describe("a run's end", () => {
       const client = await t.client();
       const { id } = await create(client);
       const { runId } = await startRun(client, id);
+      // On its adapter, past its skill set and instructions (#493, #496), so the run's own end is its adapter's.
+      await t.adapter.reached(1);
       await command(client, "sessions.snooze", { sessionId: id, until: at(DAY) });
       const head = t.env.log.head();
       snoozed.open();

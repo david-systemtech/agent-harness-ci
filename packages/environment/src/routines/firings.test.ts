@@ -59,6 +59,10 @@ const heldRun =
     yield end();
   };
 
+/** Resolves once the run has said it is working: its adapter has it, past its skill set and its instructions (#493, #496). */
+const working = (t: TestEnvironment, sessionId: string, runId: string) =>
+  untilEvent(t, { kind: "session", id: sessionId }, (event) => event.type === "assistant.text" && event.payload["runId"] === runId);
+
 /** A gate opened when the test ends, so a run it holds never outlives it. */
 const heldGate = (): Gate => {
   const held = gate();
@@ -573,6 +577,7 @@ describe("a firing's end", () => {
     const t = await start();
     const client = await t.client();
     const interrupted = await firing(t, client, heldRun(heldGate()));
+    await working(t, interrupted.sessionId, interrupted.runId);
     await client.apply("runs.interrupt", { commandId: randomUUID(), runId: interrupted.runId });
     expect((await untilSettled(t, interrupted.routineId, interrupted.firingId)).payload).toMatchObject({ outcome: "cancelled", reason: null, text: "Working" });
 
@@ -613,6 +618,7 @@ describe("a firing and its routine's changes", () => {
     t.adapter.nextScripts.push(heldRun(held, "Finished anyway."));
     const firingId = await ranNow(client, state.id);
     const { sessionId, runId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string; runId: string };
+    await working(t, sessionId, runId);
     t.clock.advance(30_000);
 
     await routineCommand(client, "routines.delete", { routineId: state.id });

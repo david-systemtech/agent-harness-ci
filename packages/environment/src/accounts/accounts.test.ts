@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
-  EMPTY_RUN_SKILL_SET,
   registry,
   type AccountRecord,
   type AccountUpdatedPayload,
@@ -755,9 +754,10 @@ describe("models.list and commands.list", () => {
     const client = await t.client();
     const workspace = { kind: "directory", path: "/work/agent-harness" } as const;
     expect(await client.request("commands.list", { workspace })).toEqual({ accountId: "claude-max", commands: [{ name: "review", description: "Review the branch." }] });
-    // Under the workspace's trust and its skill set, as a run there would be: undecided, and nothing resolves a set yet (#495).
+    // Under the workspace's trust and its skill set, as a run there would be: undecided, and the own directory's set, empty (#495, #496).
+    const empty = { generation: null, fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/), members: [], hiddenNativeNames: [] };
     expect(t.adapter.commandListings).toEqual([
-      { account: { id: "claude-max", directory: expect.any(String) }, workspace: workspace.path, scope: { trusted: false, skillSet: EMPTY_RUN_SKILL_SET } },
+      { account: { id: "claude-max", directory: expect.any(String) }, workspace: workspace.path, scope: { trusted: false, skillSet: empty } },
     ]);
     expect(t.adapter.runs).toEqual([]);
     expect(await refusal(client.request("commands.list", { accountId: "nobody", workspace }))).toMatchObject({ code: "not_found", data: { kind: "account" } });
