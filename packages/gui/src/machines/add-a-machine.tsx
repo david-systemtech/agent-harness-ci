@@ -1,12 +1,13 @@
 import { LOCAL_PLACEHOLDER_ID, homeEnvironment, installLines, type EnvironmentView } from "@agent-harness/client-runtime";
 import { ReleaseChannel } from "@agent-harness/contracts";
-import { useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 import { PairingForm } from "../connections/pairing.js";
 import { nameOf } from "../connections/words.js";
 import { ExternalLink } from "../session/external-link.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { useSettings } from "../settings/settings-window.js";
 import { Button, Field, Input } from "../ui/index.js";
+import { useUpdatesStatus } from "../updates/use-updates-status.js";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { Part } from "./machine-card.js";
 
@@ -37,7 +38,7 @@ const CopyLine = ({ label, text }: { readonly label: string; readonly text: stri
  */
 const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
-  const status = useObservable(useMemo(() => runtime.requests.cached(view.environmentId, "updates.status", {}), [runtime, view.environmentId]));
+  const status = useUpdatesStatus(view.environmentId);
   const channel = ReleaseChannel.safeParse(useSettingsValues(view.environmentId).values?.["updates.channel"]);
   const [name, setName] = useState("");
   const readable = runtime.capability(view.environmentId, "updates.status");
