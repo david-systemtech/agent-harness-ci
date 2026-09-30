@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
 import { SKILL_PLUGIN_NAME, SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
@@ -15,6 +16,7 @@ import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
 import { ClaudeProcess, checkImages, type ProcessDeps, type ProcessTimings } from "./process.js";
+import { listDirectorySessions } from "./session-listing.js";
 
 /**
  * The Claude adapter (claude-adapter spec; ADR 0015, ADR 0018): the first
@@ -38,8 +40,9 @@ export { CLAUDE_PROVIDER };
  * Titles (read and write) and subagent transcripts go through the SDK's
  * helpers over the environment's session store (#137), so an adapter made
  * without one declares them, and fork, false (`descriptorFor`); transcript delete
- * removes the CLI's own files for the session. Session listing is not
- * offered: every conversation the harness runs is a harness session already.
+ * removes the CLI's own files for the session. Session listing lists an
+ * account directory's sessions for Carry over (#578), through the SDK's own
+ * listing under the config-directory queue (`session-listing.ts`).
  * File attachments wait on staging not yet ported here.
  */
 export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
@@ -52,7 +55,7 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   resume: true,
   fork: true,
   rewind: true,
-  sessionListing: false,
+  sessionListing: true,
   subagents: true,
   subagentTranscripts: true,
   titleRead: true,
@@ -112,6 +115,7 @@ export interface ClaudeAdapterOptions {
 export interface ClaudeAdapter extends Adapter {
   readonly commands: NonNullable<Adapter["commands"]>;
   readonly usage: NonNullable<Adapter["usage"]>;
+  readonly listSessions: NonNullable<Adapter["listSessions"]>;
   readonly stopProcess: (sessionId: string, options?: { readonly kill?: boolean }) => Promise<void>;
   /** The machine's own Claude directory, which `accounts.adopt` registers in place. */
   readonly ambientDirectory: () => string;
@@ -301,6 +305,8 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     usage: (account) => usage.read(account),
     // A linked member is the generation plugin's skill, which the CLI namespaces by the plugin's name; a native one is the project's own.
     invocationText: (member) => (member.native ? `/${member.name}` : `/${SKILL_PLUGIN_NAME}:${member.name}`),
+    // An account directory's sessions, every project of it, for Carry over (#578): read, and never written.
+    listSessions: (account) => listDirectorySessions({ queue, directory: configDirectory(account), listSessions: () => sdkListSessions() }),
     async commands(account, workspace, scope): Promise<readonly ProviderCommand[]> {
       try {
         // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.

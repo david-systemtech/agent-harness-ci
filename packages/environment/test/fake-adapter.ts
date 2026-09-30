@@ -27,6 +27,7 @@ import {
   type ModelOption,
   type ProcessPort,
   type ProviderCommand,
+  type ProviderSessionInfo,
   type PromptDecision,
   type PromptDetail,
   type PromptKind,
@@ -91,7 +92,8 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * then, as Claude lists them, each member of the skill set it is handed:
  * `agent-harness:<name>` for one the generation links, `<name>` for a
  * native one; every listing is recorded with its scope (#495). A member's
- * invocation text is Claude's too.
+ * invocation text is Claude's too. It lists an account directory's
+ * sessions for Carry over when a test scripts them (`sessions`, #578).
  *
  * The tool gate (#132, #133): a script plays a tool call as a provider
  * does under the gate (`toolCall`), asking the run context's gate before its
@@ -194,6 +196,12 @@ export interface FakeAdapterOptions {
   readonly ambientDirectory?: string | null;
   /** Declares `commands` with these commands, recording each listing. Preset: not declared. */
   readonly commands?: readonly ProviderCommand[];
+  /**
+   * Declares `sessionListing`: the sessions each account's directory holds,
+   * given, or read per account from a function that may answer later or
+   * throw; every listing is recorded. Preset: not declared.
+   */
+  readonly sessions?: readonly ProviderSessionInfo[] | ((account: AccountRef) => readonly ProviderSessionInfo[] | Promise<readonly ProviderSessionInfo[]>);
   /** The static catalogue. Preset: opus, sonnet and haiku with tiers 3, 2 and 1. */
   readonly models?: readonly ModelOption[];
   /** The modes the descriptor lists, available or not. Preset: the four, every one available. */
@@ -320,6 +328,8 @@ export interface FakeAdapter extends Adapter {
   readonly statusReads: readonly AccountRef[];
   /** Replaces the status probe from now on. */
   setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
+  /** The accounts whose directory the environment listed the sessions of (`listSessions`), in order. */
+  readonly sessionListings: readonly AccountRef[];
   /** Every commands listing, in order, with the scope the host resolved for it. */
   readonly commandListings: readonly CommandListing[];
   /** Every plan-usage read, in order: the account reference it was asked with. */
@@ -655,7 +665,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     resume: true,
     fork: false,
     rewind: false,
-    sessionListing: false,
+    sessionListing: options.sessions !== undefined,
     subagents: true,
     subagentTranscripts: options.subagentTranscripts !== undefined,
     titleRead: declaredTitle !== undefined,
@@ -689,6 +699,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const ports = new Map<FakeProcessRecord, ProcessPort>();
   const statusReads: AccountRef[] = [];
   const commandListings: CommandListing[] = [];
+  const sessionListings: AccountRef[] = [];
+  const listed = options.sessions;
   let status = options.status;
   const usageReads: AccountRef[] = [];
   // The preset names the fake's own provider, whatever a test calls it; a scripted reading is answered as scripted.
@@ -945,6 +957,12 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         return [...(options.commands ?? []), ...scope.skillSet.members.map(listedMember)];
       },
     }),
+    ...(listed !== undefined && {
+      listSessions: async (account: AccountRef) => {
+        sessionListings.push(account);
+        return typeof listed === "function" ? listed(account) : listed;
+      },
+    }),
     invocationText: (member) => (member.native ? `/${member.name}` : `/${SKILL_PLUGIN_NAME}:${member.name}`),
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
     createRun: (input, context) => {
@@ -1010,6 +1028,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       status = next;
     },
     commandListings,
+    sessionListings,
     usageReads,
     setUsage(next) {
       usage = next;

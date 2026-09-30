@@ -37,6 +37,7 @@ startDesktop(
     hostname: hostname(),
     user: userInfo().username,
     argv: process.argv,
+    executable: process.execPath,
     paths: {
       data,
       environment: environmentDataDirectory(machine),

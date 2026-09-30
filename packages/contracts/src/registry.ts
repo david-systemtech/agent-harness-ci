@@ -70,6 +70,7 @@ import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWith
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import { setupCheck } from "./methods/setup.js";
+import { carryOverInventory, carryOverRun } from "./methods/carry-over.js";
 import {
   accountsAdd,
   accountsAdopt,
@@ -303,6 +304,8 @@ export const methods = [
   permissionsDenylistRestorePresets,
   permissionsDenylistTest,
   setupCheck,
+  carryOverInventory,
+  carryOverRun,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,
