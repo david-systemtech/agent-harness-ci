@@ -540,3 +540,15 @@ export {
   type DenylistTested,
   type ReviewMarked,
 } from "./permissions/actions.js";
+export {
+  OWN_CEILING,
+  accessEventTimeWords,
+  accessEventWords,
+  clientSessionLabels,
+  clientSessionWords,
+  grantWords,
+  type ClientSessionSummary,
+} from "./access/words.js";
+export { PROGRAM_GRANT, readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
+export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";

@@ -210,7 +210,8 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * ending (`state-import.finished`, #581) the state import's detection; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
- * `browser.status`, whose unpaired flag a pairing clears.
+ * `browser.status`, whose unpaired flag a pairing clears; and a drain
+ * beginning (`environment.draining`, #417) `environment.status`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -236,6 +237,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "browser.chromes.list": ["chrome.updated"],
   "carryOver.inventory": ["carry-over.imported"],
   "stateImport.detect": ["state-import.finished"],
+  "environment.status": ["environment.draining"],
 };
 
 export interface RequestCache {
