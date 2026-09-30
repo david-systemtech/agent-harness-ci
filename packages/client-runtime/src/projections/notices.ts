@@ -175,6 +175,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.icon-set":
         case "environment.colour-set":
           return;
+        // The known environments' union changed (#382) raises none: the request cache reads instructions.list and
+        // instructions.preview again, whose block lists it.
+        case "environment.known-environments-updated":
+          return;
         // An update's other steps change the card and About, which follow `updates.status` in the request cache (#344).
         case "environment.update-pending":
         case "environment.update-started":
