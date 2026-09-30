@@ -137,6 +137,8 @@ const pageAnswer = (request: ReadRequest, fetched: Extract<Fetched, { kind: "bod
   const text = redactTokens(extracted.markdown);
   if (text.trim() === "") {
     if (extracted.kind === "pdf") return refusal(`${fetched.url.href} is a PDF whose pages hold no text (it may be scanned images); web_read reads text only.`);
+    // Only a page can be drawn by script; a text body with nothing in it is just empty.
+    if (extracted.kind === "text") return refusal(`${fetched.url.href} answered with no text: its body is empty.`);
     return needsBrowser(`${fetched.url.href} has no text to read: its content may be drawn by script, which web_read does not run.`);
   }
   const page = pageText(text, request.offset);
