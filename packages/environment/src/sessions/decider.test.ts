@@ -44,6 +44,7 @@ const command = (overrides: Partial<CreateSession> = {}): CreateSession => ({
   account: null,
   model: null,
   mode: null,
+  browser: null,
   ...overrides,
 });
 

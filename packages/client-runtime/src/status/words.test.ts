@@ -19,11 +19,12 @@ describe("a plan window", () => {
     expect(pressureOf({ utilisation: null, verdict: null })).toBeUndefined();
   });
 
-  it("reads as its label, its percent with out when refused, and its pressure", () => {
-    expect(readingsOf({ ...gauge, windows: [window("five_hour", 0.42), window("seven_day", 1.02, "rejected"), window("extra_usage", null)] })).toEqual([
-      { window: "five_hour", label: "5hr", utilisation: 0.42, value: "42%", pressure: "low" },
-      { window: "seven_day", label: "Week", utilisation: 1.02, value: "102% out", pressure: "out" },
-      { window: "extra_usage", label: "extra usage", utilisation: null, value: "—", pressure: undefined },
+  it("reads as its label, its percent with out when refused, its pressure, and when it rolls over", () => {
+    const fiveHour = { ...window("five_hour", 0.42), resetsAt: "2026-09-25T14:00:00.000Z" };
+    expect(readingsOf({ ...gauge, windows: [fiveHour, window("seven_day", 1.02, "rejected"), window("extra_usage", null)] })).toEqual([
+      { window: "five_hour", label: "5hr", utilisation: 0.42, value: "42%", pressure: "low", resetsAt: "2026-09-25T14:00:00.000Z" },
+      { window: "seven_day", label: "Week", utilisation: 1.02, value: "102% out", pressure: "out", resetsAt: null },
+      { window: "extra_usage", label: "extra usage", utilisation: null, value: "—", pressure: undefined, resetsAt: null },
     ]);
   });
 

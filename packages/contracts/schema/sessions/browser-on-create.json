@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserOnCreate",
+  "type": "object",
+  "properties": {
+    "value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "chrome"
+            },
+            "environmentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The environment the Chrome is paired with."
+            },
+            "chromeId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+            }
+          },
+          "required": [
+            "kind",
+            "environmentId",
+            "chromeId"
+          ],
+          "description": "A Chrome paired with an environment."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "headless"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The headless browser of the environment the run is on."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dock"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The browser dock in the desktop window."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "No browser: the run reads the web with web_read alone."
+        }
+      ],
+      "description": "A browser a session chose: a Chrome (a null chromeId the plain My Chrome), headless, the dock, or none."
+    },
+    "chosenBy": {
+      "type": "string",
+      "enum": [
+        "person",
+        "reach"
+      ],
+      "description": "Who chose it: person, or reach (the account's browser.reach default, as the client preset it)."
+    }
+  },
+  "required": [
+    "value",
+    "chosenBy"
+  ],
+  "description": "The session's first browser and who chose it: a person or the reach default."
+}

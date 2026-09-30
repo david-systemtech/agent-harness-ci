@@ -66,13 +66,14 @@ export const pressureOf = (window: Pick<UsageWindow, "utilisation" | "verdict">)
   return "low";
 };
 
-/** One window of a gauge as a reading: its short name, how full it is, its percent (with `out` when refused), and its pressure. */
+/** One window of a gauge as a reading: its short name, how full it is, its percent (with `out` when refused), its pressure, and when it rolls over. */
 export interface Reading {
   readonly window: string;
   readonly label: string;
   readonly utilisation: number | null;
   readonly value: string;
   readonly pressure: Pressure | undefined;
+  readonly resetsAt: string | null;
 }
 
 export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
@@ -82,6 +83,7 @@ export const readingsOf = (gauge: UsageGauge | undefined): readonly Reading[] =>
     utilisation: window.utilisation,
     value: window.verdict === "rejected" ? `${percent(window.utilisation)} out` : percent(window.utilisation),
     pressure: pressureOf(window),
+    resetsAt: window.resetsAt,
   }));
 
 /** A gauge's windows in one line: `5hr 42% · Week 10%`; its reason when it has none. */

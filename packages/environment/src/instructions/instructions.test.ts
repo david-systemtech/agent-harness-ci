@@ -117,11 +117,11 @@ describe("a run's launch", () => {
     // It is the session's live run: a second start is refused.
     const second = await command(client, "runs.start", { sessionId: id, text: "Another" });
     expect(second.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "run_active", runId } } });
-    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "message.sent"]);
+    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent"]);
 
     stall.open();
     await untilEnded(t, id, runId);
-    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
     expect(composedOf(t, id, runId)).toMatchObject({ actor: "system:adapter-host", correlationId: runId });
     expect(t.adapter.lastRun().input.instructions).toBe("You are on SYSTEM-SERVER, a Linux machine.");
   });
@@ -141,7 +141,7 @@ describe("a run's launch", () => {
     await untilEnded(t, id, runId);
     expect(endOf(t, id, runId)?.payload).toMatchObject({ reason: "interrupted", cause: "user", error: null });
     // What it was launched with is the environment's again, heard just before its end.
-    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
+    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "message.requeued", "run.ended"]);
 
     // The composition it no longer waits for answers: nothing is recorded, and no provider is asked for the run.
     orientation.state.stall = null;
@@ -174,7 +174,7 @@ describe("a run's launch", () => {
 });
 
 describe("the instruction scope", () => {
-  it("carries the session, account and workspace, the trust key undecided, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
+  it("carries the session, account and workspace, the trust key undecided, the skill set the run is handed, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
     const orientation = testOrientation();
     const identity = "https://git.example/david/receipts";
     const t = await start(orientation, {}, { workspaceResolver: scriptedResolver(() => ({ workspace, repositoryIdentity: identity })) });
@@ -193,6 +193,8 @@ describe("the instruction scope", () => {
         accountId: "claude-max",
         workspace,
         trust: { key: { kind: "identity", value: identity }, decision: "undecided" },
+        // The own directory holds nothing: the set resolved is empty, with nothing to link, and has its fingerprint.
+        skillSet: { generation: null, fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/), members: [], hiddenNativeNames: [] },
         origin: "client",
         containment: "off",
         injection: { answer: "allow", level: { kind: "environment" } },
@@ -241,7 +243,7 @@ describe("the composition", () => {
           { layer: "session", characters: 17, parts: [{ id: "session-note", version: "2", characters: 17 }] },
         ],
         alwaysOn: [],
-        skillSetFingerprint: null,
+        skillSetFingerprint: t.adapter.lastRun().input.skillSet.fingerprint,
         unreadRegistries: ["forges"],
         leftOut: [],
       },
@@ -316,7 +318,7 @@ describe("the composition", () => {
       channel: "none",
       layers: [],
       alwaysOn: [],
-      skillSetFingerprint: null,
+      skillSetFingerprint: t.adapter.lastRun().input.skillSet.fingerprint,
       unreadRegistries: ["forges"],
       leftOut: [{ layer: "user", id: "orientation", reason: "channel-none" }],
     };
