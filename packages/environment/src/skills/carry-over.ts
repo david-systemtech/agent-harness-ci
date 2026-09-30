@@ -14,7 +14,7 @@ import { adoptedAccount, isCarryOverRefusal } from "../carry-over/adopted.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import { readCheckoutSource } from "./checkout.js";
-import { occupied, type OwnDirectory } from "./own-directory.js";
+import { holdsRootSkill, occupied, rootSkill, type OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
 import { PROVENANCE_MANIFEST } from "./provenance.js";
 import { entriesOf, readCommandFileAt, readSkillFolderAt, type FoundMember } from "./reader.js";
@@ -29,9 +29,10 @@ import { entriesOf, readCommandFileAt, readSkillFolderAt, type FoundMember } fro
  *
  * Each original is, in turn: invalid, when it reads with a problem, and
  * left; offered, when it is a skill folder that resolves into a git working
- * tree with a remote (`checkout.ts`), and not copied; kept, when the own
- * directory holds its name already (a member's, before the run, or one this
- * run copied first) or the folder or file it would be copied to; else
+ * tree with a remote (`checkout.ts`), and not copied, once for each folder
+ * it resolves to (a second original leading there is left out); kept, when
+ * the own directory holds its name already (a member's, before the run, or
+ * one this run copied first) or the folder or file it would be copied to; else
  * copied into the own directory's `skills/<folder>` or `commands/<file>`,
  * links dereferenced so the copy stands alone, and any `.git` left out. A provenance manifest in the
  * folder the originals were read from has the entries of the folders
@@ -39,6 +40,10 @@ import { entriesOf, readCommandFileAt, readSkillFolderAt, type FoundMember } fro
  * there is none; one that does not read as the vendoring format is left as
  * it is. The adopted directory's subagents (`agents/*.md`) and plugins (as
  * `plugins/installed_plugins.json` lists them) are listed as not carried.
+ *
+ * While the own directory's `skills/` holds a `SKILL.md` of its own it is
+ * one skill and no folder in it is read, so the run is refused, `conflict`
+ * with reason `root_skill`, as `skills.own.create` is, copying nothing.
  *
  * A prepared command: the reads and copies come first, outside the
  * transaction, each copy undone when the command is not accepted; the
@@ -202,10 +207,16 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedComman
       const account = adoptedAccount(options.account, accountId);
       if (isCarryOverRefusal(account)) return () => ({ aggregate: stream, rejected: account });
 
+      // While skills/ is one skill no folder copied into it would be read, so nothing is carried, dry or not.
+      const members = await own.members();
+      if (holdsRootSkill(members)) return () => ({ aggregate: stream, rejected: rootSkill({ accountId }) });
+
       // The own directory's names before the run, each with the path of the member that wins it; the run adds what it copies.
       const held = new Map<string, string>();
-      for (const member of resolveSkillSet(await own.members(), [])) if (member.name !== null && !held.has(member.name)) held.set(member.name, member.path);
+      for (const member of resolveSkillSet(members, [])) if (member.name !== null && !held.has(member.name)) held.set(member.name, member.path);
       const claimed = new Set<string>();
+      // The checkout folders offered so far: an original leading into one of them again is the same offer.
+      const offeredFolders = new Set<string>();
 
       const originals = [
         ...(await skillFolders(join(account.directory, "skills"))),
@@ -224,9 +235,11 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedComman
           continue;
         }
         const name = member.name;
+        if (offeredFolders.has(original.resolved)) continue;
         const source = kind === "skill" ? await readCheckoutSource(original.resolved) : null;
         if (source !== null) {
           offered.push({ name, from, ...source });
+          offeredFolders.add(original.resolved);
           continue;
         }
         const path = `${kind === "skill" ? "skills" : "commands"}/${original.entry}`;
