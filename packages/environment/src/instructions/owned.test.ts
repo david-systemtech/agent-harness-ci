@@ -280,6 +280,18 @@ describe("the user layer", () => {
     expect(new Set(texts)).toEqual(new Set([`${ORIENTATION}\n\n${standing(["Coding style", "Prefer small modules."])}`]));
   });
 
+  it("hands an account whose adapter has no instruction channel nothing, and its manifest names each owned instruction left out", async () => {
+    const { t, adapters } = await start();
+    const client = await t.client();
+    const style = await make(client, { title: "Coding style", body: "Prefer small modules." });
+    const { sessionId, runId } = await runOn(t, client, "local");
+    expect(adapters.none.lastRun().input.instructions).toBe("");
+    expect(composedOf(t, sessionId, runId)?.manifest.leftOut).toEqual([
+      { layer: "user", id: "orientation", reason: "channel-none" },
+      { layer: "user", id: style.id, reason: "channel-none" },
+    ]);
+  });
+
   it("leaves the block out of the next run's text while instructions.orientation is off, the key preset on", async () => {
     const { t, adapters, orientation } = await start();
     const client = await t.client();
