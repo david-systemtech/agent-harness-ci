@@ -45,7 +45,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * (#391) raises none: what changed shows where the settings are read, which
  * the request cache fetches again on it. `skills.updated` (#494) raises
  * none: it refreshes the cached `skills.get`; nor does `trust.updated`
- * (#500), which refreshes the cached `trust.get` and `trust.list`.
+ * (#500), which refreshes the cached `trust.get` and `trust.list`; nor
+ * does `instructions.updated` (#505), which refreshes the cached
+ * `instructions.list` and `instructions.preview`.
  */
 
 export interface EnvironmentNoticeContext {
@@ -197,6 +199,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
         case "trust.updated":
+          return;
+        // An owned instruction changed (#505): the request cache reads instructions.list and instructions.preview again.
+        case "instructions.updated":
           return;
         // An unpaired extension seen (#547) raises none: the Browser card ticks its Load sub-step from browser.status.
         case "extension.seen":

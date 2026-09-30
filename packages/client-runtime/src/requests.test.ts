@@ -418,6 +418,44 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
   });
 
+  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings or an account changing, and no other query (#505)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const reads = { list: 0, preview: 0 };
+    const accounts = [{ accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null }];
+    const manifest = { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [], leftOut: [] };
+    wire.answer("instructions.list", () => {
+      reads.list++;
+      return { result: { orientation: { enabled: reads.list === 1, text: "# Orientation", unreadRegistries: [], accounts }, instructions: [] } };
+    });
+    wire.answer("instructions.preview", () => {
+      reads.preview++;
+      return { result: { parts: [], text: "", manifest } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const listed = runtime.requests.cached(id, "instructions.list", {});
+    listed.subscribe(() => undefined);
+    runtime.requests.cached(id, "instructions.preview", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" }).subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 1, 1]);
+
+    environment?.event(noticeEvent(1, wire.environmentId, "instructions.updated", {}));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 2, 2]);
+    expect(listed.read()).toMatchObject({ result: { orientation: { enabled: false } }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 2, 2]);
+    // The orientation switch is a setting.
+    environment?.event(noticeEvent(3, wire.environmentId, "settings.changed", { keys: ["instructions.orientation"] }));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 3, 3]);
+    // Every row carries the accounts, and the block names them.
+    environment?.event(noticeEvent(4, wire.environmentId, "account.updated", { accountId: "claude-max", change: "added", warning: null }));
+    await flush();
+    expect(reads.list).toBe(4);
+    expect(reads.preview).toBe(4);
+  });
+
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
     const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
     const cached = runtime.requests.cached(id, "groups.list", {});
