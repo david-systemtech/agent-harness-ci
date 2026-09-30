@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolDoctorWarning",
+  "type": "object",
+  "properties": {
+    "issue": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "What doctor found, as it printed it."
+    },
+    "fix": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[^\\r\\n]*$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The fix it suggests; null when it gives none."
+    }
+  },
+  "required": [
+    "issue",
+    "fix"
+  ],
+  "description": "A warning doctor found, and the fix it suggests."
+}

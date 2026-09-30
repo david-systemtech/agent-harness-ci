@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, type ManualClock } from "../../test/clock.js";
 import { startFakeOpenBao, type FakeOpenBao } from "../../test/fake-openbao.js";
+import { latestNoticed, startFakeReleaseSources } from "../../test/fake-release-sources.js";
 import { fakeToolPath, type FakeToolPath } from "../../test/fake-tools.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, token, update } from "../../test/key-manager-connections.js";
@@ -244,6 +245,19 @@ posix("key-manager.cli", () => {
       failing: ["key-manager.cli"],
       targets: [{ action: "update", kind: "tool", id: "bao", label: "bao" }],
     });
+  });
+
+  it("takes a bao with a newer release known, update-available, as current: a badge, never a failing check", async () => {
+    const released = await startFakeReleaseSources();
+    onCleanup(() => released.close());
+    released.github("openbao/openbao", ["v2.7.0"]);
+    const { t, bao, client } = await withOpenBao({ managedTools: { releaseOrigins: released.origins } });
+    await added(client, { address: bao.address, ca: bao.ca, credential: approle() });
+    const from = t.env.log.head();
+    await client.request("tools.list", { refresh: true });
+    expect(await latestNoticed(client, from, "bao")).toMatchObject([{ tool: "bao", status: "update-available" }]);
+
+    expect(await checkKeyManager(client)).toMatchObject({ state: "done", reason: ALL_HOLD, failing: [] });
   });
 
   it("takes a vault at its minimum or later for OpenBao, with no bao", async () => {
