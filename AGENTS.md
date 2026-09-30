@@ -110,6 +110,18 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
   export-schemas` and commit the result; CI regenerates it and fails on drift.
+  A merge conflict in the export is settled by regenerating it, never by hand:
+  resolve the TypeScript sources, run `export-schemas` (it rewrites the whole
+  directory, conflict markers included) and `git add -A packages/contracts/schema`.
+  Run it after any merge that changed `packages/contracts/src` as well, since a
+  clean merge can still leave the export stale. Each environment notice type is
+  an `anyOf` entry of its own beside its gloss, so two changes that add notices
+  in different places merge there without a conflict (#817,
+  `schema-export-merge.test.ts`); two that append at the same place conflict in
+  `notices.ts` too. Keep merge settings for the export out of `.gitattributes`:
+  Forgejo decides mergeability with `git merge-tree`, which runs no custom merge
+  driver and does apply the built-in `union`, which joins both sides' lines into
+  invalid JSON and reports no conflict.
 - `agent-harness serve` refuses root (ADR 0006), and the agent box and possibly
   CI run as root: the environment's tests inject a non-privileged user check,
   and the CLI's end-to-end `serve` tests split on the runner's uid (the
