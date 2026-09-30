@@ -60,6 +60,7 @@ import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
 import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
+import { createImportedHistory } from "../carry-over/history.js";
 import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
 import { readSessionFacts } from "../runs/run-reads.js";
 import { composeInstructions, type OrientationSeam } from "../instructions/composer.js";
@@ -1237,6 +1238,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, onPurged: (purged) => reaper.purged(purged) });
+  // An imported session's history, read from the adopted directory the first time a client opens it (#579).
+  const importedHistory = createImportedHistory({ log, host });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
   // and terminals.open's looks and what the file and diff methods find; its passes start once the wire is open.
   const availability = createAvailabilityWatcher({
@@ -1418,6 +1421,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clock: now,
       deletion,
       resolver: workspaceResolver,
+      // An imported session's history, appended the first time a client opens it (#579).
+      beforeOpen: importedHistory.beforeOpen,
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),

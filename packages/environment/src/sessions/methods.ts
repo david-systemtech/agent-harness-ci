@@ -5,6 +5,7 @@ import {
   invalidParams,
   listEventTypes,
   type Mode,
+  type ResultOf,
   type SessionOrigin,
   type SessionSummary,
   type Workspace,
@@ -46,6 +47,7 @@ import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary
 import { sessionTranscript, storedTranscriptParts } from "../runs/transcript.js";
 import { readSessionInstructions } from "../instructions/session-instructions.js";
 import { sessionStream } from "./streams.js";
+import type { LogSource } from "../wire/subscriptions.js";
 import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
 
 /**
@@ -79,6 +81,12 @@ export interface SessionMethodsOptions {
   readonly deletion?: Deletion;
   /** What `sessions.create` resolves its workspace request with (#321): the environment's (`workspace/resolver.ts`), or a test's. */
   readonly resolver: WorkspaceResolver;
+  /**
+   * What a session's open waits for before its snapshot goes out, null when
+   * nothing: an imported session's history appended the first time
+   * (`carry-over/history.ts`, #579). Preset: nothing.
+   */
+  readonly beforeOpen?: (sessionId: string) => Promise<void> | null;
 }
 
 /** The streams and event types the session list carries: the `list`-flagged events of every session and group stream. */
@@ -393,7 +401,9 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
      * the list (unknown, deleted, or purged, whose stream holds only its
      * tombstone) is not found. The deletion that holds now ends the
      * subscription `deleted`, and so does the tombstone, should a purge land
-     * while the catch-up is held.
+     * while the catch-up is held. An open waits first for what `beforeOpen`
+     * says it needs (an imported session's history, #579); one that needs
+     * nothing is answered at once.
      */
     "sessions.subscribeSession": ({ sessionId }) => {
       const id = sessionId.toLowerCase();
@@ -415,7 +425,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
         if (state !== null && !state.deleted) return false;
         return !log.readStream(sessionStream(id), event.sequence).some((later) => later.type === "session.restored");
       };
-      return {
+      const source: LogSource<ResultOf<"sessions.subscribeSession">> = {
         stream: sessionStream(id),
         // The runs, items, parked prompts and rewinds standing are folded from the stream as it stands, from its compaction's fold if it has one (`runs/transcript.ts`).
         snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...sessionTranscript(log, id), instructions: readSessionInstructions(reader, id) }),
@@ -425,6 +435,8 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };
+      const waiting = options.beforeOpen?.(id) ?? null;
+      return waiting === null ? source : waiting.then(() => source);
     },
   };
 };

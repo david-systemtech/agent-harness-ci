@@ -265,6 +265,7 @@ export type {
   AssistantEntry,
   CommandEntry,
   ForkedEntry,
+  HistoryUnreadableEntry,
   OpaqueEntry,
   PromptEntry,
   PromptState,

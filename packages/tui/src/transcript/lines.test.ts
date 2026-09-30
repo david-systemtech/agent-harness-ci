@@ -70,6 +70,18 @@ describe("an opaque row's line", () => {
   });
 });
 
+describe("an imported session's unreadable history (#579)", () => {
+  it("is one line saying the history could not be read, and why", () => {
+    const rows = transcriptRows(view([{ kind: "history-unreadable", sequence: 2, message: "No transcript of p-1 is in /home/david/.claude any more." }]));
+    expect(shown(transcriptLines(rows, CONTEXT))).toEqual(["  · The history could not be read: No transcript of p-1 is in /home/david/.claude any more."]);
+  });
+
+  it("keeps a reason that spans lines to the one line", () => {
+    const rows = transcriptRows(view([{ kind: "history-unreadable", sequence: 2, message: "Reading p-1 failed: Unexpected token\n  at line 3" }]));
+    expect(shown(transcriptLines(rows, CONTEXT))).toEqual(["  · The history could not be read: Reading p-1 failed: Unexpected token at line 3"]);
+  });
+});
+
 describe("a rewound fold's lines", () => {
   const fold: TranscriptEntry = {
     kind: "rewound",

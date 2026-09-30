@@ -2,6 +2,8 @@ import { isAbsolute } from "node:path";
 import type { CarryOverFailure } from "@agent-harness/contracts";
 import { capability } from "../adapter/capabilities.js";
 import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
+import type { AdapterHost } from "../adapter/host.js";
+import type { AccountFacts } from "../runs/run-decider.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { Finding } from "../workspace/availability.js";
 
@@ -43,6 +45,21 @@ const titleLine = (text: string | null): string | null => {
 /** An imported session's title: the provider's custom title, else its summary, else the first prompt; null when none has any text. */
 export const importedTitle = (session: ProviderSessionInfo): string | null =>
   titleLine(session.customTitle) ?? titleLine(session.summary) ?? titleLine(session.firstPrompt);
+
+/** An account as its adapter is handed it, whether its directory is adopted, and that adapter. */
+export interface AccountSource {
+  readonly account: AccountRef;
+  readonly adopted: boolean;
+  readonly adapter: Adapter;
+}
+
+/** The account `facts` describes as its adapter is handed it, with that adapter. */
+export const accountSource = (host: Pick<AdapterHost, "adapters">, facts: AccountFacts): AccountSource => {
+  const adapter = host.adapters.get(facts.descriptor.provider);
+  if (adapter === undefined) throw new Error(`The adapter of the account ${facts.id}, ${facts.descriptor.provider}, is not in the host.`);
+  const account: AccountRef = { id: facts.id, directory: facts.directory, ...(facts.label !== undefined && { label: facts.label }) };
+  return { account, adopted: facts.adopted, adapter };
+};
 
 /** The listing with each provider session once: a session listed twice is taken as last written. */
 export const eachSessionOnce = (listing: readonly ProviderSessionInfo[]): ProviderSessionInfo[] => {

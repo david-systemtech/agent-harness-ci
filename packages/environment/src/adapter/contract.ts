@@ -2,6 +2,7 @@ import type {
   AccountIdentity,
   AdapterCapabilities,
   AttachmentKind,
+  AttachmentRecord,
   AuthStatus,
   ContainmentLevel,
   ContainmentMechanism,
@@ -137,6 +138,29 @@ export interface ProviderSessionInfo {
   /** When its transcript was last written, as an ISO 8601 instant. */
   readonly lastModified: string;
 }
+
+/**
+ * The transcript types an imported session's history is mapped to (ADR
+ * 0021, #579): what the provider recorded of its turns, the assistant's
+ * words and its tool calls, a subagent's calls nested under the call that
+ * started it, as a run of the harness would have reported them. A run's own
+ * facts (its usage, plan limits, delegated work, the provider session it
+ * linked) are not history.
+ */
+export const HISTORY_EVENT_TYPES = ["assistant.text", "assistant.thinking", "tool.started", "tool.ended"] as const satisfies readonly AdapterEventType[];
+
+/** A user message of an imported session's history: its text and its attachments as the log records them; the environment mints its id. */
+export interface HistoryMessage {
+  readonly type: "message.sent";
+  readonly payload: { readonly text: string; readonly attachments: readonly AttachmentRecord[] };
+}
+
+/**
+ * One event of an imported session's history, in the order it happened, and
+ * when, as the provider recorded it (null when it did not say): a user
+ * message, or a transcript event of `HISTORY_EVENT_TYPES`.
+ */
+export type HistoryEvent = (HistoryMessage | Extract<TranscriptEvent, { readonly type: (typeof HISTORY_EVENT_TYPES)[number] }>) & { readonly at: string | null };
 
 /** An attachment as a run is handed it: what it is, and its bytes, which never go in the log. */
 export interface AttachmentData {
@@ -919,6 +943,15 @@ export interface Adapter {
    * #578). Reads, and never creates, links or deletes anything there.
    */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
+  /**
+   * A listed session's history as the account's directory holds it
+   * (`sessionListing`): its transcript and its subagent transcripts mapped
+   * to the transcript vocabulary, oldest first (`HistoryEvent`); null when
+   * the directory holds no transcript of it any more. What the first open of
+   * an imported session appends to the log (ADR 0021, #579). Reads, and
+   * never creates, links or deletes anything there.
+   */
+  readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
   /**
    * The title the provider generated for a session (`titleRead`), or null for
    * none yet: its own summary, never the title field `writeTitle` mirrors a

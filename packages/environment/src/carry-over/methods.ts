@@ -7,7 +7,7 @@ import {
   type CarryOverSessionsInventory,
   type SessionArchivedPayload,
 } from "@agent-harness/contracts";
-import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
+import type { AccountRef, ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
 import type { MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
@@ -18,12 +18,14 @@ import { sessionStream } from "../sessions/streams.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { adoptedAccount, isCarryOverRefusal, type CarryOverRefusal as Refusal } from "./adopted.js";
 import {
+  accountSource,
   failureOf,
   findDirectories,
   heldProviderSessions,
   importedTitle,
   importsArchived,
   listAccountSessions,
+  type AccountSource,
   type DirectoryFinding,
 } from "./sessions.js";
 
@@ -65,12 +67,6 @@ export interface CarryOverOptions {
  */
 const IMPORT_CHECKS: SessionCreationChecks = { validateRunParameters: acceptAnyRunParameters, clampMode: (mode) => mode };
 
-/** The adopted account an import reads, as its adapter is handed it, and that adapter. */
-interface Source {
-  readonly account: AccountRef;
-  readonly adapter: Adapter;
-}
-
 /** A listed session the import will record, with what it found of its working directory. */
 interface Planned {
   readonly session: ProviderSessionInfo;
@@ -90,16 +86,13 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   const importing = new Set<string>();
 
   /** The adopted account `accountId` names with its adapter, or the refusal: not held, or not adopted. */
-  const sourceOf = (accountId: string): Source | Refusal => {
+  const sourceOf = (accountId: string): AccountSource | Refusal => {
     const facts = adoptedAccount((id) => host.account(id), accountId);
-    if (isCarryOverRefusal(facts)) return facts;
-    const adapter = host.adapters.get(facts.descriptor.provider);
-    if (adapter === undefined) throw new Error(`The adapter of the account ${accountId}, ${facts.descriptor.provider}, is not in the host.`);
-    return { account: { id: facts.id, directory: facts.directory, ...(facts.label !== undefined && { label: facts.label }) }, adapter };
+    return isCarryOverRefusal(facts) ? facts : accountSource(host, facts);
   };
 
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */
-  const listed = ({ account, adapter }: Source): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
+  const listed = ({ account, adapter }: AccountSource): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
 
   const listingFailed = (account: AccountRef, error: unknown): string =>
     `Listing the sessions in ${account.directory ?? "the account's directory"} failed: ${error instanceof Error ? error.message : String(error)}`;

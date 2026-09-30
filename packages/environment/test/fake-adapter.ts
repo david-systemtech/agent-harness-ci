@@ -23,6 +23,7 @@ import {
   type CommandsScope,
   type GateDecision,
   type GatedToolCall,
+  type HistoryEvent,
   type HostToolResult,
   type ModelOption,
   type ProcessPort,
@@ -202,6 +203,13 @@ export interface FakeAdapterOptions {
    * throw; every listing is recorded. Preset: not declared.
    */
   readonly sessions?: readonly ProviderSessionInfo[] | ((account: AccountRef) => readonly ProviderSessionInfo[] | Promise<readonly ProviderSessionInfo[]>);
+  /**
+   * With `sessions`, each listed session's history (`readHistory`, #579), by
+   * provider session id, or read from a function that may answer later or
+   * throw; a session it has none for is one the directory no longer holds
+   * (null). Every read is recorded. Preset: none held.
+   */
+  readonly histories?: Readonly<Record<string, readonly HistoryEvent[]>> | ((account: AccountRef, providerSessionId: string) => readonly HistoryEvent[] | null | Promise<readonly HistoryEvent[] | null>);
   /** The static catalogue. Preset: opus, sonnet and haiku with tiers 3, 2 and 1. */
   readonly models?: readonly ModelOption[];
   /** The modes the descriptor lists, available or not. Preset: the four, every one available. */
@@ -338,6 +346,8 @@ export interface FakeAdapter extends Adapter {
   setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
   /** The accounts whose directory the environment listed the sessions of (`listSessions`), in order. */
   readonly sessionListings: readonly AccountRef[];
+  /** Every history read (`readHistory`), in order: the account and the provider session asked for. */
+  readonly historyReads: readonly { readonly account: AccountRef; readonly providerSessionId: string }[];
   /** Every commands listing, in order, with the scope the host resolved for it. */
   readonly commandListings: readonly CommandListing[];
   /** Every plan-usage read, in order: the account reference it was asked with. */
@@ -710,7 +720,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const statusReads: AccountRef[] = [];
   const commandListings: CommandListing[] = [];
   const sessionListings: AccountRef[] = [];
+  const historyReads: { account: AccountRef; providerSessionId: string }[] = [];
   const listed = options.sessions;
+  const histories = options.histories;
   let status = options.status;
   const usageReads: AccountRef[] = [];
   // The preset names the fake's own provider, whatever a test calls it; a scripted reading is answered as scripted.
@@ -976,6 +988,11 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         sessionListings.push(account);
         return typeof listed === "function" ? listed(account) : listed;
       },
+      readHistory: async (account: AccountRef, providerSessionId: string) => {
+        historyReads.push({ account, providerSessionId });
+        if (typeof histories === "function") return histories(account, providerSessionId);
+        return histories?.[providerSessionId] ?? null;
+      },
     }),
     invocationText: (member) => (member.native ? `/${member.name}` : `/${SKILL_PLUGIN_NAME}:${member.name}`),
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
@@ -1043,6 +1060,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     },
     commandListings,
     sessionListings,
+    historyReads,
     usageReads,
     setUsage(next) {
       usage = next;
