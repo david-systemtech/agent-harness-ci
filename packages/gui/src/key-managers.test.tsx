@@ -521,6 +521,9 @@ describe("the Move card", () => {
     const base = within(await moveCard()).getByRole("textbox", { name: "Base path" });
     await app.user.clear(base);
     await app.user.type(base, "team/harness");
+    // While the edit is not set, a Move would go to the base path set: it waits.
+    expect(within(await item("https://github.com")).getByRole("button", { name: "Move" }).hasAttribute("disabled")).toBe(true);
+    expect(within(await moveCard()).getByRole("button", { name: "Move all" }).hasAttribute("disabled")).toBe(true);
     await app.user.click(within(await moveCard()).getByRole("button", { name: "Set the base path" }));
     await waitFor(() => expect(desk.keyManagerConnections().find((each) => each.id === home?.id)?.basePath).toBe("team/harness"));
     // The Overwrite was offered for the old target: it goes with it.

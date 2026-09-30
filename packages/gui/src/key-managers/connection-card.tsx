@@ -65,6 +65,15 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
   const heading = useId();
   const now = clock.now();
   const [open, setOpen] = useState<Open>(null);
+  const [sending, setSending] = useState(false);
+  /** Sends a verb answered in one line, taking no second press while it is on its way. */
+  const send = (verb: () => Promise<{ readonly line: string }>) => {
+    setSending(true);
+    void verb().then((done) => {
+      setSending(false);
+      say(done.line);
+    });
+  };
   const sender = { runtime, clock };
   const kind = connection.status.kind;
   const awaiting = kind === "awaiting-sign-in";
@@ -104,11 +113,11 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
         <Button tone={SIGN_IN_FIXES.has(kind) ? "primary" : "quiet"} disabled={!writable} onClick={() => setOpen("sign-in")}>
           {awaiting ? "Sign in" : "Sign in again"}
         </Button>
-        <Button disabled={!writable || awaiting} onClick={() => void verifyConnection(runtime, environmentId, connection).then((verified) => say(verified.line))}>
+        <Button disabled={!writable || awaiting || sending} onClick={() => send(() => verifyConnection(runtime, environmentId, connection))}>
           Verify now
         </Button>
         {!connection.injects && (
-          <Button disabled={!writable} onClick={() => void setInjected(sender, environmentId, connection).then((set) => say(set.line))}>
+          <Button disabled={!writable || sending} onClick={() => send(() => setInjected(sender, environmentId, connection))}>
             Inject its variables
           </Button>
         )}

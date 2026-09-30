@@ -77,6 +77,9 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
   const items = listed.result?.items ?? [];
   // A Move or a copy on its way takes no second press.
   const acting = !writable || sending;
+  // While the base path typed differs from the one set, a Move would go to the one set: it waits for Set the base path.
+  const editing = typed !== undefined && typed.trim() !== (connection.basePath ?? connection.suggestedBasePath ?? "");
+  const moving = acting || editing;
   const names = new Map(items.map((item) => [item.id, item.name]));
   const basePath = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
   const targetOf = (item: KeyManagerMoveItem) => item.targets.find((target) => target.connectionId === connection.id)?.reference;
@@ -105,7 +108,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
     switch (followUps.get(item.id)) {
       case "overwrite":
         return (
-          <Button disabled={acting} onClick={() => move([ref], { overwrite: true })}>
+          <Button disabled={moving} onClick={() => move([ref], { overwrite: true })}>
             Overwrite
           </Button>
         );
@@ -117,7 +120,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         );
       case "verify":
         return (
-          <Button disabled={acting} onClick={() => move([ref], { verifyOnly: true })}>
+          <Button disabled={moving} onClick={() => move([ref], { verifyOnly: true })}>
             Verify the paste
           </Button>
         );
@@ -133,7 +136,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
           <Input value={basePath} disabled={!writable} onChange={(event) => setTyped(event.target.value)} />
         </Field>
         <Button
-          disabled={!writable || basePath.trim() === "" || basePath.trim() === connection.basePath}
+          disabled={acting || basePath.trim() === "" || basePath.trim() === connection.basePath}
           onClick={() => void setBasePath(sender, environmentId, connection, basePath).then((set) => setLine(set.line))}
         >
           Set the base path
@@ -154,7 +157,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
                 <span className="text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
                 <span className="ml-auto flex gap-2">
                   {followUp(item)}
-                  <Button disabled={acting || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
+                  <Button disabled={moving || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
                     Move
                   </Button>
                 </span>
@@ -164,7 +167,7 @@ const MoveInto = ({ environmentId, connection, writable }: { readonly environmen
         </ul>
       )}
       {connection.basePath !== null && items.length > 0 && (
-        <Button tone="primary" className="self-start" disabled={acting} onClick={() => move("all")}>
+        <Button tone="primary" className="self-start" disabled={moving} onClick={() => move("all")}>
           Move all
         </Button>
       )}

@@ -208,12 +208,16 @@ export const ConfirmSignOut = ({ environmentId, connection, close, say }: Connec
 export const ConfirmRemove = ({ environmentId, connection, close, say }: ConnectionDialogProps) => {
   const sender = useSender();
   const [refused, setRefused] = useState<{ readonly line: string; readonly referenced: boolean } | undefined>(undefined);
-  const remove = (force: boolean) =>
+  const [sending, setSending] = useState(false);
+  const remove = (force: boolean) => {
+    setSending(true);
     void removeConnection(sender, environmentId, connection, force).then((removed) => {
+      setSending(false);
       if (!removed.ok) return setRefused(removed);
       close();
       say(removed.line);
     });
+  };
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent title={`Remove ${connection.label}?`} description="The environment revokes its login and deletes the credential it keeps, and holds the connection no more.">
@@ -223,11 +227,11 @@ export const ConfirmRemove = ({ environmentId, connection, close, say }: Connect
             <Button>Cancel</Button>
           </DialogClose>
           {refused?.referenced === true ? (
-            <Button tone="danger" onClick={() => remove(true)}>
+            <Button tone="danger" disabled={sending} onClick={() => remove(true)}>
               Remove anyway
             </Button>
           ) : (
-            <Button tone="danger" onClick={() => remove(false)}>
+            <Button tone="danger" disabled={sending} onClick={() => remove(false)}>
               Remove
             </Button>
           )}
