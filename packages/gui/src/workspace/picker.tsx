@@ -3,7 +3,7 @@ import { RequestedDirectory, type WorkspaceRequest } from "@agent-harness/contra
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { nameOf } from "../connections/words.js";
 import { repositoryWords } from "../new-session/words.js";
-import { Button, Input } from "../ui/index.js";
+import { Button, Input, PopoverContent } from "../ui/index.js";
 import { useRuntime, useShell } from "../window-context.js";
 import { Branches } from "./branches.js";
 import { Browse, type BrowseAt } from "./browse.js";
@@ -33,11 +33,16 @@ export interface WorkspacePickerProps {
   readonly known: readonly KnownDirectory[];
   /** Takes a request: the refusal's one line, or nothing once it is taken, when the picker closes. */
   take(request: WorkspaceRequest): Promise<string | undefined>;
-  /** Hides a known directory from this client's list: the refusal's one line, or nothing once it is hidden. */
-  hide(directory: KnownDirectory): Promise<string | undefined>;
   /** Closes the picker. */
   close(): void;
 }
+
+/** The picker as a popover's content, beside what opens it, named for the environment it picks on. */
+export const WorkspacePopover = ({ align, ...picker }: WorkspacePickerProps & { readonly align: "start" | "end" }) => (
+  <PopoverContent align={align} aria-label={`Where it works on ${nameOf(picker.environment)}`} className="flex w-96 flex-col gap-2">
+    <WorkspacePicker {...picker} />
+  </PopoverContent>
+);
 
 /**
  * Which of its views the picker shows: its start; a browse, for a directory
@@ -52,7 +57,7 @@ type View =
 
 const START: View = { kind: "start" };
 
-export const WorkspacePicker = ({ environment, sessionId, known, take, hide, close }: WorkspacePickerProps) => {
+const WorkspacePicker = ({ environment, sessionId, known, take, close }: WorkspacePickerProps) => {
   const runtime = useRuntime();
   const shell = useShell();
   const { environmentId } = environment;
@@ -63,31 +68,36 @@ export const WorkspacePicker = ({ environment, sessionId, known, take, hide, clo
   const [path, setPath] = useState("");
   // A choice answered after the picker closed says nothing: the picker is gone.
   const open = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    open.current = true;
+    return () => {
       open.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const show = (next: View) => {
     say(undefined);
     setView(next);
   };
-  /** Waits for `answer`, then closes when it says nothing, or says its line. */
-  const waitFor = (answer: Promise<string | undefined>, onTaken: () => void) => {
+  /** Takes `request`, waiting for the answer: closes when it says nothing, else says its line. */
+  const choose = (request: WorkspaceRequest) => {
+    if (waiting) return;
     setWaiting(true);
     say(`Waiting for ${where}'s answer…`);
-    void answer.then((refused) => {
-      if (!open.current) return;
-      setWaiting(false);
-      say(refused);
-      if (refused === undefined) onTaken();
+    void take(request)
+      .catch((error: unknown) => `${where} did not answer: ${error instanceof Error ? error.message : String(error)}`)
+      .then((refused) => {
+        if (!open.current) return;
+        setWaiting(false);
+        say(refused);
+        if (refused === undefined) close();
+      });
+  };
+  /** Takes a known directory off this client's list, until a session uses it again (`hiddenDirectories`). */
+  const hide = (directory: KnownDirectory) =>
+    void runtime.knownDirectories.hide(environmentId, directory.path).catch((error: unknown) => {
+      if (open.current) say(`Not hidden: ${error instanceof Error ? error.message : String(error)}`);
     });
-  };
-  const choose = (request: WorkspaceRequest) => {
-    if (!waiting) waitFor(take(request), close);
-  };
 
   const typed = RequestedDirectory.safeParse(path.trim());
   const submit = (event: FormEvent) => {
@@ -188,7 +198,7 @@ export const WorkspacePicker = ({ environment, sessionId, known, take, hide, clo
               directory={directory}
               disabled={waiting}
               take={() => choose({ kind: "directory", path: directory.path })}
-              hide={() => void hide(directory).then((refused) => open.current && refused !== undefined && say(refused))}
+              hide={() => hide(directory)}
             />
           ))}
         </ul>

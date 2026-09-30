@@ -392,5 +392,10 @@ describe("a session whose workspace is missing", () => {
     expect(entry("Send it")?.textContent).toBe(`Send it, steer a turn, run a row, send a failed checkEnter${GONE}`);
     expect(entry("Send it")?.getAttribute("aria-disabled")).toBe("true");
     expect(entry("Have the queued message read now")?.textContent).toBe(`Have the queued message read now, mid-turn${GONE}`);
+
+    // The session's diff still opens, from the palette as the side column wires it.
+    await app.user.keyboard("diff");
+    await app.user.click(await waitFor(() => entry("/diff") as HTMLElement));
+    await waitFor(() => expect(params(app, "desk", "diffs.session")).toEqual([{ sessionId: oldId(app) }]));
   });
 });

@@ -4,7 +4,6 @@ import {
   modelName,
   readingWords,
   type EnvironmentView,
-  type KnownDirectory,
   type NewSessionChips,
   type NewSessionView,
 } from "@agent-harness/client-runtime";
@@ -13,9 +12,9 @@ import { useState, type ComponentType, type ReactNode } from "react";
 import { EnvironmentDot } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
-import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverContent, PopoverTrigger } from "../ui/index.js";
+import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { WorkspacePicker } from "../workspace/picker.js";
+import { WorkspacePopover } from "../workspace/picker.js";
 import { checkRequest } from "./check.js";
 import { requestWords } from "./words.js";
 
@@ -194,11 +193,6 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
     if (refused === undefined) choose({ workspace: { environmentId: on.environmentId, request } });
     return refused;
   };
-  const hide = (directory: KnownDirectory, on: EnvironmentView): Promise<string | undefined> =>
-    runtime.knownDirectories.hide(on.environmentId, directory.path).then(
-      () => undefined,
-      (error: unknown) => `Not hidden: ${error instanceof Error ? error.message : String(error)}`,
-    );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -208,16 +202,7 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
         </Button>
       </PopoverTrigger>
       {environment !== undefined && (
-        <PopoverContent align="start" aria-label={`Where it works on ${nameOf(environment)}`} className="flex w-96 flex-col gap-2">
-          <WorkspacePicker
-            environment={environment}
-            sessionId={sessionId}
-            known={options}
-            take={(request) => take(request, environment)}
-            hide={(directory) => hide(directory, environment)}
-            close={() => setOpen(false)}
-          />
-        </PopoverContent>
+        <WorkspacePopover align="start" environment={environment} sessionId={sessionId} known={options} take={(request) => take(request, environment)} close={() => setOpen(false)} />
       )}
     </Popover>
   );

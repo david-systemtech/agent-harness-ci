@@ -1,11 +1,11 @@
-import { derived, workspaceGoneLine, type DispatchFailure, type KnownDirectory } from "@agent-harness/client-runtime";
+import { derived, workspaceGoneLine, type DispatchFailure } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { resolverRefusal, type RefusalPlace } from "../new-session/words.js";
-import { Button, Popover, PopoverContent, PopoverTrigger } from "../ui/index.js";
+import { Button, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { WorkspacePicker } from "./picker.js";
+import { WorkspacePopover } from "./picker.js";
 
 /**
  * A session whose workspace is missing (workspace-picker spec, "Missing
@@ -65,11 +65,6 @@ export const MissingWorkspace = ({ environmentId, sessionId, path, line }: Missi
     const where = environment === undefined ? "the environment" : nameOf(environment);
     return notChangedLine(answer.error, request, { where, environmentId, rows: runtime.projections.sessionList.read().rows });
   };
-  const hide = (directory: KnownDirectory): Promise<string | undefined> =>
-    runtime.knownDirectories.hide(environmentId, directory.path).then(
-      () => undefined,
-      (error: unknown) => `Not hidden: ${error instanceof Error ? error.message : String(error)}`,
-    );
 
   return (
     <div role="group" aria-label="The workspace is gone" className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3">
@@ -81,11 +76,7 @@ export const MissingWorkspace = ({ environmentId, sessionId, path, line }: Missi
               Choose a workspace
             </Button>
           </PopoverTrigger>
-          {environment !== undefined && (
-            <PopoverContent align="end" aria-label={`Where it works on ${nameOf(environment)}`} className="flex w-96 flex-col gap-2">
-              <WorkspacePicker environment={environment} sessionId={sessionId} known={known} take={take} hide={hide} close={() => setOpen(false)} />
-            </PopoverContent>
-          )}
+          {environment !== undefined && <WorkspacePopover align="end" environment={environment} sessionId={sessionId} known={known} take={take} close={() => setOpen(false)} />}
         </Popover>
       </div>
       {absent !== undefined && <p className="text-xs text-ink-faint">{absent}</p>}
