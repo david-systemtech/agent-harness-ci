@@ -232,7 +232,11 @@ describe("the method registry", () => {
       "instructions.setScope",
       "instructions.setEnabled",
       "instructions.move",
+      "instructions.resolveVersion",
       "instructions.remove",
+      "instructions.dismissSuggestion",
+      "instructions.restoreSuggestion",
+      "instructions.import",
       "forge.accounts.add",
       "forge.accounts.update",
       "forge.accounts.remove",
@@ -426,12 +430,17 @@ describe("the method registry", () => {
       | "commands.list"
       | "instructions.preview"
       | "instructions.list"
+      | "instructions.diff"
       | "instructions.create"
       | "instructions.edit"
       | "instructions.setScope"
       | "instructions.setEnabled"
       | "instructions.move"
+      | "instructions.resolveVersion"
       | "instructions.remove"
+      | "instructions.dismissSuggestion"
+      | "instructions.restoreSuggestion"
+      | "instructions.import"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"

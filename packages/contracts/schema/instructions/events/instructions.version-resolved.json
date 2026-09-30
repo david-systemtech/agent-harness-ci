@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsVersionResolvedPayload",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
+        },
+        "choice": {
+          "type": "string",
+          "const": "replace"
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "The entry's version the copy now holds: its current one."
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "The entry's text at that version, now the body."
+        }
+      },
+      "required": [
+        "id",
+        "choice",
+        "version",
+        "body"
+      ],
+      "description": "Replaced: the body is the entry's text at the version."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
+        },
+        "choice": {
+          "type": "string",
+          "const": "keep"
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "The entry's version the copy now holds: its current one."
+        }
+      },
+      "required": [
+        "id",
+        "choice",
+        "version"
+      ],
+      "description": "Kept: the body is unchanged."
+    }
+  ],
+  "description": "instructions.version-resolved: a copy whose catalogue entry had a newer version now holds it, its body replaced by the entry's text (replace) or kept (keep)."
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "instructions.resolveVersion params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "instructionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The owned instruction."
+    },
+    "choice": {
+      "type": "string",
+      "enum": [
+        "replace",
+        "keep"
+      ],
+      "description": "What to do with a copy whose catalogue entry has a newer version: replace (the entry's new text becomes the body, and the copy's edits are lost) or keep (the body stays as it is, and the copy holds the new version)."
+    }
+  },
+  "required": [
+    "commandId",
+    "instructionId",
+    "choice"
+  ]
+}
