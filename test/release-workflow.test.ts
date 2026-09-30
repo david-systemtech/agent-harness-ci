@@ -52,6 +52,14 @@ const script = (jobLines: string[], name: string): string => {
   return block.join("\n");
 };
 
+/** The lines of the step `name` in `jobLines`, from its `- name:` line to the next step's. */
+const step = (jobLines: string[], name: string): string[] => {
+  const start = jobLines.indexOf(`      - name: ${name}`);
+  expect(start, name).toBeGreaterThan(-1);
+  const end = jobLines.findIndex((line, i) => i > start && line.startsWith("      - "));
+  return jobLines.slice(start, end === -1 ? undefined : end);
+};
+
 /** The steps' `run:` lines of `jobLines`, in order. */
 const runs = (jobLines: string[]): string[] => jobLines.filter((line) => /^ {6}(- )? {0,2}run: /.test(line)).map((line) => line.replace(/^\s*(- )?run: /, ""));
 
@@ -146,7 +154,10 @@ describe("the release workflow", () => {
     expect(statSync(join(root, "packages", "contracts", "schema")).isDirectory()).toBe(true);
     const got = script(job("release"), "The desktop jobs' builds").replace(/\\\n\s*/g, "");
     expect(got).toBe(`bash .forgejo/scripts/desktop-builds.sh get desktop ${desktops.map((path) => path.slice("desktop/".length)).join(" ")}`);
-    expect(runs(job("release")).indexOf("|")).toBeGreaterThan(runs(job("release")).indexOf("pnpm install --frozen-lockfile"));
+    const release = job("release");
+    const get = release.indexOf("      - name: The desktop jobs' builds");
+    expect(get).toBeGreaterThan(release.indexOf("      - run: pnpm install --frozen-lockfile"));
+    expect(get).toBeLessThan(release.indexOf("      - name: Build the server artefacts and the release's assets"));
   });
 
   it("hands each desktop job's build to the release job through the package registry, with the packages token, and removes them once the release is published", () => {
@@ -160,7 +171,9 @@ describe("the release workflow", () => {
       ]);
     }
     const release = job("release");
-    expect(release).toContain("          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
+    for (const name of ["The desktop jobs' builds", "Remove the desktop jobs' builds from the package registry"]) {
+      expect(step(release, name), name).toContain("          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
+    }
     expect(runs(release).at(-1)).toBe("bash .forgejo/scripts/desktop-builds.sh remove");
   });
 
