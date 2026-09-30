@@ -94,7 +94,7 @@ describe("projections.setup from the snapshot and the notices", () => {
     // Skippable as this build's registry says: Forges and Key manager; a step it lacks is not (#573).
     expect(setup.read().steps.map(({ id, label, home, skippable }) => [id, label, home, skippable])).toEqual([
       ["account", "Account", "accounts.accounts", false],
-      ["carry-over", "Carry over", "accounts.accounts", false],
+      ["carry-over", "Carry over", "accounts.accounts", true],
       ["your-machines", "Your machines", "environments.machines", false],
       ["forges", "Forges", "access.forges", true],
       ["key-manager", "Key manager", "access.key-managers", true],
