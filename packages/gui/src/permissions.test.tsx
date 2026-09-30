@@ -235,6 +235,38 @@ describe("the denylist", () => {
     expect(sent[1]?.["paths"]?.map((entry) => entry.id)).toEqual(PRESETS.paths.map((entry) => entry.id));
   });
 
+  it("writes a section one change at a time, so a change made before the last one is answered cannot send the section without it", async () => {
+    const app = await opened();
+    const desk = app.environment("desk");
+    const permissions = await openPermissions(app);
+    const paths = await section(permissions, "Paths");
+    const enabled = (pattern: string) => within(within(paths).getByRole("listitem", { name: pattern })).getByRole("switch", { name: "Enabled" });
+    const writes = () => desk.requests("permissions.denylist.set");
+
+    // While ~/.ssh's write is unanswered, nothing else writes the section; another section still writes.
+    const release = desk.holdDenylistWrites();
+    await app.user.click(enabled("~/.ssh"));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    await app.user.type(within(paths).getByRole("textbox", { name: "New pattern" }), "~/.aws");
+    const waiting = [
+      enabled("~/.gnupg"),
+      within(within(paths).getByRole("listitem", { name: "~/.gnupg" })).getByRole("button", { name: "Remove" }),
+      within(paths).getByRole("button", { name: "Add" }),
+      within(paths).getByRole("button", { name: "Restore presets" }),
+    ];
+    for (const control of waiting) expect(control.hasAttribute("disabled")).toBe(true);
+    const commands = await section(permissions, "Command patterns");
+    expect(within(within(commands).getByRole("listitem", { name: "sudo *" })).getByRole("switch", { name: "Enabled" }).hasAttribute("disabled")).toBe(false);
+
+    // Once it is answered, the next change is made on the section it answered.
+    release();
+    await waitFor(() => expect(enabled("~/.gnupg").hasAttribute("disabled")).toBe(false));
+    await app.user.click(enabled("~/.gnupg"));
+    await waitFor(() => expect(enabled("~/.gnupg").getAttribute("aria-checked")).toBe("false"));
+    expect(writes()).toHaveLength(2);
+    expect(desk.denylist().paths.filter((entry) => entry.pattern === "~/.ssh" || entry.pattern === "~/.gnupg").map((entry) => entry.enabled)).toEqual([false, false]);
+  });
+
   it("says a pattern its section's grammar refuses in one line and sends nothing, and says the environment's refusal in one line", async () => {
     const app = await opened({ laptop: { receipts: { "permissions.denylist.set": { rejected: "conflict", message: "The denylist changed meanwhile." } } } });
     const permissions = await openPermissions(app);

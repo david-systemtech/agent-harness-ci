@@ -50,18 +50,30 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
   const [said, setSaid] = useState<Said | undefined>(undefined);
   const [editing, setEditing] = useState<string | undefined>(undefined);
   const [restoring, setRestoring] = useState(false);
+  // A write or restore of this section is unanswered: each write sends the whole section as last shown, so nothing else
+  // writes it until the answer is shown, or the later write would undo the earlier.
+  const [writing, setWriting] = useState(false);
 
   /** Writes the section with `edit` made; true once the environment has taken it. */
   const send = async (edit: DenylistEdit): Promise<boolean> => {
     setSaid(undefined);
-    const saved = await values.save(section, editedSection(entries, edit));
-    if (!saved.ok) setSaid({ line: saved.line, refused: true });
-    return saved.ok;
+    setWriting(true);
+    try {
+      const saved = await values.save(section, editedSection(entries, edit));
+      if (!saved.ok) setSaid({ line: saved.line, refused: true });
+      return saved.ok;
+    } finally {
+      setWriting(false);
+    }
   };
   const restore = () => {
     setRestoring(false);
     setSaid(undefined);
-    void values.restore(section).then((restored) => setSaid({ line: restored.line, refused: !restored.ok }));
+    setWriting(true);
+    void values
+      .restore(section)
+      .then((restored) => setSaid({ line: restored.line, refused: !restored.ok }))
+      .finally(() => setWriting(false));
   };
 
   return (
@@ -71,7 +83,7 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
           {name}
         </h4>
         {sectionHasPresets(section) && (
-          <Button disabled={!writable} onClick={() => setRestoring(true)}>
+          <Button disabled={!writable || writing} onClick={() => setRestoring(true)}>
             Restore presets
           </Button>
         )}
@@ -83,14 +95,14 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
         <ul aria-label="Entries" className="flex flex-col gap-1">
           {entries.map((entry) =>
             editing === entry.id ? (
-              <EntryForm key={entry.id} entry={entry} send={send} close={() => setEditing(undefined)} />
+              <EntryForm key={entry.id} entry={entry} writing={writing} send={send} close={() => setEditing(undefined)} />
             ) : (
-              <EntryRow key={entry.id} entry={entry} writable={writable} send={send} edit={() => setEditing(entry.id)} />
+              <EntryRow key={entry.id} entry={entry} writable={writable && !writing} send={send} edit={() => setEditing(entry.id)} />
             ),
           )}
         </ul>
       )}
-      <AddEntry section={name} writable={writable} send={send} />
+      <AddEntry section={name} writable={writable} writing={writing} send={send} />
       {said !== undefined && <p className={`text-xs ${said.refused ? "text-signal" : "text-ink-muted"}`}>{said.line}</p>}
       <Dialog open={restoring} onOpenChange={setRestoring}>
         {restoring && (
@@ -140,12 +152,14 @@ const EntryRow = ({ entry, writable, send, edit }: EntryRowProps) => (
 
 interface EntryFormProps {
   readonly entry: DenylistEntry;
+  /** A write of the section is unanswered: Save waits for it. */
+  readonly writing: boolean;
   readonly send: (edit: DenylistEdit) => Promise<boolean>;
   readonly close: () => void;
 }
 
 /** An entry being edited: its pattern and note, saved under its id, so a preset stays one. */
-const EntryForm = ({ entry, send, close }: EntryFormProps) => {
+const EntryForm = ({ entry, writing, send, close }: EntryFormProps) => {
   const [pattern, setPattern] = useState(entry.pattern);
   const [note, setNote] = useState(entry.note);
   const submit = (event: FormEvent) => {
@@ -157,7 +171,7 @@ const EntryForm = ({ entry, send, close }: EntryFormProps) => {
       <form onSubmit={submit} className="flex items-center gap-2">
         <Input aria-label="Pattern" value={pattern} onChange={(event) => setPattern(event.target.value)} className="w-64 font-mono" />
         <Input aria-label="Note" value={note} onChange={(event) => setNote(event.target.value)} className="min-w-0 flex-1" />
-        <Button type="submit" tone="primary" disabled={pattern.trim() === ""}>
+        <Button type="submit" tone="primary" disabled={writing || pattern.trim() === ""}>
           Save
         </Button>
         <Button onClick={close}>Cancel</Button>
@@ -166,8 +180,16 @@ const EntryForm = ({ entry, send, close }: EntryFormProps) => {
   );
 };
 
+interface AddEntryProps {
+  readonly section: string;
+  readonly writable: boolean;
+  /** A write of the section is unanswered: Add waits for it, while the fields can still be typed in. */
+  readonly writing: boolean;
+  readonly send: (edit: DenylistEdit) => Promise<boolean>;
+}
+
 /** A new entry's pattern and note, added at the section's end; the fields empty again once the environment has taken it. */
-const AddEntry = ({ section, writable, send }: { readonly section: string; readonly writable: boolean; readonly send: (edit: DenylistEdit) => Promise<boolean> }) => {
+const AddEntry = ({ section, writable, writing, send }: AddEntryProps) => {
   const [pattern, setPattern] = useState("");
   const [note, setNote] = useState("");
   const submit = (event: FormEvent) => {
@@ -182,7 +204,7 @@ const AddEntry = ({ section, writable, send }: { readonly section: string; reado
     <form aria-label={`Add to ${section}`} onSubmit={submit} className="flex items-center gap-2">
       <Input aria-label="New pattern" placeholder="Pattern" value={pattern} disabled={!writable} onChange={(event) => setPattern(event.target.value)} className="w-64 font-mono" />
       <Input aria-label="New note" placeholder="Note" value={note} disabled={!writable} onChange={(event) => setNote(event.target.value)} className="min-w-0 flex-1" />
-      <Button type="submit" disabled={!writable || pattern.trim() === ""}>
+      <Button type="submit" disabled={!writable || writing || pattern.trim() === ""}>
         Add
       </Button>
     </form>

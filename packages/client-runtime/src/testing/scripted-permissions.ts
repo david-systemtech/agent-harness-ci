@@ -34,6 +34,8 @@ export interface ScriptedPermissionsHandle {
   denylist(): Denylist;
   /** The position the Unattended review has been seen through: 0 until it has been. */
   reviewWatermark(): number;
+  /** Holds every `permissions.denylist.set` unanswered and unapplied until the function it returns is called, each then applied and answered in the order sent. */
+  holdDenylistWrites(): () => void;
 }
 
 export interface PermissionsHost {
@@ -66,7 +68,7 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
   wire.answer("permissions.denylist.get", () => ({ result: { denylist } }));
 
   // Each section given becomes exactly its entries: an id the section holds, or one of its presets', is that entry; any other is new.
-  wire.answer("permissions.denylist.set", (params) => {
+  const setSections = (params: Record<string, unknown>): FakeAnswer => {
     const refused = host.refusal("permissions.denylist.set");
     if (refused) return refused;
     const given = params["sections"] as DenylistInput;
@@ -89,7 +91,22 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
     const changed = JSON.stringify(next) !== JSON.stringify(denylist);
     denylist = Denylist.parse(next);
     return accepted({ denylist }, changed);
+  };
+  // The writes a test holds (`holdDenylistWrites`), each applied at the release; undefined while none are held.
+  let heldWrites: (() => void)[] | undefined;
+  wire.answer("permissions.denylist.set", (params) => {
+    const waiting = heldWrites;
+    if (waiting === undefined) return setSections(params);
+    return new Promise<FakeAnswer>((resolve) => waiting.push(() => resolve(setSections(params))));
   });
+  const holdDenylistWrites = () => {
+    heldWrites ??= [];
+    return () => {
+      const waiting = heldWrites ?? [];
+      heldWrites = undefined;
+      for (const release of waiting) release();
+    };
+  };
 
   // Every preset a section named no longer holds, by id, at its end; an edited or disabled one stays as it is.
   wire.answer("permissions.denylist.restorePresets", (params) => {
@@ -145,6 +162,7 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
   return {
     denylist: () => denylist,
     reviewWatermark: () => watermark,
+    holdDenylistWrites,
     counts: () => Object.fromEntries(DENYLIST_SECTIONS.map((section) => [section, denylist[section].length])) as Record<DenylistSection, number>,
   };
 };

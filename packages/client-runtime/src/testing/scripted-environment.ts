@@ -1988,6 +1988,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...keyManagers,
     denylist: permissions.denylist,
     reviewWatermark: permissions.reviewWatermark,
+    holdDenylistWrites: permissions.holdDenylistWrites,
     holdSetupChecks: setup.holdSetupChecks,
     passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
