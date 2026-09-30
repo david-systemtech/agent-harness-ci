@@ -182,12 +182,25 @@ export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): S
   return continued === undefined ? row.payload : null;
 };
 
+/** The provider session an imported session was imported from (its origin, #578); null for any other session. */
+const importedProviderSession = (reader: Reader, sessionId: string): string | null => {
+  const [row] = reader.all<{ id: string | null }>(
+    "SELECT json_extract(origin, '$.providerSessionId') AS id FROM sessions WHERE id = ? AND json_extract(origin, '$.kind') = 'import'",
+    sessionId,
+  );
+  return row?.id ?? null;
+};
+
 /**
  * What the session's next run continues from, on an adapter `descriptor`
  * describes: a rewind not yet continued from, when the adapter rewinds;
  * else the provider conversation its runs last linked, when it resumes; for
  * a fork no run of which has linked one yet, a fork of the conversation the
- * source had (a fork of a source with none starts fresh); else nothing.
+ * source had (a fork of a source with none starts fresh); for an imported
+ * session no run of which has linked one yet, the provider session it was
+ * imported from, resumed from the account's directory (#579; the adapter's
+ * to find there, the Claude one copying it into its store first); else
+ * nothing.
  */
 export const runContinuation = (log: Pick<EventLog, "read">, reader: Reader, sessionId: string, descriptor: AdapterDescriptor | null): RunContinuation => {
   const fresh: RunContinuation = { target: { kind: "fresh" }, forkedFrom: null };
@@ -198,6 +211,8 @@ export const runContinuation = (log: Pick<EventLog, "read">, reader: Reader, ses
     if (rewind !== null) return { target: { kind: "rewind", providerSessionId: linked, toMessageId: rewind.toMessageId }, forkedFrom: null };
     return descriptor.resume ? { target: { kind: "resume", providerSessionId: linked }, forkedFrom: null } : fresh;
   }
+  const imported = importedProviderSession(reader, sessionId);
+  if (imported !== null) return descriptor.resume ? { target: { kind: "resume", providerSessionId: imported }, forkedFrom: null } : fresh;
   const fork = forkRecord(log, sessionId);
   if (fork === null) return fresh;
   if (fork.fromProviderSessionId === null || !descriptor.fork) return { target: { kind: "fresh" }, forkedFrom: fork.fromSessionId };
