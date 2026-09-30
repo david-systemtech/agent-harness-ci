@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, resolve as absolutePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BOOTSTRAP_PATH,
+  CATALOGUE,
   ContractError,
   DATABASE_FILE,
   DISCOVERY_PATH,
@@ -23,6 +24,7 @@ import {
   parkedPromptTtlMs,
   type AuthPolicy,
   type CapabilityFlags,
+  type Catalogue,
   type ContainmentReport,
   type DiscoveryDocument,
   type DrainTrigger,
@@ -401,6 +403,12 @@ export interface EnvironmentOptions {
    * Tests give their own. Preset: the renderer's.
    */
   readonly orientation?: OrientationSeam;
+  /**
+   * The catalogue the suggested instructions are read from (#509): a copy's
+   * newer version, its diff, a tick and a dismissal. Tests give one they
+   * swap for one holding a newer version. Preset: this build's.
+   */
+  readonly catalogue?: () => Catalogue;
   /**
    * What this environment can enforce (#133), probed once as the adapter
    * host starts: its capability flags, the containment default's preset and
@@ -1429,6 +1437,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       store: instructionStore,
       accounts: () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null })),
       orientationOn,
+      catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
       orientation: async () => {
         const accountId = accounts.defaultId();

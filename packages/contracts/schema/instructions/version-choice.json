@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionVersionChoice",
+  "type": "string",
+  "enum": [
+    "replace",
+    "keep"
+  ],
+  "description": "What to do with a copy whose catalogue entry has a newer version: replace (the entry's new text becomes the body, and the copy's edits are lost) or keep (the body stays as it is, and the copy holds the new version)."
+}

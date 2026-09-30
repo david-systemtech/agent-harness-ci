@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionDiff",
+  "type": "object",
+  "properties": {
+    "catalogueId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A catalogue instruction entry's id."
+    },
+    "fromVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The entry's version the copy holds."
+    },
+    "toVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The entry's current version."
+    },
+    "from": {
+      "description": "The entry's text at fromVersion, the old side of what the catalogue changed; null when this build's catalogue does not hold that version (a copy made by a newer build).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "to": {
+      "type": "string",
+      "description": "The entry's current text: the new side of both diffs, and the body Replace sets."
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 20000,
+      "description": "The copy's body as it is now, the old side of what Replace would change. It need not equal from even when never edited: a Keep leaves the older text, and an import holds the file's."
+    }
+  },
+  "required": [
+    "catalogueId",
+    "fromVersion",
+    "toVersion",
+    "from",
+    "to",
+    "body"
+  ],
+  "description": "What a catalogue entry changed since the version a copy holds (from against to) and what Replace would change in the copy (body against to), with both versions."
+}

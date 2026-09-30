@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "instructions.import params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The minted session whose scratch workspace holds the file."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The Markdown file: relative to the session's scratch workspace, or an absolute path inside it; a .md file."
+    },
+    "catalogueId": {
+      "description": "The catalogue entry the instruction was tailored from, its origin.",
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^(?:setup|coding|working|custom)\\.[a-z0-9]+(?:-[a-z0-9]+)*$"
+    }
+  },
+  "required": [
+    "commandId",
+    "id",
+    "sessionId",
+    "path"
+  ]
+}

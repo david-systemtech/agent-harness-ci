@@ -272,6 +272,44 @@ export const InstructionEnabledSetPayload = z
 export const InstructionMovedPayload = z.object({ ...instructionRef, position: OrderKey }).meta({ description: "instructions.moved: an owned instruction has this position now." });
 export const InstructionRemovedPayload = z.object(instructionRef).meta({ description: "instructions.removed: an owned instruction was removed; its id is not used again." });
 
+/**
+ * What a person chose for a copy whose catalogue entry has a newer version
+ * (ADR 0030): replace (the new text becomes the body, the person's edits
+ * lost) or keep (the body stays, and the copy holds the new version, so the
+ * badge clears until the next one).
+ */
+export const INSTRUCTION_VERSION_CHOICES = ["replace", "keep"] as const;
+export const InstructionVersionChoice = z.enum(INSTRUCTION_VERSION_CHOICES).meta({
+  description:
+    "What to do with a copy whose catalogue entry has a newer version: replace (the entry's new text becomes the body, and the copy's edits are lost) or keep (the body stays as it is, and the copy holds the new version).",
+});
+export type InstructionVersionChoice = z.infer<typeof InstructionVersionChoice>;
+
+/** A catalogue entry's id as the instructions stream names it: the catalogue's own rule is `catalogue.ts`'s `CatalogueInstructionEntryId`. */
+const CatalogueRef = z.string().min(1).meta({ description: "A catalogue instruction entry's id." });
+
+const resolvedVersion = z.int().positive().meta({ description: "The entry's version the copy now holds: its current one." });
+
+export const InstructionVersionResolvedPayload = z
+  .discriminatedUnion("choice", [
+    z
+      .object({ ...instructionRef, choice: z.literal("replace"), version: resolvedVersion, body: InstructionBody.meta({ description: "The entry's text at that version, now the body." }) })
+      .meta({ description: "Replaced: the body is the entry's text at the version." }),
+    z.object({ ...instructionRef, choice: z.literal("keep"), version: resolvedVersion }).meta({ description: "Kept: the body is unchanged." }),
+  ])
+  .meta({
+    description:
+      "instructions.version-resolved: a copy whose catalogue entry had a newer version now holds it, its body replaced by the entry's text (replace) or kept (keep).",
+  });
+export type InstructionVersionResolvedPayload = z.infer<typeof InstructionVersionResolvedPayload>;
+
+export const InstructionSuggestionDismissedPayload = z
+  .object({ catalogueId: CatalogueRef })
+  .meta({ description: "instructions.suggestion-dismissed: a catalogue entry is dismissed on this environment, by removing its copy or dismissing it untaken; it stays so until restored." });
+export const InstructionSuggestionRestoredPayload = z
+  .object({ catalogueId: CatalogueRef })
+  .meta({ description: "instructions.suggestion-restored: a dismissed catalogue entry is offered again, restored or ticked." });
+
 /** The event types of the instructions stream. */
 export const INSTRUCTIONS_EVENT_TYPES = {
   "instructions.created": { list: false, payload: InstructionCreatedPayload },
@@ -279,7 +317,10 @@ export const INSTRUCTIONS_EVENT_TYPES = {
   "instructions.scope-set": { list: false, payload: InstructionScopeSetPayload },
   "instructions.enabled-set": { list: false, payload: InstructionEnabledSetPayload },
   "instructions.moved": { list: false, payload: InstructionMovedPayload },
+  "instructions.version-resolved": { list: false, payload: InstructionVersionResolvedPayload },
   "instructions.removed": { list: false, payload: InstructionRemovedPayload },
+  "instructions.suggestion-dismissed": { list: false, payload: InstructionSuggestionDismissedPayload },
+  "instructions.suggestion-restored": { list: false, payload: InstructionSuggestionRestoredPayload },
 } as const satisfies Record<string, EventTypeEntry>;
 
 export type InstructionsEventType = keyof typeof INSTRUCTIONS_EVENT_TYPES;
@@ -289,7 +330,8 @@ export const InstructionsEventType = z
 
 /** The `instructions.updated` notice's payload: nothing beyond the notice. */
 export const InstructionsUpdatedPayload = z.object({}).meta({
-  description: "instructions.updated: an owned instruction changed and has committed; a client reads instructions.list and instructions.preview again.",
+  description:
+    "instructions.updated: an owned instruction or the dismissed entries changed and have committed; a client reads instructions.list, instructions.diff and instructions.preview again.",
 });
 export type InstructionsUpdatedPayload = z.infer<typeof InstructionsUpdatedPayload>;
 
@@ -329,6 +371,37 @@ export const OrientationRow = z
 export type OrientationRow = z.infer<typeof OrientationRow>;
 
 export const OwnedInstructionRow = z
-  .object({ ...OwnedInstruction.shape, accounts: rowAccounts })
-  .meta({ description: "An owned instruction as instructions.list rows it, with the environment's accounts." });
+  .object({
+    ...OwnedInstruction.shape,
+    newerVersion: z.int().positive().nullable().meta({
+      description:
+        "The catalogue entry's current version, while it is newer than the one the copy holds, edited or not: See what changed, Replace or Keep mine. Null for Custom, a copy at the current version, or one whose entry this build's catalogue no longer holds.",
+    }),
+    accounts: rowAccounts,
+  })
+  .meta({ description: "An owned instruction as instructions.list rows it: with its entry's newer version, if any, and the environment's accounts." });
 export type OwnedInstructionRow = z.infer<typeof OwnedInstructionRow>;
+
+/**
+ * What a catalogue entry changed since a copy's version, and what Replace
+ * would change in the copy (`instructions.diff`; ADR 0030's See what
+ * changed): the entry's text at the copy's version against its current
+ * text, and the copy's body against the current text. A client draws the
+ * two diffs from the three texts.
+ */
+export const InstructionDiff = z
+  .object({
+    catalogueId: CatalogueRef,
+    fromVersion: z.int().positive().meta({ description: "The entry's version the copy holds." }),
+    toVersion: z.int().positive().meta({ description: "The entry's current version." }),
+    from: z.string().nullable().meta({
+      description: "The entry's text at fromVersion, the old side of what the catalogue changed; null when this build's catalogue does not hold that version (a copy made by a newer build).",
+    }),
+    to: z.string().meta({ description: "The entry's current text: the new side of both diffs, and the body Replace sets." }),
+    body: InstructionBody.meta({ description: "The copy's body as it is now, the old side of what Replace would change. It need not equal from even when never edited: a Keep leaves the older text, and an import holds the file's." }),
+  })
+  .meta({
+    description:
+      "What a catalogue entry changed since the version a copy holds (from against to) and what Replace would change in the copy (body against to), with both versions.",
+  });
+export type InstructionDiff = z.infer<typeof InstructionDiff>;

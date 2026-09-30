@@ -2091,8 +2091,20 @@
       "title": "InstructionsMovedPayload"
     },
     {
+      "path": "instructions/events/instructions.version-resolved.json",
+      "title": "InstructionsVersionResolvedPayload"
+    },
+    {
       "path": "instructions/events/instructions.removed.json",
       "title": "InstructionsRemovedPayload"
+    },
+    {
+      "path": "instructions/events/instructions.suggestion-dismissed.json",
+      "title": "InstructionsSuggestionDismissedPayload"
+    },
+    {
+      "path": "instructions/events/instructions.suggestion-restored.json",
+      "title": "InstructionsSuggestionRestoredPayload"
     },
     {
       "path": "instructions/instructions-updated.json",
@@ -2109,6 +2121,14 @@
     {
       "path": "instructions/owned-instruction-row.json",
       "title": "OwnedInstructionRow"
+    },
+    {
+      "path": "instructions/version-choice.json",
+      "title": "InstructionVersionChoice"
+    },
+    {
+      "path": "instructions/diff.json",
+      "title": "InstructionDiff"
     },
     {
       "path": "terminals/terminal-id.json",
@@ -4435,6 +4455,18 @@
       "title": "instructions.list error"
     },
     {
+      "path": "methods/instructions.diff/params.json",
+      "title": "instructions.diff params"
+    },
+    {
+      "path": "methods/instructions.diff/result.json",
+      "title": "instructions.diff result"
+    },
+    {
+      "path": "methods/instructions.diff/error.json",
+      "title": "instructions.diff error"
+    },
+    {
       "path": "methods/instructions.create/params.json",
       "title": "instructions.create params"
     },
@@ -4515,6 +4547,22 @@
       "title": "instructions.move error"
     },
     {
+      "path": "methods/instructions.resolveVersion/params.json",
+      "title": "instructions.resolveVersion params"
+    },
+    {
+      "path": "methods/instructions.resolveVersion/result.json",
+      "title": "instructions.resolveVersion result"
+    },
+    {
+      "path": "methods/instructions.resolveVersion/response.json",
+      "title": "instructions.resolveVersion response"
+    },
+    {
+      "path": "methods/instructions.resolveVersion/error.json",
+      "title": "instructions.resolveVersion error"
+    },
+    {
       "path": "methods/instructions.remove/params.json",
       "title": "instructions.remove params"
     },
@@ -4529,6 +4577,54 @@
     {
       "path": "methods/instructions.remove/error.json",
       "title": "instructions.remove error"
+    },
+    {
+      "path": "methods/instructions.dismissSuggestion/params.json",
+      "title": "instructions.dismissSuggestion params"
+    },
+    {
+      "path": "methods/instructions.dismissSuggestion/result.json",
+      "title": "instructions.dismissSuggestion result"
+    },
+    {
+      "path": "methods/instructions.dismissSuggestion/response.json",
+      "title": "instructions.dismissSuggestion response"
+    },
+    {
+      "path": "methods/instructions.dismissSuggestion/error.json",
+      "title": "instructions.dismissSuggestion error"
+    },
+    {
+      "path": "methods/instructions.restoreSuggestion/params.json",
+      "title": "instructions.restoreSuggestion params"
+    },
+    {
+      "path": "methods/instructions.restoreSuggestion/result.json",
+      "title": "instructions.restoreSuggestion result"
+    },
+    {
+      "path": "methods/instructions.restoreSuggestion/response.json",
+      "title": "instructions.restoreSuggestion response"
+    },
+    {
+      "path": "methods/instructions.restoreSuggestion/error.json",
+      "title": "instructions.restoreSuggestion error"
+    },
+    {
+      "path": "methods/instructions.import/params.json",
+      "title": "instructions.import params"
+    },
+    {
+      "path": "methods/instructions.import/result.json",
+      "title": "instructions.import result"
+    },
+    {
+      "path": "methods/instructions.import/response.json",
+      "title": "instructions.import response"
+    },
+    {
+      "path": "methods/instructions.import/error.json",
+      "title": "instructions.import error"
     },
     {
       "path": "methods/forge.accounts.list/params.json",
@@ -6716,6 +6812,15 @@
       "error": "methods/instructions.list/error.json"
     },
     {
+      "name": "instructions.diff",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/instructions.diff/params.json",
+      "result": "methods/instructions.diff/result.json",
+      "error": "methods/instructions.diff/error.json"
+    },
+    {
       "name": "instructions.create",
       "scope": "admin",
       "kind": "command",
@@ -6766,6 +6871,16 @@
       "error": "methods/instructions.move/error.json"
     },
     {
+      "name": "instructions.resolveVersion",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.resolveVersion/params.json",
+      "result": "methods/instructions.resolveVersion/result.json",
+      "response": "methods/instructions.resolveVersion/response.json",
+      "error": "methods/instructions.resolveVersion/error.json"
+    },
+    {
       "name": "instructions.remove",
       "scope": "admin",
       "kind": "command",
@@ -6774,6 +6889,36 @@
       "result": "methods/instructions.remove/result.json",
       "response": "methods/instructions.remove/response.json",
       "error": "methods/instructions.remove/error.json"
+    },
+    {
+      "name": "instructions.dismissSuggestion",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.dismissSuggestion/params.json",
+      "result": "methods/instructions.dismissSuggestion/result.json",
+      "response": "methods/instructions.dismissSuggestion/response.json",
+      "error": "methods/instructions.dismissSuggestion/error.json"
+    },
+    {
+      "name": "instructions.restoreSuggestion",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.restoreSuggestion/params.json",
+      "result": "methods/instructions.restoreSuggestion/result.json",
+      "response": "methods/instructions.restoreSuggestion/response.json",
+      "error": "methods/instructions.restoreSuggestion/error.json"
+    },
+    {
+      "name": "instructions.import",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.import/params.json",
+      "result": "methods/instructions.import/result.json",
+      "response": "methods/instructions.import/response.json",
+      "error": "methods/instructions.import/error.json"
     },
     {
       "name": "forge.accounts.list",

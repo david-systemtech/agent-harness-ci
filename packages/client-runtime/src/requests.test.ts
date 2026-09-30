@@ -484,7 +484,7 @@ describe("the request cache", () => {
     const manifest = { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [], leftOut: [] };
     wire.answer("instructions.list", () => {
       reads.list++;
-      return { result: { orientation: { enabled: reads.list === 1, text: "# Orientation", unreadRegistries: [], accounts }, instructions: [] } };
+      return { result: { orientation: { enabled: reads.list === 1, text: "# Orientation", unreadRegistries: [], accounts }, instructions: [], dismissed: [] } };
     });
     wire.answer("instructions.preview", () => {
       reads.preview++;
@@ -523,6 +523,27 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(7, wire.environmentId, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
     await flush();
     expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
+  });
+
+  it("fetches instructions.diff again on instructions.updated alone (#509)", async () => {
+    const { runtime, wire, id, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    wire.answer("instructions.diff", () => {
+      reads++;
+      return { result: { catalogueId: "coding.fresh-checkout", fromVersion: 1, toVersion: 2, from: "Old.", to: "New.", body: reads === 1 ? "Old." : "New." } };
+    });
+    const diffed = runtime.requests.cached(id, "instructions.diff", { instructionId: "0f8fad5b-d9cb-469f-a165-70867728950e" });
+    diffed.subscribe(() => undefined);
+    await flush();
+    expect(reads).toBe(1);
+    environment?.event(noticeEvent(1, wire.environmentId, "settings.changed", { keys: ["instructions.orientation"] }));
+    environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "added", warning: null }));
+    await flush();
+    expect(reads).toBe(1);
+    environment?.event(noticeEvent(3, wire.environmentId, "instructions.updated", {}));
+    await flush();
+    expect(reads).toBe(2);
+    expect(diffed.read()).toMatchObject({ result: { body: "New." }, error: null });
   });
 
   it("fetches stateImport.detect again when a state import ends, and no other query (#581)", async () => {
