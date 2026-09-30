@@ -591,12 +591,14 @@ describe("a firing's end", () => {
     const first = await start({ dataDir });
     const client = await first.client();
     const closed = await firing(first, client, heldRun(heldGate()));
+    await working(first, closed.sessionId, closed.runId);
     await first.close();
     const second = await start({ dataDir, clock: first.clock });
     const reader = await second.client();
     expect((await history(reader, closed.routineId))[0]).toMatchObject({ id: closed.firingId, outcome: "failed", reason: "restart", text: "Working" });
 
     const cut = await firing(second, reader, heldRun(heldGate()), routine({ name: "Cut by a crash" }));
+    await working(second, cut.sessionId, cut.runId);
     // The environment dies with the run mid-flight: its end never reaches the log.
     const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await reader.close();
