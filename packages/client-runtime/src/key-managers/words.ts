@@ -185,7 +185,7 @@ export const INJECTION_WORDS: Readonly<Record<InjectionAnswer, string>> = { allo
  * dropped (`null`) so the account takes the environment's answer.
  */
 export const overridesWith = (overrides: Readonly<Record<string, InjectionAnswer>>, accountId: string, answer: InjectionAnswer | null): Record<string, InjectionAnswer> => {
-  const { [accountId]: _dropped, ...others } = overrides;
+  const others = Object.fromEntries(Object.entries(overrides).filter(([id]) => id !== accountId));
   return answer === null ? others : { ...others, [accountId]: answer };
 };
 

@@ -1,4 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
+import type { KeyManagerStatus, KeyManagerStatusKind } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { certificateOf, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -191,7 +193,7 @@ describe("a certificate the environment does not trust", () => {
 
 describe("the card's verbs", () => {
   it("says what each status asks, and Verify now refreshes the card with what keyManagers.connections.verify found", async () => {
-    const status = (kind: string, message: string) => ({ kind, since: "2026-09-24T00:00:00.000Z", message }) as const;
+    const status = (kind: KeyManagerStatusKind, message: string): KeyManagerStatus => ({ kind, since: MANUAL_CLOCK_START, message });
     const app = await opened({
       keyManagers: {
         connections: [
@@ -223,7 +225,7 @@ describe("the card's verbs", () => {
   });
 
   it("signs in again with keyManagers.connections.signIn, sent directly, a refusal said in the form with the secret emptied", async () => {
-    const refused = { kind: "credential-rejected", since: "2026-09-24T00:00:00.000Z", message: "OpenBao at https://bao.home.test refused the credential." } as const;
+    const refused: KeyManagerStatus = { kind: "credential-rejected", since: MANUAL_CLOCK_START, message: "OpenBao at https://bao.home.test refused the credential." };
     const app = await opened({ keyManagers: { rejects: ["password-rejected-for-tests"], connections: [{ label: "Home OpenBao", address: "https://bao.home.test", status: refused }] } });
     await openKeyManagers(app);
     await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Sign in again" }));

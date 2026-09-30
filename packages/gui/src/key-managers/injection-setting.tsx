@@ -1,18 +1,13 @@
-import { INJECTION_WORDS, overridesWith, saveSetting, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
+import { INJECTION_WORDS, overridesWith, type EnvironmentView } from "@agent-harness/client-runtime";
 import { INJECTION_ANSWERS, type InjectionAnswer, type SettingsKey } from "@agent-harness/contracts";
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { nameOf } from "../connections/words.js";
+import { useSettingsValues } from "../settings/settings-values.js";
 import { Select } from "../ui/index.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime } from "../window-context.js";
 
 /** An account's choice: its own answer, or the environment's (`inherit`, no entry in the map). */
 type AccountChoice = InjectionAnswer | "inherit";
-
-/** A write's answer, shown over the cached settings until they are fetched again. */
-interface Written {
-  readonly over: string | null;
-  readonly values: Readonly<Record<string, unknown>>;
-}
 
 /**
  * The injection setting (key-managers spec, "Injection"; ADR 0011, ADR
@@ -25,31 +20,20 @@ interface Written {
  */
 export const InjectionSetting = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
-  const clock = useClock();
   const heading = useId();
   const { environmentId } = view;
-  const settings = useObservable(useMemo(() => runtime.requests.cached(environmentId, "settings.get", {}), [runtime, environmentId]));
+  const settings = useSettingsValues(environmentId);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value ?? [];
-  const [written, setWritten] = useState<Written | undefined>(undefined);
   const [line, setLine] = useState<string | undefined>(undefined);
-  const fetchedAt = useRef(settings.fetchedAt);
-  useLayoutEffect(() => {
-    fetchedAt.current = settings.fetchedAt;
-  });
-  const read = settings.result?.values;
-  if (read === undefined) return null;
-  const values = written?.over === settings.fetchedAt ? { ...read, ...written.values } : read;
+  const { values } = settings;
+  if (values === null) return null;
   const answer = (values["credentials.injection"] as InjectionAnswer | undefined) ?? "allow";
   const overrides = (values["credentials.injectionByAccount"] as Readonly<Record<string, InjectionAnswer>> | undefined) ?? {};
   const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present";
 
   const save = (key: SettingsKey, value: unknown) => {
     setLine(undefined);
-    void saveSetting(runtime, environmentId, key, value, { commandId: uuidv7(clock.now()) }).then((saved) => {
-      if (!saved.ok) return setLine(`Not saved: ${saved.line}`);
-      const over = fetchedAt.current;
-      setWritten((now) => ({ over, values: { ...(now?.over === over ? now.values : {}), ...saved.values } }));
-    });
+    void settings.save(key, value).then((saved) => !saved.ok && setLine(`Not saved: ${saved.line}`));
   };
 
   return (
