@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
+import { APP_ID } from "./app-id.js";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
 import { ANSWERED, channelOf, TOLD } from "./channels.js";
@@ -9,6 +10,7 @@ import { grantFile } from "./local-grant.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronIpcMain, IpcCaller, WindowOptions } from "./electron.js";
 import { lockNavigation, lockNetwork } from "./lockdown.js";
 import { bringForward, shellMembers, type Members } from "./members.js";
+import { desktopNotifications } from "./notifications.js";
 import type { DesktopPlatform } from "./platform.js";
 import { PREVIEW_SCHEME_REGISTRATION, previews } from "./preview.js";
 import { APP_SCHEME, APP_URL, PREVIEW_SCHEME, isAppPage } from "./schemes.js";
@@ -107,6 +109,9 @@ export const startDesktop = async (
     app.quit();
     return;
   }
+  // Windows shows a notification only from the AppUserModelID a Start menu shortcut carries: the install's, or, run from a
+  // checkout with no such shortcut, Electron's executable, as Electron names a development run.
+  if (platform.os === "win32") app.setAppUserModelId(app.isPackaged ? APP_ID : platform.executable);
   // Once, both schemes together: Electron takes this call only once, before the app is ready.
   protocol.registerSchemesAsPrivileged([APP_SCHEME_REGISTRATION, PREVIEW_SCHEME_REGISTRATION]);
   if (platform.relaunch) app.setAsDefaultProtocolClient(APP_SCHEME, platform.relaunch.executable, [...platform.relaunch.args]);
@@ -148,6 +153,11 @@ export const startDesktop = async (
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
   const installer = bundledInstaller(platform.paths.server);
   const gh = computerGh({ os: platform.os, process: ghProcess, environment });
-  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview, gh }), reportError);
+  const notifications = desktopNotifications({ notification: electron.notification, window });
+  serveShell(
+    electron.ipcMain,
+    shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh }),
+    reportError,
+  );
   await window.loadURL(APP_URL).catch(reportError);
 };

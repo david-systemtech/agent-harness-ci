@@ -8,6 +8,7 @@ import type {
   ShellGh,
   ShellInstaller,
   ShellNetwork,
+  ShellNotifications,
   ShellPreview,
   ShellSecrets,
   ShellService,
@@ -15,13 +16,13 @@ import type {
   ShellUpdate,
   ShellWindow,
 } from "@agent-harness/client-runtime";
-import { channelOf, DEEP_LINK_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
+import { channelOf, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
  * surface needs, and the platform's own (`secrets`, `localGrant`, `service`,
- * `update`, `installer`, `gh`). `notifications` and `webView` join as their
- * tickets build them; there is no `tray` in milestone 1.
+ * `update`, `installer`, `gh`). `webView` joins as its ticket builds it;
+ * there is no `tray` in milestone 1.
  */
 export interface DesktopShell extends Shell {
   readonly window: ShellWindow;
@@ -32,6 +33,7 @@ export interface DesktopShell extends Shell {
   readonly http: HttpFetch;
   readonly network: ShellNetwork;
   readonly deepLinks: Required<ShellDeepLinks>;
+  readonly notifications: Required<ShellNotifications>;
   readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
   readonly service: ShellService;
@@ -64,6 +66,11 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
   };
   let listening = false;
   ipc.on(DEEP_LINK_CHANNEL, (_details, url) => hand(url));
+
+  const activationListeners = new Set<(tag: string) => void>();
+  ipc.on(NOTIFICATION_CHANNEL, (_details, tag) => {
+    if (typeof tag === "string") for (const listener of [...activationListeners]) listener(tag);
+  });
 
   return {
     window: {
@@ -101,6 +108,13 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
           );
         }
         return () => void linkListeners.delete(listener);
+      },
+    },
+    notifications: {
+      show: (notification) => ask("notifications.show", notification),
+      onActivate: (listener) => {
+        activationListeners.add(listener);
+        return () => void activationListeners.delete(listener);
       },
     },
     secrets: {

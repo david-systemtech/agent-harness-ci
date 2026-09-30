@@ -3,7 +3,7 @@ import { arch, homedir, hostname, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, protocol, safeStorage, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, Notification, protocol, safeStorage, shell } from "electron";
 import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
 import { desktopLog } from "./log.js";
@@ -36,7 +36,18 @@ const data = desktopDataDirectory(machine);
 const log = desktopLog(data);
 
 startDesktop(
-  { app, protocol, ipcMain, dialog, clipboard, shell, nativeTheme, safeStorage, openWindow: (options) => new BrowserWindow(options) },
+  {
+    app,
+    protocol,
+    ipcMain,
+    dialog,
+    clipboard,
+    shell,
+    nativeTheme,
+    safeStorage,
+    notification: { isSupported: () => Notification.isSupported(), create: (options) => new Notification(options) },
+    openWindow: (options) => new BrowserWindow(options),
+  },
   {
     os,
     architecture: arch(),
