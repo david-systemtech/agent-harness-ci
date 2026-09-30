@@ -157,6 +157,9 @@ export const cliWords = (row: ManagedToolRow): string => {
   return `${row.label} ${version}${minimum}: ${TOOL_STATUS_WORDS[row.status]}.`;
 };
 
+/** What a policy's write flag says beside its name. */
+export const POLICY_WRITES_WORDS: Readonly<Record<KeyManagerPolicyWrites, string>> = { yes: "writes", no: "reads only", possibly: "may write" };
+
 /**
  * ADR 0028's warning on a ticked policy that writes, or may: runs holding
  * it can change what the key manager holds; null for one that does not.

@@ -223,3 +223,26 @@ export const verifyConnection = async (runtime: Pick<Runtime, "requests">, envir
   const verified = answer.result.connections.find((each) => each.id === connection.id) ?? null;
   return { ok: true, connection: verified, line: verified === null ? `${connection.label} is no longer on this environment.` : `Verified ${verified.label}: ${verified.status.message}` };
 };
+
+/** The ticks with `policy` ticked or not, in the order the login's lookup names its policies, as the environment keeps them. */
+export const ticksWith = (connection: Pick<KeyManagerConnectionRecord, "policies" | "ticks">, policy: string, ticked: boolean): readonly string[] => {
+  const held = new Set(connection.ticks ?? []);
+  if (ticked) held.add(policy);
+  else held.delete(policy);
+  return (connection.policies ?? []).map((each) => each.name).filter((name) => held.has(name));
+};
+
+/** Ticks which of the login's policies runs receive (`keyManagers.connections.setPolicies`). */
+export const setPolicies = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, ticks: readonly string[]): Promise<KeyManagerOutcome> =>
+  connectionOutcome(
+    await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.setPolicies", { commandId: uuidv7(clock.now()), connectionId: connection.id, ticks: [...ticks] })),
+    "Ticked the policies of",
+    "The policies were not ticked",
+    connection.label,
+  );
+
+/** Makes the connection the one of its provider whose variables runs receive (`keyManagers.connections.setInjected`). */
+export const setInjected = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.setInjected", { commandId: uuidv7(clock.now()), connectionId: connection.id }));
+  return answer.ok ? { ok: true, connection: answer.result?.connection ?? null, line: `Runs receive the variables of ${connection.label} from their next start.` } : { ok: false, line: `Not changed: ${answer.line}` };
+};

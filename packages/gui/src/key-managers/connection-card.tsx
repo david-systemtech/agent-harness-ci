@@ -10,6 +10,7 @@ import {
   mintWords,
   originWords,
   statusWords,
+  setInjected,
   tokenWords,
   updateConnection,
   verifyConnection,
@@ -20,6 +21,7 @@ import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CertificateCheck } from "./certificate-check.js";
 import { ConfirmRemove, ConfirmSignOut, EditConnection, SignInAgain } from "./connection-dialogs.js";
+import { PolicyTicks } from "./policy-ticks.js";
 
 /** The dialog a card has open: none, or one of its verbs'. */
 type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | null;
@@ -87,6 +89,7 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
         <Fact name="CLI">{cli === undefined ? null : typeof cli === "string" ? cli : cliWords(cli)}</Fact>
         <Fact name="Copied from">{originWords(connection)}</Fact>
       </dl>
+      <PolicyTicks environmentId={environmentId} connection={connection} writable={writable} say={say} />
       <p className="text-sm text-ink">
         {connection.status.message}
         {advice !== null && <span className="text-ink-muted"> {advice}</span>}
@@ -103,6 +106,11 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
         <Button disabled={!writable || awaiting} onClick={() => void verifyConnection(runtime, environmentId, connection).then((verified) => say(verified.line))}>
           Verify now
         </Button>
+        {!connection.injects && (
+          <Button disabled={!writable} onClick={() => void setInjected(hands, environmentId, connection).then((set) => say(set.line))}>
+            Inject its variables
+          </Button>
+        )}
         <Button disabled={!writable} onClick={() => setOpen("edit")}>
           Edit
         </Button>

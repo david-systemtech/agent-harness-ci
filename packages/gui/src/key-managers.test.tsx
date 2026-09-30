@@ -288,3 +288,64 @@ describe("the card's verbs", () => {
     expect(desk.keyManagerConnections()).toEqual([]);
   });
 });
+
+describe("policies and injection", () => {
+  it("shows the login's policies with their write flags, ticks them with keyManagers.connections.setPolicies, and warns on a ticked one that writes or may", async () => {
+    const app = await opened({
+      keyManagers: {
+        policies: [
+          { name: "default", writes: "no" },
+          { name: "agent-read", writes: "no" },
+          { name: "agent-write", writes: "yes" },
+          { name: "team-secrets", writes: "possibly" },
+        ],
+        connections: [{ label: "Home OpenBao", address: "https://bao.home.test", ticks: ["default", "agent-read"] }],
+      },
+    });
+    await openKeyManagers(app);
+    const home = await card("Home OpenBao");
+    const ticks = within(home).getByRole("group", { name: "Policies runs receive" });
+    const ticked = () =>
+      within(within(pane()).getByRole("group", { name: "Policies runs receive" }))
+        .getAllByRole("checkbox")
+        .filter((box) => (box as HTMLInputElement).checked)
+        .map((box) => box.getAttribute("name"));
+    expect(ticked()).toEqual(["default", "agent-read"]);
+    const WRITES = "Runs given this policy can write to your key manager: untick it to keep them read-only.";
+    const MAY = "This login cannot read this policy, so runs given it may be able to write: untick it to keep them read-only.";
+    // Unticked, a writing policy carries no warning.
+    expect(within(ticks).queryByText(WRITES)).toBeNull();
+
+    await app.user.click(within(ticks).getByRole("checkbox", { name: /^agent-write/ }));
+    await waitFor(() => expect(ticked()).toEqual(["default", "agent-read", "agent-write"]));
+    expect(app.environment("desk").requests("keyManagers.connections.setPolicies")[0]?.params).toMatchObject({ ticks: ["default", "agent-read", "agent-write"] });
+    expect(within(pane()).getByText(WRITES)).toBeDefined();
+
+    await app.user.click(within(within(pane()).getByRole("group", { name: "Policies runs receive" })).getByRole("checkbox", { name: /^team-secrets/ }));
+    await waitFor(() => expect(ticked()).toEqual(["default", "agent-read", "agent-write", "team-secrets"]));
+    expect(within(pane()).getByText(MAY)).toBeDefined();
+
+    await app.user.click(within(within(pane()).getByRole("group", { name: "Policies runs receive" })).getByRole("checkbox", { name: /^agent-write/ }));
+    await waitFor(() => expect(ticked()).toEqual(["default", "agent-read", "team-secrets"]));
+    expect(within(pane()).queryByText(WRITES)).toBeNull();
+  });
+
+  it("chooses which connection of a provider injects with keyManagers.connections.setInjected", async () => {
+    const app = await opened({
+      keyManagers: {
+        connections: [
+          { label: "Home OpenBao", address: "https://bao.home.test" },
+          { label: "Work OpenBao", address: "https://bao.work.test", injects: false, injectedVariables: [] },
+        ],
+      },
+    });
+    await openKeyManagers(app);
+    expect(within(await card("Home OpenBao")).queryByRole("button", { name: "Inject its variables" })).toBeNull();
+    const work = await card("Work OpenBao");
+    expect(facts(work)["Runs"]).toBe("They do not receive its variables: it serves the harness's references only.");
+    await app.user.click(within(work).getByRole("button", { name: "Inject its variables" }));
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Work OpenBao" }))["Runs"]).toMatch(/^They receive its variables: BAO_ADDR/));
+    expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Runs"]).toBe("They do not receive its variables: it serves the harness's references only.");
+    expect(app.environment("desk").requests("keyManagers.connections.setInjected")).toHaveLength(1);
+  });
+});
