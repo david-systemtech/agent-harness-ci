@@ -1,4 +1,4 @@
-import type { Ceiling, EventEnvelope, Scope } from "@agent-harness/contracts";
+import type { Ceiling, EventEnvelope } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { adminCall } from "../status/actions.js";
 import type { ClientSessionSummary } from "./words.js";
@@ -9,13 +9,9 @@ import type { ClientSessionSummary } from "./words.js";
  * session's ceiling changed and a client session revoked, each an `admin`
  * command sent as a direct request (`adminCall`), never the outbox's, so one
  * made while the environment cannot be reached fails at once; and the whole
- * access log read, page after page; and what a program's pairing code
- * grants unless changed. Each command answers what it did, or why not, in
- * one line.
+ * access log read, page after page. Each command answers what it did, or
+ * why not, in one line.
  */
-
-/** What a program's pairing code grants unless changed (ADR 0025's program preset, which #577 makes contracts data): read, sessions:write and runs:drive, up to acceptEdits. */
-export const PROGRAM_GRANT: { readonly scopes: readonly Scope[]; readonly ceiling: Ceiling } = { scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" };
 
 /** What a command did, in one line. */
 export interface AccessOutcome {
