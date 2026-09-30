@@ -1,7 +1,8 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FIRST_ROW, STEP_LABELS, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
-import { useId, type ReactNode } from "react";
+import { useId, type ComponentType, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
+import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { useChecklist } from "../setup/checklist-window.js";
 import { SetupPane } from "../setup/setup-pane.js";
@@ -96,18 +97,25 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
   );
 };
 
+/** The panes built, each keyed by the row it draws (docs/specs/gui.md: a pane is a GUI component keyed by row id); every other row is drawn unbuilt. */
+const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
+  [FIRST_ROW]: SetupPane,
+  "access.key-managers": KeyManagersPane,
+};
+
 /**
  * A row's pane (ADR 0027): its heading, then in its header what its scope
  * gives it (an `environment` row's picker, none for `everywhere` and
  * `client` rows), About with this client's version pinned above its picker
  * as the one line that belongs to no environment, then what the row holds:
- * Set up's checklist on its row, the unbuilt row's hint, links and keys on
- * the others.
+ * its built pane (Set up's checklist, Key managers), the unbuilt row's
+ * hint, links and keys on the others.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);
   const version = useClientVersion();
   const heading = useId();
+  const Built = BUILT_PANES[row];
   return (
     <section aria-labelledby={heading} className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
       <header className="flex flex-col gap-2">
@@ -117,7 +125,7 @@ export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
         {row === "about.about" && <p className="text-sm text-ink">This client: {version}</p>}
         {entry.scope === "environment" && <EnvironmentPicker />}
       </header>
-      {row === FIRST_ROW ? <SetupPane /> : <UnbuiltRow row={row} />}
+      {Built === undefined ? <UnbuiltRow row={row} /> : <Built />}
     </section>
   );
 };
