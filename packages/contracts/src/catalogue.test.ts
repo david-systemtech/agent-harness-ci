@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import {
   CATALOGUE,
+  CATALOGUE_SEED_INSTRUCTION_ID,
   Catalogue,
   CatalogueInstructionEntry,
   CatalogueSkillEntry,
@@ -235,9 +236,13 @@ describe("the catalogue's ids and places", () => {
     const seed = instruction("setup.about-my-setup");
     const others = CATALOGUE.instructions.entries.filter((entry) => entry !== seed);
     expect(refusals(Catalogue, withInstructions([...CATALOGUE.instructions.entries, { ...seed, id: "setup.more" }]))).toEqual([
-      "instructions.entries: The Setup group holds only the seed, About my setup: it holds 2 entries.",
+      "instructions.entries: The Setup group holds only the seed, setup.about-my-setup: it holds setup.about-my-setup, setup.more.",
     ]);
-    expect(refusals(Catalogue, withInstructions(others))).toEqual(["instructions.entries: The Setup group holds only the seed, About my setup: it holds 0 entries."]);
+    expect(refusals(Catalogue, withInstructions(others))).toEqual(["instructions.entries: The Setup group holds only the seed, setup.about-my-setup: it holds none."]);
+    expect(refusals(Catalogue, withInstructions([{ ...seed, id: "setup.something-else" }, ...others]))).toEqual([
+      "instructions.entries: The Setup group holds only the seed, setup.about-my-setup: it holds setup.something-else.",
+    ]);
+    expect(CATALOGUE_SEED_INSTRUCTION_ID).toBe(seed.id);
     expect(refusals(Catalogue, withInstructions([...CATALOGUE.instructions.entries, { ...freshCheckout, id: "custom.mine", group: "custom" }]))).toEqual([
       "instructions.entries: The Custom group holds a person's own instructions, never a catalogue entry.",
     ]);

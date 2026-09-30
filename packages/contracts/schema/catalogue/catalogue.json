@@ -380,5 +380,5 @@
     "skills",
     "instructions"
   ],
-  "description": "The catalogue the Skills and Instructions steps suggest from, shipped with the harness and versioned with the build: skills entries, and instruction groups with their entries. Ids are unique within each list; no two skills entries share a repository identity and folder; the groups are setup, coding, working and custom in that order; setup holds exactly one entry (About my setup) and custom none."
+  "description": "The catalogue the Skills and Instructions steps suggest from, shipped with the harness and versioned with the build: skills entries, and instruction groups with their entries. Ids are unique within each list; no two skills entries share a repository identity and folder; the groups are setup, coding, working and custom in that order; setup holds exactly one entry, the seed setup.about-my-setup (About my setup), and custom none."
 }

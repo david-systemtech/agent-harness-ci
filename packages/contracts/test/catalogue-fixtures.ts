@@ -1,4 +1,4 @@
-import { CATALOGUE } from "../src/index.js";
+import { CATALOGUE, CATALOGUE_SEED_INSTRUCTION_ID } from "../src/index.js";
 
 /**
  * Fixtures for the catalogue's schemas (skills spec, "The catalogue"): a
@@ -107,7 +107,7 @@ export const catalogueSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "catalogue/catalogue.json": {
-    valid: [CATALOGUE, { skills: [], instructions: { groups: CATALOGUE.instructions.groups, entries: [{ ...instruction, id: "setup.seed", group: "setup" }] } }],
+    valid: [CATALOGUE, { skills: [], instructions: { groups: CATALOGUE.instructions.groups, entries: [{ ...instruction, id: CATALOGUE_SEED_INSTRUCTION_ID, group: "setup" }] } }],
     invalid: [{ skills: [] }, { ...CATALOGUE, skills: [{ ...entry, skillCount: 0 }] }, { ...CATALOGUE, instructions: { groups: [], entries: [{ ...instruction, version: "1" }] } }],
   },
 };

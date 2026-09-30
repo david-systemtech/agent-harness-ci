@@ -197,6 +197,13 @@ export const CatalogueInstructionGroup = z
   .meta({ description: "An instruction group: its id and the heading the Instructions step shows it under." });
 export type CatalogueInstructionGroup = z.infer<typeof CatalogueInstructionGroup>;
 
+/**
+ * The seed's id: "About my setup", the Setup group's one entry, which the
+ * Instructions step creates an owned copy of the first time it opens (ADR
+ * 0030).
+ */
+export const CATALOGUE_SEED_INSTRUCTION_ID = "setup.about-my-setup";
+
 /** An instruction entry's id: its group, a dot, and a name. */
 export const CatalogueInstructionEntryId = z
   .string()
@@ -269,7 +276,8 @@ export type CatalogueInstructionEntry = z.infer<typeof CatalogueInstructionEntry
  * their entries. Beyond each entry's own rules: ids are unique within each
  * list, no two skills entries share a repository identity and folder (a
  * source would tick both), the groups are the four in their order, the
- * Setup group holds exactly one entry, the seed, and Custom holds none.
+ * Setup group holds exactly one entry, the seed (by its id), and Custom
+ * holds none.
  */
 export const Catalogue = z
   .object({
@@ -290,13 +298,16 @@ export const Catalogue = z
     if (groups.map((group) => group.id).join() !== CATALOGUE_INSTRUCTION_GROUPS.join()) refuse(ctx, ["instructions", "groups"], `The groups are ${CATALOGUE_INSTRUCTION_GROUPS.join(", ")}, in that order.`);
     const instructionIds = entries.map((entry) => entry.id);
     for (const index of repeats(instructionIds)) refuse(ctx, ["instructions", "entries", index, "id"], `The instruction id ${instructionIds[index] ?? ""} is used twice.`);
-    const inGroup = (group: CatalogueInstructionGroupId): number => entries.filter((entry) => entry.group === group).length;
-    if (inGroup("setup") !== 1) refuse(ctx, ["instructions", "entries"], `The Setup group holds only the seed, About my setup: it holds ${inGroup("setup")} entries.`);
-    if (inGroup("custom") !== 0) refuse(ctx, ["instructions", "entries"], "The Custom group holds a person's own instructions, never a catalogue entry.");
+    const inGroup = (group: CatalogueInstructionGroupId): string[] => entries.filter((entry) => entry.group === group).map((entry) => entry.id);
+    const setup = inGroup("setup");
+    if (setup.join() !== CATALOGUE_SEED_INSTRUCTION_ID) {
+      refuse(ctx, ["instructions", "entries"], `The Setup group holds only the seed, ${CATALOGUE_SEED_INSTRUCTION_ID}: it holds ${setup.join(", ") || "none"}.`);
+    }
+    if (inGroup("custom").length !== 0) refuse(ctx, ["instructions", "entries"], "The Custom group holds a person's own instructions, never a catalogue entry.");
   })
   .meta({
     description:
-      "The catalogue the Skills and Instructions steps suggest from, shipped with the harness and versioned with the build: skills entries, and instruction groups with their entries. Ids are unique within each list; no two skills entries share a repository identity and folder; the groups are setup, coding, working and custom in that order; setup holds exactly one entry (About my setup) and custom none.",
+      "The catalogue the Skills and Instructions steps suggest from, shipped with the harness and versioned with the build: skills entries, and instruction groups with their entries. Ids are unique within each list; no two skills entries share a repository identity and folder; the groups are setup, coding, working and custom in that order; setup holds exactly one entry, the seed setup.about-my-setup (About my setup), and custom none.",
   });
 export type Catalogue = z.infer<typeof Catalogue>;
 

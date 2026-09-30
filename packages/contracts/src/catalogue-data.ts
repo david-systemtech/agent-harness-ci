@@ -1,4 +1,4 @@
-import type { Catalogue, CatalogueLicence, CatalogueSkillMember } from "./catalogue.js";
+import { CATALOGUE_SEED_INSTRUCTION_ID, type Catalogue, type CatalogueLicence, type CatalogueSkillMember } from "./catalogue.js";
 
 /**
  * The catalogue's entries (skills spec, "The catalogue"; ADR 0029, ADR
@@ -188,7 +188,7 @@ export const CATALOGUE: Catalogue = {
     ],
     entries: [
       {
-        id: "setup.about-my-setup",
+        id: CATALOGUE_SEED_INSTRUCTION_ID,
         group: "setup",
         title: "About my setup",
         summary: "Read the orientation block before looking for a machine, a forge, a key or a bank, and ask when it names none.",

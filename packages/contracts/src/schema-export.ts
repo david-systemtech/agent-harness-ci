@@ -1433,7 +1433,7 @@ export const publishedData = (): PublishedData[] => [
   {
     path: "data/catalogue-instruction-groups.json",
     title: "Catalogue instruction groups",
-    description: "The catalogue's instruction groups in the order the Instructions step shows them (ADR 0030): Setup, holding only the seed About my setup; Coding; Working with me; and Custom, a person's own, which the catalogue leaves empty.",
+    description: "The catalogue's instruction groups in the order the Instructions step shows them (ADR 0030): Setup, holding only the seed, setup.about-my-setup (About my setup); Coding; Working with me; and Custom, a person's own, which the catalogue leaves empty.",
     schema: "catalogue/instruction-group.json",
     entries: CATALOGUE.instructions.groups,
   },
