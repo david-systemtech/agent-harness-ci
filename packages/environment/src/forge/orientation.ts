@@ -1,9 +1,8 @@
 import { GITHUB_ORIGIN, forgeApiBase, type ForgeAccountRecord, type ForgeCapabilityName, type ForgeKind, type ForgeProblemKind } from "@agent-harness/contracts";
 import type { InjectionDecision, InjectionLevel } from "../adapter/process-environment.js";
-import { injectionDenier, type OrientationContent, type OrientationList, type OrientationSection } from "../instructions/orientation.js";
+import { injectionDenier, utcMinute, type OrientationContent, type OrientationList, type OrientationSection } from "../instructions/orientation.js";
 import { isInjected } from "./forge-store.js";
 import { servedOrigins } from "./git-helper.js";
-import { readableMinute } from "./verification.js";
 
 /**
  * The orientation block's forges section (forge spec, "Orientation";
@@ -50,7 +49,7 @@ const sentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text
 
 /** Its status and since when it has held: verified, or its problem with the problem's own line. */
 const statusOf = (account: ForgeAccountRecord): string => {
-  const since = readableMinute(account.statusSince);
+  const since = utcMinute(account.statusSince);
   if (account.problem === null) return `verified, unchanged since ${since}.`;
   return `${PROBLEM_WORDS[account.problem.kind]} since ${since}. ${sentence(account.problem.message)}`;
 };
