@@ -192,7 +192,7 @@ describe("web_read's fetch", () => {
       expect(body).not.toContain("Archive");
       expect(after).toEqual([`Characters 0 to ${body.length} of ${body.length}: this is the last page.`]);
       const [request] = server.requests;
-      expect(request?.headers["user-agent"]).toMatch(/^agent-harness\/\S+ \(web_read; reading this page for an AI agent\)$/);
+      expect(request?.headers["user-agent"]).toMatch(/^agent-harness\/\S+ \(web_read; reading this page for an agent\)$/);
     },
     WORKERS_MS,
   );

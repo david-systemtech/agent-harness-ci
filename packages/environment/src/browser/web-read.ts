@@ -41,7 +41,7 @@ interface ReadRequest {
 }
 
 /** The user agent web_read sends: it names the product and says it reads for an agent (#292: identify as an agent). */
-export const webReadUserAgent = (harnessVersion: string): string => `agent-harness/${harnessVersion} (web_read; reading this page for an AI agent)`;
+export const webReadUserAgent = (harnessVersion: string): string => `agent-harness/${harnessVersion} (web_read; reading this page for an agent)`;
 
 const refusal = (text: string): HostToolResult => ({ text, isError: true });
 
