@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NativeSkillRoot",
+  "type": "string",
+  "enum": [
+    ".claude/skills",
+    ".agents/skills",
+    ".claude/commands"
+  ],
+  "description": "A root of a trusted repository a provider may load itself: .claude/skills or .agents/skills (its skills), or .claude/commands (its own commands). Found in the workspace directory and each parent up to the repository's root."
+}

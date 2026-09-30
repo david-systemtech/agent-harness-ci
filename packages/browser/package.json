@@ -8,6 +8,11 @@
       "@agent-harness/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@agent-harness/source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "scripts": {
@@ -17,6 +22,8 @@
     "@agent-harness/contracts": "workspace:*"
   },
   "devDependencies": {
-    "jsdom": "^30.1.1"
+    "@types/ws": "^8.18.1",
+    "jsdom": "^30.1.1",
+    "ws": "^8.21.3"
   }
 }

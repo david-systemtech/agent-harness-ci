@@ -1343,6 +1343,22 @@
       "title": "SkillsUpdatedPayload"
     },
     {
+      "path": "skills/native-root.json",
+      "title": "NativeSkillRoot"
+    },
+    {
+      "path": "skills/set-fingerprint.json",
+      "title": "SkillSetFingerprint"
+    },
+    {
+      "path": "skills/run-skill-set-member.json",
+      "title": "RunSkillSetMember"
+    },
+    {
+      "path": "skills/run-skill-set.json",
+      "title": "RunSkillSet"
+    },
+    {
       "path": "skills/source-id.json",
       "title": "SkillSourceId"
     },
@@ -2721,6 +2737,22 @@
     {
       "path": "browser/bridge/from-environment.json",
       "title": "BridgeFromEnvironment"
+    },
+    {
+      "path": "browser/status/listener.json",
+      "title": "ExtensionListenerStatus"
+    },
+    {
+      "path": "browser/status/folder.json",
+      "title": "ExtensionFolderStatus"
+    },
+    {
+      "path": "browser/status/status.json",
+      "title": "BrowserStatus"
+    },
+    {
+      "path": "browser/extension-seen.json",
+      "title": "ExtensionSeenPayload"
     },
     {
       "path": "settings/events/settings.updated.json",
@@ -5193,6 +5225,18 @@
     {
       "path": "methods/trust.revoke/error.json",
       "title": "trust.revoke error"
+    },
+    {
+      "path": "methods/browser.status/params.json",
+      "title": "browser.status params"
+    },
+    {
+      "path": "methods/browser.status/result.json",
+      "title": "browser.status result"
+    },
+    {
+      "path": "methods/browser.status/error.json",
+      "title": "browser.status error"
     }
   ],
   "cases": [
@@ -6769,6 +6813,15 @@
       "result": "methods/trust.revoke/result.json",
       "response": "methods/trust.revoke/response.json",
       "error": "methods/trust.revoke/error.json"
+    },
+    {
+      "name": "browser.status",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/browser.status/params.json",
+      "result": "methods/browser.status/result.json",
+      "error": "methods/browser.status/error.json"
     }
   ]
 }

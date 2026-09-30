@@ -47,7 +47,9 @@ export const ChecklistView = () => {
                   onClick={() => choose(candidate.id)}
                   className={classes(
                     "flex-1 rounded-md px-2 py-1 text-left text-sm outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
-                    candidate.id === shown ? "bg-wash-strong text-ink" : "text-ink-muted",
+                    candidate.id === shown ? "bg-wash-strong" : undefined,
+                    // A step the environment does not register is dim, with no dot.
+                    !candidate.registered ? "text-ink-faint" : candidate.id === shown ? "text-ink" : "text-ink-muted",
                   )}
                 >
                   {candidate.label}

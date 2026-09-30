@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign in</title></head>
+<body>
+  <form onsubmit="return false">
+    <label>Password <input id="password" type="password" autocomplete="current-password" value="old-password-for-tests"></label>
+    <label>Card number <input id="card" autocomplete="cc-number" value="0000 0000 0000 0000"></label>
+    <button id="buy" type="button">Buy</button>
+  </form>
+  <script>
+    // The page's own world counts its clicks, and every query of its document made through its own functions:
+    // the driver's queries run in an isolated world and never reach these.
+    window.clicks = 0;
+    window.mainWorldQueries = 0;
+    document.getElementById("buy").addEventListener("click", () => window.clicks++);
+    const query = Document.prototype.querySelector;
+    Document.prototype.querySelector = function (...args) {
+      window.mainWorldQueries++;
+      return query.apply(this, args);
+    };
+  </script>
+</body>
+</html>

@@ -1,6 +1,16 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
+import {
+  MODES,
+  SKILL_PLUGIN_NAME,
+  type AdapterCapabilities,
+  type AuthStatus,
+  type JsonObject,
+  type Mode,
+  type ModeAvailability,
+  type ProcessHoldKind,
+  type RunSkillSetMember,
+} from "@agent-harness/contracts";
 import {
   inProcessToolAccess,
   inProcessToolName,
@@ -10,6 +20,7 @@ import {
   type AccountRef,
   type Adapter,
   type AdapterEvent,
+  type CommandsScope,
   type GateDecision,
   type GatedToolCall,
   type HostToolResult,
@@ -66,16 +77,21 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * A script holds the process with background work through the run
  * context's port (`backgroundTask`). A process is spawned with its run's
  * process environment (#307), supplied once and reported on its record
- * (`supplied`), and with its run's instruction text (`instructions`); a run
- * whose key, instructions or trust differ lets it go for a fresh one, as Claude's
- * adapter does; a script runs a command in what its process was supplied
- * (`runCommand`).
+ * (`supplied`), with its run's instruction text (`instructions`) and with
+ * its skill set's fingerprint (`fingerprint`, #495); a run whose key,
+ * instructions, trust or fingerprint differ lets it go for a fresh one, as
+ * Claude's adapter does; a script runs a command in what its process was
+ * supplied (`runCommand`).
  *
  * Accounts (#134): the status probe answers per account directory and can
  * be changed mid-test (`setStatus`), every read is recorded
  * (`statusReads`), and the fake names a directory of its own for
  * `accounts.adopt` (`ambientDirectory`), one that is not there unless a
- * test gives it one. It lists commands when a test gives it some.
+ * test gives it one. It lists commands when a test gives it some, and
+ * then, as Claude lists them, each member of the skill set it is handed:
+ * `agent-harness:<name>` for one the generation links, `<name>` for a
+ * native one; every listing is recorded with its scope (#495). A member's
+ * invocation text is Claude's too.
  *
  * The tool gate (#132, #133): a script plays a tool call as a provider
  * does under the gate (`toolCall`), asking the run context's gate before its
@@ -130,6 +146,8 @@ export interface FakeProcessRecord {
   readonly instructions: string;
   /** Whether it was spawned for a trusted repository, fixed for its life as Claude's project settings are: a run with the other answer is served by a fresh process (#500). */
   readonly trusted: boolean;
+  /** The fingerprint of the skill set it was spawned with, fixed for its life as Claude's plugins are: a run with another is served by a fresh process (#495). */
+  readonly fingerprint: string | null;
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -256,6 +274,19 @@ export const planLimit = (
   named: { readonly utilisation?: number | null; readonly resetsAt?: string | null } = {},
 ): TranscriptEvent => ({ type: "plan.limit", payload: { window, status, utilisation: named.utilisation ?? null, resetsAt: named.resetsAt ?? null } });
 
+/** A commands listing as the fake was asked for it: the account, the workspace's path, and the trust and skill set the host resolved. */
+export interface CommandListing {
+  readonly account: AccountRef;
+  readonly workspace: string;
+  readonly scope: CommandsScope;
+}
+
+/** How the fake lists a member of the skill set it is handed, as Claude's CLI does: under the generation plugin's name unless it is native. */
+const listedMember = (member: RunSkillSetMember): ProviderCommand => ({
+  name: member.native ? member.name : `${SKILL_PLUGIN_NAME}:${member.name}`,
+  description: `The skill set's ${member.name}.`,
+});
+
 /** A user title the environment mirrored into the provider's own title field. */
 export interface MirroredTitle {
   readonly sessionId: string;
@@ -289,8 +320,8 @@ export interface FakeAdapter extends Adapter {
   readonly statusReads: readonly AccountRef[];
   /** Replaces the status probe from now on. */
   setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
-  /** Every commands listing, in order. */
-  readonly commandListings: readonly { readonly account: AccountRef; readonly workspace: string }[];
+  /** Every commands listing, in order, with the scope the host resolved for it. */
+  readonly commandListings: readonly CommandListing[];
   /** Every plan-usage read, in order: the account reference it was asked with. */
   readonly usageReads: readonly AccountRef[];
   /** Replaces the plan-usage read from now on. */
@@ -639,8 +670,10 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     // The fake stands in for an adapter that enforces containment, as the Claude adapter does (#140), so the gate's rules can be driven.
     containment: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
-    // Claude-shaped: a trusted repository's own instructions are the provider's to load; a test declares an adapter without.
+    // Claude-shaped: a trusted repository's own instructions, `.claude/skills` and commands are the provider's to load; a
+    // test declares an adapter without, or with other roots.
     nativeProjectInstructions: true,
+    nativeSkillRoots: [".claude/skills", ".claude/commands"],
     modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,
   };
@@ -655,7 +688,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   /** The port each process's latest run was handed. */
   const ports = new Map<FakeProcessRecord, ProcessPort>();
   const statusReads: AccountRef[] = [];
-  const commandListings: { account: AccountRef; workspace: string }[] = [];
+  const commandListings: CommandListing[] = [];
   let status = options.status;
   const usageReads: AccountRef[] = [];
   // The preset names the fake's own provider, whatever a test calls it; a scripted reading is answered as scripted.
@@ -682,6 +715,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       supplied,
       instructions: input.instructions,
       trusted: input.trusted,
+      fingerprint: input.skillSet.fingerprint,
       stopping: false,
       stopped: false,
       killed: false,
@@ -693,12 +727,18 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   /**
    * The session's process for a new run: the live one, or one started cold.
    * A live one spawned with another process environment, other
-   * instructions or the other trust is let go for a fresh one, as Claude
-   * lets its process go for a run it cannot serve.
+   * instructions, the other trust or another skill set is let go for a
+   * fresh one, as Claude lets its process go for a run it cannot serve.
    */
   const processFor = (input: RunInput): FakeProcessRecord => {
     let process = liveProcess(input.sessionId);
-    if (process !== undefined && (process.key !== input.processEnvironment.key || process.instructions !== input.instructions || process.trusted !== input.trusted)) {
+    const spawnedFor =
+      process !== undefined &&
+      process.key === input.processEnvironment.key &&
+      process.instructions === input.instructions &&
+      process.trusted === input.trusted &&
+      process.fingerprint === input.skillSet.fingerprint;
+    if (process !== undefined && !spawnedFor) {
       process.stopping = true;
       process.stopped = true;
       process = undefined;
@@ -900,11 +940,12 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     },
     ambientDirectory: () => (options.ambientDirectory === undefined ? FAKE_AMBIENT_DIRECTORY : options.ambientDirectory),
     ...(options.commands !== undefined && {
-      commands: async (account: AccountRef, workspace: { readonly path: string }) => {
-        commandListings.push({ account, workspace: workspace.path });
-        return options.commands ?? [];
+      commands: async (account: AccountRef, workspace: { readonly path: string }, scope: CommandsScope) => {
+        commandListings.push({ account, workspace: workspace.path, scope });
+        return [...(options.commands ?? []), ...scope.skillSet.members.map(listedMember)];
       },
     }),
+    invocationText: (member) => (member.native ? `/${member.name}` : `/${SKILL_PLUGIN_NAME}:${member.name}`),
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
     createRun: (input, context) => {
       const process = processFor(input);

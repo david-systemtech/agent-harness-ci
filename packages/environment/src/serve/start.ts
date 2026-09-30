@@ -28,10 +28,7 @@ import {
   type EnvironmentStatus,
   type HealthDocument,
   type MintedPairing,
-  type Mode,
   type ReleaseSource,
-  type RoutineInjection,
-  type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
@@ -58,7 +55,8 @@ import { instructionMethods } from "../instructions/methods.js";
 import { environmentSection } from "../instructions/environment-section.js";
 import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
-import { accountsProjector } from "../accounts/account-store.js";
+import { accountsProjector, listAccountStandings } from "../accounts/account-store.js";
+import { accountsSection } from "../accounts/orientation.js";
 import { accountMethods } from "../accounts/methods.js";
 import type { SignInDirectorFactory } from "../accounts/signin-seam.js";
 import { createSignInDirector } from "../accounts/signin-director.js";
@@ -72,7 +70,7 @@ import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
+import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type SkillSetSeam, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
@@ -84,11 +82,12 @@ import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
 import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
-import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
+import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
-import { runMethods, startRunIn } from "../runs/run-methods.js";
+import { runMethods } from "../runs/run-methods.js";
+import { startActorRunIn, type ActorRunRequest } from "../runs/actor-start.js";
 import { RELEASE_SOURCE, channelSettingsOf, createReleaseChannel, type ChannelSettings } from "../updates/channel.js";
 import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
@@ -115,10 +114,13 @@ import { keyManagerMethods } from "../key-managers/methods.js";
 import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
+import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { followFiringEnds } from "../routines/firing-end.js";
+import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
@@ -128,6 +130,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { createBrowserService } from "../browser/service.js";
+import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
 import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
@@ -175,6 +179,13 @@ export const HARNESS_VERSION: string = (
  * package, is the harness's own and never a person's (ADR 0026).
  */
 const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url));
+
+/**
+ * The built extension the environment carries and unpacks for Chrome (browser
+ * spec; ADR 0024): the extension package's build beside the environment
+ * package, as the workspace and the server artefact lay the packages out.
+ */
+const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
 
 /**
  * The port an environment listens on when none is given. A chosen default, not
@@ -334,6 +345,8 @@ export interface EnvironmentOptions {
      * OrientationRenderer (#380), and no other layer filled.
      */
     readonly instructions?: InstructionComposer;
+    /** Resolves each run's skill set and each commands listing's (#495); preset: the empty set, until the materialiser (#496). */
+    readonly skillSet?: SkillSetSeam;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129) and its containment probe (#133). */
@@ -344,9 +357,10 @@ export interface EnvironmentOptions {
     readonly injection?: InjectionSeam;
   };
   /**
-   * Sections registered with the OrientationRenderer at start, after the
-   * environment's own (#380): tests register providers that throw, stall and
-   * overflow. Preset: none.
+   * Sections registered with the OrientationRenderer at start beside the
+   * environment's own (#380), each in place of the environment's own of its
+   * name (#381): tests register providers that throw, stall and overflow.
+   * Preset: none.
    */
   readonly orientationSections?: readonly OrientationSection[];
   /**
@@ -436,45 +450,19 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
+  /**
+   * The extension's folder and its listener (#547): the built extension the
+   * environment unpacks into `extension/current` for Chrome, and the ports
+   * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
+   * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
+   */
+  readonly browser?: {
+    readonly extensionSource?: string;
+    readonly ports?: ExtensionListenerPorts;
+  };
 }
 
-/** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
-type ActorOfRun<K extends RunActor["kind"]> = Extract<RunActor, { readonly kind: K }>;
-
-/**
- * A run an actor that is no client session starts: the session, who (a
- * routine or a bot by its id, which the log names it by, since its name can
- * change; the completions surface), the message it starts with, and a mode
- * of its own if it names one. A routine's or a bot's may carry its own
- * credential injection (#367), which #92's firing passes as the routine
- * saved it: `allow` or `deny` outranks its account's entry and the
- * environment's value, and `inherit`, or none, leaves the answer to them. A
- * completions request cannot ask for one.
- */
-export type ActorRunRequest = {
-  readonly sessionId: string;
-  readonly text: string;
-  readonly mode?: Mode;
-} & (
-  | { readonly actor: Omit<ActorOfRun<"routine" | "bot">, "injection">; readonly actorId: string; readonly injection?: RoutineInjection }
-  | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined; readonly injection?: undefined }
-);
-
-/** Who runs `request`: its actor, a routine's or a bot's with its own injection when it names `allow` or `deny` (#367). */
-const actorOfRequest = (request: ActorRunRequest): RunActor => {
-  if (request.actorId === undefined || request.injection === undefined || request.injection === "inherit") return request.actor;
-  return { ...request.actor, injection: { answer: request.injection, id: request.actorId } };
-};
-
-/** Where a run an actor starts comes from, and who the log says started it: a bot's runs are its routines' (ADR 0008). */
-const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; readonly actor: string } => {
-  const { actor } = request;
-  if (actor.kind === "completions") return { origin: "completions", actor: formatActor({ kind: "system", id: "completions" }) };
-  const id = request.actorId ?? "";
-  return actor.kind === "routine"
-    ? { origin: "routine", actor: formatActor({ kind: "routine", id }) }
-    : { origin: "routine", actor: formatActor({ kind: "system", id: `bot:${id}` }) };
-};
+export type { ActorRunRequest };
 
 /** A running environment. */
 export interface EnvironmentHandle {
@@ -515,9 +503,10 @@ export interface EnvironmentHandle {
    * routine, a bot, the completions surface), as `runs.start` does for a
    * client session: its policy resolved for that actor (#129; attended or
    * not, the unattended default), recorded, then launched once it has
-   * committed. The seam the routines (#92) and the completions surface
-   * (#139) start their runs through, and the tests of unattended runs
-   * (#131). Throws the refusal `runs.start` would answer.
+   * committed, in a transaction of its own (`runs/actor-start.ts`, whose
+   * in-transaction form a routine's firing starts its run through, #523).
+   * The seam the tests of unattended runs (#131) start their runs through.
+   * Throws the refusal `runs.start` would answer.
    */
   startRun(request: ActorRunRequest): { readonly runId: string; readonly messageId: string };
   /** How many WebSocket sockets are open on the wire. */
@@ -885,12 +874,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
-  // Every run's orientation block (#380): this environment's section, then each service's in the block's order, the forges
-  // section third where runs are given the forge's variables.
+  // Every run's orientation block (#380): this environment's section, its accounts' and the key managers' with the standing
+  // rule (#381), and the forges section where runs are given the forge's variables, each put in the block's order by its
+  // name. A section a test registers takes the place of the environment's own of its name.
   const orientation = createOrientationRenderer({ clock });
-  orientation.register(environmentSection({ name: () => look.read().name, platform: options.platform ?? process.platform, arch: process.arch, user }));
-  if (forge.orientation !== undefined) orientation.register(forge.orientation);
-  for (const section of options.orientationSections ?? []) orientation.register(section);
+  const givenSections = options.orientationSections ?? [];
+  const ownSections: OrientationSection[] = [
+    environmentSection({ name: () => look.read().name, platform: options.platform ?? process.platform, arch: process.arch, user }),
+    accountsSection({ accounts: () => listAccountStandings({ all: (sql, ...params) => log.read(sql, ...params) }) }),
+    keyManagersSection({ connections: () => keyManagerConnections.list(), tool: (name) => managedTools.known(name) }),
+    ...(forge.orientation === undefined ? [] : [forge.orientation]),
+  ];
+  for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
   const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
@@ -902,6 +897,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
+
+  // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
+  // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
+  closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -1170,6 +1169,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const forgeAccounts = () => verifiedOrigins(forge.list());
   const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
+  // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
+  const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
+  closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   const setupSteps: SetupSteps = options.setupSteps ?? {
@@ -1184,12 +1186,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       hostUpdater: () => hostUpdater.holds(),
       forge,
       keyManagerConnections,
+      managedTools,
       clock,
       look: () => look.read(),
     }),
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
+  // The extension's folder and its listener (#547): bound and made once the start is committed, below.
+  const browser = createBrowserService({
+    log,
+    clock,
+    stream: environmentStream,
+    environmentId: record.id,
+    name: () => look.read().name,
+    harnessVersion,
+    dataDir,
+    extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
+    ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
+  });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1236,7 +1251,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools),
-    // The routine store's commands and list (#521), on each routine's own stream.
+    // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,
       clock: now,
@@ -1244,6 +1259,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       accounts,
       ceilingOf: (id) => clientSessions.ceiling(id),
+      firings,
     }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
@@ -1257,6 +1273,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
     ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
+    // The extension's folder and its listener (#547): browser.status.
+    ...browser.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
       log,
@@ -1406,6 +1424,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
+  // The extension's listener bound and its folder made (#547), past the gate, so a trial the launcher rolls back never
+  // replaced the folder Chrome loads; before the wire opens, so a first client's browser.status finds them.
+  closers.push(() => browser.close());
+  await browser.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
@@ -1503,10 +1525,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
     },
     startRun(request) {
-      const { origin, actor } = startedBy(request);
-      const started = log.atomically((tx) =>
-        startRunIn(log, host, tx, { actor }, { sessionId: request.sessionId, actor: actorOfRequest(request), origin, text: request.text, mode: request.mode }),
-      );
+      const started = log.atomically((tx) => startActorRunIn(log, host, tx, request));
       if (started.rejected !== undefined) throw new ContractError(started.rejected);
       return { runId: started.runId, messageId: started.messageId };
     },

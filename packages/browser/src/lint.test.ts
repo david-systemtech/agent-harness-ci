@@ -47,6 +47,13 @@ describe("the browser package under the repository's lint", () => {
     expect(await ruleIds("packages/browser/src/frame.ts", importing("../../contracts/src/index.js"))).not.toContain(relative);
   });
 
+  it("lets its testing exports serve the scripted CDP peer over Node's sockets, and still keeps the environment out", async () => {
+    const peer = "packages/browser/src/testing/scripted-cdp-peer.ts";
+    for (const specifier of ["node:http", "node:crypto", "ws"]) expect(await ruleIds(peer, importing(specifier)), specifier).not.toContain("no-restricted-imports");
+    expect(await ruleIds(peer, importing("@agent-harness/environment"))).toContain("no-restricted-imports");
+    expect(await ruleIds("packages/browser/src/driver/driver.ts", importing("node:http"))).toContain("no-restricted-imports");
+  });
+
   it("lets a test read its fixture pages with Node, and still keeps the environment out", async () => {
     expect(await ruleIds("packages/browser/src/challenge.test.ts", importing("node:fs"))).not.toContain("no-restricted-imports");
     expect(await ruleIds("packages/browser/src/challenge.test.ts", importing("@agent-harness/environment"))).toContain("no-restricted-imports");

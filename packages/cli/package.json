@@ -8,6 +8,7 @@
     "agent-harness": "./dist/main.js"
   },
   "scripts": {
+    "build-artefacts": "tsx --conditions=@agent-harness/source scripts/build-artefacts.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -15,6 +15,8 @@ import type {
   PromptKind,
   PromptQuestion,
   RunError,
+  RunSkillSet,
+  RunSkillSetMember,
   TranscriptPayload,
   Workspace,
 } from "@agent-harness/contracts";
@@ -92,6 +94,17 @@ export interface UsageReading {
    * client degrades to absent-with-reason on it. Absent on a reading with windows.
    */
   readonly unavailableReason?: string;
+}
+
+/**
+ * What a commands listing is resolved under, as a run would be: whether
+ * the workspace's repository passed the trust gate (its project settings,
+ * and its own commands, load), and the skill set resolved for the account
+ * and workspace, which the adapter loads as a run would.
+ */
+export interface CommandsScope {
+  readonly trusted: boolean;
+  readonly skillSet: RunSkillSet;
 }
 
 /** A slash command the provider offers an account in a workspace (`commands`). */
@@ -343,8 +356,9 @@ export interface ProcessEnvironment {
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
- * factory's tool servers, the trust decision, the process environment, and
- * the prompt, which is the messages it starts with in order (queued ones first).
+ * factory's tool servers, the trust decision, the process environment, the
+ * skill set, and the prompt, which is the messages it starts with in order
+ * (queued ones first).
  */
 export interface RunInput {
   readonly sessionId: string;
@@ -373,6 +387,17 @@ export interface RunInput {
   readonly denylist: RunDenylist | null;
   /** What the process that serves the run is given beside the provider's own environment (#307); its key empty, and nothing supplied, while no supplier is registered. */
   readonly processEnvironment: ProcessEnvironment;
+  /**
+   * The run's skill set (skills spec, "Materialisation and the Claude
+   * mapping"; ADR 0009), resolved by the host as it launches: the
+   * generation the adapter maps its own way, the fingerprint, every member,
+   * and the native names to hide. A provider fixes its skills when its
+   * process starts, so an adapter adds the fingerprint to what its process
+   * was spawned with, and a run whose fingerprint differs from its live
+   * process's is served by a fresh one, as for changed instructions (#138).
+   * Empty, with no fingerprint, while nothing resolves one.
+   */
+  readonly skillSet: RunSkillSet;
   readonly prompt: readonly PromptMessage[];
 }
 
@@ -854,9 +879,18 @@ export interface Adapter {
   usage?(account: AccountRef): Promise<UsageReading>;
   /**
    * The slash commands for an account and workspace, spending no tokens
-   * (`commands`); a trusted repository's own commands among them.
+   * (`commands`): what a run there would offer, under the scope the host
+   * resolved for it.
    */
-  commands?(account: AccountRef, workspace: Workspace, scope?: { readonly trusted: boolean }): Promise<readonly ProviderCommand[]>;
+  commands?(account: AccountRef, workspace: Workspace, scope: CommandsScope): Promise<readonly ProviderCommand[]>;
+  /**
+   * The text that invokes a member of a run's skill set, which slash
+   * resolution hands the adapter in place of `/<name>` (skills spec, "Slash
+   * resolution"; ADR 0009: `/name` is provider-neutral). Claude's is
+   * `/agent-harness:<name>` for a member the generation links, `/<name>`
+   * for a native one.
+   */
+  invocationText(member: Pick<RunSkillSetMember, "name" | "native">): string;
   /** The provider's sessions (`sessionListing`). */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
   /**

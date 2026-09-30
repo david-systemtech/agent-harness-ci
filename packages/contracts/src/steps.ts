@@ -354,8 +354,8 @@ export const STEP_REGISTRY = [
     // settings.update writes and which pass on any valid value, as a preference's do, and its connections and the Move of
     // stored tokens through the key-manager commands. It links the Forges and Memory bank steps, and About, whose Managed
     // tools hold each key manager's CLI (ADR 0026). Skippable: with no connection it answers skipped, never forced (ADR
-    // 0028). Its checks await a verification of every connection (a network call), every fifteen minutes; each
-    // key-manager.* event and tools.updated re-run it. Its other state checks are #383's.
+    // 0028). Its checks await a verification of every connection (a network call), every fifteen minutes (#383); each
+    // key-manager.* event and tools.updated re-run it.
     id: "key-manager",
     home: "access.key-managers",
     writes: ["credentials.injection", "credentials.injectionByAccount"],
@@ -374,7 +374,20 @@ export const STEP_REGISTRY = [
       { key: "credentials.injection", check: anyValidValue("credentials.injection") },
       { key: "credentials.injectionByAccount", check: anyValidValue("credentials.injectionByAccount") },
     ],
-    stateChecks: [{ id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] }],
+    stateChecks: [
+      { id: "key-manager.present", holds: "At least one key-manager connection is on this environment.", actions: [] },
+      // None awaiting its sign-in, its credential rejected, or its token expired (#383).
+      { id: "key-manager.signed-in", holds: "Every key-manager connection is signed in.", actions: ["sign-in-again"] },
+      // None unreachable, sealed, or with a rejected certificate.
+      { id: "key-manager.reachable", holds: "Every key-manager connection is reachable, unsealed, and presents a certificate that verifies.", actions: ["check-again"] },
+      { id: "key-manager.run-tokens", holds: "Every injecting OpenBao connection's login can mint run tokens.", actions: ["check-again"] },
+      // ADR 0026's Managed tools rows: a key-manager CLI is required while its connection injects.
+      {
+        id: "key-manager.cli",
+        holds: "Each injecting key-manager connection's CLI is installed at its minimum or later, bao or vault for OpenBao.",
+        actions: ["install", "update"],
+      },
+    ],
     links: [{ step: "forges" }, { step: "memory-bank" }, { row: "about.about" }],
     skippable: true,
     skip: "key-manager.present",

@@ -1,4 +1,18 @@
-import type { CanUseTool, EffortLevel, HookCallback, HookCallbackMatcher, HookEvent, McpServerConfig, Options, PermissionMode, SandboxSettings, SessionStore, SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import type { RunSkillSet } from "@agent-harness/contracts";
+import type {
+  CanUseTool,
+  EffortLevel,
+  HookCallback,
+  HookCallbackMatcher,
+  HookEvent,
+  McpServerConfig,
+  Options,
+  PermissionMode,
+  SandboxSettings,
+  SessionStore,
+  SettingSource,
+  Settings,
+} from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { hostToolServer, serverRule } from "./host-tools.js";
@@ -8,8 +22,8 @@ import { hostToolServer, serverRule } from "./host-tools.js";
  * adapter, ported after the audit's fixes", options per run; ADR 0009, ADR
  * 0015, ADR 0018; permissions spec, the Claude mapping). Pure: the run's
  * input and what the process resolved for it (the bundled binary, the
- * account's plugin directory, the auto-memory directory, a worktree's
- * checkout, the store, a rewind's resume point) in, the SDK's `Options` out,
+ * auto-memory directory, a worktree's checkout, the store, a rewind's
+ * resume point) in, the SDK's `Options` out,
  * the environment among them. Everything here is a row a test asserts, since
  * a wrong one is silent: a stranger's hooks loading, a stray key billing a
  * subscription, a resume that depends on the working directory.
@@ -67,8 +81,6 @@ export interface RunOptionsInput {
   readonly configDirectory: string;
   /** The SDK's bundled binary; null leaves the SDK to find it itself. */
   readonly executablePath: string | null;
-  /** The account's skill-set plugin directory (ADR 0009, ticket 89); null until it has one. */
-  readonly pluginDirectory: string | null;
   /** The environment's auto-memory directory for the repository (ADR 0018); null to leave the CLI's own. */
   readonly autoMemoryDirectory: string | null;
   /** The checkout a worktree belongs to, whose project settings a trusted run takes; null for a plain checkout. */
@@ -177,6 +189,31 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
   };
 };
 
+/**
+ * The run's skill set as the SDK's plugins (ADR 0009): its generation as
+ * the one local plugin, whose skills the CLI offers as
+ * `agent-harness:<name>`; none without a generation.
+ */
+export const skillPlugins = (skillSet: RunSkillSet): NonNullable<Options["plugins"]> =>
+  skillSet.generation === null ? [] : [{ type: "local", path: skillSet.generation }];
+
+/**
+ * The flag settings a run is handed, the layer the CLI reads before the
+ * project's (whose own values it ignores for these, for security) and the
+ * user's: the auto-memory directory, and each native name to hide switched
+ * `off` in `skillOverrides`, which hides a project skill or command from
+ * the model and from `/name` and leaves a plugin's skills alone (#495's
+ * verify note). Null when there is neither.
+ */
+export const flagSettings = (autoMemoryDirectory: string | null, skillSet: RunSkillSet): Settings | null => {
+  const hidden = skillSet.hiddenNativeNames;
+  if (autoMemoryDirectory === null && hidden.length === 0) return null;
+  return {
+    ...(autoMemoryDirectory !== null && { autoMemoryDirectory }),
+    ...(hidden.length > 0 && { skillOverrides: Object.fromEntries(hidden.map((name) => [name, "off" as const])) }),
+  };
+};
+
 /** A rule's content as the CLI reads it back (`Tool(content)`): its backslashes and brackets escaped. */
 const ruleContent = (text: string): string => text.replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
 
@@ -226,6 +263,8 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
   const sandbox = sandboxOf(run);
   const disallowedTools = disallowedShell(run.denylist);
+  const plugins = skillPlugins(run.skillSet);
+  const settings = flagSettings(input.autoMemoryDirectory, run.skillSet);
   const env = composeRunEnvironment(input.hostEnv, input.configDirectory, {
     // The harness session names the project directory, so the transcript is found whatever the working directory, and
     // the session store keys every entry by it (the SDK takes it as the project key beside CLAUDE_CONFIG_DIR, #137).
@@ -257,9 +296,8 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
     ...(allowed.length > 0 && { allowedTools: allowed }),
-    ...(input.pluginDirectory !== null && { plugins: [{ type: "local", path: input.pluginDirectory }] }),
-    // The flag layer, which the CLI reads before the project's (whose own value it ignores for security) and the user's.
-    ...(input.autoMemoryDirectory !== null && { settings: { autoMemoryDirectory: input.autoMemoryDirectory } }),
+    ...(plugins.length > 0 && { plugins }),
+    ...(settings !== null && { settings }),
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),
     includePartialMessages: true,

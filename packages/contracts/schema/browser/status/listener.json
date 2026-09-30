@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExtensionListenerStatus",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "listening"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "The loopback port the extension dials, which the port file names."
+        }
+      },
+      "required": [
+        "state",
+        "port"
+      ],
+      "description": "The listener is bound on loopback."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "not-listening"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "port-in-use",
+            "bind-failed"
+          ],
+          "description": "port-in-use: every port of the range was taken (the error the Browser card shows); bind-failed: binding failed otherwise."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What happened, as a sentence for a person."
+        }
+      },
+      "required": [
+        "state",
+        "reason",
+        "message"
+      ],
+      "description": "The listener is not bound, so no Chrome can reach this environment until it starts again."
+    }
+  ],
+  "description": "The extension listener: its port, or why it has none."
+}

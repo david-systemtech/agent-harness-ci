@@ -258,14 +258,23 @@ export const permissionsDenylistSet = defineMethod({
 /**
  * Re-adds every preset the denylist no longer holds, by its id, at the end
  * of its section, enabled: a preset that was edited or disabled is left as
- * it is. Each section that changed is one `denylist.changed`. Answered with
- * the presets restored and the whole denylist after.
+ * it is. Given `sections`, only theirs, so a section a person emptied on
+ * purpose stays empty (Set up's Restore names the sections the Permissions
+ * step's check found wanting, #573). Each section that changed is one
+ * `denylist.changed`. Answered with the presets restored and the whole
+ * denylist after.
  */
 export const permissionsDenylistRestorePresets = defineMethod({
   name: "permissions.denylist.restorePresets",
   scope: "admin",
   kind: "command",
-  params: commandParams({}),
+  params: commandParams({
+    sections: z
+      .array(DenylistSection)
+      .min(1)
+      .optional()
+      .meta({ description: "The sections whose missing presets to re-add; absent, every section's." }),
+  }),
   result: z.object({
     restored: z.array(z.object({ section: DenylistSection, entry: DenylistEntry })).meta({
       description: "The presets put back, by section, in the order they were added.",

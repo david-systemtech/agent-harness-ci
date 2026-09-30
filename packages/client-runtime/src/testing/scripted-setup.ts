@@ -11,8 +11,9 @@ import type { ManualClock } from "./in-memory-platform.js";
  * checked, its start's first among them, which `environment.subscribe`'s
  * snapshot carries, and a check whose result differs from the one kept is
  * the notice `setup.result-changed`, as the environment's cache publishes
- * it. A test changes what the next check answers (`setSetup`) and holds the
- * answers, for a check to read pending (`holdSetupChecks`).
+ * it. A test changes what the next check answers (`setSetup`), holds the
+ * answers, for a check to read pending (`holdSetupChecks`), and has the
+ * environment check with nobody asking (`passSetup`).
  */
 
 /** A step's result as the script gives it: any field of the result but the step, over the step done; the check's time is the clock's unless it names one. */
@@ -26,6 +27,12 @@ export interface ScriptedSetupHandle {
   setSetup(changes: ScriptedSetup): void;
   /** Holds every `setup.check` unanswered until the function it returns is called, each then answered as the environment stands at the release. */
   holdSetupChecks(): () => void;
+  /**
+   * The environment's own pass over `steps`, else every step it gives a result for, with nobody asking (its start, a
+   * step's cadence or trigger, or another client's check): each checked as the script says now, and with the `setup` flag
+   * a result that changed is noticed.
+   */
+  passSetup(steps?: readonly StepId[]): void;
 }
 
 export interface SetupHost {
@@ -80,6 +87,9 @@ export const scriptedSetup = (host: SetupHost): ScriptedSetupHandle & { readonly
     snapshot: () => answered().flatMap((id) => kept.get(id) ?? []),
     setSetup(changes) {
       script = { ...script, ...changes };
+    },
+    passSetup(steps) {
+      check(steps === undefined ? answered() : answered().filter((id) => steps.includes(id)));
     },
     holdSetupChecks() {
       held ??= [];

@@ -134,6 +134,7 @@ import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import { skillsGet, skillsOwnCreate, skillsOwnRemove } from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
+import { browserStatus } from "./methods/browser.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -327,6 +328,7 @@ export const methods = [
   trustList,
   trustDecide,
   trustRevoke,
+  browserStatus,
 ] as const;
 
 type Registered = (typeof methods)[number];
@@ -344,9 +346,8 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and commands.
-  "routines.history": "#523",
-  "routines.runNow": "#523",
+  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and
+  // commands, and run now (#523) routines.runNow and routines.history.
   "routines.testPreCheck": "#526",
   "routines.scripts.list": "#526",
   "routines.export": "#528",
