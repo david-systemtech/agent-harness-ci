@@ -165,6 +165,7 @@ import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
+import { skillsCarryOver } from "../skills/carry-over.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -448,6 +449,12 @@ export interface EnvironmentOptions {
    * fixture folders (`machinePointedAt`).
    */
   readonly stateImportSource?: SourceMachine;
+  /**
+   * The home whose `.agents/skills` Carry over's skills half reads beside
+   * the adopted directory (#513). Preset: this process's home; tests point
+   * it at a fixture.
+   */
+  readonly carryOverHome?: string;
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
   /** How long one call to a forge, and one verification of a forge account, may take (#311). Preset: `FORGE_CALL_TIMEOUT_MS`, ADR 0031's ten seconds. */
@@ -1469,7 +1476,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
-    ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
+    // Carry over's skills half (#513): an adopted account's skills and commands, and the machine's ~/.agents/skills, copied
+    // into the own directory, a checkout among them offered as a source.
+    ...skillsMethods({
+      log,
+      own: ownSkills,
+      defaultAccountId: () => accounts.defaultId(),
+      carryOver: skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: options.carryOverHome ?? homedir() }),
+    }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.

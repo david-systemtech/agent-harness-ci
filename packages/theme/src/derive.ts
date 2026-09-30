@@ -120,8 +120,8 @@ const place = <O extends Owed>(start: number, chroma: number, hue: number, away:
 
 type Role = Exclude<ThemeSeedName, "canvas" | "accent">;
 
-/** The token each seed paints first: what a clamp to its hue or its chroma names. */
-const SEED_TOKENS: Readonly<Record<ThemeSeedName, TokenName>> = {
+/** The token each seed paints first: what a clamp to its hue or its chroma names, and what a swatch of the seed shows. */
+export const SEED_TOKENS: Readonly<Record<ThemeSeedName, TokenName>> = {
   canvas: "abyss",
   accent: "beam",
   machine: "cyan",

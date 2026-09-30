@@ -1,7 +1,7 @@
 import { ContractError } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import type { MethodHandlers } from "../serve/methods.js";
+import type { MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
@@ -10,7 +10,8 @@ import { resolveSkillSet } from "./precedence.js";
  * The skill set's methods (skills spec, "Wire summary"): `skills.get` at
  * `read`, which reads the own directory and resolves the set for a
  * session's account, or the default account's; `skills.own.create` and
- * `.remove` at `admin`, the own directory's prepared commands. Sources and
+ * `.remove` at `admin`, the own directory's prepared commands; and
+ * `skills.carryOver` at `admin`, Carry over's skills half. Sources and
  * choices are none until their tickets add them, and the set holds the own
  * directory's layer alone until the source and repository layers join it.
  */
@@ -20,6 +21,8 @@ export interface SkillsMethodsOptions {
   readonly own: OwnDirectory;
   /** The environment's default account; null when it holds none. */
   readonly defaultAccountId: () => string | null;
+  /** Carry over's skills half (`carry-over.ts`). */
+  readonly carryOver: PreparedCommand<"skills.carryOver">;
 }
 
 export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => {
@@ -44,5 +47,6 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
     },
     "skills.own.create": own.create,
     "skills.own.remove": own.remove,
+    "skills.carryOver": options.carryOver,
   };
 };
