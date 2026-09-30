@@ -1,0 +1,295 @@
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { clockTime } from "@agent-harness/client-runtime";
+import { fakeShell } from "@agent-harness/client-runtime/testing";
+import { encode } from "uqr";
+import { describe, expect, it } from "vitest";
+import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+
+/**
+ * Your machines (docs/specs/gui.md, "Settings: the rail, the rows and the
+ * addresses"; ADR 0025, ADR 0027; #416): a card per connection, the local
+ * environment first, each with its name, its icon in its colour, its
+ * containment availability, a pairing code for another client and the
+ * connection registry's verbs. Driven through the harness over two scripted
+ * environments: `desk`, this machine's, and `laptop`, paired, which a test
+ * makes unreachable.
+ */
+
+/** The window with its two environments ready and no session open; each as `given` scripts it. */
+const opened = async (given: { readonly desk?: Partial<ScriptedEnvironment>; readonly laptop?: Partial<ScriptedEnvironment> } = {}, options: RenderOptions = {}) => {
+  const app = await renderApp(
+    {
+      environments: [
+        { name: "desk", reach: "local", icon: "desktop", colour: "teal", ...given.desk },
+        { name: "laptop", reach: "paired", icon: "laptop", colour: "amber", ...given.laptop },
+      ],
+    },
+    options,
+  );
+  await screen.findByText("No session is open. Choose one from the sidebar.");
+  return app;
+};
+
+/** Opens Settings on Your machines, as a person does: Mod+, then its row on the rail. */
+const openMachines = async (app: RenderedApp) => {
+  await app.user.keyboard("{Control>},{/Control}");
+  const settings = await screen.findByRole("region", { name: "Settings" });
+  await app.user.click(within(within(settings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Your machines" }));
+  return within(settings).getByRole("region", { name: "Your machines" });
+};
+
+/** The cards of the pane, each by its heading. */
+const cardNames = (pane: HTMLElement) =>
+  within(pane)
+    .getAllByRole("heading", { level: 3 })
+    .map((heading) => heading.textContent);
+
+/** One environment's card, by its name. */
+const card = (pane: HTMLElement, name: string) => within(pane).getByRole("region", { name });
+
+describe("Your machines", () => {
+  it("shows a card per connection, the local environment first though another is primary, each with its name and its icon in its colour", async () => {
+    const app = await opened();
+    await app.runtime.connections.setOrder([app.environment("laptop").environmentId, app.environment("desk").environmentId]);
+    const pane = await openMachines(app);
+
+    expect(cardNames(pane)).toEqual(["desk", "laptop"]);
+    const desk = card(pane, "desk");
+    const mark = within(desk).getByRole("img", { name: "desktop, teal" });
+    expect(mark.style.color).toBe("var(--environment-teal)");
+    expect(within(desk).getByText("This machine")).toBeDefined();
+    expect(within(card(pane, "laptop")).getByRole("img", { name: "laptop, amber" }).style.color).toBe("var(--environment-amber)");
+    expect(within(card(pane, "laptop")).getByText("Primary")).toBeDefined();
+    expect(within(desk).queryByText("Primary")).toBeNull();
+  });
+
+  it("renames an environment and sets its icon and colour at admin, and the sidebar's badge follows each", async () => {
+    const app = await opened({ desk: { sessions: [{ title: "Fix the rail" }] } });
+    /** The badge on the row of desk's session in the sidebar. */
+    const badge = () => within(screen.getByRole("navigation", { name: "Sessions" })).getByRole("img", { name: /^(desk|studio)$/ });
+    await waitFor(() => expect(badge().getAttribute("aria-label")).toBe("desk"));
+    expect(badge().style.color).toBe("var(--environment-teal)");
+    const pane = await openMachines(app);
+    const desk = app.environment("desk");
+
+    const name = within(card(pane, "desk")).getByRole("textbox", { name: "Name" });
+    await app.user.clear(name);
+    await app.user.type(name, "studio");
+    await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(cardNames(pane)).toEqual(["studio", "laptop"]));
+    await app.user.selectOptions(within(card(pane, "studio")).getByRole("combobox", { name: "Colour" }), "violet");
+    await app.user.selectOptions(within(card(pane, "studio")).getByRole("combobox", { name: "Icon" }), "nas");
+    expect(await within(card(pane, "studio")).findByRole("img", { name: "nas, violet" })).toBeDefined();
+    expect(desk.requests("environment.rename").map((request) => request.params["name"])).toEqual(["studio"]);
+    expect(desk.requests("environment.setColour").map((request) => request.params["colour"])).toEqual(["violet"]);
+    expect(desk.requests("environment.setIcon").map((request) => request.params["icon"])).toEqual(["nas"]);
+
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    expect(badge().getAttribute("aria-label")).toBe("studio");
+    expect(badge().style.color).toBe("var(--environment-violet)");
+
+    // A name the environment does not take is said, and nothing is sent.
+    const again = await openMachines(app);
+    const renamed = within(card(again, "studio")).getByRole("textbox", { name: "Name" });
+    await app.user.clear(renamed);
+    await app.user.type(renamed, "x".repeat(41));
+    await app.user.click(within(card(again, "studio")).getByRole("button", { name: "Rename" }));
+    expect(within(card(again, "studio")).getByText("Not renamed: a name is 1 to 40 characters, none of them a control character.")).toBeDefined();
+    expect(desk.requests("environment.rename")).toHaveLength(1);
+  });
+
+  it("says so on both cards when two environments share a name, however it is cased, and no longer once one is renamed", async () => {
+    const app = await opened();
+    const pane = await openMachines(app);
+    expect(within(pane).queryByText(/too: rename one/)).toBeNull();
+
+    const rename = async (from: string, to: string) => {
+      const name = within(card(pane, from)).getByRole("textbox", { name: "Name" });
+      await app.user.clear(name);
+      await app.user.type(name, to);
+      await app.user.click(within(card(pane, from)).getByRole("button", { name: "Rename" }));
+      await waitFor(() => expect(cardNames(pane)).toContain(to));
+    };
+    await rename("laptop", "Desk");
+    expect(within(card(pane, "desk")).getByText("Another of your machines is named Desk too: rename one to tell them apart.")).toBeDefined();
+    expect(within(card(pane, "Desk")).getByText("Another of your machines is named desk too: rename one to tell them apart.")).toBeDefined();
+
+    await rename("Desk", "laptop");
+    expect(within(pane).queryByText(/too: rename one/)).toBeNull();
+  });
+
+  it("shows each environment's containment availability per level, with why a level cannot be enforced, and opens Permissions on it", async () => {
+    const missing = { available: false, reason: "bwrap is not installed on this machine.", cause: "binary_missing" } as const;
+    const app = await opened({
+      laptop: {
+        containment: {
+          levels: [{ level: "off", available: true, reason: null, cause: null }, { level: "workspace", ...missing }, { level: "workspace-no-network", ...missing }],
+          mechanism: null,
+        },
+      },
+    });
+    const pane = await openMachines(app);
+    const levels = (name: string) =>
+      within(within(card(pane, name)).getByRole("region", { name: "Containment" }))
+        .queryAllByRole("listitem")
+        .map((level) => level.textContent);
+    await waitFor(() =>
+      expect(levels("laptop")).toEqual([
+        "○ off: available",
+        "◐ workspace: not available: bwrap is not installed on this machine.",
+        "● no network: not available: bwrap is not installed on this machine.",
+      ]),
+    );
+    expect(levels("desk")).toEqual(["○ off: available", "◐ workspace: available", "● no network: available"]);
+
+    await app.user.click(within(card(pane, "laptop")).getByRole("button", { name: "Open Permissions" }));
+    const permissions = screen.getByRole("region", { name: "Permissions" });
+    expect(within(within(permissions).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("laptop");
+  });
+
+  it("makes a pairing code for another client, with its link, its address and code, a QR of the link and its expiry, and says when it has expired", async () => {
+    const app = await opened();
+    const pane = await openMachines(app);
+    const laptop = app.environment("laptop");
+    const pairing = () => within(card(pane, "laptop")).getByRole("region", { name: "Pair another client" });
+    const expiry = clockTime(new Date(app.clock.now().getTime() + 10 * 60_000).toISOString());
+
+    await app.user.click(within(pairing()).getByRole("button", { name: "Make a pairing code" }));
+    const link = `${laptop.wire.origin}/pair#K7Q2MXH4RV`;
+    expect(await within(pairing()).findByText(link)).toBeDefined();
+    expect(laptop.requests("access.pairings.create")).toHaveLength(1);
+    expect(within(pairing()).getByText("Address: laptop.test:7434")).toBeDefined();
+    expect(within(pairing()).getByText("Code: K7Q2M-XH4RV")).toBeDefined();
+    expect(within(pairing()).getByText(`Expires at ${expiry}, for one use.`)).toBeDefined();
+
+    // The QR's dark modules are the link's, each where the QR code of the link has it, inside a quiet zone.
+    const qr = within(pairing()).getByRole("img", { name: "QR code of the pairing link" });
+    const { data } = encode(link, { border: 4 });
+    expect(qr.getAttribute("viewBox")).toBe(`0 0 ${data.length} ${data.length}`);
+    const dark = data.flatMap((line, y) => line.flatMap((on, x) => (on ? [`${x},${y}`] : [])));
+    expect([...qr.querySelectorAll("rect[data-module]")].map((module) => `${module.getAttribute("x")},${module.getAttribute("y")}`)).toEqual(dark);
+
+    act(() => app.clock.advance(10 * 60_000));
+    expect(within(pairing()).getByText(`This code expired at ${expiry}: make another.`)).toBeDefined();
+    expect(within(pairing()).queryByText(link)).toBeNull();
+    expect(within(pairing()).queryByRole("img", { name: "QR code of the pairing link" })).toBeNull();
+    await app.user.click(within(pairing()).getByRole("button", { name: "Make a pairing code" }));
+    expect(await within(pairing()).findByText("Code: K7Q2M-XH4RW")).toBeDefined();
+  });
+
+  it("disables, enables and makes a connection primary from its card, and forgets it after asking once, revoking this client's session there", async () => {
+    const app = await opened();
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    const phase = () => app.runtime.projections.environments.read().find((view) => view.name === "laptop")?.phase;
+
+    await app.user.click(within(laptop()).getByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(phase()).toBe("disabled"));
+    expect(within(laptop()).getByText("laptop is disabled on this client: the values this window last read, read-only.")).toBeDefined();
+    await app.user.click(within(laptop()).getByRole("button", { name: "Enable" }));
+    await waitFor(() => expect(phase()).toBe("ready"));
+    expect(within(laptop()).getByRole("button", { name: "Disable" })).toBeDefined();
+
+    expect(within(card(pane, "desk")).getByText("Primary")).toBeDefined();
+    await app.user.click(within(laptop()).getByRole("button", { name: "Make primary" }));
+    expect(await within(laptop()).findByText("Primary")).toBeDefined();
+    expect(within(card(pane, "desk")).queryByText("Primary")).toBeNull();
+    expect(within(laptop()).queryByRole("button", { name: "Make primary" })).toBeNull();
+    expect(within(card(pane, "desk")).getByRole("button", { name: "Make primary" })).toBeDefined();
+
+    // The local environment is managed through its service, never forgotten (ADR 0025).
+    expect(within(card(pane, "desk")).queryByRole("button", { name: "Forget…" })).toBeNull();
+    await app.user.click(within(laptop()).getByRole("button", { name: "Forget…" }));
+    const asking = screen.getByRole("dialog", { name: "Forget laptop?" });
+    expect(within(asking).getByText("This client forgets laptop and revokes its client session there.")).toBeDefined();
+    await app.user.click(within(asking).getByRole("button", { name: "Cancel" }));
+    expect(cardNames(pane)).toEqual(["desk", "laptop"]);
+
+    const session = app.environment("laptop").wire.credential()?.clientSessionId;
+    await app.user.click(within(laptop()).getByRole("button", { name: "Forget…" }));
+    await app.user.click(within(screen.getByRole("dialog", { name: "Forget laptop?" })).getByRole("button", { name: "Forget" }));
+    expect(await within(pane).findByText("Forgot laptop and revoked this client's session there.")).toBeDefined();
+    expect(cardNames(pane)).toEqual(["desk"]);
+    expect(app.environment("laptop").requests("access.sessions.revoke").map((request) => request.params["clientSessionId"])).toEqual([session]);
+  });
+
+  it("keeps an unreachable environment's card, showing its values as this window last read them, read-only, with since when, and forgets it here alone", async () => {
+    const app = await opened({ laptop: { settings: { "updates.autoUpdate": false } } });
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    const autoUpdate = () => within(within(laptop()).getByRole("group", { name: "updates.autoUpdate" })).getByRole("switch");
+    await waitFor(() => expect(within(laptop()).getAllByRole("listitem")).toHaveLength(3));
+    await waitFor(() => expect(autoUpdate().getAttribute("aria-checked")).toBe("false"));
+
+    const scripted = app.environment("laptop");
+    scripted.discovery("nothing");
+    scripted.server.drop();
+    expect(await within(laptop()).findByText(/^Unreachable since \d\d:\d\d: the values this window last read, read-only\.$/)).toBeDefined();
+    expect(within(laptop()).getByRole("img", { name: "laptop, amber" })).toBeDefined();
+    expect((within(laptop()).getByRole("textbox", { name: "Name" }) as HTMLInputElement).value).toBe("laptop");
+    for (const control of [
+      within(laptop()).getByRole("textbox", { name: "Name" }),
+      within(laptop()).getByRole("button", { name: "Rename" }),
+      within(laptop()).getByRole("combobox", { name: "Icon" }),
+      within(laptop()).getByRole("combobox", { name: "Colour" }),
+      within(laptop()).getByRole("button", { name: "Make a pairing code" }),
+      autoUpdate(),
+    ]) {
+      expect(control.hasAttribute("disabled"), control.getAttribute("aria-label") ?? control.textContent ?? "").toBe(true);
+    }
+    expect(autoUpdate().getAttribute("aria-checked")).toBe("false");
+    expect(within(laptop()).getAllByRole("listitem").map((level) => level.textContent)).toEqual(["○ off: available", "◐ workspace: available", "● no network: available"]);
+    // Said once, above everything it shows.
+    expect(within(laptop()).getAllByText(/^Unreachable since/)).toHaveLength(1);
+    expect(within(laptop()).queryByText(/^Read-only:/)).toBeNull();
+
+    await app.user.click(within(laptop()).getByRole("button", { name: "Forget…" }));
+    const asking = screen.getByRole("dialog", { name: "Forget laptop?" });
+    expect(
+      within(asking).getByText("laptop cannot be reached now, so this client forgets it here, and its client session there stays until it is revoked from that machine's access list."),
+    ).toBeDefined();
+    await app.user.click(within(asking).getByRole("button", { name: "Forget" }));
+    expect(await within(pane).findByText("Forgot laptop. laptop could not be reached, so this client's session there is still live: revoke it from another client.")).toBeDefined();
+    expect(cardNames(pane)).toEqual(["desk"]);
+  });
+
+  it("dims editing without admin, with the capability's line said once, and leaves the connection's own verbs", async () => {
+    const app = await opened({ laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] } });
+    const pane = await openMachines(app);
+    const laptop = card(pane, "laptop");
+    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
+    for (const control of [
+      within(laptop).getByRole("textbox", { name: "Name" }),
+      within(laptop).getByRole("combobox", { name: "Icon" }),
+      within(laptop).getByRole("combobox", { name: "Colour" }),
+      within(laptop).getByRole("button", { name: "Make a pairing code" }),
+    ]) {
+      expect(control.hasAttribute("disabled")).toBe(true);
+    }
+    for (const verb of ["Disable", "Make primary", "Forget…"]) expect(within(laptop).getByRole("button", { name: verb }).hasAttribute("disabled"), verb).toBe(false);
+
+    const desk = card(pane, "desk");
+    expect(within(desk).queryByText(/^Read-only:/)).toBeNull();
+    expect(within(desk).getByRole("textbox", { name: "Name" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("says on a paired environment's card that tokens are stored unprotected, when the desktop's secrets have no key the OS keeps", async () => {
+    const shell = fakeShell();
+    shell.answer("secrets.protection", async () => "unprotected");
+    const app = await opened({}, { shell });
+    const pane = await openMachines(app);
+    const line = "Tokens are stored unprotected on this desktop: no secret service answers, so this client's token for laptop is as safe as its file's permissions.";
+    expect(await within(card(pane, "laptop")).findByText(line)).toBeDefined();
+    // The local environment's token is held in memory, never in the store.
+    expect(within(card(pane, "desk")).queryByText(/unprotected/)).toBeNull();
+    expect(shell.calls.filter(([member]) => member === "secrets.protection").length).toBeGreaterThan(0);
+  });
+
+  it("says nothing of how tokens are stored while the OS keeps their key", async () => {
+    const app = await opened();
+    const pane = await openMachines(app);
+    await waitFor(() => expect(app.shell.calls.some(([member]) => member === "secrets.protection")).toBe(true));
+    expect(within(pane).queryByText(/unprotected/)).toBeNull();
+  });
+});
