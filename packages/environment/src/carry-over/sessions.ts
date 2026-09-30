@@ -14,7 +14,7 @@ import type { Finding } from "../workspace/availability.js";
  */
 
 /** The tag a provider session carries when a person archived it in the provider (ADR 0021). */
-export const ARCHIVED_TAG = "archived";
+const ARCHIVED_TAG = "archived";
 
 /**
  * The provider scheduler's opening turn: a firing's first prompt opens with
@@ -70,7 +70,7 @@ export const heldProviderSessions = (reader: Reader): ReadonlySet<string> =>
   );
 
 /** Runs `work` over `items`, at most `limit` at once, answering in the items' order. */
-export const atMost = async <T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> => {
+const atMost = async <T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> => {
   const answers: R[] = new Array<R>(items.length);
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -84,7 +84,7 @@ export const atMost = async <T, R>(items: readonly T[], limit: number, work: (it
 };
 
 /** How many directories are looked at, or asked git about, at once. */
-export const LOOKS_AT_ONCE = 4;
+const LOOKS_AT_ONCE = 4;
 
 /** What the import found of a session's working directory: there, with the identity there; gone; or a reason it cannot say. */
 export type DirectoryFinding =

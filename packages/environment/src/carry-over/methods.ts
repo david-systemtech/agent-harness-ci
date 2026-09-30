@@ -10,7 +10,7 @@ import {
 import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
 import { capability } from "../adapter/capabilities.js";
 import type { AdapterHost } from "../adapter/host.js";
-import type { EventLog, JsonObject } from "../event-log/event-log.js";
+import type { AppendOptions, EventLog, JsonObject, Tx } from "../event-log/event-log.js";
 import type { MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import { createSessionIn, type SessionCreationChecks } from "../sessions/methods.js";
 import { acceptAnyRunParameters } from "../sessions/run-parameters.js";
@@ -114,6 +114,43 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   const listingFailed = (account: AccountRef, error: unknown): string =>
     `Listing the sessions in ${account.directory ?? "the account's directory"} failed: ${error instanceof Error ? error.message : String(error)}`;
 
+  /**
+   * Records one planned session in the command's transaction, as its
+   * caller: `session.created` with origin `import`, the missing mark right
+   * after when its directory is gone, then `session.archived` at its
+   * last-modified time when it imports archived. Answers why it could not be
+   * recorded, or null.
+   */
+  const recordImport = (accountId: string, { session, directory }: Planned, attribution: AppendOptions & { readonly tx: Tx }): string | null => {
+    const sessionId = randomUUID();
+    const created = createSessionIn(
+      log,
+      attribution,
+      {
+        id: sessionId,
+        title: importedTitle(session),
+        workspace: { kind: "directory", path: session.workingDirectory },
+        repositoryIdentity: directory.kind === "present" ? directory.repositoryIdentity : null,
+        account: accountId,
+        origin: {
+          kind: "import",
+          accountId,
+          providerSessionId: session.providerSessionId,
+          createdAt: session.createdAt ?? session.lastModified,
+          lastActivityAt: session.lastModified,
+        },
+      },
+      IMPORT_CHECKS,
+    );
+    if (created.rejected !== undefined) return created.rejected.message ?? `The session could not be recorded: ${created.rejected.code}.`;
+    if (directory.kind === "missing") availability.markMissing(attribution.tx, sessionId);
+    if (importsArchived(session)) {
+      const payload: SessionArchivedPayload = { archivedAt: session.lastModified };
+      log.append(sessionStream(sessionId), [{ type: "session.archived", payload }], attribution);
+    }
+    return null;
+  };
+
   const inventory: MethodHandler<"carryOver.inventory"> = async ({ accountId }) => {
     const source = sourceOf(accountId);
     if ("code" in source) throw new ContractError(source);
@@ -176,49 +213,25 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
         return (_params, command) => {
           const attribution = { tx: command.tx, actor: command.actor, commandId: command.commandId };
           const heldNow = heldProviderSessions(reader);
+          const failures = [...failed];
           const counts = { listed: sessions.length, imported: 0, archived: 0, missingDirectory: 0, held: sessions.length - candidates.length };
           for (const { session, directory } of planned) {
             if (heldNow.has(session.providerSessionId)) {
               counts.held++;
               continue;
             }
-            const archived = importsArchived(session);
             if (!dryRun) {
-              const sessionId = randomUUID();
-              const created = createSessionIn(
-                log,
-                attribution,
-                {
-                  id: sessionId,
-                  title: importedTitle(session),
-                  workspace: { kind: "directory", path: session.workingDirectory },
-                  repositoryIdentity: directory.kind === "present" ? directory.repositoryIdentity : null,
-                  account: accountId,
-                  origin: {
-                    kind: "import",
-                    accountId,
-                    providerSessionId: session.providerSessionId,
-                    createdAt: session.createdAt ?? session.lastModified,
-                    lastActivityAt: session.lastModified,
-                  },
-                },
-                IMPORT_CHECKS,
-              );
-              if (created.rejected !== undefined) {
-                failed.push(failureOf(session, created.rejected.message ?? `The session could not be recorded: ${created.rejected.code}.`));
+              const refusal = recordImport(accountId, { session, directory }, attribution);
+              if (refusal !== null) {
+                failures.push(failureOf(session, refusal));
                 continue;
-              }
-              if (directory.kind === "missing") availability.markMissing(command.tx, sessionId);
-              if (archived) {
-                const payload: SessionArchivedPayload = { archivedAt: session.lastModified };
-                log.append(sessionStream(sessionId), [{ type: "session.archived", payload }], attribution);
               }
             }
             counts.imported++;
-            if (archived) counts.archived++;
+            if (importsArchived(session)) counts.archived++;
             if (directory.kind === "missing") counts.missingDirectory++;
           }
-          const report: CarryOverImportedPayload = { accountId, sessions: counts, failed };
+          const report: CarryOverImportedPayload = { accountId, sessions: counts, failed: failures };
           if (!dryRun) log.append(environmentStream, [{ type: "carry-over.imported", payload: report }], attribution);
           return { aggregate: environmentStream, result: { ...report, dryRun } };
         };
