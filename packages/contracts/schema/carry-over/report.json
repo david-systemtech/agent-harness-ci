@@ -52,6 +52,392 @@
       ],
       "description": "What an import did with the listed sessions: imported, archived, marked missing, or left alone as held already."
     },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "folders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "folder": {
+                "type": "string",
+                "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+                "description": "The project folder the memory lies in, by its name under projects/: what carryOver.assignMemory takes."
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                "description": "The memory folder itself, projects/<folder>/memory in the adopted directory."
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The auto-memory key it went to: the repository identity, else the main checkout, else the path a transcript named."
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "copied",
+                  "carried",
+                  "kept"
+                ],
+                "description": "What a memory folder's copy did: copied, its files into its key's auto-memory directory, which held nothing; carried, whole under carried/ in that directory with a pointer line appended to its MEMORY.md, the directory holding other memory; kept, nothing copied, the directory holding it already or the folder unchanged since an import last copied it there."
+              },
+              "under": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^carried\\/[^/]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where in the key's directory a carried folder landed, carried/<name>; null when it was copied or kept."
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "description": "The SHA-256 of the folder's files as the copy read them, their paths and bytes: an import leaves a folder with a digest already copied to the same key alone."
+              }
+            },
+            "required": [
+              "folder",
+              "path",
+              "key",
+              "outcome",
+              "under",
+              "digest"
+            ],
+            "description": "A memory folder copied by the carried/ rule: the folder, the key it went to, what the copy did and a digest of what it read."
+          },
+          "description": "Each memory folder mapped, by a transcript or an assignment, with what its copy did (in a dry run, would do); failed ones are named in failed."
+        },
+        "unmappable": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "folder": {
+                "type": "string",
+                "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+                "description": "The project folder the memory lies in, by its name under projects/: what carryOver.assignMemory takes."
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                "description": "The memory folder itself, projects/<folder>/memory in the adopted directory."
+              }
+            },
+            "required": [
+              "folder",
+              "path"
+            ],
+            "description": "A memory folder of the adopted directory: its project folder's name and its path."
+          },
+          "description": "The folders no transcript maps and no assignment has, which the import left."
+        }
+      },
+      "required": [
+        "folders",
+        "unmappable"
+      ],
+      "description": "What an import did with the adopted directory's memory folders: each mapped folder's copy, and the unmappable ones."
+    },
+    "skills": {
+      "description": "skills.carryOver's report, when the skills tick was on; absent when it was off.",
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+        },
+        "dryRun": {
+          "type": "boolean",
+          "description": "Whether it was a dry run: the report of what a run would do, with nothing written."
+        },
+        "copied": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "skill",
+                  "command"
+                ],
+                "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+              },
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                "description": "Where the original lies: a folder or command file in the adopted directory's skills/ or commands/, or in the machine's ~/.agents/skills."
+              },
+              "path": {
+                "description": "Its path in the own directory: where it was copied to, skills/<folder> or commands/<file>; for one kept, the path of what the own directory already holds under its name.",
+                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "from",
+              "path"
+            ],
+            "description": "An original skill folder or command file Carry over copied into the own directory, or kept out of it because the own directory already holds its name."
+          },
+          "description": "The originals copied into the own directory (in a dry run, those that would be); its length is the count."
+        },
+        "kept": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "skill",
+                  "command"
+                ],
+                "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+              },
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                "description": "Where the original lies: a folder or command file in the adopted directory's skills/ or commands/, or in the machine's ~/.agents/skills."
+              },
+              "path": {
+                "description": "Its path in the own directory: where it was copied to, skills/<folder> or commands/<file>; for one kept, the path of what the own directory already holds under its name.",
+                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "from",
+              "path"
+            ],
+            "description": "An original skill folder or command file Carry over copied into the own directory, or kept out of it because the own directory already holds its name."
+          },
+          "description": "The valid originals not copied because the own directory already holds their name; its length is the count."
+        },
+        "offered": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                "description": "Where the skill folder was found: in the adopted directory's skills/, or in the machine's ~/.agents/skills."
+              },
+              "url": {
+                "type": "string",
+                "description": "The working tree's remote, as git expands it, stripped of any credential.",
+                "pattern": "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$"
+              },
+              "folder": {
+                "description": "The skill folder's path in the repository, from its root; . when the folder is the repository's root.",
+                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                "type": "string"
+              },
+              "follow": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "branch"
+                      },
+                      "branch": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+                            "description": "A branch a skill source follows, as git takes a branch name: 1 to 255 characters with no white space, control character or any of ~ ^ : ? * [ \\, no .. or @{, no empty segment, none beginning with . or ending with .lock, no trailing / or ., not @, and not beginning with -."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The branch; null for the remote's default branch, the one its HEAD names."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "branch"
+                    ],
+                    "description": "A branch the source syncs from, at start, every six hours and on Pull now."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "pinned"
+                      },
+                      "commit": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+                        "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "commit"
+                    ],
+                    "description": "A commit the source is pinned to: it never syncs until it is unpinned."
+                  }
+                ],
+                "description": "The branch the working tree is on (its upstream's on the remote, else the local one), or a pin at its commit when HEAD is detached."
+              }
+            },
+            "required": [
+              "name",
+              "from",
+              "url",
+              "folder",
+              "follow"
+            ],
+            "description": "A skill folder inside a git working tree with a remote, offered as a skill source instead of copied: the URL, folder and follow skills.sources.add takes."
+          },
+          "description": "The skill folders inside a git working tree with a remote, offered as sources and not copied; its length is the count."
+        },
+        "invalid": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "skill",
+                  "command"
+                ],
+                "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Its name by the member-naming rule; null when none passes, a name problem saying why."
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                "description": "Where the original lies."
+              },
+              "problems": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "frontmatter",
+                        "name",
+                        "description"
+                      ],
+                      "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What is wrong, for people: the names tried and why each fails."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "message"
+                  ],
+                  "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+                },
+                "description": "What leaves it invalid, as the own directory's reader would list it."
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "from",
+              "problems"
+            ],
+            "description": "An original skill folder or command file that reads as invalid, with its problems: neither copied nor offered."
+          },
+          "description": "The originals that read as invalid, with their problems, left where they are; its length is the count."
+        },
+        "notCarried": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "subagent",
+                  "plugin"
+                ],
+                "description": "What it is: subagent, a Markdown file in the adopted directory's agents/; plugin, an installed plugin its plugins/ lists."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Its name: a subagent's file name without .md; a plugin's as its installed list names it, name@marketplace."
+              }
+            },
+            "required": [
+              "kind",
+              "name"
+            ],
+            "description": "A subagent or plugin in the adopted directory, which Carry over does not carry."
+          },
+          "description": "The adopted directory's subagents and plugins, which are not carried."
+        }
+      },
+      "required": [
+        "accountId",
+        "dryRun",
+        "copied",
+        "kept",
+        "offered",
+        "invalid",
+        "notCarried"
+      ]
+    },
     "failed": {
       "type": "array",
       "items": {
@@ -67,7 +453,12 @@
                 "type": "null"
               }
             ],
-            "description": "The provider session that was not imported; null when the listing itself failed and nothing could be."
+            "description": "The provider session that was not imported; null when the listing itself failed and nothing could be, or a memory folder failed."
+          },
+          "folder": {
+            "description": "The memory folder that was not copied, by its project folder's name; absent for a session's failure.",
+            "type": "string",
+            "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$"
           },
           "message": {
             "type": "string",
@@ -79,7 +470,7 @@
           "providerSessionId",
           "message"
         ],
-        "description": "What an import could not do: a session it could not import, or (no provider session id) the directory it could not list."
+        "description": "What an import could not do: a session it could not import, a memory folder it could not copy (its folder named), or (neither) the directory it could not list."
       },
       "description": "What could not be imported, each with why; empty when everything was."
     },
@@ -91,8 +482,9 @@
   "required": [
     "accountId",
     "sessions",
+    "memory",
     "failed",
     "dryRun"
   ],
-  "description": "What an import of an adopted account's directory did, or, in a dry run, would do: the sessions' counts and what failed."
+  "description": "What an import of an adopted account's directory did, or, in a dry run, would do: the sessions' counts, the memory copied, the skills report when ticked, and what failed."
 }

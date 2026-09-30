@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "carryOver.run params",
+  "title": "carryOver.assignMemory params",
   "type": "object",
   "properties": {
     "commandId": {
@@ -15,19 +15,21 @@
       "maxLength": 200,
       "description": "The adopted account whose directory to carry over."
     },
-    "dryRun": {
-      "type": "boolean",
-      "description": "Answer the report of what an import would do, and write nothing."
+    "folder": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+      "description": "The memory folder to assign, by its project folder's name under the adopted directory's projects/."
     },
-    "skills": {
-      "type": "boolean",
-      "description": "The card's skills tick: run skills.carryOver with the same dry run, copying the directory's skills and commands into the own directory, its report joining this one's."
+    "repositoryIdentity": {
+      "type": "string",
+      "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+      "description": "The repository whose auto memory the folder is copied into."
     }
   },
   "required": [
     "commandId",
     "accountId",
-    "dryRun",
-    "skills"
+    "folder",
+    "repositoryIdentity"
   ]
 }
