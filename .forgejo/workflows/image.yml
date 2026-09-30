@@ -1,0 +1,30 @@
+# A pull request's image build: the Dockerfile built on the shared `build`
+# runners as the release workflow's image job builds it (release.yml), then
+# thrown away, which proves the Dockerfile before it merges. Nothing is
+# pushed and no registry is logged in to.
+#
+# From david/ci's image template (templates/image.yml), narrowed: a push to
+# main builds nothing here, and only a `v` tag publishes, in release.yml. The
+# work is .forgejo/scripts/image.sh, tested by test/image-script.test.ts.
+
+name: image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# A push to a pull request cancels the build of the head it replaces.
+concurrency:
+  group: image-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: build
+    timeout-minutes: 30
+    steps:
+      # Pinned to a commit, not a tag, as ci.yml's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the image and throw it away
+        run: bash .forgejo/scripts/image.sh build
