@@ -260,19 +260,19 @@ the desktop's builds. `<data>` is the environment's data directory. The
 runtime checks at the local environment's first ready and hourly, stages the
 newer build through `updates.desktop.stage` and hands it to the shell for the
 next quit on its own; until the window shows "Restart to update", step 3
-applies it from the console. Until #788 the environment stages the build in
-the desktop's own data directory and removes the rest of it, so step 2's
-paired environments need pairing again; this section passes once #788 is
-fixed.
+applies it from the console. The environment stages the build in
+`<data>/desktop-builds/`, a folder of its own beside the desktop's
+`<data>/desktop` (#788).
 
 ### Every platform
 
 1. **What it runs.** `await desktopShell.update.current()` answers the
    version installed, the platform, the architecture and the format: `zip`
    on macOS from Applications, `nsis` on Windows, `pacman` on Arch.
-2. **At the quit.** Start the desktop, wait until `<data>/desktop/<newer>/`
-   holds the build, then quit. Start it again: `current()` answers the newer
-   version, and the paired environments connect without pairing again.
+2. **At the quit.** Start the desktop, wait until
+   `<data>/desktop-builds/<newer>/` holds the build, then quit. Start it
+   again: `current()` answers the newer version, and the paired environments
+   connect without pairing again.
 3. **Now.** With a newer release again, once it is staged: `await
    desktopShell.update.apply({ path: "<the staged file>", version:
    "<newer>", sha256: "<its SHA-256>" }, "now")`. The window closes and the
