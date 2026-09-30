@@ -698,7 +698,15 @@ describe("the repository's git directory, which a contained run may write in bes
     expect(containment.writable).toEqual([submodule, containment.scratchDirectory, containment.temporaryDirectory, join(superproject, ".git", "modules", "vendor", "library")]);
   });
 
-  it("adds nothing for a checkout root, whose git directory is inside it, for a directory in no repository, or at off", async () => {
+  it("holds the git directory a checkout made with --separate-git-dir names in its .git file, at the checkout's root too", async () => {
+    const separated = join(realpathSync(tempDir("agent-harness-separated-")), "app.git");
+    const checkout = join(realpathSync(tempDir("agent-harness-checkout-")), "app");
+    git(repository(), "clone", "-q", "--separate-git-dir", separated, ".", checkout);
+    const containment = await handedIn(checkout, "workspace");
+    expect(containment.writable).toEqual([checkout, containment.scratchDirectory, containment.temporaryDirectory, separated]);
+  });
+
+  it("adds nothing for a checkout root whose git directory is inside it, for a directory in no repository, or at off", async () => {
     const checkout = repository();
     const root = await handedIn(checkout, "workspace");
     expect(root.writable).toEqual([checkout, root.scratchDirectory, root.temporaryDirectory]);

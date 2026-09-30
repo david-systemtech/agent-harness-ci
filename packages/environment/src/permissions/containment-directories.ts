@@ -97,12 +97,14 @@ export const temporaryContainmentDirectories = (): ContainmentDirectories =>
  * The repository's git directory when it lies outside `workspace`
  * (workspace-picker spec, "Containment's workspace level"; #322): a
  * worktree's objects, refs and index live in its repository's common git
- * directory (its main checkout's `.git`, or its bare repository), and a
+ * directory (its main checkout's `.git`, or its bare repository), a
  * directory below a repository's root has the repository's `.git` above
- * it, so a run contained to either could edit but never commit. Null for a
- * checkout root, whose `.git` is inside it, and for a directory in no
- * repository. Read from the files git keeps, so nothing the repository's
- * config names runs.
+ * it, and a checkout whose `.git` is a file (a submodule's, or one made
+ * with `--separate-git-dir`) keeps its git directory where that file
+ * names, its root included, so a run contained to any of them could edit
+ * but never commit. Null for a checkout root whose `.git` directory is
+ * inside it, and for a directory in no repository. Read from the files git
+ * keeps, so nothing the repository's config names runs.
  */
 const gitDirectoryOutside = (workspace: string): string | null => {
   const found = commonGitDirectory(workspace);
