@@ -12,7 +12,9 @@ import type { DesktopPlatform } from "./platform.js";
 import { PREVIEW_SCHEME_REGISTRATION, previews } from "./preview.js";
 import { APP_SCHEME, APP_URL, PREVIEW_SCHEME, isAppPage } from "./schemes.js";
 import { keychainSecrets } from "./secrets.js";
+import { bundledInstaller } from "./installer.js";
 import { bundledService, type ServiceWait } from "./service.js";
+import { desktopUpdate, NODE_UPDATE_SYSTEM, type UpdateSystem } from "./update.js";
 
 /** The client session tokens' folder in the desktop's data directory. */
 const SECRETS_DIRECTORY = "secrets";
@@ -77,6 +79,8 @@ export interface DesktopOptions {
   readonly reportError?: (error: unknown) => void;
   /** How `service.start` waits for the environment to answer: preset `SERVICE_WAIT`. */
   readonly serviceWait?: ServiceWait;
+  /** The OS's commands and the file calls an update makes: preset Node's own, `NODE_UPDATE_SYSTEM`. */
+  readonly updateSystem?: UpdateSystem;
 }
 
 /**
@@ -86,7 +90,11 @@ export interface DesktopOptions {
  * as Electron requires of the data path, the lock, the scheme's privileges
  * and the macOS `open-url` listener.
  */
-export const startDesktop = async (electron: DesktopElectron, platform: DesktopPlatform, { reportError = console.error, serviceWait }: DesktopOptions = {}): Promise<void> => {
+export const startDesktop = async (
+  electron: DesktopElectron,
+  platform: DesktopPlatform,
+  { reportError = console.error, serviceWait, updateSystem = NODE_UPDATE_SYSTEM }: DesktopOptions = {},
+): Promise<void> => {
   const { app, protocol } = electron;
   // First: Electron keeps the single-instance lock in the data directory in force when it is asked for.
   app.setPath("userData", platform.paths.data);
@@ -132,6 +140,8 @@ export const startDesktop = async (electron: DesktopElectron, platform: DesktopP
   const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: platform.os, dir: join(platform.paths.data, SECRETS_DIRECTORY), report: reportError });
   const localGrant = grantFile(platform.paths.environment, reportError);
   const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
-  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, platform, window, canvas, network, links, preview }), reportError);
+  const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
+  const installer = bundledInstaller(platform.paths.server);
+  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview }), reportError);
   await window.loadURL(APP_URL).catch(reportError);
 };

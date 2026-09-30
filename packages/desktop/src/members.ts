@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { GrantReader, ShellContent, ShellFile, ShellSecrets, ShellService, ShellSystem } from "@agent-harness/client-runtime";
+import type { GrantReader, ShellContent, ShellFile, ShellInstaller, ShellSecrets, ShellService, ShellSystem, ShellUpdate } from "@agent-harness/client-runtime";
 import { optionalCount, optionalFilters, optionalFlag, optionalText, options, text, texts } from "./arguments.js";
 import { isCanvasColour, type CanvasStore } from "./canvas.js";
 import type { Answered, Told } from "./channels.js";
@@ -11,6 +11,7 @@ import type { NetworkLockdown } from "./lockdown.js";
 import type { DesktopPlatform } from "./platform.js";
 import type { Previews } from "./preview.js";
 import { isWebLink } from "./schemes.js";
+import { applyWhen, stagedBuild } from "./update.js";
 
 /**
  * The main process's side of each shell member (docs/specs/gui.md, "The
@@ -59,6 +60,8 @@ export interface MemberParts {
   readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
   readonly service: ShellService;
+  readonly update: ShellUpdate;
+  readonly installer: ShellInstaller;
   readonly platform: DesktopPlatform;
   readonly window: ElectronBrowserWindow;
   readonly canvas: CanvasStore;
@@ -67,7 +70,7 @@ export interface MemberParts {
   readonly preview: Previews;
 }
 
-export const shellMembers = ({ electron, secrets, localGrant, service, platform, window, canvas, network, links, preview }: MemberParts): Members => {
+export const shellMembers = ({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview }: MemberParts): Members => {
   const { dialog, clipboard } = electron;
   const openFile = async (given: unknown): Promise<string[]> => {
     const chosen = options(given, "The open dialog's options");
@@ -141,5 +144,8 @@ export const shellMembers = ({ electron, secrets, localGrant, service, platform,
     "service.start": () => service.start(),
     "service.status": () => service.status(),
     "preview.grant": (content) => preview.grant(content),
+    "update.current": () => update.current(),
+    "update.apply": (staged, when) => update.apply(stagedBuild(staged), applyWhen(when)),
+    "installer.bundledServer": () => installer.bundledServer(),
   };
 };
