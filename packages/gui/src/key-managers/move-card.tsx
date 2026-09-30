@@ -33,20 +33,45 @@ const presetOf = (connections: readonly KeyManagerConnectionRecord[]): string | 
  * and then Verify the paste, a verify-only Move that finishes the swap.
  */
 export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps) => {
-  const runtime = useRuntime();
-  const clock = useClock();
   const heading = useId();
-  const sender = { runtime, clock };
-  const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
   const [chosen, choose] = useState<string | undefined>(undefined);
   const connection = connections.find((each) => each.id === (chosen ?? presetOf(connections)));
+  if (connection === undefined) return null;
+  return (
+    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
+      <h3 id={heading} className="text-base font-semibold text-ink">
+        Move stored tokens
+      </h3>
+      <p className="text-sm text-ink-muted">Each is written to the key manager, read back, swapped for a reference to it, and its stored copy deleted.</p>
+      {connections.length > 1 && (
+        <Field label="Move into">
+          <Select value={connection.id} onChange={(event) => choose(event.target.value)}>
+            {connections.map((each) => (
+              <option key={each.id} value={each.id}>
+                {each.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {/* Keyed by the connection, so what was typed and answered for one never carries to another, whether chosen or preset. */}
+      <MoveInto key={connection.id} environmentId={environmentId} connection={connection} writable={writable} />
+    </section>
+  );
+};
+
+/** The Move card's part for the connection it goes into: its base path, the items with their targets, the Move's lines and follow-ups. */
+const MoveInto = ({ environmentId, connection, writable }: { readonly environmentId: string; readonly connection: KeyManagerConnectionRecord; readonly writable: boolean }) => {
+  const runtime = useRuntime();
+  const clock = useClock();
+  const sender = { runtime, clock };
+  const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
   const [typed, setTyped] = useState<string | undefined>(undefined);
   const [lines, setLines] = useState<readonly MoveLine[]>([]);
   const [line, setLine] = useState<string | undefined>(undefined);
   const [followUps, setFollowUps] = useState<ReadonlyMap<string, MoveFollowUp>>(new Map());
   const [copied, setCopied] = useState<Copied | undefined>(undefined);
   const [sending, setSending] = useState(false);
-  if (connection === undefined) return null;
 
   const items = listed.result?.items ?? [];
   // A Move or a copy on its way takes no second press.
@@ -101,30 +126,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
   };
 
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
-      <h3 id={heading} className="text-base font-semibold text-ink">
-        Move stored tokens
-      </h3>
-      <p className="text-sm text-ink-muted">Each is written to the key manager, read back, swapped for a reference to it, and its stored copy deleted.</p>
-      {connections.length > 1 && (
-        <Field label="Move into">
-          <Select
-            value={connection.id}
-            onChange={(event) => {
-              choose(event.target.value);
-              setTyped(undefined);
-              setLines([]);
-              setFollowUps(new Map());
-            }}
-          >
-            {connections.map((each) => (
-              <option key={each.id} value={each.id}>
-                {each.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
+    <>
       <div className="flex items-end gap-2">
         <Field label="Base path">
           <Input value={basePath} disabled={!writable} onChange={(event) => setTyped(event.target.value)} />
@@ -174,7 +176,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
         </ul>
       )}
       {copied !== undefined && <CopiedValueDialog environmentId={environmentId} label={connection.label} copied={copied} close={() => setCopied(undefined)} />}
-    </section>
+    </>
   );
 };
 

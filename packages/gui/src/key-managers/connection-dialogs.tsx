@@ -62,7 +62,7 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent title={again ? `Sign in to ${connection.label} again` : `Sign in to ${connection.label}`} className="max-w-lg">
-        <form aria-label="Sign in again" className="flex flex-col gap-3" onSubmit={submit}>
+        <form aria-label={again ? "Sign in again" : "Sign in"} className="flex flex-col gap-3" onSubmit={submit}>
           {openBao && (
             <Field label="Signs in by">
               <Select value={method} onChange={(event) => setMethod(event.target.value as KeyManagerAuthMethod)}>

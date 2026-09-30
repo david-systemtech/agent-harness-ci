@@ -472,6 +472,29 @@ describe("the Move card", () => {
     expect(await within(await moveCard()).findByText("No stored token is left to move here.")).toBeDefined();
   });
 
+  it("starts afresh on the connection it goes into when another comes to inject, keeping nothing typed for the one before", async () => {
+    const app = await opened({
+      keyManagers: {
+        connections: [
+          { label: "Home OpenBao", address: "https://bao.home.test", basePath: null },
+          { label: "Work OpenBao", address: "https://bao.work.test", basePath: null, injects: false, injectedVariables: [] },
+        ],
+        items: [{ name: "https://github.com", slug: "github" }],
+      },
+    });
+    await openKeyManagers(app);
+    const base = async () => within(await moveCard()).getByRole("textbox", { name: "Base path" }) as HTMLInputElement;
+    await app.user.clear(await base());
+    await app.user.type(await base(), "team/harness");
+    expect((within(await moveCard()).getByRole("combobox", { name: "Move into" }) as HTMLSelectElement).value).toBe(
+      app.environment("desk").keyManagerConnections()[0]?.id,
+    );
+    await app.user.click(within(await card("Work OpenBao")).getByRole("button", { name: "Inject its variables" }));
+    const work = app.environment("desk").keyManagerConnections()[1]?.id;
+    await waitFor(async () => expect((within(await moveCard()).getByRole("combobox", { name: "Move into" }) as HTMLSelectElement).value).toBe(work));
+    expect((await base()).value).toBe("personal/harness");
+  });
+
   it("offers Copy value, sent directly, where the login cannot write: the value shows once, and a verify-only Move says a missing or different paste, then finishes the swap", async () => {
     const app = await opened({
       keyManagers: {
