@@ -58,7 +58,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
   const dragging = useDragRow(row);
   const target = useDropTarget(drop);
   return (
-    <li {...target.handlers} data-drop={target.over || undefined} className={classes("rounded-sm", target.over && "bg-wash-strong")}>
+    <li {...target.handlers} className={classes("rounded-sm", target.over && "bg-wash-strong")}>
       {editing ? (
         <RenameField
           label={`Rename ${quoted(summary.title)}`}
