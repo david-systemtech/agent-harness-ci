@@ -111,8 +111,8 @@ describe("Skip for now", () => {
       if (within(card()).queryByRole("button", { name: "Skip for now" }) !== null) skippable.push(within(card()).getByRole("heading").textContent ?? "");
       await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
     }
-    // The steps this build registers as skippable: Forges and Key manager, with nothing set up there when they are skipped.
-    expect(skippable).toEqual(["Forges", "Key manager"]);
+    // The steps this build registers as skippable: Carry over, Forges and Key manager, with nothing set up there when they are skipped.
+    expect(skippable).toEqual(["Carry over", "Forges", "Key manager"]);
 
     await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
     const commands = () => desk.requests().filter((request) => request.params["commandId"] !== undefined).length;
@@ -269,9 +269,9 @@ describe("a step's pane", () => {
     await app.user.click(rows.getByRole("button", { name: "Permissions" }));
     await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }]));
     expect(railDots()).toContain("Permissions: needs attention");
-    // Accounts is home to Account and Carry over, which this build does not register: Account alone.
+    // Accounts is home to Account and Carry over: both.
     await app.user.click(rows.getByRole("button", { name: "Accounts" }));
-    await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }, { step: "account" }]));
+    await waitFor(() => expect(asked(desk).slice(before.desk)).toEqual([{ step: "permissions" }, { step: "account" }, { step: "carry-over" }]));
     // A client row, on the home environment; an everywhere row, on every environment.
     await app.user.click(rows.getByRole("button", { name: "Theme" }));
     await waitFor(() => expect(asked(desk).slice(before.desk).at(-1)).toEqual({ step: "appearance" }));

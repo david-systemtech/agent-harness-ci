@@ -2239,6 +2239,54 @@
       "title": "CarryOverReport"
     },
     {
+      "path": "state-import/holdings.json",
+      "title": "StateImportHoldings"
+    },
+    {
+      "path": "state-import/data-folder.json",
+      "title": "StateImportDataFolder"
+    },
+    {
+      "path": "state-import/terminal-folder.json",
+      "title": "StateImportTerminalFolder"
+    },
+    {
+      "path": "state-import/detection.json",
+      "title": "StateImportDetection"
+    },
+    {
+      "path": "state-import/carried.json",
+      "title": "StateImportCarried"
+    },
+    {
+      "path": "state-import/re-enter.json",
+      "title": "StateImportReEnter"
+    },
+    {
+      "path": "state-import/later.json",
+      "title": "StateImportLater"
+    },
+    {
+      "path": "state-import/not-carried.json",
+      "title": "StateImportNotCarried"
+    },
+    {
+      "path": "state-import/failure.json",
+      "title": "StateImportFailure"
+    },
+    {
+      "path": "state-import/client-local.json",
+      "title": "StateImportClientLocal"
+    },
+    {
+      "path": "state-import/notices/state-import.finished.json",
+      "title": "StateImportFinishedPayload"
+    },
+    {
+      "path": "state-import/report.json",
+      "title": "StateImportReport"
+    },
+    {
       "path": "settings/settings-key.json",
       "title": "SettingsKey"
     },
@@ -5111,6 +5159,34 @@
       "title": "carryOver.run error"
     },
     {
+      "path": "methods/stateImport.detect/params.json",
+      "title": "stateImport.detect params"
+    },
+    {
+      "path": "methods/stateImport.detect/result.json",
+      "title": "stateImport.detect result"
+    },
+    {
+      "path": "methods/stateImport.detect/error.json",
+      "title": "stateImport.detect error"
+    },
+    {
+      "path": "methods/stateImport.run/params.json",
+      "title": "stateImport.run params"
+    },
+    {
+      "path": "methods/stateImport.run/result.json",
+      "title": "stateImport.run result"
+    },
+    {
+      "path": "methods/stateImport.run/response.json",
+      "title": "stateImport.run response"
+    },
+    {
+      "path": "methods/stateImport.run/error.json",
+      "title": "stateImport.run error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -7035,6 +7111,25 @@
       "result": "methods/carryOver.run/result.json",
       "response": "methods/carryOver.run/response.json",
       "error": "methods/carryOver.run/error.json"
+    },
+    {
+      "name": "stateImport.detect",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/stateImport.detect/params.json",
+      "result": "methods/stateImport.detect/result.json",
+      "error": "methods/stateImport.detect/error.json"
+    },
+    {
+      "name": "stateImport.run",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/stateImport.run/params.json",
+      "result": "methods/stateImport.run/result.json",
+      "response": "methods/stateImport.run/response.json",
+      "error": "methods/stateImport.run/error.json"
     },
     {
       "name": "terminals.open",
