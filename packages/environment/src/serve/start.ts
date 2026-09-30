@@ -135,7 +135,7 @@ import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
-import { createTerminalService } from "../terminals/service.js";
+import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { createBrowserService } from "../browser/service.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
@@ -548,6 +548,14 @@ export interface EnvironmentHandle {
    * 0036) and the bulk copy call in process, without a credential.
    */
   readonly keyManagerConnections: KeyManagerConnections;
+  /**
+   * Tool terminals (#362): terminals the Managed tools registry owns rather
+   * than a session, each running one command through the user's login
+   * shell, streamed and answered through the terminal methods by its id,
+   * and closed thirty minutes after its command exits. The registry's
+   * runner (#376) opens them; the tests open them here.
+   */
+  readonly toolTerminals: ToolTerminals;
   /** Set up's in-process seams (#571). */
   readonly setup: {
     /** Settles once this start's pass (#571), run past the settle, has checked every registered step: what a routines start pass (#535) and a test wait on. */
@@ -1577,6 +1585,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },
+    toolTerminals: terminalService.tools,
     processEnvironments,
     startPairing,
     setup: { startPass: setupScheduler.startPass },

@@ -1079,7 +1079,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     readonly subscriptions: Set<string>;
   }
   const terminals = new Map<string, HeldTerminal>();
-  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
+  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, owner: "session", sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
   const lastOf = (t: HeldTerminal) => t.last;
   const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
     sequence: at,

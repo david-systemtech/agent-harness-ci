@@ -269,7 +269,7 @@ describe("a one-off command run", () => {
 });
 
 describe("the terminal a pane reopens", () => {
-  const info = (id: string, exitCode: number | null = null): TerminalInfo => ({ id, sessionId: "s", openedAt: "2026-09-29T00:00:00.000Z", cols: 80, rows: 24, exitCode, signal: null });
+  const info = (id: string, exitCode: number | null = null): TerminalInfo => ({ id, owner: "session", sessionId: "s", openedAt: "2026-09-29T00:00:00.000Z", cols: 80, rows: 24, exitCode, signal: null });
 
   it("is the newest still running that is not a one-off this client started, in any case of its id", () => {
     expect(reusableTerminal([info("a"), info("b"), info("c", 0)], new Set())?.id).toBe("b");
