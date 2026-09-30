@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsEventType",
+  "type": "string",
+  "enum": [
+    "instructions.created",
+    "instructions.edited",
+    "instructions.scope-set",
+    "instructions.enabled-set",
+    "instructions.moved",
+    "instructions.removed"
+  ],
+  "description": "The event types of the instructions stream: instructions.created, instructions.edited, instructions.scope-set, instructions.enabled-set, instructions.moved, instructions.removed."
+}

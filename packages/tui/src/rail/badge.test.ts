@@ -4,8 +4,9 @@ import { abbreviationOf, badgesOf, glyphOf } from "./badge.js";
 
 /**
  * The environment badge on every rail row (ADR 0005; docs/specs/tui.md, "The
- * rail"): the environment's colour and icon, and a two-letter abbreviation of
- * its name unique among the environments listed; and the activity glyph.
+ * rail"): the environment's colour, mapped onto one of the terminal's, and a
+ * two-letter abbreviation of its name unique among the environments listed;
+ * and the activity glyph.
  */
 
 const view = (name: string | null, fields: Partial<EnvironmentView> = {}): EnvironmentView =>
@@ -22,18 +23,37 @@ describe("the abbreviation", () => {
 });
 
 describe("the badges of the environments listed", () => {
-  it("give each environment its own colour, icon and an abbreviation no other has", () => {
+  it("give each environment a colour and an abbreviation no other has, and no icon: the terminal UI draws none (#19)", () => {
     const badges = badgesOf([view("desk"), view("dev box"), view("laptop"), view("develop")]);
     expect([...badges.values()].map((b) => b.abbreviation)).toEqual(["DE", "DB", "LA", "DV"]);
     expect(new Set([...badges.values()].map((b) => b.colour)).size).toBe(4);
-    expect(badges.get("id-desk")?.icon).toBe("●");
+    expect(badges.get("id-desk")).toEqual({ abbreviation: "DE", colour: "cyan" });
   });
 
-  it("keep the circle and a colour by place whatever icon and colour the environment names, until the terminal UI maps them (#327)", () => {
-    const badges = badgesOf([view("desk", { colour: "amber", icon: "laptop" }), view("tower", { colour: "red", icon: "server" })]);
-    expect(badges.get("id-desk")).toEqual(badgesOf([view("desk")]).get("id-desk"));
-    expect(badges.get("id-desk")).toEqual({ icon: "●", abbreviation: "DE", colour: "cyan" });
-    expect(badges.get("id-tower")).toEqual({ icon: "●", abbreviation: "TO", colour: "magenta" });
+  it("take the environment's own colour, the twelve names in order onto red, bright red, yellow, bright yellow, bright green, green, cyan, bright cyan, blue, bright blue, magenta and bright magenta", () => {
+    const names = ["red", "orange", "amber", "yellow", "lime", "green", "teal", "cyan", "blue", "indigo", "violet", "pink"] as const;
+    const badges = badgesOf(names.map((colour) => view(`${colour} box`, { colour })));
+    expect(names.map((colour) => badges.get(`id-${colour} box`)?.colour)).toEqual([
+      "red",
+      "redBright",
+      "yellow",
+      "yellowBright",
+      "greenBright",
+      "green",
+      "cyan",
+      "cyanBright",
+      "blue",
+      "blueBright",
+      "magenta",
+      "magentaBright",
+    ]);
+  });
+
+  it("keep a colour by the environment's place in the list for one that sends no colour, whatever its neighbours send", () => {
+    const badges = badgesOf([view("desk", { colour: "amber", icon: "laptop" }), view("tower"), view("nas", { icon: "nas" })]);
+    expect(badges.get("id-desk")).toEqual({ abbreviation: "DE", colour: "yellow" });
+    expect(badges.get("id-tower")).toEqual({ abbreviation: "TO", colour: "magenta" });
+    expect(badges.get("id-nas")).toEqual({ abbreviation: "NA", colour: "yellow" });
   });
 
   it("say this machine for the placeholder", () => {

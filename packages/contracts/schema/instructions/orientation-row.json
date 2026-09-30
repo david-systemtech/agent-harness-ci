@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrientationRow",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "The instructions.orientation key: whether runs are handed the block."
+    },
+    "text": {
+      "description": "The block as the first run of a new session of the default account, started from a client, is handed it while the key is on, verification lines included; null while the environment holds no account.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "unreadRegistries": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The registries the block could not read in time, each rendered as could not be read."
+    },
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^\\S(?:.*\\S)?$",
+            "description": "An account's label: 1 to 200 characters on one line, with no space at either end; unique on its environment ignoring case, preset to the email the account signed in as."
+          },
+          "channel": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "system-prompt-append",
+                  "developer-instructions",
+                  "prompt",
+                  "none"
+                ],
+                "description": "How an adapter delivers standing instructions to its provider: system-prompt-append (Claude), developer-instructions (Codex), prompt (a local model), or none."
+              },
+              "maxCharacters": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most characters the channel carries; null when it has no cap."
+              }
+            },
+            "required": [
+              "kind",
+              "maxCharacters"
+            ],
+            "description": "Its adapter's instruction channel: none is handed no standing instructions."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why its runs are handed no standing instructions; null while its adapter has an instruction channel."
+          }
+        },
+        "required": [
+          "accountId",
+          "label",
+          "channel",
+          "reason"
+        ],
+        "description": "An account of the environment, with its adapter's instruction channel and, without one, why its runs are handed no standing instructions."
+      },
+      "description": "The environment's accounts, in the account list's order."
+    }
+  },
+  "required": [
+    "enabled",
+    "text",
+    "unreadRegistries",
+    "accounts"
+  ],
+  "additionalProperties": false,
+  "description": "The read-only Orientation row: the instructions.orientation key, the block as a run receives it, and the environment's accounts."
+}

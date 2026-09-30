@@ -652,6 +652,10 @@
                 "description": "Whether runs receive credentials (the forge variables and credential helper, and the key managers' block): allow or deny."
               },
               "description": "credentials.injectionByAccount: by account id, allow or deny, which outranks credentials.injection for that account's runs and terminals and is outranked by a routine's own injection. An account not listed takes the environment's value; an account's entry is dropped when the account is removed. Preset empty."
+            },
+            "instructions.orientation": {
+              "type": "boolean",
+              "description": "Whether every run is handed the orientation block, first in its standing instructions; off, the block is left out of the next run's text."
             }
           },
           "required": [
@@ -683,7 +687,8 @@
             "browser.headless.limits",
             "browser.internalHosts",
             "credentials.injection",
-            "credentials.injectionByAccount"
+            "credentials.injectionByAccount",
+            "instructions.orientation"
           ],
           "additionalProperties": false,
           "description": "Every setting's value, by key; a key never set holds its preset."

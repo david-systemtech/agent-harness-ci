@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SecretStore, ShellPlatform } from "@agent-harness/client-runtime";
+import type { ShellPlatform, ShellSecrets } from "@agent-harness/client-runtime";
 import type { ElectronSafeStorage } from "./electron.js";
 
 /**
@@ -16,8 +16,8 @@ import type { ElectronSafeStorage } from "./electron.js";
  * `basic_text` store and `safeStorage` refuses to encrypt unless asked to use
  * Chromium's fixed key (Electron 44's `IsEncryptionAvailable`), which keeps a
  * token no safer than its file's permissions. The desktop asks, so pairing
- * works there, and says once that tokens are stored unprotected: the Your
- * machines card (#416) says so too.
+ * works there, and says once that tokens are stored unprotected; it tells the
+ * renderer through `protection`, and the Your machines card (#416) says so too.
  */
 
 export interface KeychainParts {
@@ -31,7 +31,7 @@ export interface KeychainParts {
 
 const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts): SecretStore => {
+export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts): Required<ShellSecrets> => {
   let unprotected = false;
   /** Whether `safeStorage` encrypts now: on Linux with no secret service, once it takes Chromium's fixed key. */
   const encrypts = (): boolean => {
@@ -87,6 +87,10 @@ export const keychainSecrets = ({ safeStorage, os, dir, report }: KeychainParts)
     },
     async delete(name) {
       await rm(fileOf(name), { force: true });
+    },
+    async protection() {
+      if (!encrypts()) return "none";
+      return unprotected ? "unprotected" : "os";
     },
   };
 };

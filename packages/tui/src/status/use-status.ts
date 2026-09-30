@@ -14,6 +14,7 @@ import {
   type SessionProjection,
 } from "@agent-harness/client-runtime";
 import type { ContainmentLevel, KeyActionId } from "@agent-harness/contracts";
+import type { Badge } from "../rail/badge.js";
 import type { Opened } from "../session/use-session.js";
 import { useFollow } from "../session/use-session.js";
 import { nameOf } from "../view.js";
@@ -41,6 +42,8 @@ export interface StatusInputs {
   readonly request: () => void;
   /** The session's environment, else the header's. */
   readonly environment: EnvironmentView | undefined;
+  /** That environment's badge: its two letters and its colour, which its name is drawn in too. */
+  readonly badge: Badge | undefined;
   readonly opened: Opened | null;
   readonly projection: SessionProjection | undefined;
   readonly runState: RunState | undefined;
@@ -110,8 +113,12 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
     // Armed again each second, from the frame that drew the second before.
   }, [clock, request, second]);
 
-  // The environment's icon and colour are names the terminal UI has yet to map (#327): the line keeps its circle and cyan until then.
-  const badge: Styled = environment ? { text: `● ${nameOf(environment)}`, color: "cyan" } : { text: "no environment", dim: true };
+  // The environment's badge and name in its colour (#327); the terminal UI draws no icon (#19).
+  const badge: Styled = !environment
+    ? { text: "no environment", dim: true }
+    : inputs.badge
+      ? { text: `${inputs.badge.abbreviation} ${nameOf(environment)}`, color: inputs.badge.colour }
+      : { text: nameOf(environment) };
   const live = facts?.live ?? false;
   const hints = (): string | undefined => {
     if (!inputs.composerKeys) return undefined;

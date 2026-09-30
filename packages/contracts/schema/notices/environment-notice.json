@@ -4269,9 +4269,10 @@
                   "browser.headless.limits",
                   "browser.internalHosts",
                   "credentials.injection",
-                  "credentials.injectionByAccount"
+                  "credentials.injectionByAccount",
+                  "instructions.orientation"
                 ],
-                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount."
+                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, instructions.orientation."
               },
               "uniqueItems": true,
               "description": "The keys whose values changed, each once, in the order settings.updated names them."
@@ -4548,6 +4549,25 @@
         "payload"
       ],
       "description": "A trust decision was recorded or revoked, in the transaction of its trust event: a client reads trust.get and trust.list again."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "instructions.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "description": "instructions.updated: an owned instruction changed and has committed; a client reads instructions.list and instructions.preview again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "An owned instruction changed, in the transaction of its instructions event: a client reads instructions.list and instructions.preview again."
     },
     {
       "type": "object",

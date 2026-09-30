@@ -22,6 +22,7 @@ import type { z } from "zod";
 import type { Address } from "../src/serve/http.js";
 import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
+import { fileVault, VAULT_FILE } from "../src/serve/vault.js";
 import type { ContainerDetector } from "../src/serve/container.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
@@ -61,6 +62,8 @@ export interface TestEnvironmentOptions {
   readonly clock?: ManualClock;
   /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
   readonly adapter?: FakeAdapter;
+  /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names; preset none. */
+  readonly otherAdapters?: readonly FakeAdapter[];
   /**
    * The accounts carried over from configuration into the account store on
    * the first start (#119's path, kept for this). Preset: one, `claude-max`,
@@ -111,6 +114,8 @@ export interface TestEnvironmentOptions {
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
   /** Sections registered with the OrientationRenderer beside the environment's own, each in place of the environment's own of its name (#380, #381); preset: none. */
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
+  /** An orientation seam in place of the OrientationRenderer's, which the composer and the Orientation row read (#505); preset: the renderer's. */
+  readonly orientation?: EnvironmentOptions["orientation"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
@@ -145,7 +150,7 @@ export interface TestEnvironmentOptions {
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
-  /** The vault the environment holds; preset: the file vault in the data directory. */
+  /** The vault the environment holds; preset: the file vault in the data directory on every platform, so no test reaches the OS keychain. */
   readonly vault?: EnvironmentOptions["vault"];
   /** The Move sources registered at start (`test/move-sources.ts` scripts one); preset: the environment's own, the forge's. */
   readonly moveSources?: EnvironmentOptions["moveSources"];
@@ -353,6 +358,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
+    ...(options.orientation !== undefined && { orientation: options.orientation }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
@@ -371,7 +377,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     },
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
-    ...(options.vault !== undefined && { vault: options.vault }),
+    vault: options.vault ?? fileVault(join(dataDir, VAULT_FILE)),
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
@@ -395,7 +401,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       scrub,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
-      adapters: [adapter],
+      adapters: [adapter, ...(options.otherAdapters ?? [])],
       accounts,
       probeContainment: async () => (await options.containment) ?? absentProbe(),
       ...passed,

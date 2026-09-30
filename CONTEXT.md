@@ -320,6 +320,10 @@ _Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue 
 A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
 _Avoid_: mirror, skills repo, marketplace
 
+**Catalogue**:
+The suggestions list for skills and instructions that ships with the harness, versioned with the build: skills entries, each a repository folder a person may tick to track as a skill source, with its licence, members and any always-on hint; and suggested instructions in the groups Setup, Coding, Working with me and Custom, each versioned with every earlier text, which a person ticks to own a copy of. Whether an entry is tracked is derived from the environment's sources, never stored, and nothing in it is ticked or always-on until a person acts. An account's list of models is its model catalogue, never this.
+_Avoid_: marketplace, registry, library, suggestions JSON
+
 **Own directory**:
 The environment's own folder of skills under its data directory, holding `skills/` and `commands/`, which a person writes by hand or through `skills.own.create`; read at each run's start and when a client asks, never watched.
 _Avoid_: local skills, user skills, personal plugin
@@ -335,6 +339,10 @@ _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
 **Standing instructions**:
 Text appended to every run through the provider's instruction channel, composed once on the run's environment, whoever started the run, from layers in a fixed order, general to specific: the user layer (the orientation block, then owned instructions), the team bank's, the project's, the session's, a bot's persona, then always-on skills; the run's own text follows. Each composition has a manifest beside its text, which the log keeps in place of the text: per layer what it put in (ids, versions and characters), the always-on skills with their origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why.
 _Avoid_: prompt library, house rules, system prompt (the whole thing the provider builds)
+
+**Owned instruction**:
+A standing instruction David holds on one environment: a title and a Markdown body, the accounts it reaches (all, which includes accounts added later, or those named), whether it is on, and its place in the list; a copy of a catalogue entry remembers that entry and its version, and one written here has no origin. Runs of the accounts it reaches are handed it after the orientation block, under `# Standing instructions`, its title as a heading. The read-only Orientation row that opens the list is not one.
+_Avoid_: prompt, custom instruction, rule, note
 
 **Trust gate**:
 The one-time, per-repository decision that lets a repository's own skills, instructions and hooks load into runs on this environment.

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueLicenceWhere",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "file"
+        },
+        "path": {
+          "description": "The licence file's path from the repository's root, such as LICENSE, or cursor-team-kit/LICENSE where each folder has its own.",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "description": "A licence file states it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "frontmatter"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "Only a license key in the skills' SKILL.md frontmatter states it: no licence file."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "readme"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "Only the README states it: no licence file."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "none"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "Nothing states a licence."
+    }
+  ],
+  "description": "Where a skills entry's licence was declared: file (a licence file, by its path from the repository's root), frontmatter (a license key in SKILL.md, no file), readme (the README, no file) or none. A client shows a file plainly and anything else with a caution and the note."
+}
