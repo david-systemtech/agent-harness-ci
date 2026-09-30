@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillCarryOverInvalid",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "skill",
+        "command"
+      ],
+      "description": "What a member is: skill, a folder holding SKILL.md; or command, a Markdown file in the own directory's commands/, named by its file."
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Its name by the member-naming rule; null when none passes, a name problem saying why."
+    },
+    "from": {
+      "type": "string",
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "Where the original lies."
+    },
+    "problems": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "frontmatter",
+              "name",
+              "description"
+            ],
+            "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What is wrong, for people: the names tried and why each fails."
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+      },
+      "description": "What leaves it invalid, as the own directory's reader would list it."
+    }
+  },
+  "required": [
+    "kind",
+    "name",
+    "from",
+    "problems"
+  ],
+  "description": "An original skill folder or command file that reads as invalid, with its problems: neither copied nor offered."
+}
