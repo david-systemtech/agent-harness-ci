@@ -69,6 +69,7 @@ import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, ty
 import type { ManualClock } from "./in-memory-platform.js";
 import { ACCESS_COMMANDS, scriptedAccess, type ClientSessionRow, type ScriptedAccessEvent, type ScriptedAccessHandle } from "./scripted-access.js";
 import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
+import { FORGE_COMMANDS, scriptedForges, type ScriptedForges, type ScriptedForgesHandle } from "./scripted-forges.js";
 import { KEY_MANAGER_COMMANDS, scriptedKeyManagers, type ScriptedKeyManagers, type ScriptedKeyManagersHandle } from "./scripted-key-managers.js";
 import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { PERMISSION_COMMANDS, scriptedPermissions, type ScriptedPermissionsHandle } from "./scripted-permissions.js";
@@ -223,6 +224,11 @@ export interface ScriptedEnvironment {
    * `managedTools` flags are the script's `capabilities`.
    */
   readonly keyManagers?: ScriptedKeyManagers;
+  /**
+   * The forge accounts and the forges behind them (`scripted-forges.ts`): preset none held, over forges that take every
+   * token. The `forge` flag is the script's `capabilities`.
+   */
+  readonly forges?: ScriptedForges;
 }
 
 /**
@@ -280,7 +286,7 @@ export interface LookChanges {
   readonly colour?: EnvironmentColour;
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedPermissionsHandle, ScriptedAccessHandle {
+export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedForgesHandle, ScriptedPermissionsHandle, ScriptedAccessHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -1724,6 +1730,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     refusal: (method) => rejection(method),
   });
 
+  // The forge accounts (`scripted-forges.ts`).
+  const forges = scriptedForges({
+    clock,
+    wire,
+    script: spec.forges,
+    notice,
+    head: () => sequence,
+    next: () => ++sequence,
+    refusal: (method) => rejection(method),
+    clientSession: () => wire.credential()?.clientSessionId,
+  });
+
   const receiptFor = (method: string): FakeAnswer | undefined => {
     const scriptedReceipt = spec.receipts?.[method] ?? "accepted";
     if (scriptedReceipt === "accepted") return undefined;
@@ -1823,6 +1841,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "terminals.resize",
     "terminals.close",
     ...KEY_MANAGER_COMMANDS,
+    ...FORGE_COMMANDS,
     ...PERMISSION_COMMANDS,
     ...LIST_COMMANDS,
   ]);
@@ -1944,6 +1963,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...prompts,
     setSetup: setup.setSetup,
     ...keyManagers,
+    ...forges,
     ...access,
     denylist: permissions.denylist,
     reviewWatermark: permissions.reviewWatermark,
@@ -2011,6 +2031,7 @@ export { DISCOVERY_PATH };
 export { SCRIPTED_HOME, type ScriptedList } from "./scripted-list.js";
 export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scripted-prompts.js";
 export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js";
+export { type ScriptedDetection, type ScriptedForges } from "./scripted-forges.js";
 export { certificateOf, type ScriptedKeyManagers, type ScriptedMoveItem } from "./scripted-key-managers.js";
 export { type ScriptedPermissionsHandle } from "./scripted-permissions.js";
 export { type ClientSessionRow, type ScriptedAccessEvent, type ScriptedAccessHandle } from "./scripted-access.js";

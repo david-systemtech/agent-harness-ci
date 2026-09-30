@@ -5,6 +5,7 @@ import type { ShellPlatform } from "@agent-harness/client-runtime";
 import { startDesktop } from "../src/desktop.js";
 import type { DesktopPlatform } from "../src/platform.js";
 import type { ServiceWait } from "../src/service.js";
+import type { GhProcess } from "../src/gh.js";
 import type { UpdateSystem } from "../src/update.js";
 import { shellBridge, type DesktopShell, type PreloadIpc } from "../src/preload/bridge.js";
 import { APP_URL } from "../src/schemes.js";
@@ -65,7 +66,8 @@ export interface Started {
  * unless given), and waits for its window to load. A fault it reports with
  * no caller to hand it to is thrown, unless the test hears it. An update
  * runs its commands and file calls on `system` (`test/fake-system.ts`) when
- * given.
+ * given, and this computer's `gh` is run by `gh` with `environment` as the
+ * desktop's variables when given.
  */
 export const start = async ({
   electron = fakeElectron(),
@@ -75,8 +77,18 @@ export const start = async ({
   },
   serviceWait,
   system,
-}: { electron?: FakeElectron; platform?: DesktopPlatform; reportError?: (error: unknown) => void; serviceWait?: ServiceWait; system?: UpdateSystem } = {}): Promise<Started> => {
-  await startDesktop(electron, platform, { reportError, ...(serviceWait && { serviceWait }), ...(system && { updateSystem: system }) });
+  gh,
+  environment,
+}: {
+  electron?: FakeElectron;
+  platform?: DesktopPlatform;
+  reportError?: (error: unknown) => void;
+  serviceWait?: ServiceWait;
+  system?: UpdateSystem;
+  gh?: GhProcess;
+  environment?: Readonly<Record<string, string | undefined>>;
+} = {}): Promise<Started> => {
+  await startDesktop(electron, platform, { reportError, ...(serviceWait && { serviceWait }), ...(system && { updateSystem: system }), ...(gh && { ghProcess: gh }), ...(environment && { environment }) });
   return { electron, platform, shell: (from = APP_URL) => rendererShell(electron, from) };
 };
 

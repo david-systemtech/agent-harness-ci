@@ -3,6 +3,7 @@ import { EnvironmentDot } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { PaneSession } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
+import { PullRequestLinks } from "../session/pull-requests.js";
 import { RenameField } from "../sidebar/rename-field.js";
 import { TITLE_MOST } from "../sidebar/row.js";
 import { notDone, quoted } from "../sidebar/words.js";
@@ -14,8 +15,8 @@ import { useObservable, useRuntime } from "../window-context.js";
 /**
  * A session pane's caption (docs/specs/gui.md, "A session pane"; #407):
  * the session's badge, its title, renamed in place (`sessions.rename`
- * through the outbox, a refusal said on the pane's line), the run info
- * toggle, and close, the one way a pane of the grid is closed. The focused
+ * through the outbox, a refusal said on the pane's line), its pull
+ * requests' links (#419), the run info toggle, and close, the one way a pane of the grid is closed. The focused
  * pane's caption is edged in the accent while the grid holds more than one.
  */
 
@@ -53,8 +54,8 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
   const environment = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
   const list = useObservable(runtime.projections.sessionList);
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
-  const listed = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase())?.summary.title;
-  const name = listed ?? projection.summary?.title ?? "";
+  const summary = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase())?.summary ?? projection.summary;
+  const name = summary?.title ?? "";
   const [, say] = usePaneLine();
   const [editing, setEditing] = useState(false);
 
@@ -80,6 +81,7 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
           {name}
         </button>
       )}
+      <PullRequestLinks pullRequests={summary?.pullRequests ?? []} />
       <RunInfo environmentId={environmentId} sessionId={sessionId} />
     </CaptionBar>
   );
