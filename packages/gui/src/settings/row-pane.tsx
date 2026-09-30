@@ -4,6 +4,7 @@ import { useId, type ComponentType, type ReactNode } from "react";
 import { AccountsPane } from "../accounts/accounts-pane.js";
 import { DefaultModelPane } from "../accounts/default-model-pane.js";
 import { UsagePane } from "../accounts/usage-pane.js";
+import { APPEARANCE_PANES } from "../appearance/panes.js";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
 import { PermissionsPane } from "../permissions/permissions-pane.js";
@@ -101,6 +102,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "environments.machines": YourMachines,
   "access.key-managers": KeyManagersPane,
   "access.permissions": PermissionsPane,
+  ...APPEARANCE_PANES,
 };
 
 /**
