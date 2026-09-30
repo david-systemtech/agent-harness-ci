@@ -106,7 +106,7 @@ const TagsDialog = ({ row, close }: { readonly row: SessionRow; close(): void })
           {summary.tags.map((held) => (
             <li key={held} className="flex items-center gap-1 rounded-sm bg-wash pl-2 text-sm">
               #{held}
-              <Button aria-label={`Take #${held} off`} className="h-6 px-1.5" onClick={() => organise.send(environmentId, "sessions.untag", { sessionId: summary.id, tag: held })}>
+              <Button aria-label={`Take #${held} off`} onClick={() => organise.send(environmentId, "sessions.untag", { sessionId: summary.id, tag: held })}>
                 ×
               </Button>
             </li>

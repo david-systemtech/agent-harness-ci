@@ -34,7 +34,6 @@ export const RenameField = ({ label, value, maxLength, commit, close }: RenameFi
       defaultValue={value}
       maxLength={maxLength}
       autoFocus
-      className="h-7"
       onFocus={(event) => event.currentTarget.select()}
       onBlur={(event) => finish(event.currentTarget.value)}
       onKeyDown={(event) => {

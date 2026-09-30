@@ -1,4 +1,5 @@
 import { groupChoices, presetTimes, rowKey, snoozeStands, toggleOf, whenWords, type HeadingRow } from "@agent-harness/client-runtime";
+import type { CommandMethodName } from "@agent-harness/contracts";
 import { useMemo } from "react";
 import { useOpenInPane } from "../session/pane-line.js";
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "../ui/index.js";
@@ -40,7 +41,7 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   const sessionId = summary.id;
   const list = useObservable(runtime.projections.sessionList);
   const verbs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId])).verbs;
-  const admits = (method: Parameters<typeof runtime.commands.admits>[1]) => runtime.commands.admits(environmentId, method);
+  const admits = (method: CommandMethodName) => runtime.commands.admits(environmentId, method);
   const now = runtime.environmentNow(environmentId);
   const key = rowKey(row);
   const { handOn, onCloseAutoFocus } = useHandOn();
