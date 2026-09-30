@@ -1,5 +1,6 @@
 import { DenylistSection, SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
+import { restoreDenylistPresets } from "../permissions/actions.js";
 import { saveSetting } from "../settings/editor.js";
 import { adminCall } from "../status/actions.js";
 import { isRegisteredStep } from "./checklist.js";
@@ -185,10 +186,8 @@ export const restoreStep = async (
     const saved = await saveSetting(runtime, environmentId, "appearance.theme", preset, { commandId });
     return saved.ok ? { ok: true, line: `Restored the ${preset.name} theme.` } : { ok: false, line: `Not restored: ${saved.line}` };
   }
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.restorePresets", { commandId, ...(sections !== undefined && { sections: [...sections] }) }));
-  if (!answer.ok) return { ok: false, line: `Not restored: ${answer.line}` };
-  const count = answer.result?.restored.length;
-  return { ok: true, line: count === undefined ? "Restored the denylist's presets." : `Restored the denylist's presets: ${count} put back.` };
+  const { ok, line } = await restoreDenylistPresets(runtime, environmentId, sections, commandId);
+  return { ok, line };
 };
 
 /**

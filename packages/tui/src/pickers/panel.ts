@@ -1,6 +1,7 @@
 import {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,
+  NOTHING_TO_REVIEW,
   NO_PLAN_READING,
   NO_WINDOWS_READ,
   aboveCeilingWords,
@@ -12,6 +13,9 @@ import {
   pooledWords,
   readingWords,
   resetWords,
+  reviewCountsWords,
+  reviewDenialWords,
+  reviewRunWords,
   windowWords,
   type AccountsAnswer,
   type EnvironmentView,
@@ -236,24 +240,14 @@ export const usageLines = (
 
 /** `/review`: each run, newest first: when, the session, who ran it, attended or not, its mode and containment; its calls counted; each denial. */
 export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) => string | undefined): readonly (readonly Span[])[] => {
-  if (answer.runs.length === 0) return [[{ text: "Nothing to review: no run since the review was last seen.", dim: true }]];
-  return answer.runs.flatMap((run): (readonly Span[])[] => {
-    const who = run.actor.name !== null ? `${run.actor.kind} ${run.actor.name}` : run.actor.kind;
-    const mode = run.mode.clamped ? `${run.mode.effective} (clamped from ${run.mode.requested ?? "the default"})` : run.mode.effective;
-    const { counts } = run;
-    return [
-      [
-        { text: `${clockTime(run.ranAt)} `, dim: true },
-        { text: titleOf(run.sessionId) ?? run.sessionId, bold: true },
-        { text: ` · ${who} · ${run.attended ? "attended" : "unattended"} · ${mode} · ${run.containment.effective}` },
-      ],
-      [
-        {
-          text: `      ${counts.toolCalls} call${counts.toolCalls === 1 ? "" : "s"}: ${counts.autoApproved} auto-approved, ${counts.denied} denied, ${counts.answeredByPerson} by a person, ${counts.expired} expired`,
-          dim: true,
-        },
-      ],
-      ...run.denials.map((denial): readonly Span[] => [{ text: `      denied ${denial.tool ?? "a prompt"}: ${denial.summary} (${denial.decidedBy}: ${denial.reason})`, color: "yellow" }]),
-    ];
-  });
+  if (answer.runs.length === 0) return [[{ text: NOTHING_TO_REVIEW, dim: true }]];
+  return answer.runs.flatMap((run): (readonly Span[])[] => [
+    [
+      { text: `${clockTime(run.ranAt)} `, dim: true },
+      { text: titleOf(run.sessionId) ?? run.sessionId, bold: true },
+      { text: ` · ${reviewRunWords(run)}` },
+    ],
+    [{ text: `      ${reviewCountsWords(run.counts)}`, dim: true }],
+    ...run.denials.map((denial): readonly Span[] => [{ text: `      ${reviewDenialWords(denial)}`, color: "yellow" }]),
+  ]);
 };
