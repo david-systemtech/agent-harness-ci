@@ -116,6 +116,10 @@ const CONSOLE_LEVELS: Readonly<Record<string, ConsoleEntry["level"]>> = {
   verbose: "debug",
 };
 
+/**
+ * A protocol time in milliseconds since the epoch as an ISO timestamp: `Runtime.Timestamp`, which the console's and the
+ * log's events carry, is milliseconds; `Network`'s `wallTime` is seconds, and its caller multiplies it first.
+ */
 const isoFromMs = (ms: unknown, fallback: Date): string => (typeof ms === "number" && Number.isFinite(ms) ? new Date(ms) : fallback).toISOString();
 
 /** A remote object as a console line shows it. */

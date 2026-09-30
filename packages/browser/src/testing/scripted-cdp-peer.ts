@@ -250,12 +250,8 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
   });
 
   const frameParams = (frame: FrameModel): CdpParams => {
-    let securityOrigin = "://";
-    try {
-      securityOrigin = new URL(frame.url).origin;
-    } catch {
-      // about:blank and the like have an opaque origin.
-    }
+    // Chromium writes an opaque origin (about:blank's, a data: document's) as "://".
+    const securityOrigin = /^https?:/i.test(frame.url) ? new URL(frame.url).origin : "://";
     return {
       id: frame.id,
       ...(frame.parentId !== undefined && { parentId: frame.parentId }),

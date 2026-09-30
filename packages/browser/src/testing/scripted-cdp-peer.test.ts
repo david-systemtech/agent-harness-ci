@@ -23,6 +23,18 @@ describe("the scripted CDP peer", () => {
     expect(version.webSocketDebuggerUrl).toBe(url);
   });
 
+  it("reports a frame's origin as Chromium does, an opaque one as ://", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    const origin = async (target: string) => {
+      const { frameTree } = await (await connection.attach(target)).send("Page.getFrameTree");
+      return (frameTree as { frame: { securityOrigin: string } }).frame.securityOrigin;
+    };
+    expect(await origin(peer.createPage().targetId)).toBe("://");
+    expect(await origin(peer.createPage("https://example.com/app").targetId)).toBe("https://example.com");
+  });
+
   it("answers an in-page function by its name in the frame whose world it was called in, and refuses a world whose document went", async () => {
     const { peer, url } = await listening();
     const connection = cdpConnection(await webSocketTransport(url));
