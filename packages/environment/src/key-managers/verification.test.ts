@@ -131,7 +131,8 @@ describe("keyManagers.connections.verify", () => {
   });
 
   it("is seen whole once the base path it suggests is answered, never before: a client reading the records on its event reads the suggestion", async () => {
-    const { t, bao, client } = await withOpenBao();
+    // A budget past the test's own timeout: the suggestion held is never cut short by it on a loaded runner.
+    const { t, bao, client } = await withOpenBao({ keyManagerTimeoutMs: 60_000 });
     bao.kv("personal", 2);
     const connection = await connected({ bao, client });
     let answer = (): void => undefined;
