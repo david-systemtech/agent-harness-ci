@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueInstructionEntry",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^(?:setup|coding|working|custom)\\.[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "An instruction entry's id: its group, a dot, then a-z, 0-9 and single hyphens, such as coding.fresh-checkout. Stable across builds and versions: an owned copy's origin names it."
+    },
+    "group": {
+      "type": "string",
+      "enum": [
+        "setup",
+        "coding",
+        "working",
+        "custom"
+      ],
+      "description": "An instruction group: setup (only the seeded About my setup), coding (habits for work in a repository), working (Working with me: how the agent talks to you and delegates) or custom (a person's own, which the catalogue leaves empty)."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "The instruction's title, which a copy takes: at most as long as an owned instruction's."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One line on what the instruction asks, shown before its text."
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "An instruction entry's version: 1 for its first text, then one more each time the text changes."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000,
+      "description": "The current version's text, in Markdown, which a copy takes: at most as long as an owned instruction's body."
+    },
+    "earlierVersions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "An instruction entry's version: 1 for its first text, then one more each time the text changes."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "The entry's text at that version, kept so a copy made from it diffs against the current text."
+          }
+        },
+        "required": [
+          "version",
+          "text"
+        ],
+        "description": "An earlier version of an instruction entry: its number and its text then."
+      },
+      "description": "Every earlier version with its text, oldest first: versions 1 up to the current one's predecessor, each text unlike the next one's. Empty at version 1."
+    }
+  },
+  "required": [
+    "id",
+    "group",
+    "title",
+    "summary",
+    "version",
+    "text",
+    "earlierVersions"
+  ],
+  "description": "An instruction entry: its id (its group, a dot and a name), group, title, one-line summary, version, current text, and every earlier version's text, oldest first (versions 1 up to the current one's predecessor, each text unlike the next one's), so an owned copy of any version diffs against the current text."
+}

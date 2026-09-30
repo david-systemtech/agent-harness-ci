@@ -109,20 +109,44 @@ platform as not run.
 
 ## Headless Linux (the install script)
 
-**Blocked until a release publishes an artefact.** The script looks for a
-release asset named `agent-harness-<os>-<arch>.tar.gz` holding
-`bin/agent-harness` and the version's own Node and CLI (`node/bin/node`,
-`packages/cli/dist/main.js`), which `service install` needs, and no release
-publishes one yet; until then it stops at
-the lookup with "release … has no agent-harness-linux-x64.tar.gz". Containers
-without `systemd --user` are not served by the script: `service install` fails
-there, and a container runs `agent-harness serve` directly instead.
+**Blocked until a release publishes its artefacts and a download reaches the
+box.** No release publishes the server artefacts yet (the release workflow,
+#358), and the sign-in proxy in front of `git.systemtech.dev:5526` answers a
+release download 401 (#476); until both, the script stops at the release lookup
+("no release is published on the stable channel") or at the download.
+Containers without `systemd --user` are not served by the script:
+`service install` fails there, and a container runs the image instead (the
+Container section).
 
-1. On a fresh Linux box with Node 24 or later on `PATH`, as an ordinary user logged in over SSH: `AGENT_HARNESS_TOKEN=<read token> sh install.sh --dry-run`. It names the latest release, the `agent-harness-linux-<arch>.tar.gz` download and the target folder, and changes nothing.
-2. The same without `--dry-run`. It downloads, verifies the checksum if one is published, unpacks into `~/.local/state/agent-harness/versions/<version>` (inside the data directory) with its `.complete` sentinel written last, installs and starts the service, and ends with `service status` ready, exit 0.
-3. Run it again: it reuses the unpacked version and ends ready again.
-4. With lingering off, the status says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
-5. `~/.local/state/agent-harness/versions/<version>/bin/agent-harness service uninstall` leaves no unit behind.
+`install.sh` is an asset of every release, and the Your machines card's line
+runs it with that environment's `--channel` and an optional `--name`. It
+resolves the channel's newest release (`--version` names one), downloads
+`agent-harness-<os>-<arch>.tar.gz`, checks its SHA-256 against the `.sha256`
+published beside it, unpacks it into the data directory's
+`versions/<version>` with the `.complete` sentinel written last, runs that
+version's `service install` and `service start`, waits up to 60 seconds for
+`http://127.0.0.1:<port>/health` to say ready (else it fails naming
+`logs/service.log`), sets the channel with `update settings`, hands its token to
+the environment with `update credential --stdin`, and ends with `pair`'s link,
+QR and code, or the Tailscale warning when the environment binds only loopback,
+then the shim's path line. Over a running service it downloads and unpacks
+nothing: the shim's `service install` repairs the definition and the entry,
+and `--version` becomes an `update apply`. Run it as an ordinary user logged in
+over SSH on a Linux box with Tailscale up and no Node on the `PATH`; `<token>`
+is a Forgejo token with `read:repository`.
+
+1. `AGENT_HARNESS_TOKEN=<token> sh install.sh --channel stable --name "Checklist headless" --dry-run`. It names the channel's newest release, the download, its digest and the version's folder, lists the commands it would run, and changes nothing.
+2. The same without `--dry-run`. It prints "Verified the SHA-256", unpacks into `~/.local/state/agent-harness/versions/<version>`, installs and starts the service, waits for ready, and ends with a pairing link on the machine's tailnet name, an ASCII QR and a code, then an `export PATH=` line for `~/.local/state/agent-harness/bin`. A `ps -ef` taken during the run shows the token on no command line.
+3. Pair a client from that link, QR or code: the machine becomes a card named "Checklist headless". After adding the path line to the profile, `agent-harness update status` shows the channel `stable` and a check that read the channel, so the token reached the environment as the forge account for the release origin.
+4. Run step 2's line again. It says the service is running and downloads nothing, `versions/` is unchanged, `service install` says it rewrote only its own files, and it ends with a new pairing.
+5. Run it again with `--version <another published version>`. It asks for that version through `update apply`: `agent-harness service status` shows the pending update, and the version switches once the environment is idle.
+6. `sudo tailscale down`, `agent-harness service uninstall`, then step 2's line again: it reuses the unpacked version and ends with "No Tailscale address found. This machine is reachable only from itself." and no pairing. `sudo tailscale up` afterwards.
+7. `sudo AGENT_HARNESS_TOKEN=<token> sh install.sh`: it refuses as root, before any download.
+8. With lingering off, `agent-harness service status` says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
+9. `agent-harness service uninstall` leaves no unit behind.
+
+On macOS, steps 1 to 5 run the same from a logged-in user's Terminal, with the
+versions under `~/Library/Application Support/agent-harness/versions`.
 
 ## Container (the image and `scripts/compose.yaml`)
 
@@ -149,3 +173,23 @@ verbs, or list the section as not run.
 7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
 8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
 9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.
+
+## Host-side updater (`scripts/host-updater.sh`)
+
+**Blocked until two releases publish their images and manifests** (#357,
+#358): the environment makes an update ready only for a release whose manifest
+names an image, and the updater pulls only that image. `test/host-updater-script.test.ts`
+runs the script against a fake `docker`, `curl` and `flock` and a held clock;
+these steps prove it against a real Docker on a Linux host, never the shared
+agent box. Install it as `docs/host-updater.md` says, beside the older
+release's `compose.yaml`, with cron or the systemd timer, and set
+`AGENT_HARNESS_NOTIFY_COMMAND='logger -t agent-harness "$AGENT_HARNESS_OUTCOME: $AGENT_HARNESS_MESSAGE"'`.
+Record the result in the pull request that changes the script, or list the
+section as not run.
+
+1. With nothing to update, the first tick logs "Nothing to update" and the next ticks log nothing; `docker compose exec environment agent-harness update status --data-dir /data` shows the updates managed outside, with the updater's last poll.
+2. `docker compose exec environment agent-harness update apply --version <newer> --now --data-dir /data`. Within five minutes the updater logs the pull and the begin, the stop (which waits for a run under way), the snapshot, the recreate and the watch, and ten minutes later `updated`; `logger` shows it once. `.env` holds `AGENT_HARNESS_IMAGE=<newer>` and `AGENT_HARNESS_PREVIOUS_IMAGE=<older>`, `docker image ls` holds only those two of the repository, `/data/snapshots` is empty, and `update status` shows the last update `updated`.
+3. Run the script by hand while a tick is under way (during step 2's stop): it exits at once, printing nothing.
+4. Ask for a release built to fail its start (the spec's manual rollback release: a version whose `serve` exits before it says ready). The updater logs the rollback at `trial` for `health`, `.env` names the older image again, the older version runs, `update status` shows the update failed and rolled back, and `/data/snapshots` holds nothing.
+5. `docker logout git.systemtech.dev:5526`, then ask for an update: the tick logs `pull-failed` once, and the container keeps running untouched; the next ticks log nothing more. `docker login` again and the next tick updates.
+6. `AGENT_HARNESS_UPDATER=0` on the crontab line or in the unit: ticks log nothing and call nothing.

@@ -205,7 +205,14 @@ describe("a firing that cannot start", () => {
         trigger: "run-now",
         count: 1,
         preCheck: null,
-        deliveries: [],
+        // A failing skip, delivered to the preset client notice on both (#525).
+        deliveries: [
+          {
+            target: { kind: "client-notice", on: "both" },
+            result: "delivered",
+            attempts: [{ attempt: 1, at: MANUAL_CLOCK_START, result: "delivered", status: null, error: null, retryAt: null }],
+          },
+        ],
         dueAt: MANUAL_CLOCK_START,
         at: MANUAL_CLOCK_START,
         reason: "cannot-start",
@@ -553,7 +560,7 @@ describe("a firing's end", () => {
     const saidOnly = await firing(t, client, () => [say("First thought."), say("Nothing new upstream."), end()], routine({ name: "Said only" }));
     expect((await untilSettled(t, saidOnly.routineId, saidOnly.firingId)).payload).toMatchObject({ outcome: "succeeded", text: "Nothing new upstream.", usage: null });
 
-    // Empty text succeeds: the body a delivery gives it is #525's.
+    // Empty text succeeds: the body its delivery gives it is delivery.test.ts's (#525).
     const silentRun = await firing(t, client, () => [end()], routine({ name: "Said nothing" }));
     expect((await untilSettled(t, silentRun.routineId, silentRun.firingId)).payload).toMatchObject({ outcome: "succeeded", reason: null, text: "" });
   });
@@ -661,14 +668,15 @@ describe("a firing and its routine's changes", () => {
     const { state } = await created(client, routine());
     const firingId = await ranNow(client, state.id);
     const { sessionId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string };
-    const ended = await untilSettled(t, state.id, firingId);
+    await untilSettled(t, state.id, firingId);
+    // The firing's end and its delivery (#525).
+    const recorded = t.env.log.readStream({ kind: "routine", id: state.id });
 
     const { runId } = await client.apply("runs.start", { commandId: randomUUID(), sessionId, text: "What did you find?" });
     await untilRunEnded(t, sessionId, runId);
     expect(payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved").find((policy) => policy.runId === runId)).toMatchObject({ actorKind: "client", attended: true });
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started").find((started) => started.runId === runId)).toMatchObject({ origin: "client" });
-    const records = t.env.log.readStream({ kind: "routine", id: state.id });
-    expect(records.at(-1)?.eventId).toBe(ended.eventId);
+    expect(t.env.log.readStream({ kind: "routine", id: state.id })).toEqual(recorded);
     expect(await history(client, state.id)).toHaveLength(1);
   });
 });
@@ -702,7 +710,7 @@ describe("routines.history", () => {
     expect(await refusal(history(client, state.id, { before: stranger }))).toEqual({ code: "not_found", data: { kind: "entry", routineId: state.id, entryId: stranger } });
   });
 
-  it("raises routine.updated for each new record: the firing's start and end, and a skip", async () => {
+  it("raises routine.updated for each new record: the firing's start and end, a skip, and the delivery of each", async () => {
     const t = await start();
     const client = await t.client();
     const { state } = await created(client, routine());
@@ -714,7 +722,9 @@ describe("routines.history", () => {
     await untilSettled(t, state.id, skipId);
 
     const updates = await routineUpdates(await t.client(), head);
-    expect(updates.map((event) => event.payload)).toEqual((["firing-started", "firing-ended", "edited", "skipped"] as const).map((change) => ({ routineId: state.id, change })));
+    expect(updates.map((event) => event.payload)).toEqual(
+      (["firing-started", "firing-ended", "delivery-attempted", "edited", "skipped", "delivery-attempted"] as const).map((change) => ({ routineId: state.id, change })),
+    );
     const records = t.env.log.readStream({ kind: "routine", id: state.id }, head);
     expect(updates.map((event) => event.causationId)).toEqual(records.map((event) => event.eventId));
   });

@@ -12,13 +12,13 @@ export interface RunInfoProps {
 
 /**
  * Run info (docs/specs/gui.md, "A session pane": the caption's run info;
- * `app.runInfo.toggle`, Mod+I; #402): the session's latest run, with its
+ * `app.runInfo.toggle`, Mod+I; #402, in the caption since #407): the session's latest run, with its
  * resolved policy (who started it, attended or not, its mode and
  * containment as the environment resolved them, from `run.policy.resolved`;
  * the mode from the run's own record when that was not heard), its account,
  * model and effort, its tokens and cost, and how it ended. Opened from its
- * button at the end of the status line or by its keys, closed by them again
- * or by Esc.
+ * button in the pane's caption or by its keys, closed by them again or by
+ * Esc.
  */
 export const RunInfo = ({ environmentId, sessionId }: RunInfoProps) => {
   const [open, setOpen] = useState(false);
@@ -28,7 +28,7 @@ export const RunInfo = ({ environmentId, sessionId }: RunInfoProps) => {
       <PopoverTrigger asChild>
         <Button className="ml-auto h-6 shrink-0 px-2 text-xs font-normal text-ink-muted">Run info</Button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="top" aria-label="Run info" className="w-96">
+      <PopoverContent align="end" side="bottom" aria-label="Run info" className="w-96">
         <LatestRun environmentId={environmentId} sessionId={sessionId} />
       </PopoverContent>
     </Popover>

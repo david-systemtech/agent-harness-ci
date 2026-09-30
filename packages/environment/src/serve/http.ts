@@ -53,6 +53,9 @@ export const readBody = (request: IncomingMessage, limit: number): Promise<strin
     request.on("error", reject);
   });
 
+/** The token of an `Authorization: Bearer <token>` header, or undefined without one. */
+export const bearerToken = (request: IncomingMessage): string | undefined => /^Bearer\s+(\S+)\s*$/i.exec(request.headers.authorization ?? "")?.[1];
+
 /** Writes `body` as a one-line JSON response. */
 export const sendJson = (
   response: ServerResponse,

@@ -31,6 +31,7 @@ import {
   type Subscribing,
   type SubscriptionMessage,
 } from "./connection.js";
+import { askOverRoute, answeredByMethod, failed, type UpdateEnvironmentOutcome } from "./environment-update.js";
 import {
   LOCAL_ENVIRONMENT_DOCUMENT,
   LOCAL_PLACEHOLDER_ID,
@@ -99,6 +100,18 @@ export interface Connections {
    * `retryNow`).
    */
   startService(environmentId: string): Promise<void>;
+  /**
+   * The `update-environment` action: asks the environment to update itself
+   * to this client's version, under the idle rules, and answers the update
+   * it took or why not. A connection blocked `protocol-mismatch`, which the
+   * wire refuses, asks over `POST /api/update` with its client session's
+   * token and then shows `updating` through the environment's restart until
+   * `hello` agrees and clears the block; any other sends `updates.apply` on
+   * its socket, and follows the `bye: updating` the restart brings. An
+   * environment that refuses raises the notice `update-refused` naming why.
+   * Rejects for an unknown environment.
+   */
+  updateEnvironment(environmentId: string): Promise<UpdateEnvironmentOutcome>;
 }
 
 /** Where the rest of the runtime attaches to connections: #127's subscriptions, #128's outbox. Internal: never on `Runtime`. */
@@ -533,6 +546,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     return { ok: true, expiresAt: Date.parse(result.expiresAt) };
   };
 
+  /** The token a connection sends: a local one's is in memory, a paired one's in the secret store. */
+  const tokenOf = async (environmentId: string, entry: Entry): Promise<string | undefined> =>
+    entry.saved.kind === "local" ? entry.token : platform.secrets.get(environmentId);
+
   /** What the runner of `entry` needs of the registry. */
   const hostFor = (environmentId: string, entry: () => Entry): RunnerHost => ({
     clock: platform.clock,
@@ -548,10 +565,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // Something answered, but not with a discovery document: not the service being down, a fault the ladder retries.
       return read.kind === "unreachable" ? { kind: "unreachable", message: read.message } : { kind: "malformed", message: read.message };
     },
-    token: async () => {
-      const e = entry();
-      return e.saved.kind === "local" ? e.token : platform.secrets.get(environmentId);
-    },
+    token: async () => tokenOf(environmentId, entry()),
     expiresAt: () => {
       const at = entry().saved.expiresAt;
       return at === null ? null : Date.parse(at);
@@ -1093,6 +1107,34 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // A service just started is tried at once and then from the ladder's first rung, not 30 seconds out.
       entry.runner.feed({ type: "retryNow", fresh: true });
       await settledFor(environmentId, entry);
+    },
+
+    async updateEnvironment(environmentId) {
+      if (!loaded) await ensureLoaded();
+      const entry = entryOf(environmentId);
+      const machine = entry.runner.state;
+      const version = platform.client.version;
+      const overRoute = machine.phase === "blocked" && machine.blocked === "protocol-mismatch";
+      let outcome: UpdateEnvironmentOutcome;
+      if (overRoute) {
+        const token = await tokenOf(environmentId, entry);
+        outcome = token === undefined ? failed("no-token", `This client holds no token for ${machine.name}: pair it again.`) : await askOverRoute(platform.fetch, entry.saved.address, token, version);
+      } else {
+        // The connection's own socket: `updates.apply` of this client's version, when idle.
+        outcome = await registry.seams
+          .request(environmentId, "updates.apply", { commandId: uuidv7(platform.clock.now()), version, when: "idle" })
+          .then(answeredByMethod, (error: unknown) => failed("unreachable", error instanceof Error ? error.message : String(error)));
+      }
+      if (!isCurrent(environmentId, entry)) return outcome;
+      if (outcome.ok && overRoute) entry.runner.feed({ type: "update-taken" });
+      if (!outcome.ok && outcome.refused) {
+        notices.raise(environmentId, {
+          kind: "update-refused",
+          message: `${machine.name} refused the update to ${version} (${outcome.reason}): ${outcome.message}`,
+          action: null,
+        });
+      }
+      return outcome;
     },
 
     close() {

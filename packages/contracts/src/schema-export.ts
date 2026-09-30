@@ -228,6 +228,23 @@ import {
   HeadlessLimits,
 } from "./browser-settings.js";
 import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
+import {
+  Catalogue,
+  CatalogueAlwaysOnHint,
+  CatalogueInstructionEntry,
+  CatalogueInstructionEntryId,
+  CatalogueInstructionGroup,
+  CatalogueInstructionGroupId,
+  CatalogueInstructionVersion,
+  CatalogueInstructionVersionNumber,
+  CatalogueLicence,
+  CatalogueLicenceWhere,
+  CatalogueSkillEntry,
+  CatalogueSkillEntryId,
+  CatalogueSkillMember,
+  CatalogueTag,
+} from "./catalogue.js";
+import { CATALOGUE } from "./catalogue-data.js";
 import { CredentialInjection, CredentialInjectionByAccount, InjectionAnswer, RunInjection } from "./credential-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -888,6 +905,20 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
   { path: "skills/follow.json", title: "SkillSourceFollow", schema: SkillSourceFollow },
   { path: "skills/source.json", title: "SkillSource", schema: SkillSource },
+  { path: "catalogue/skill-entry-id.json", title: "CatalogueSkillEntryId", schema: CatalogueSkillEntryId },
+  { path: "catalogue/tag.json", title: "CatalogueTag", schema: CatalogueTag },
+  { path: "catalogue/licence-where.json", title: "CatalogueLicenceWhere", schema: CatalogueLicenceWhere },
+  { path: "catalogue/licence.json", title: "CatalogueLicence", schema: CatalogueLicence },
+  { path: "catalogue/skill-member.json", title: "CatalogueSkillMember", schema: CatalogueSkillMember },
+  { path: "catalogue/always-on-hint.json", title: "CatalogueAlwaysOnHint", schema: CatalogueAlwaysOnHint },
+  { path: "catalogue/skill-entry.json", title: "CatalogueSkillEntry", schema: CatalogueSkillEntry },
+  { path: "catalogue/instruction-group-id.json", title: "CatalogueInstructionGroupId", schema: CatalogueInstructionGroupId },
+  { path: "catalogue/instruction-group.json", title: "CatalogueInstructionGroup", schema: CatalogueInstructionGroup },
+  { path: "catalogue/instruction-entry-id.json", title: "CatalogueInstructionEntryId", schema: CatalogueInstructionEntryId },
+  { path: "catalogue/instruction-version-number.json", title: "CatalogueInstructionVersionNumber", schema: CatalogueInstructionVersionNumber },
+  { path: "catalogue/instruction-version.json", title: "CatalogueInstructionVersion", schema: CatalogueInstructionVersion },
+  { path: "catalogue/instruction-entry.json", title: "CatalogueInstructionEntry", schema: CatalogueInstructionEntry },
+  { path: "catalogue/catalogue.json", title: "Catalogue", schema: Catalogue },
   { path: "trust/key-kind.json", title: "TrustKeyKind", schema: TrustKeyKind },
   { path: "trust/key.json", title: "TrustKey", schema: TrustKey },
   { path: "trust/decision.json", title: "TrustDecision", schema: TrustDecision },
@@ -1394,6 +1425,35 @@ export const publishedData = (): PublishedData[] => [
     ].join(" "),
     schema: "managed-tools/tool.json",
     entries: MANAGED_TOOLS,
+  },
+  {
+    path: "data/catalogue-skills.json",
+    title: "Catalogue skills",
+    description: [
+      "The catalogue's skills entries (skills spec, \"The catalogue\"; ADR 0029), in the order the Skills step shows them: repository folders a person may tick to track as skill sources. None is ticked or always-on until a person acts.",
+      "An entry shows ticked when a source of the environment's (skills.get) has its repository identity (cases/repository-identity.json, with no forge accounts) and its folder, and names that source; unticking removes the source.",
+      "Each entry's skillCount equals its members, each member named once; each always-on hint is one of its members, named once; ids are unique and no two entries share an identity and folder.",
+      "A licence's spdx is null exactly when where is none, and it carries a note whenever where is not a file or holder is null.",
+    ].join(" "),
+    schema: "catalogue/skill-entry.json",
+    entries: CATALOGUE.skills,
+  },
+  {
+    path: "data/catalogue-instruction-groups.json",
+    title: "Catalogue instruction groups",
+    description: "The catalogue's instruction groups in the order the Instructions step shows them (ADR 0030): Setup, holding only the seed, setup.about-my-setup (About my setup); Coding; Working with me; and Custom, a person's own, which the catalogue leaves empty.",
+    schema: "catalogue/instruction-group.json",
+    entries: CATALOGUE.instructions.groups,
+  },
+  {
+    path: "data/catalogue-instructions.json",
+    title: "Catalogue instructions",
+    description: [
+      "The catalogue's suggested instructions (skills spec, \"The catalogue\"; ADR 0030), grouped by their group: a person ticks one to own a copy that remembers its id and version.",
+      "An id is its group, a dot and a name, unique; a version is 1, then one more each time the text changes, and every earlier version's text is kept, oldest first, each unlike the next, so a copy of any version diffs against the current text.",
+    ].join(" "),
+    schema: "catalogue/instruction-entry.json",
+    entries: CATALOGUE.instructions.entries,
   },
 ];
 

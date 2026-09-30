@@ -1,6 +1,7 @@
 import { COUNTDOWN_TICK_MS, choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
 import { actionById, describeDenylistMatch, type KeyActionId, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useInFocusedPane } from "../grid/grid.js";
 import { keyLabel } from "../keys/chords.js";
 import { KeyContext, useKeyAction, useMacOS } from "../keys/key-dispatch.js";
 import { Markdown } from "../transcript/markdown.js";
@@ -121,10 +122,13 @@ const ParkedCard = ({ environmentId, parked, place, capability, fields, setField
   const ttl = useTtlWords(environmentId, prompt.ttlExpiresAt);
   const rows = choiceRows(prompt);
 
-  // The card takes the focus when its prompt comes to it: the card, never a button, so a stray Enter fires nothing.
+  // The card takes the focus when its prompt comes to it: the card, never a button, so a stray Enter fires nothing. In a
+  // pane the grid is not focused on it leaves the focus in the pane being typed in, and does not take it when its own
+  // pane is focused later: it waits there to be answered.
+  const inFocusedPane = useInFocusedPane();
   useEffect(() => {
     const card = self.current;
-    if (card !== null && card.closest("[inert]") === null) card.focus({ preventScroll: true });
+    if (inFocusedPane && card !== null && card.closest("[inert]") === null) card.focus({ preventScroll: true });
   }, []);
 
   /** Sends what was chosen, unless the connection cannot, or the choice sends nothing and says why. */
