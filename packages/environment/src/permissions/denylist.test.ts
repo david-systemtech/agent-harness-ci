@@ -319,6 +319,18 @@ describe("permissions.denylist.restorePresets", () => {
     expect(again.receipt).toMatchObject({ changed: false });
     expect(again.result?.restored).toEqual([]);
   });
+
+  it("re-adds only the presets of the sections named, as Set up's Restore names the sections its check found wanting, leaving a section a person emptied as it is", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = await getDenylist(client);
+    await send(client, "permissions.denylist.set", { sections: { paths: held.paths.slice(1), browserDomains: [] } });
+    const restored = await send(client, "permissions.denylist.restorePresets", { sections: ["paths"] });
+    expect(restored.result?.restored).toEqual([{ section: "paths", entry: held.paths[0] }]);
+    const after = await getDenylist(client);
+    expect(after.paths).toEqual([...held.paths.slice(1), held.paths[0]]);
+    expect(after.browserDomains).toEqual([]);
+  });
 });
 
 describe("permissions.denylist.test", () => {
