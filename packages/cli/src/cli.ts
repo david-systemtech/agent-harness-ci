@@ -54,7 +54,7 @@ export interface CliContext extends ProcessContext {
   readonly service?: ServiceSeams;
   /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
   readonly preflight?: PreflightSeams;
-  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector">;
+  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector" | "browser">;
   /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */

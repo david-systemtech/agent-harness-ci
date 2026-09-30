@@ -128,6 +128,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { createBrowserService } from "../browser/service.js";
+import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
 import { createCheckoutIndex, type CheckoutIndex } from "../workspace/checkout-index.js";
@@ -175,6 +177,13 @@ export const HARNESS_VERSION: string = (
  * package, is the harness's own and never a person's (ADR 0026).
  */
 const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url));
+
+/**
+ * The built extension the environment carries and unpacks for Chrome (browser
+ * spec; ADR 0024): the extension package's build beside the environment
+ * package, as the workspace and the server artefact lay the packages out.
+ */
+const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
 
 /**
  * The port an environment listens on when none is given. A chosen default, not
@@ -436,6 +445,16 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
+  /**
+   * The extension's folder and its listener (#547): the built extension the
+   * environment unpacks into `extension/current` for Chrome, and the ports
+   * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
+   * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
+   */
+  readonly browser?: {
+    readonly extensionSource?: string;
+    readonly ports?: ExtensionListenerPorts;
+  };
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -1190,6 +1209,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
+  // The extension's folder and its listener (#547): bound and made once the start is committed, below.
+  const browser = createBrowserService({
+    log,
+    clock,
+    stream: environmentStream,
+    environmentId: record.id,
+    name: () => look.read().name,
+    harnessVersion,
+    dataDir,
+    extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
+    ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
+  });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1257,6 +1288,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
     ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
+    // The extension's folder and its listener (#547): browser.status.
+    ...browser.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
       log,
@@ -1406,6 +1439,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
+  // The extension's listener bound and its folder made (#547), past the gate, so a trial the launcher rolls back never
+  // replaced the folder Chrome loads; before the wire opens, so a first client's browser.status finds them.
+  closers.push(() => browser.close());
+  await browser.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code

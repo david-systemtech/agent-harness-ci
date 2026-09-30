@@ -132,6 +132,22 @@ const bridgeFromEnvironment = {
 
 const limits = { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 };
 
+/** The environment's side of the extension (#547): what browser.status answers. */
+const listening = { state: "listening", port: 47615 };
+const portInUse = { state: "not-listening", reason: "port-in-use", message: "Ports 47615 to 47634 on loopback are all in use." };
+const folder = { path: "/home/david/.local/state/agent-harness/extension/current", problem: null };
+const noBuild = { path: "C:\\Users\\david\\AppData\\Local\\agent-harness\\extension\\current", problem: "This environment carries no built extension." };
+const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: true };
+const statusFixtures: Fixtures = {
+  valid: [status, { listener: portInUse, folder: noBuild, shippedVersion: null, unpairedConnected: false }],
+  invalid: [{ ...status, unpairedConnected: undefined }, { ...status, shippedVersion: "" }, { ...status, listener: { state: "listening" } }, { listener: listening, folder }],
+};
+
+/** Params and result instances for the browser methods. */
+export const browserMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "browser.status": { params: { valid: [{}], invalid: [null, []] }, result: statusFixtures },
+};
+
 export const browserSchemaFixtures: Record<string, Fixtures> = {
   "browser/page-driver-kind.json": { valid: ["chrome", "headless", "dock"], invalid: ["none", "extension", ""] },
   "browser/page-key.json": { valid: [`${environmentId}/${chromeId}`, "k"], invalid: ["", "x".repeat(257), 1] },
@@ -206,6 +222,16 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
   "browser/bridge/from-environment.json": {
     valid: [...Object.values(bridgeFromEnvironment), { type: "ping" }, { type: "pong" }, { type: "refused", reason: "No longer paired." }],
     invalid: [bridgeFromExtension.hello, bridgeFromExtension.proof, { type: "call" }, {}],
+  },
+  "browser/status/listener.json": {
+    valid: [listening, portInUse, { state: "not-listening", reason: "bind-failed", message: "Binding 127.0.0.1 failed: EADDRNOTAVAIL." }],
+    invalid: [{ state: "listening", port: 0 }, { state: "not-listening", reason: "port-in-use" }, { state: "not-listening", reason: "busy", message: "Busy." }, { port: 47615 }],
+  },
+  "browser/status/folder.json": { valid: [folder, noBuild], invalid: [{ path: "", problem: null }, { path: folder.path, problem: "" }, { path: folder.path }] },
+  "browser/status/status.json": statusFixtures,
+  "browser/extension-seen.json": {
+    valid: [{ protocolVersion: 2, extensionVersion: "0.4.2" }, { protocolVersion: 1, extensionVersion: "0.4.2-beta.1" }],
+    invalid: [{ protocolVersion: 0, extensionVersion: "0.4.2" }, { protocolVersion: 2, extensionVersion: "" }, { protocolVersion: 2 }],
   },
   "settings/keys/browser.devSites.json": { valid: [[], ["localhost", "*.myapp.test", "192.168.1.10"]], invalid: [["https://myapp.test"], ["myapp.test:3000"], "localhost"] },
   "settings/keys/browser.evaluateEverywhere.json": { valid: [true, false], invalid: [null, "true"] },

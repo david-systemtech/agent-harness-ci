@@ -68,6 +68,8 @@ const harness = (containerDetector: ContainerDetector = { inContainer: () => fal
       interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
       probeContainment: async () => NO_BUBBLEWRAP,
       containerDetector,
+      // The extension's listener on any free port, never 47615 (#547).
+      browser: { ports: { preferred: 0, last: 0 } },
     },
   };
   return { context, stop, prepared, close, ask, runs, out: () => out, err: () => err };
