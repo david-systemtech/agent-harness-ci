@@ -251,6 +251,7 @@ export type {
 } from "./projections/session.js";
 export {
   DOCUMENT_KIND_WORDS,
+  NO_DOCUMENTS,
   documentFacts,
   documentKindOf,
   documentWritten,
@@ -399,7 +400,7 @@ export { changeHeading, groupChoices, hasTag, snoozeStands, toggleOf, type Group
 export { askRestorable, type DeletedRow, type Restorable } from "./sidebar/restore.js";
 export { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 export { inWorkspace, isAbsolutePath, slashed } from "./files/paths.js";
-export { DIFF_CUT_NOTE, binaryNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
+export { DIFF_CUT_NOTE, binaryNote, fileCutNote, fileMarks, formatBytes, outsideWorkspace, sessionDiffNote, workingTreeNote } from "./files/words.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";
 export {
   ONE_OFF_MAX_LINES,

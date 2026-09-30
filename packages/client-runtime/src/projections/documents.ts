@@ -138,6 +138,9 @@ export const sessionDocuments = (view: Pick<SessionProjection, "items" | "runs">
   return [...byPath.values()].sort((a, b) => b.last.sequence - a.last.sequence);
 };
 
+/** What a renderer says in place of a session's documents while it has written none. */
+export const NO_DOCUMENTS = "No pages, SVGs or markdown written yet.";
+
 /** What each kind of document is called where a renderer lists it. */
 export const DOCUMENT_KIND_WORDS: Readonly<Record<DocumentKind, string>> = { page: "Page", svg: "SVG", markdown: "Markdown" };
 

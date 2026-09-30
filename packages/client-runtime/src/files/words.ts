@@ -21,6 +21,10 @@ export const fileMarks = (read: { readonly size: number; readonly binary: boolea
   ...(read.truncated ? [`the first ${String(FILES_READ_CAP / MIB)} MiB`] : []),
 ];
 
+/** Said under what a file read in part shows: where `files.read` cut it, and how much of its `size` bytes is not shown. */
+export const fileCutNote = (size: number): string =>
+  `… cut at ${String(FILES_READ_CAP / MIB)} MiB: the last ${formatBytes(Math.max(0, size - FILES_READ_CAP))} of ${formatBytes(size)} is not shown.`;
+
 /** Said in place of a binary file's text, which is not drawn. */
 export const binaryNote = (size: number): string => `A binary file of ${formatBytes(size)}: not shown as text.`;
 
