@@ -55,7 +55,8 @@ import { instructionMethods } from "../instructions/methods.js";
 import { environmentSection } from "../instructions/environment-section.js";
 import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
-import { accountsProjector } from "../accounts/account-store.js";
+import { accountsProjector, listAccountStandings } from "../accounts/account-store.js";
+import { accountsSection } from "../accounts/orientation.js";
 import { accountMethods } from "../accounts/methods.js";
 import type { SignInDirectorFactory } from "../accounts/signin-seam.js";
 import { createSignInDirector } from "../accounts/signin-director.js";
@@ -113,6 +114,7 @@ import { keyManagerMethods } from "../key-managers/methods.js";
 import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
+import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
@@ -353,9 +355,10 @@ export interface EnvironmentOptions {
     readonly injection?: InjectionSeam;
   };
   /**
-   * Sections registered with the OrientationRenderer at start, after the
-   * environment's own (#380): tests register providers that throw, stall and
-   * overflow. Preset: none.
+   * Sections registered with the OrientationRenderer at start beside the
+   * environment's own (#380), each in place of the environment's own of its
+   * name (#381): tests register providers that throw, stall and overflow.
+   * Preset: none.
    */
   readonly orientationSections?: readonly OrientationSection[];
   /**
@@ -869,12 +872,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
-  // Every run's orientation block (#380): this environment's section, then each service's in the block's order, the forges
-  // section third where runs are given the forge's variables.
+  // Every run's orientation block (#380): this environment's section, its accounts' and the key managers' with the standing
+  // rule (#381), and the forges section where runs are given the forge's variables, each put in the block's order by its
+  // name. A section a test registers takes the place of the environment's own of its name.
   const orientation = createOrientationRenderer({ clock });
-  orientation.register(environmentSection({ name: () => look.read().name, platform: options.platform ?? process.platform, arch: process.arch, user }));
-  if (forge.orientation !== undefined) orientation.register(forge.orientation);
-  for (const section of options.orientationSections ?? []) orientation.register(section);
+  const givenSections = options.orientationSections ?? [];
+  const ownSections: OrientationSection[] = [
+    environmentSection({ name: () => look.read().name, platform: options.platform ?? process.platform, arch: process.arch, user }),
+    accountsSection({ accounts: () => listAccountStandings({ all: (sql, ...params) => log.read(sql, ...params) }) }),
+    keyManagersSection({ connections: () => keyManagerConnections.list(), tool: (name) => managedTools.known(name) }),
+    ...(forge.orientation === undefined ? [] : [forge.orientation]),
+  ];
+  for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
   const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
