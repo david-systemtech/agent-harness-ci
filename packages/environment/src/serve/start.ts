@@ -149,6 +149,7 @@ import { createIdentityPasses } from "../workspace/identity-passes.js";
 import { setWorkspaceMethods } from "../workspace/set-workspace.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
+import { createReaper } from "../workspace/reaper.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
@@ -579,6 +580,8 @@ export interface EnvironmentHandle {
     readonly identityPass: Promise<void>;
     /** Settles once this start's availability pass (#328), run once the wire is open, has looked at every session's workspace. */
     readonly availabilityPass: Promise<void>;
+    /** Settles once every removal the reaper has taken up so far (#330), a purge's or the startup sweep's, is done: what a test waits on after a purge. */
+    reaped(): Promise<void>;
     /**
      * Marks a session missing in the open transaction `tx`, right after the
      * `session.created` that recorded it with a directory that is gone: the
@@ -1127,8 +1130,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
+  // The reaper (#330): a purged session's workspace inside a workspace root goes once the purge commits, off the log's path,
+  // when no other session names it; a worktree with work in it stays, noticed. Closed before the log, letting its work end.
+  const reaper = createReaper({
+    log,
+    roots,
+    stream: environmentStream,
+    ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+  });
+  closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, onPurged: (purged) => reaper.purged(purged) });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
   // and terminals.open's looks and what the file and diff methods find; its passes start once the wire is open.
   const availability = createAvailabilityWatcher({
@@ -1448,6 +1460,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire serves no request,
   // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
   await step("prepared", () => launcher.prepared(harnessVersion));
+  // What the workspace roots hold that no session names (a crash between a create's `prepare` and its commit left it), read
+  // at once, past the gate and before anything can make a workspace; swept below, before the wire opens (#330).
+  const strays = reaper.strays();
   readiness = "ready";
   // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
@@ -1471,6 +1486,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // The startup sweep of the workspace roots (#330), after the removals those purges set off: each stray by the reaper's rules,
+  // a worktree it keeps logged, not noticed.
+  await reaper.sweep(strays);
   // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
   try {
     providerStore.sweepOrphans();
@@ -1617,6 +1635,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       checkoutIndex: createCheckoutIndex(log),
       identityPass: identityPasses.resolved,
       availabilityPass: availabilityPasses.pass,
+      reaped: () => reaper.settled(),
       markMissing: (tx, sessionId) => availability.markMissing(tx, sessionId.toLowerCase()),
     },
     close,
