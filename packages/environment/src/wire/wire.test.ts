@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import WebSocketClient from "ws";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
-import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ByeError, connectClient, openSocket, wireUrl } from "../../test/wire-client.js";
 import type { Address } from "../serve/http.js";
 import { presetColour } from "../look/look.js";
@@ -283,27 +283,29 @@ describe("bye", () => {
   });
 
   it("expired: a token past its 30 days", async () => {
-    const t = await start();
+    const t = await start({ dataDir: join(tempDir(), "data") });
     // A desktop client session, since a tui one left unconnected is revoked after an hour.
     const credential = await t.bootstrap("desktop");
     expect(Date.parse(credential.expiresAt) - t.clock.now().getTime()).toBe(30 * DAY);
 
-    t.clock.advance(30 * DAY - 1);
-    const lastMoment = await t.client({ token: credential.token, clientKind: "desktop" });
+    // Closed across the days, so none of its timers run through them (#783).
+    const again = await restartAfter(t, 30 * DAY - 1, start);
+    const lastMoment = await again.client({ token: credential.token, clientKind: "desktop" });
     await lastMoment.close();
-    t.clock.advance(1);
-    expect((await byeOf(t.client({ token: credential.token, clientKind: "desktop" }))).bye?.reason).toBe("expired");
+    again.clock.advance(1);
+    expect((await byeOf(again.client({ token: credential.token, clientKind: "desktop" }))).bye?.reason).toBe("expired");
   });
 
   it("expired: at the first ping after the token expires on an open socket", async () => {
-    const t = await start();
+    const t = await start({ dataDir: join(tempDir(), "data") });
     const credential = await t.bootstrap("desktop");
-    t.clock.advance(30 * DAY - 20 * SECOND);
-    const client = await t.client({ token: credential.token, clientKind: "desktop" });
-    t.clock.advance(PING_INTERVAL_MS);
+    // Closed across the days, so none of its timers run through them (#783); started again for the last pings.
+    const again = await restartAfter(t, 30 * DAY - 20 * SECOND, start);
+    const client = await again.client({ token: credential.token, clientKind: "desktop" });
+    again.clock.advance(PING_INTERVAL_MS);
     await client.next((f) => f.type === "ping");
     expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
-    t.clock.advance(PING_INTERVAL_MS);
+    again.clock.advance(PING_INTERVAL_MS);
     expect((await client.closed).bye?.reason).toBe("expired");
   });
 
