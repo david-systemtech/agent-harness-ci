@@ -18,7 +18,7 @@ import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
  * directory, checked against the manifest's size and SHA-256, and answered
  * with its path, version and SHA-256; one already staged there that still
  * matches is answered without a download. One is staged at a time. Once a
- * build is staged, every other folder of the desktop's builds is removed; a
+ * build is staged, every other entry of the desktop's builds is removed; a
  * removal that fails is said on standard error as a cleanup failure and
  * never fails the build staged, so it never reads as a release that could
  * not be read.
