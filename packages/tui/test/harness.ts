@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cloneElement, createElement, type ReactElement } from "react";
 import { render } from "ink-testing-library";
-import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
+import { createRuntime, writable, type AttentionNotification, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { App, type AppProps, type DiffFilter, type OpenedFile, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
-import type { AttentionNotice, TerminalChrome } from "../src/attention/chrome.js";
+import type { TerminalChrome } from "../src/attention/chrome.js";
 import type { ExternalEditResult } from "../src/composer/external-editor.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
@@ -89,14 +89,14 @@ export interface RecordedChrome extends TerminalChrome {
   /** Every title set, in order. */
   readonly titles: string[];
   /** Every notification asked for, in order: the bell or OSC notification it would be. */
-  readonly notices: AttentionNotice[];
+  readonly notices: AttentionNotification[];
   /** How many times the title was handed back. */
   cleared(): number;
 }
 
 export const recordedChrome = (): RecordedChrome => {
   const titles: string[] = [];
-  const notices: AttentionNotice[] = [];
+  const notices: AttentionNotification[] = [];
   let cleared = 0;
   return {
     titles,

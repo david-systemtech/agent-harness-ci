@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
-import { asksHeading, decidable, type AskRow } from "../cards/asks.js";
+import { decidable } from "@agent-harness/client-runtime";
+import { asksHeading, type AskRow } from "../cards/asks.js";
 
 /**
  * The parked-asks card on screen (docs/specs/tui.md, "Cards"): a heading
