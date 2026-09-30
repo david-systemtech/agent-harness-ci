@@ -671,7 +671,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
       case "session.history-imported": {
         // An imported session's history that could not be read is one line where it would have been (#579).
         const { outcome, message } = event.payload as SessionHistoryImportedPayload;
-        if (outcome === "unreadable") push<HistoryUnreadableEntry>({ kind: "history-unreadable", sequence, message: message ?? "The history could not be read." });
+        if (outcome === "unreadable") push<HistoryUnreadableEntry>({ kind: "history-unreadable", sequence, message: message ?? "No reason was recorded." });
         return;
       }
       case "session.rewound": {

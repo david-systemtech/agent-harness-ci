@@ -464,6 +464,11 @@ describe("session.history-imported (#579)", () => {
     expect(kinds(appended.items)).toEqual(["user-message"]);
   });
 
+  it("says no reason was recorded for an unreadable history whose event carries none, rather than repeating the line's prefix", () => {
+    const bare = reduce(numbered(1, [["session.history-imported", { runId: RUN, providerSessionId: "provider-session-1", outcome: "unreadable", message: null }]]));
+    expect(bare.items).toEqual([{ kind: "history-unreadable", sequence: 1, message: "No reason was recorded." }]);
+  });
+
   it("keeps the line a snapshot carries", () => {
     const line = { kind: "history-unreadable", sequence: 2, message: MESSAGE } as const;
     expect(reduceSession({ ...NO_SNAPSHOT, items: [line] }, []).items).toEqual([line]);
