@@ -64,7 +64,7 @@ describe("terminals.open", () => {
 
     expect(answer).toEqual({
       receipt: { status: "accepted", sequence: head, changed: false },
-      result: { terminal: { id, sessionId, openedAt: MANUAL_CLOCK_START, cols: 80, rows: 24, exitCode: null, signal: null } },
+      result: { terminal: { id, owner: "session", sessionId, openedAt: MANUAL_CLOCK_START, cols: 80, rows: 24, exitCode: null, signal: null } },
     });
     await typeInto(client, id, "pwd; echo done-$((1+1))\r");
     const view = await waitForOutput(client, id, "done-2");

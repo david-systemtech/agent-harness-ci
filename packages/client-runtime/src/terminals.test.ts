@@ -53,7 +53,7 @@ const exited = (sequence: number, payload: TerminalExitedPayload) => terminalEve
  * where its retained tail begins, past the chunks that were dropped.
  */
 const snapshot = (lastSequence: number, scrollback: string, retained: { readonly from: number; readonly truncated: boolean } = { from: 1, truncated: false }): TerminalSnapshot => ({
-  terminal: { id: TERMINAL, sessionId: SESSION, openedAt: MANUAL_CLOCK_START, cols: 80, rows: 24, exitCode: null, signal: null },
+  terminal: { id: TERMINAL, owner: "session", sessionId: SESSION, openedAt: MANUAL_CLOCK_START, cols: 80, rows: 24, exitCode: null, signal: null },
   scrollback,
   firstSequence: lastSequence === 0 ? 0 : retained.from,
   lastSequence,

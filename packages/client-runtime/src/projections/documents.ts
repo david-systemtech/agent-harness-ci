@@ -2,7 +2,7 @@ import type { RunSummary } from "@agent-harness/contracts";
 import { inWorkspace } from "../files/paths.js";
 import { formatBytes } from "../files/words.js";
 import { derived, type Observable } from "../observable.js";
-import { classifyTool } from "../transcript/format.js";
+import { classifyTool, whenWords } from "../transcript/format.js";
 import type { SessionProjection, ToolCallEntry, TranscriptEntry } from "./session.js";
 
 /**
@@ -140,18 +140,6 @@ export const sessionDocuments = (view: Pick<SessionProjection, "items" | "runs">
 
 /** What each kind of document is called where a renderer lists it. */
 export const DOCUMENT_KIND_WORDS: Readonly<Record<DocumentKind, string>> = { page: "Page", svg: "SVG", markdown: "Markdown" };
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
-const pad = (n: number): string => String(n).padStart(2, "0");
-
-/** When a touch's turn started, where the client is: its time on the day it is `now`, else its day and time, the year too when it is not this one. */
-const whenWords = (iso: string, now: Date): string => {
-  const at = new Date(iso);
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-  if (at.toDateString() === now.toDateString()) return time;
-  const day = `${String(at.getDate())} ${MONTHS[at.getMonth()] ?? ""}`;
-  return at.getFullYear() === now.getFullYear() ? `${day} ${time}` : `${day} ${String(at.getFullYear())} ${time}`;
-};
 
 /**
  * What a renderer says of a document beside its path, so both say the same:

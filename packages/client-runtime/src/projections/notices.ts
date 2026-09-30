@@ -24,7 +24,10 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  *   too, saying nothing: `settled`); and when nobody answered it (an automatic
  *   rule: its TTL, its run ending first, the provider cancelling it) while
  *   its notice was still showing, a `prompt-resolved` notice says how it was
- *   settled. A person's answer, from any client, raises none.
+ *   settled. A person's answer, from any client, raises none;
+ * - `routine.delivered`: `routine`, "<routine> on <name>: <summary>" (#525),
+ *   marked with its outcome, a success or a failure, and about the firing's
+ *   session, which opening it opens; a skip's is about none.
  *
  * `signin.updated`, `signin.executable-chosen`, `environment.started` and
  * `usage.updated` (#136) raise none: the sign-in flow shows its own state, a
@@ -35,9 +38,12 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * made is no news to announce.
  * An update's pending, started and cancelled notices (#335) raise none:
  * they change the card and About, which follow `updates.status` as the
- * request cache fetches it again on every update notice (#344). A
- * routine's client-notice delivery (ADR 0008) is owed: no event on the
- * environment's stream carries it yet (#92). The forge's rows are
+ * request cache fetches it again on every update notice (#344). The
+ * routines' other notices raise none: `routine.updated`,
+ * `routine.endpoint-set` and `routine.endpoint-removed` change what
+ * `routines.list` and `routines.endpoints.list` answer, which the routines'
+ * projections follow (#532), and a failed webhook delivery's row is #529's.
+ * The forge's rows are
  * `forge-notices.ts`'s (#320). A key-manager connection's status rows (ADR
  * 0011: a failed verification raises a client notice) are
  * `key-manager-notices.ts`'s (#384); Move's events raise none, since its
@@ -203,6 +209,19 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // A paired Chrome's change (#548) raises none: the request cache reads browser.chromes.list and browser.status again.
         case "chrome.updated":
+          return;
+        // A routine's result delivered to every connected client (#525): opening the notice opens the firing's session.
+        case "routine.delivered": {
+          const { name: routine, sessionId, outcome, summary } = notice.payload;
+          raise({ kind: "routine", message: `${routine} on ${name}: ${summary}`, action: null, about: sessionId === null ? null : { sessionId, runId: null, promptId: null }, outcome });
+          return;
+        }
+        // The routines' other notices raise none: they change what routines.list and routines.endpoints.list answer, which the
+        // routines' projections follow (#532); a failed webhook delivery's row is #529's.
+        case "routine.updated":
+        case "routine.delivery-failed":
+        case "routine.endpoint-set":
+        case "routine.endpoint-removed":
           return;
       }
     },

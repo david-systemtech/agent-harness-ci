@@ -20,6 +20,14 @@ import {
  * opened, closed, or gone with its session, or with a restart of the
  * environment) `not_found` with data `kind: terminal`. Writing to or resizing
  * a terminal whose shell has exited is `conflict`, reason `exited`.
+ *
+ * A tool terminal (#362), which the Managed tools registry opens in process
+ * rather than `terminals.open`, is streamed, written to, resized and closed
+ * by its id like any other; but only a client session that also holds
+ * `admin` may write to it, resize it or close it (David, 2026-09-28: the
+ * scope that starts an install answers its prompts), anyone else refused
+ * `forbidden` with data `scope: admin` in the receipt. `terminals.list`
+ * never lists one.
  */
 
 const terminalTarget = { id: TerminalId };
@@ -100,7 +108,8 @@ export const terminalsClose = defineMethod({
  * The session's open terminals, oldest first: each one's id, when it
  * opened, its size and its exit code (null while its shell runs). A terminal
  * whose shell has exited stays listed, with its scrollback, until it is
- * closed or its session deleted.
+ * closed or its session deleted. A tool terminal is no session's, and is
+ * never listed.
  */
 export const terminalsList = defineMethod({
   name: "terminals.list",

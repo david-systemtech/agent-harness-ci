@@ -12,10 +12,10 @@ import {
 import type { AccountRecord } from "@agent-harness/contracts";
 import { useMemo } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
-import { usePaneLine, useSayUnder } from "../session/pane-line.js";
+import { useOpenInPane, usePaneLine, useSayUnder } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { Dialog, DialogContent } from "../ui/index.js";
-import { useFollowed, useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import type { MessageAnchor } from "./pane-dialogs.js";
 import { useHandedOnto, useKeepHandedOnto } from "./run-choices.js";
 
@@ -41,7 +41,7 @@ export const useHandOffOnto = (environmentId: string, sessionId: string, at: Mes
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const handedOnto = useHandedOnto(environmentId, sessionId);
   const keep = useKeepHandedOnto();
-  const [, setLayout] = usePresentation("paneLayout");
+  const openInPane = useOpenInPane();
   const [, sayOnPane] = usePaneLine();
   const sayUnder = useSayUnder();
   const say = (line: string) => (at === null ? sayOnPane(line) : sayUnder(at.messageId, line));
@@ -55,7 +55,7 @@ export const useHandOffOnto = (environmentId: string, sessionId: string, at: Mes
     void handOff(runtime, environmentId, sessionId, account, from, at?.messageId).then((handed) => {
       if (!handed.ok) return say(handed.line);
       keep(environmentId, handed.sessionId, account.id);
-      setLayout({ session: { environmentId, sessionId: handed.sessionId } });
+      openInPane(environmentId, handed.sessionId);
     });
   };
 };
