@@ -15,7 +15,7 @@ import { useCheckOnOpen, useSetupView } from "./use-setup.js";
  * in the window"): the counts on the environment its picker checks, Re-run
  * (every step checked, then the full checklist opened on the first step
  * needing attention), Open the full checklist, Set up another machine (Your
- * machines, where a machine is added), and each step with its dot and its
+ * machines at Add a machine, #577), and each step with its dot and its
  * line, named by a link to its home row. Opening it, or picking another
  * environment, checks every step there.
  */
@@ -48,7 +48,7 @@ export const SetupPane = () => {
           Re-run
         </Button>
         <Button onClick={() => openChecklist()}>Open the full checklist</Button>
-        <Button onClick={() => openRow("environments.machines")}>Set up another machine</Button>
+        <Button onClick={() => openRow("environments.machines", undefined, "add-a-machine")}>Set up another machine</Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       <ol aria-label="Steps" className="flex flex-col gap-1">

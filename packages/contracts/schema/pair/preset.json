@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingPreset",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": [
+        "own-client",
+        "program",
+        "custom"
+      ],
+      "description": "A pairing preset: own-client (my own client), program (a script or bot driving the wire) or custom."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Its name, as a client offers it."
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "sessions:write",
+          "runs:drive",
+          "terminal",
+          "admin"
+        ],
+        "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+      },
+      "uniqueItems": true,
+      "description": "The scopes a code of it grants: fixed, or the ticks' preset where the scopes may change."
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling a code of it grants: fixed, or the picker's preset where the ceiling may change."
+    },
+    "chooses": {
+      "type": "string",
+      "enum": [
+        "nothing",
+        "ceiling",
+        "scopes-and-ceiling"
+      ],
+      "description": "What a person may change before the code is minted: nothing, the ceiling (a picker preset to the preset's), or the scopes (ticks, preset to the preset's) and the ceiling."
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "scopes",
+    "ceiling",
+    "chooses"
+  ],
+  "description": "A pairing preset: its id and name, the scopes and ceiling a code of it grants, and what a person may change of them."
+}

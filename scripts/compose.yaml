@@ -15,7 +15,7 @@
 # Until a client first pairs with it, the environment prints a pairing link,
 # QR and code to its log at each start: pair from there, or mint another with
 #
-#   docker compose exec environment agent-harness pair --data-dir /data
+#   docker compose exec environment agent-harness pair --preset own-client --data-dir /data
 #
 # A container never updates itself (ADR 0007). The host-side updater,
 # host-updater.sh from the same release, carries out the environment's update

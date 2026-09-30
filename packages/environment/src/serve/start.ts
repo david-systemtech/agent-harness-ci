@@ -21,6 +21,7 @@ import {
   describeDenylistMatch,
   formatHostPort,
   pairingLink,
+  pairingPreset,
   parkedPromptTtlMs,
   type AuthPolicy,
   type CapabilityFlags,
@@ -1690,11 +1691,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
-  // for `serve` to print there. A failed mint costs only the print; `pair` in the container mints one all the same.
+  // for `serve` to print there, my own client's, as the install script prints (#577). A failed mint costs only the
+  // print; `pair --preset own-client` in the container mints one all the same.
   let startPairing: MintedPairing | undefined;
   if (detector.declared?.() === true && !pairings.everExchanged()) {
+    const { scopes, ceiling } = pairingPreset("own-client");
     try {
-      startPairing = accessLog.atomically((tx) => pairings.create(tx, {}, SYSTEM.owner));
+      startPairing = accessLog.atomically((tx) => pairings.create(tx, { scopes, ceiling }, SYSTEM.owner));
     } catch (error) {
       console.error("Minting the pairing a declared container prints at its start failed; run pair in the container for one:", error);
     }

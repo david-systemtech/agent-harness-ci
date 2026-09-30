@@ -412,7 +412,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       "0.1.0 update settings --channel stable",
       "0.1.0 update credential --stdin",
       `curl ${DISCOVERY}`,
-      "0.1.0 pair",
+      "0.1.0 pair --preset own-client",
     ]);
     expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
     expect(result.stdout).toContain("Verified the SHA-256 of agent-harness-win32-x64.zip.");
@@ -427,7 +427,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     const result = await install(f, [], { FAKE_AUTH_POLICY: "local-only" });
     expect(result.code).toBe(0);
     expect(f.calls().slice(-2)).toEqual(["0.1.0 update credential --stdin", `curl ${DISCOVERY}`]);
-    expect(f.calls()).not.toContain("0.1.0 pair");
+    expect(f.calls().filter((call) => call.startsWith("0.1.0 pair"))).toEqual([]);
     expect(result.stdout).toContain(
       "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.\n",
     );
@@ -575,7 +575,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         `  wait up to 60 seconds for ${HEALTH} to say ready`,
         `  & ${node} ${entry} update settings --channel stable`,
         `  & ${node} ${entry} update credential --stdin`,
-        `  & ${node} ${entry} pair, or the Tailscale warning when only loopback is bound`,
+        `  & ${node} ${entry} pair --preset own-client, or the Tailscale warning when only loopback is bound`,
         "Dry run: nothing was downloaded or changed.",
         "",
       ].join("\n"),
@@ -591,7 +591,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(result.code).toBe(0);
     const { node, entry } = cliOf(dataDir, "0.1.0");
     expect(result.stdout).toContain(
-      `  & ${node} ${entry} pair --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`,
+      `  & ${node} ${entry} pair --preset own-client --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`,
     );
   });
 
@@ -624,7 +624,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         "0.1.0 update settings --channel beta",
         "0.1.0 update credential --stdin",
         `curl ${DISCOVERY}`,
-        "0.1.0 pair",
+        "0.1.0 pair --preset own-client",
       ]);
       expect(result.stdout).toContain("The agent-harness service is running, so nothing is downloaded or unpacked.");
       expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
@@ -650,7 +650,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         `0.1.0 update credential --stdin --data-dir ${dataDir}`,
         `0.1.0 update apply --version 0.2.0 --data-dir ${dataDir}`,
         `curl ${DISCOVERY}`,
-        `0.1.0 pair --data-dir ${dataDir}`,
+        `0.1.0 pair --preset own-client --data-dir ${dataDir}`,
       ]);
       expect(readdirSync(join(dataDir, "versions"))).toEqual(["0.1.0"]);
     });

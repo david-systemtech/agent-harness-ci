@@ -183,6 +183,18 @@
       "title": "PairError"
     },
     {
+      "path": "pair/preset-id.json",
+      "title": "PairingPresetId"
+    },
+    {
+      "path": "pair/preset-choice.json",
+      "title": "PairingPresetChoice"
+    },
+    {
+      "path": "pair/preset.json",
+      "title": "PairingPreset"
+    },
+    {
       "path": "update/request.json",
       "title": "UpdateRequest"
     },
@@ -6204,6 +6216,11 @@
       "path": "data/settings-addresses.json",
       "title": "Settings addresses",
       "schema": "settings/address-row.json"
+    },
+    {
+      "path": "data/pairing-presets.json",
+      "title": "Pairing presets",
+      "schema": "pair/preset.json"
     },
     {
       "path": "data/managed-tools.json",

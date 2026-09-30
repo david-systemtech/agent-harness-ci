@@ -72,6 +72,10 @@ _Avoid_: cancel (a prompt's decision), delete, unsend
 The one-time act by which a client proves to an environment that it may connect, producing a session credential that the environment can list and revoke.
 _Avoid_: login, token exchange
 
+**Pairing preset**:
+What a pairing code minted for another client grants, chosen by name: My own client (every scope, the top ceiling), A program (read, sessions:write and runs:drive, a ceiling picked) or Custom (scopes ticked, a ceiling picked).
+_Avoid_: pairing profile, grant template
+
 **Group**:
 A named container of sessions owned by one environment; a session belongs to at most one group. Clients may merge same-named groups from several environments into one heading, which is a view, not state.
 _Avoid_: project (which is the repository being worked in), folder

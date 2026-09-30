@@ -11,7 +11,7 @@ import { useRuntime } from "../window-context.js";
 import { ConnectionVerbs } from "./connection-verbs.js";
 import { ContainmentAvailability } from "./containment.js";
 import { LOOK_COMMANDS, LookEditor } from "./look-editor.js";
-import { PairingCode } from "./pairing-code.js";
+import { PresetPairing } from "./preset-pairing.js";
 
 /** The keys the row holds, the update keys: channel and auto-update are the update controls', the rest the generic editor's. */
 const UPDATE_KEYS = rowKeys("environments.machines");
@@ -23,7 +23,7 @@ const OTHER_UPDATE_KEYS = UPDATE_KEYS.filter((key) => key !== "updates.channel" 
 const SENT: readonly MethodName[] = [...LOOK_COMMANDS, "access.pairings.create", ...writersOf(UPDATE_KEYS), "updates.apply"];
 
 /** A part of a card, under its heading. */
-const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
+export const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
   const heading = useId();
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-2">
@@ -43,6 +43,8 @@ interface MachineCardProps {
   readonly unprotected: boolean;
   /** Says on the pane what forgetting the connection did, since the card goes with it. */
   readonly forgotten: (line: string) => void;
+  /** What the card offers first, under its heading: Set up this machine, on a card Add a machine made (#577). */
+  readonly offer?: ReactNode;
 }
 
 /**
@@ -59,7 +61,7 @@ interface MachineCardProps {
  * capability's line; and on a paired environment's card, when the desktop
  * stores tokens unprotected, that its token is.
  */
-export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineCardProps) => {
+export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: MachineCardProps) => {
   const runtime = useRuntime();
   const heading = useId();
   const admits = (method: MethodName) => runtime.capability(view.environmentId, method).status === "present";
@@ -74,6 +76,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineC
         {view.kind === "local" && view.name !== null && <span className="text-xs text-ink-faint">{THIS_MACHINE}</span>}
         {view.primary && <span className="text-xs text-ink-faint">Primary</span>}
       </header>
+      {offer}
       {namesake !== undefined && <p className="text-sm text-amber">Another of your machines is named {namesake.name} too: rename one to tell them apart.</p>}
       {view.phase !== "ready" && (
         <div className="flex flex-wrap items-center gap-2">
@@ -98,7 +101,7 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineC
         <ContainmentAvailability view={view} />
       </Part>
       <Part title="Pair another client">
-        <PairingCode view={view} writable={admits("access.pairings.create")} />
+        <PresetPairing view={view} writable={admits("access.pairings.create")} />
       </Part>
       <Part title="Updates">
         <UpdateControls view={view} />

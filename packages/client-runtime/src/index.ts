@@ -231,6 +231,7 @@ export {
   stepLine,
   worstState,
 } from "./setup/checklist.js";
+export { installLines, type InstallLines, type InstallTarget } from "./setup/install-lines.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
@@ -580,7 +581,8 @@ export {
   grantWords,
   type ClientSessionSummary,
 } from "./access/words.js";
-export { PROGRAM_GRANT, readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { ceilingAboveOwn, offeredPresets, type OfferedPreset, type OfferedPresets } from "./access/presets.js";
 export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
 export {
   bundledClaudeCodeWords,

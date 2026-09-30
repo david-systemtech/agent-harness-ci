@@ -50,10 +50,16 @@ export interface PairingFormProps {
   readonly rePair?: string | undefined;
   /** A link to pair with as the form opens: the deep link the desktop was handed. */
   readonly link?: string | undefined;
+  /** Hears each environment a pairing from the form made or paired again, by its id. */
+  readonly onPaired?: (environmentId: string) => void;
+  /** Reads a pairing link from a QR code with the camera the platform gives the window, offered as Scan a QR; none where it gives none. */
+  readonly scanQr?: (() => Promise<string | undefined>) | undefined;
+  /** Whether the link's field takes the focus as the form opens. */
+  readonly autoFocus?: boolean;
 }
 
-/** A pairing link, or an address and code, and the one line that says how the pairing went. */
-export const PairingForm = ({ rePair, link: handed }: PairingFormProps) => {
+/** A pairing link, or an address and code (or a QR scanned, where the window has a camera), and the one line that says how the pairing went. */
+export const PairingForm = ({ rePair, link: handed, onPaired, scanQr, autoFocus = false }: PairingFormProps) => {
   const runtime = useRuntime();
   const [link, setLink] = useState(handed ?? "");
   const [address, setAddress] = useState("");
@@ -66,11 +72,14 @@ export const PairingForm = ({ rePair, link: handed }: PairingFormProps) => {
     (input: PairingInput, options?: PairingOptions) => {
       setSaid({ kind: "pairing" });
       runtime.connections.add(input, options ?? (rePair === undefined ? undefined : { rePair })).then(
-        (outcome) => setSaid(saidOf(outcome, input, runtime.projections.environments.read())),
+        (outcome) => {
+          setSaid(saidOf(outcome, input, runtime.projections.environments.read()));
+          if (outcome.status === "paired") onPaired?.(outcome.environmentId);
+        },
         (error: unknown) => setSaid({ kind: "line", line: `Not paired: ${messageOf(error)}` }),
       );
     },
-    [runtime, rePair],
+    [runtime, rePair, onPaired],
   );
 
   // A deep link pairs as it is opened, as a link pasted and sent would.
@@ -89,6 +98,17 @@ export const PairingForm = ({ rePair, link: handed }: PairingFormProps) => {
     event.preventDefault();
     if (address.trim() !== "" || code.trim() !== "") pair({ address, code });
   };
+  const scan = async () => {
+    let scanned: string | undefined;
+    try {
+      scanned = await scanQr?.();
+    } catch (error) {
+      return setSaid({ kind: "line", line: `Not scanned: ${messageOf(error)}` });
+    }
+    if (scanned === undefined) return;
+    setLink(scanned);
+    pair({ link: scanned });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -97,10 +117,22 @@ export const PairingForm = ({ rePair, link: handed }: PairingFormProps) => {
           Pairing link
         </label>
         <div className="flex gap-2">
-          <Input id={linkField} value={link} placeholder="http://desk:7433/pair#K7Q2M-XH4RT" onChange={(event) => setLink(event.target.value)} disabled={pairing} />
+          <Input
+            id={linkField}
+            value={link}
+            placeholder="http://desk:7433/pair#K7Q2M-XH4RT"
+            onChange={(event) => setLink(event.target.value)}
+            disabled={pairing}
+            autoFocus={autoFocus}
+          />
           <Button type="submit" tone="primary" disabled={pairing}>
             Pair
           </Button>
+          {scanQr !== undefined && (
+            <Button disabled={pairing} onClick={() => void scan()}>
+              Scan a QR
+            </Button>
+          )}
         </div>
       </form>
       <form aria-label="Pair by address and code" className="flex flex-col gap-1.5" onSubmit={byCode}>

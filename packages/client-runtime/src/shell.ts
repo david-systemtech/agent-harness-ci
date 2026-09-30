@@ -41,6 +41,8 @@ export interface Shell {
   readonly system?: () => Promise<ShellSystem>;
   /** This computer's `gh`, whose token a desktop hands over once to an environment that has none (ADR 0032; #320). */
   readonly gh?: ShellGh;
+  /** A camera the window may read a QR code with, for Add a machine's Scan a QR (ADR 0025; #577). */
+  readonly camera?: ShellCamera;
 }
 
 /**
@@ -68,6 +70,7 @@ export const SHELL_MEMBERS = [
   "shell.network",
   "shell.system",
   "shell.gh",
+  "shell.camera",
 ] as const;
 export type ShellMember = (typeof SHELL_MEMBERS)[number];
 
@@ -313,4 +316,15 @@ export interface ShellGh {
    * when `gh` is not installed or not signed in to that host.
    */
   token(host: string): Promise<string | undefined>;
+}
+
+/**
+ * A camera the platform gives the window (the Set up spec, "Add a machine";
+ * #577): Add a machine offers Scan a QR where there is one, and says it is
+ * absent where there is not. No desktop platform of this build gives the
+ * window one.
+ */
+export interface ShellCamera {
+  /** Reads one QR code with the camera: the text it encodes (a pairing link), or undefined when the person closes the camera first. */
+  scanQr(): Promise<string | undefined>;
 }
