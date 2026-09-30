@@ -214,6 +214,20 @@ describe("the local directory dialog", () => {
     expect(within(picker()).getByRole("button", { name: "Browse laptop…" })).toBeDefined();
     expect(within(picker()).queryByRole("button", { name: "Pick on this computer…" })).toBeNull();
   });
+
+  it("says a dialog that failed to open in one line on the picker, which stays open for another choice", async () => {
+    const shell = fakeShell();
+    shell.answer("dialogs.openDirectory", async () => {
+      throw new Error("the window is gone");
+    });
+    const app = await launch({ shell });
+    await openPicker(app);
+    await app.user.click(within(picker()).getByRole("button", { name: "Pick on this computer…" }));
+    await waitFor(() => expect(pickerLine()).toBe("This computer's dialog did not open: the window is gone"));
+    expect(params(app, "desk", "workspaces.inspect")).toEqual([]);
+    expect(within(picker()).getByRole("button", { name: "Pick on this computer…" }).hasAttribute("disabled")).toBe(false);
+    expect(workspaceChip().getAttribute("aria-label")).toBe("Workspace: directory harness");
+  });
 });
 
 describe("a worktree", () => {

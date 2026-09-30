@@ -107,10 +107,14 @@ const WorkspacePicker = ({ environment, sessionId, known, take, close }: Workspa
   };
   const browsing = runtime.capability(environmentId, "workspaces.browse");
   const dialog = runtime.capability(environmentId, "shell.dialogs");
-  /** The local environment's directory, from this computer's own dialog: checked by the environment like any path. */
+  /** The local environment's directory, from this computer's own dialog: checked by the environment like any path; a dialog that fails is the picker's line. */
   const pickHere = async () => {
-    const picked = await shell?.dialogs?.openDirectory({ title: `Where the session works on ${where}` });
-    if (picked !== undefined && open.current) choose({ kind: "directory", path: picked });
+    try {
+      const picked = await shell?.dialogs?.openDirectory({ title: `Where the session works on ${where}` });
+      if (picked !== undefined && open.current) choose({ kind: "directory", path: picked });
+    } catch (error: unknown) {
+      if (open.current) say(`This computer's dialog did not open: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const from = typed.success ? typed.data : undefined;
