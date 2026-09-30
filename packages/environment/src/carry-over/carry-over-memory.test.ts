@@ -402,6 +402,21 @@ describe("carryOver.assignMemory", () => {
     expect(rerun.result?.memory.folders.find((folder) => folder.path === lost)).toMatchObject({ key: PICKED, outcome: "kept" });
   });
 
+  it("fails naming the folder when its files cannot be read, having copied nothing", async () => {
+    const { client, fixture: found, memoryOf } = await start();
+    const lost = join(found.directory, "projects", found.lostFolder, "memory");
+    unreadable.add(lost);
+    onCleanup(() => {
+      unreadable.delete(lost);
+    });
+
+    await expect(client.request("carryOver.assignMemory", { commandId: randomUUID(), accountId: ACCOUNT, folder: found.lostFolder, repositoryIdentity: PICKED })).rejects.toMatchObject({
+      code: "internal",
+      message: expect.stringContaining(`The memory folder ${lost} was not copied: reading it failed`) as unknown,
+    });
+    expect(filesOf(memoryOf({ path: "/anywhere", identity: PICKED }))).toEqual({});
+  });
+
   it("refuses a folder the directory holds no memory in, and an account it does not hold", async () => {
     const { client } = await start();
     const assign = (fields: { accountId?: string; folder?: string }) =>

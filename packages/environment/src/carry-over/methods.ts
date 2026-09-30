@@ -315,7 +315,11 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
       importing.add(accountId);
       const prepared = async (): Promise<MethodHandler<"carryOver.assignMemory">> => {
         const found = (await readMemoryFolders(source.directory)).find((candidate) => candidate.folder === folder);
-        const digest = found === undefined ? null : await memoryDigest(found.path);
+        const digest = found === undefined ? null : await memoryDigest(found.path).catch((error: unknown) => {
+          // The directory is live: a file removed or made unreadable since the folder was found fails the command, naming it.
+          const message = `The memory folder ${found.path} was not copied: reading it failed (${error instanceof Error ? error.message : String(error)}); assigning it again tries it again.`;
+          throw new ContractError({ code: "internal", message, data: {} });
+        });
         if (found === undefined || digest === null) {
           const message = `The directory of the account ${accountId} holds no memory folder ${folder} with a file in it.`;
           return refused({ code: "not_found", message, data: { kind: "memory-folder", accountId, folder } });
