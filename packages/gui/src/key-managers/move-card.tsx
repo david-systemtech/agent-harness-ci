@@ -1,9 +1,8 @@
 import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
 import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerReference } from "@agent-harness/contracts";
 import { useId, useMemo, useState } from "react";
-import { Button, Dialog, DialogContent, Input, Select } from "../ui/index.js";
+import { Button, Dialog, DialogContent, Field, Input, Select } from "../ui/index.js";
 import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
-import { Field } from "./add-connection.js";
 
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
 interface Copied {

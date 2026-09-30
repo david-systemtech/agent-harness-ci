@@ -15,6 +15,8 @@ export {
   ContextMenuTrigger,
 } from "./context-menu.js";
 export { Dialog, DialogClose, DialogContent, DialogTrigger, type DialogContentProps } from "./dialog.js";
+export { Fact } from "./fact.js";
+export { Field } from "./field.js";
 export { Fold, type FoldProps } from "./fold.js";
 export { Input } from "./input.js";
 export { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "./menu.js";

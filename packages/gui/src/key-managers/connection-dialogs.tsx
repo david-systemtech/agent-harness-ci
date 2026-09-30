@@ -12,9 +12,9 @@ import {
 } from "@agent-harness/client-runtime";
 import { KEY_MANAGER_AUTH_METHODS, type KeyManagerAuthMethod, type KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import { useState, type FormEvent } from "react";
-import { Button, Dialog, DialogClose, DialogContent, Input, Select } from "../ui/index.js";
+import { Button, Dialog, DialogClose, DialogContent, Field, Input, Select } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
-import { CredentialFields, Field, NO_CREDENTIAL } from "./add-connection.js";
+import { CredentialFields, NO_CREDENTIAL } from "./add-connection.js";
 import { CertificateCheck } from "./certificate-check.js";
 
 /** What every dialog of a card is given: the connection, where it is, and how to close it and say what it did in the pane. */

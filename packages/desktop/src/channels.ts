@@ -38,6 +38,7 @@ export const ANSWERED = [
   "update.current",
   "update.apply",
   "installer.bundledServer",
+  "gh.token",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 

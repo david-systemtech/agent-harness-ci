@@ -4,6 +4,7 @@ import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
 import { ANSWERED, channelOf, TOLD } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
+import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
 import { grantFile } from "./local-grant.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronIpcMain, IpcCaller, WindowOptions } from "./electron.js";
 import { lockNavigation, lockNetwork } from "./lockdown.js";
@@ -81,6 +82,10 @@ export interface DesktopOptions {
   readonly serviceWait?: ServiceWait;
   /** The OS's commands and the file calls an update makes: preset Node's own, `NODE_UPDATE_SYSTEM`. */
   readonly updateSystem?: UpdateSystem;
+  /** How this computer's `gh` is run: preset Node's own, `NODE_GH_PROCESS`. */
+  readonly ghProcess?: GhProcess;
+  /** The desktop's variables, which `gh` runs with: preset the process's own. */
+  readonly environment?: Readonly<Record<string, string | undefined>>;
 }
 
 /**
@@ -93,7 +98,7 @@ export interface DesktopOptions {
 export const startDesktop = async (
   electron: DesktopElectron,
   platform: DesktopPlatform,
-  { reportError = console.error, serviceWait, updateSystem = NODE_UPDATE_SYSTEM }: DesktopOptions = {},
+  { reportError = console.error, serviceWait, updateSystem = NODE_UPDATE_SYSTEM, ghProcess = NODE_GH_PROCESS, environment = process.env }: DesktopOptions = {},
 ): Promise<void> => {
   const { app, protocol } = electron;
   // First: Electron keeps the single-instance lock in the data directory in force when it is asked for.
@@ -142,6 +147,7 @@ export const startDesktop = async (
   const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
   const installer = bundledInstaller(platform.paths.server);
-  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview }), reportError);
+  const gh = computerGh({ os: platform.os, process: ghProcess, environment });
+  serveShell(electron.ipcMain, shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview, gh }), reportError);
   await window.loadURL(APP_URL).catch(reportError);
 };

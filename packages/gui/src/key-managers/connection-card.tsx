@@ -16,8 +16,8 @@ import {
   verifyConnection,
 } from "@agent-harness/client-runtime";
 import type { KeyManagerConnectionRecord, KeyManagerStatusKind, ManagedToolRow } from "@agent-harness/contracts";
-import { useId, useState, type ReactNode } from "react";
-import { Button } from "../ui/index.js";
+import { useId, useState } from "react";
+import { Button, Fact } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CertificateCheck } from "./certificate-check.js";
 import { ConfirmRemove, ConfirmSignOut, EditConnection, SignInAgain } from "./connection-dialogs.js";
@@ -29,15 +29,6 @@ type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | "copy" 
 
 /** The statuses a sign-in answers: no credential here, or one the key manager no longer takes. */
 const SIGN_IN_FIXES: ReadonlySet<KeyManagerStatusKind> = new Set<KeyManagerStatusKind>(["awaiting-sign-in", "credential-rejected", "expired"]);
-
-/** One fact of a card: its name and what the connection holds of it; nothing for a fact it holds none of. */
-const Fact = ({ name, children }: { readonly name: string; readonly children: ReactNode }) =>
-  children === null ? null : (
-    <>
-      <dt className="text-ink-muted">{name}</dt>
-      <dd className="min-w-0 break-words text-ink">{children}</dd>
-    </>
-  );
 
 export interface ConnectionCardProps {
   readonly environmentId: string;
