@@ -63,7 +63,14 @@ describe("the own directory", () => {
   it("lies under the data directory with skills/ and commands/, made at start, and skills.get names it with no sources, choices or members yet, for the default account", async () => {
     const { t, client } = await start();
     const view = await get(client);
-    expect(view).toEqual({ ownDirectory: join(t.dataDir, "skills", "own"), sources: [], choices: [], accountId: "claude-max", members: [] });
+    expect(view).toEqual({
+      ownDirectory: join(t.dataDir, "skills", "own"),
+      sources: [],
+      choices: [],
+      accountId: "claude-max",
+      accounts: [{ accountId: "claude-max", channel: "system-prompt-append", reason: null }],
+      members: [],
+    });
     expect(statSync(join(view.ownDirectory, "skills")).isDirectory()).toBe(true);
     expect(statSync(join(view.ownDirectory, "commands")).isDirectory()).toBe(true);
   });
@@ -94,6 +101,9 @@ describe("the reader", () => {
       problems: [],
       warnings: [],
       shadowedBy: null,
+      enabled: true,
+      alwaysOn: false,
+      choices: [],
     });
     expect(members["skills/handoff"]).toMatchObject({
       description: "Hand the conversation off to a fresh agent.",
@@ -290,7 +300,7 @@ describe("skills.own.create", () => {
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { member } });
     expect(readFileSync(join(own, "skills", "tdd", "SKILL.md"), "utf8")).toBe('---\nname: "tdd"\ndescription: "Test-driven development: red, then green."\n---\n\n# tdd\n');
     expect(notices(t)).toEqual([expect.objectContaining({ commandId, actor: `client_session:${client.hello.clientSessionId}` })]);
-    expect((await get(client)).members).toEqual([{ ...member, shadowedBy: null }]);
+    expect((await get(client)).members).toEqual([{ ...member, shadowedBy: null, enabled: true, alwaysOn: false, choices: [] }]);
     // The create's own notice stands for the change: the read after it finds nothing new.
     expect(notices(t)).toHaveLength(1);
   });
@@ -350,7 +360,7 @@ describe("skills.own.remove", () => {
     const commandId = randomUUID();
 
     const answer = await removeSkill(client, "tdd", commandId);
-    expect(answer.result?.member).toEqual({ ...created, shadowedBy: undefined });
+    expect(answer.result?.member).toEqual({ ...created, shadowedBy: undefined, enabled: undefined, alwaysOn: undefined, choices: undefined });
     expect(existsSync(join(own, "skills", "tdd"))).toBe(false);
     expect(trashed(t)).toEqual([expect.stringMatching(/^\d+-[0-9a-f-]+\/tdd$/)]);
     const [entry] = trashed(t);

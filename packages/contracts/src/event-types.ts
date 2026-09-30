@@ -9,6 +9,7 @@ import { PROMPT_EVENT_TYPES } from "./prompts.js";
 import { ROUTINE_EVENT_TYPES, ROUTINE_STREAM_KIND } from "./routines.js";
 import { BROWSER_SESSION_EVENT_TYPES } from "./session-browser.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
+import { SKILLS_EVENT_TYPES, SKILLS_STREAM_KIND } from "./skills.js";
 import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
 import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
 import { TRUST_EVENT_TYPES, TRUST_STREAM_KIND } from "./trust.js";
@@ -84,6 +85,7 @@ export const EVENT_TYPES = {
   [TRUST_STREAM_KIND]: TRUST_EVENT_TYPES,
   [INSTRUCTIONS_STREAM_KIND]: INSTRUCTIONS_EVENT_TYPES,
   [CHROME_STREAM_KIND]: CHROME_EVENT_TYPES,
+  [SKILLS_STREAM_KIND]: SKILLS_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 export type SessionEventType = keyof typeof sessionEventTypes;

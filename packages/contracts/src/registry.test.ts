@@ -288,6 +288,8 @@ describe("the method registry", () => {
       "skills.own.create",
       "skills.own.remove",
       "skills.carryOver",
+      "skills.setAlwaysOn",
+      "skills.setEnabled",
       "trust.decide",
       "trust.revoke",
       "browser.chromes.rename",
@@ -543,6 +545,8 @@ describe("the method registry", () => {
       | "skills.own.create"
       | "skills.own.remove"
       | "skills.carryOver"
+      | "skills.setAlwaysOn"
+      | "skills.setEnabled"
       | "trust.get"
       | "trust.list"
       | "trust.decide"

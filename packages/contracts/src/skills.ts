@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { AccountId } from "./accounts.js";
+import { InstructionChannelKind } from "./adapter.js";
 import { Actor } from "./envelope.js";
+import type { EventTypeEntry } from "./event-types.js";
 import { Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
 import { PRODUCT_NAME } from "./product.js";
@@ -231,42 +233,114 @@ export const SkillSetMember = SkillMember.extend({
 });
 export type SkillSetMember = z.infer<typeof SkillSetMember>;
 
+// Choices --------------------------------------------------------------------------
+
+/**
+ * The stream kind of the skill set's choices; its one stream's id is the
+ * environment's (skills spec, "Wire summary"), as the trust stream's is.
+ */
+export const SKILLS_STREAM_KIND = "skills";
+
+/** A name switched off, or on again, for one account or the whole environment: the choice's fields and the event's. */
+const enabledChoiceShape = {
+  name: SkillName,
+  accountId: AccountId.nullable().meta({ description: "The account the choice is for; null for the whole environment, whose choice outranks an account's." }),
+  enabled: z.boolean().meta({ description: "Whether the name is on: off leaves it out of the set whichever layers hold it." }),
+};
+
+/** A name made always-on, or not, for one account: the choice's fields and the event's. */
+const alwaysOnChoiceShape = {
+  name: SkillName,
+  accountId: AccountId.meta({ description: "The account whose runs append the member." }),
+  on: z.boolean().meta({ description: "Whether every run of the account appends the member's body." }),
+};
+
 /**
  * A choice made about a name (skills spec, "Choices: disabled and
  * always-on"; ADR 0009, ADR 0029): switched off or on for one account or,
- * with a null account, the whole environment, which outranks an account's;
- * or always-on for one account. Keyed by name, so it applies to every layer
- * holding the name, and a choice for a name not in the set is inert.
+ * with a null account, the whole environment, whose choice, either way,
+ * outranks an account's; or always-on for one account. Keyed by name, so it
+ * applies to every layer holding the name, and a choice for a name not in
+ * the set is inert until the name appears. Choices naming an account the
+ * environment removes are dropped.
  */
 export const SkillChoice = z
   .discriminatedUnion("kind", [
     z
-      .object({
-        kind: z.literal("enabled"),
-        name: SkillName,
-        accountId: AccountId.nullable().meta({ description: "The account the choice is for; null for the whole environment, which outranks an account's choice." }),
-        enabled: z.boolean().meta({ description: "Whether the name is on: off leaves it out of the set whichever layers hold it." }),
-      })
+      .object({ kind: z.literal("enabled"), ...enabledChoiceShape })
       .meta({ description: "A name switched off, or on again, for one account or the whole environment." }),
-    z
-      .object({
-        kind: z.literal("always-on"),
-        name: SkillName,
-        accountId: AccountId.meta({ description: "The account whose runs append the member." }),
-        on: z.boolean().meta({ description: "Whether every run of the account appends the member's body." }),
-      })
-      .meta({ description: "A name made always-on, or not, for one account." }),
+    z.object({ kind: z.literal("always-on"), ...alwaysOnChoiceShape }).meta({ description: "A name made always-on, or not, for one account." }),
   ])
   .meta({
     description:
-      "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, which outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert.",
+      "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, whose choice outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert.",
   });
 export type SkillChoice = z.infer<typeof SkillChoice>;
 
+/** `skills.enabled-set`: a name switched off or on, for one account or the whole environment. */
+export const SkillsEnabledSetPayload = z.object(enabledChoiceShape).meta({
+  description:
+    "skills.enabled-set: a name switched off, or on again, for one account or, with a null account, the whole environment, whose choice outranks an account's. It replaces the choice held for that name and account.",
+});
+export type SkillsEnabledSetPayload = z.infer<typeof SkillsEnabledSetPayload>;
+
+/** `skills.always-on-set`: a name made always-on, or not, for one account. */
+export const SkillsAlwaysOnSetPayload = z.object(alwaysOnChoiceShape).meta({
+  description: "skills.always-on-set: a name made always-on, or not, for one account. It replaces the choice held for that name and account.",
+});
+export type SkillsAlwaysOnSetPayload = z.infer<typeof SkillsAlwaysOnSetPayload>;
+
+/** The event types of the skills stream. */
+export const SKILLS_EVENT_TYPES = {
+  "skills.enabled-set": { list: false, payload: SkillsEnabledSetPayload },
+  "skills.always-on-set": { list: false, payload: SkillsAlwaysOnSetPayload },
+} as const satisfies Record<string, EventTypeEntry>;
+
+export type SkillsEventType = keyof typeof SKILLS_EVENT_TYPES;
+export const SkillsEventType = z
+  .enum(Object.keys(SKILLS_EVENT_TYPES) as [SkillsEventType, ...SkillsEventType[]])
+  .meta({ description: "The event types of the skills stream: skills.enabled-set and skills.always-on-set." });
+
+// The view ---------------------------------------------------------------------------
+
+/**
+ * A member as `skills.get` lists it (skills spec, "Choices" and "Wire
+ * summary"): as the resolved set lists it, with the choices naming it and
+ * what they come to for the view's account. In the set when it has no
+ * problem, nothing shadows it and it is on.
+ */
+export const SkillsViewMember = SkillSetMember.extend({
+  enabled: z.boolean().meta({
+    description: "Whether its name is on for the view's account: the whole environment's choice, else the account's, else on. Off leaves it out of the set.",
+  }),
+  alwaysOn: z.boolean().meta({ description: "Whether the view's account made its name always-on. A member switched off is never appended, whatever this says." }),
+  choices: z.array(SkillChoice).meta({ description: "Every choice naming its name, for the whole environment or any account." }),
+}).meta({
+  description:
+    "A member as skills.get lists it: the member, what shadows it, whether it is on and always-on for the view's account, and every choice naming it. In the set when it has no problem, nothing shadows it and it is on.",
+});
+export type SkillsViewMember = z.infer<typeof SkillsViewMember>;
+
+/**
+ * An account as `skills.get` lists it (ADR 0030): its adapter's
+ * instruction channel, which an always-on skill rides, and, with none, why
+ * no always-on skill reaches its runs, so a client dims its always-on
+ * switch with the reason.
+ */
+export const SkillsViewAccount = z
+  .object({
+    accountId: AccountId,
+    channel: InstructionChannelKind.meta({ description: "Its adapter's instruction channel, which an always-on skill rides: none hands its runs no always-on skill." }),
+    reason: z.string().min(1).nullable().meta({ description: "Why no always-on skill reaches its runs, for a client to show beside the dimmed switch; null while its adapter has an instruction channel." }),
+  })
+  .meta({ description: "An account of the environment, with its adapter's instruction channel and, without one, why no always-on skill reaches its runs." });
+export type SkillsViewAccount = z.infer<typeof SkillsViewAccount>;
+
 /**
  * What `skills.get` answers (skills spec, "Wire summary"): the own
- * directory's path, the sources, the choices, and the set resolved for one
- * account, every member listed with its layer and whatever shadows it.
+ * directory's path, the sources, the choices, the accounts with their
+ * instruction channels, and the set resolved for one account, every member
+ * listed with its layer, whatever shadows it and its choices.
  */
 export const SkillsView = z
   .object({
@@ -274,18 +348,21 @@ export const SkillsView = z
       description: "The own directory's absolute path on the environment's machine, holding skills/ and commands/, for a terminal pane or an editor to open.",
     }),
     sources: z.array(SkillSource).meta({ description: "The skill sources the environment tracks, earliest added first." }),
-    choices: z.array(SkillChoice).meta({ description: "Every choice made on the environment, an inert one among them." }),
+    choices: z.array(SkillChoice).meta({
+      description: "Every choice made on the environment, an inert one among them: by name, then enabled before always-on, then the whole environment's before the accounts', by id.",
+    }),
     accountId: AccountId.nullable().meta({
       description: "The account the set is resolved for: the session's, else the environment's default account; null when the environment holds none.",
     }),
-    members: z.array(SkillSetMember).meta({
+    accounts: z.array(SkillsViewAccount).meta({ description: "The environment's accounts, in the account list's order, each with whether an always-on skill reaches its runs." }),
+    members: z.array(SkillsViewMember).meta({
       description:
-        "Every member of every layer, whether in the set, shadowed or invalid: by name, and within a name by precedence, highest first, so the first valid one is the one in the set; members without a name last, by precedence.",
+        "Every member of every layer, whether in the set, shadowed, switched off or invalid: by name, and within a name by precedence, highest first, so the first valid one is the one that wins; members without a name last, by precedence.",
     }),
   })
   .meta({
     description:
-      "The environment's skills as skills.get answers them: the own directory's path, the sources, the choices, and the members of the set resolved for one account, each with its layer and any member that shadows it.",
+      "The environment's skills as skills.get answers them: the own directory's path, the sources, the choices, the accounts with their instruction channels, and the members of the set resolved for one account, each with its layer, any member that shadows it and its choices.",
   });
 export type SkillsView = z.infer<typeof SkillsView>;
 
@@ -389,15 +466,16 @@ export const SKILL_PLUGIN_NAME = PRODUCT_NAME;
 /** A skill set's fingerprint: what a generation is keyed by, and what a kept provider process is spawned under. */
 export const SkillSetFingerprint = z.string().min(1).meta({
   description:
-    "A skill set's fingerprint: it covers the members' names, folders, origins and snapshot commits and the hidden native names, so two sets with one fingerprint hold the same; a provider process spawned under another is not reused.",
+    "A skill set's fingerprint: it covers the members' names, folders, origins and snapshot commits, whether each is native and always-on, and the hidden native names, so two sets with one fingerprint hold the same; a provider process spawned under another is not reused.",
 });
 export type SkillSetFingerprint = z.infer<typeof SkillSetFingerprint>;
 
 /**
  * A member of a run's skill set as its adapter is handed it (skills spec,
- * "Contract changes"): its name, origin, invocation and whether it is
- * native, lying in a root the adapter loads itself under trust and so left
- * out of the generation.
+ * "Contract changes"): its name, origin, invocation, whether it is native,
+ * lying in a root the adapter loads itself under trust and so left out of
+ * the generation, and whether the run's account made it always-on, which
+ * the composer's always-on layer appends (#507).
  */
 export const RunSkillSetMember = z
   .object({
@@ -407,8 +485,11 @@ export const RunSkillSetMember = z
     native: z.boolean().meta({
       description: "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation.",
     }),
+    alwaysOn: z.boolean().meta({ description: "Whether the run's account made it always-on, so its body rides the run's standing instructions." }),
   })
-  .meta({ description: "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, and whether the provider loads it itself." });
+  .meta({
+    description: "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, whether the provider loads it itself, and whether it is always-on for the run's account.",
+  });
 export type RunSkillSetMember = z.infer<typeof RunSkillSetMember>;
 
 /**
