@@ -79,6 +79,7 @@ export const PRESENTATION_KEYS: readonly string[] = [
   "settingsRow",
   "sideColumns",
   "sidebarShown",
+  "sidebarView",
   "sidebarWidth",
   "streamingFade",
   "textSize",
