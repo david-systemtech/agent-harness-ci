@@ -147,7 +147,7 @@ export interface ProviderSessionInfo {
  * facts (its usage, plan limits, delegated work, the provider session it
  * linked) are not history.
  */
-export const HISTORY_EVENT_TYPES = ["assistant.text", "assistant.thinking", "tool.started", "tool.ended", "command.ran"] as const satisfies readonly AdapterEventType[];
+export const HISTORY_EVENT_TYPES = ["assistant.text", "assistant.thinking", "tool.started", "tool.ended"] as const satisfies readonly AdapterEventType[];
 
 /** A user message of an imported session's history: its text and its attachments as the log records them; the environment mints its id. */
 export interface HistoryMessage {
