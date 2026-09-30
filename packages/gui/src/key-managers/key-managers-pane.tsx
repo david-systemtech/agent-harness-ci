@@ -8,6 +8,7 @@ import { Button } from "../ui/index.js";
 import { useFollowed, useRuntime } from "../window-context.js";
 import { AddConnection } from "./add-connection.js";
 import { ConnectionCard } from "./connection-card.js";
+import { InjectionSetting } from "./injection-setting.js";
 import { MoveCard } from "./move-card.js";
 
 /**
@@ -74,6 +75,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
           ? <p className="text-sm text-ink-muted">No key manager is connected here.</p>
           : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} tools={tools} writable={writable} say={say} />)}
       {connections !== null && connections.length > 0 && <MoveCard environmentId={environmentId} connections={connections} writable={writable} />}
+      <InjectionSetting view={view} />
       {adding && <AddConnection environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} />}
     </>
   );

@@ -1,5 +1,6 @@
 import {
   MANAGED_TOOLS,
+  type InjectionAnswer,
   type KeyManagerCertificate,
   type KeyManagerAuthMethod,
   type KeyManagerConnectionRecord,
@@ -173,4 +174,16 @@ export const policyWarning = (writes: KeyManagerPolicyWrites): string | null => 
     case "no":
       return null;
   }
+};
+
+/** What each injection answer says runs get (key-managers spec, "Injection"). */
+export const INJECTION_WORDS: Readonly<Record<InjectionAnswer, string>> = { allow: "receive credentials", deny: "receive none" };
+
+/**
+ * `credentials.injectionByAccount` with the account's override set, or
+ * dropped (`null`) so the account takes the environment's answer.
+ */
+export const overridesWith = (overrides: Readonly<Record<string, InjectionAnswer>>, accountId: string, answer: InjectionAnswer | null): Record<string, InjectionAnswer> => {
+  const { [accountId]: _dropped, ...others } = overrides;
+  return answer === null ? others : { ...others, [accountId]: answer };
 };

@@ -442,3 +442,36 @@ describe("the Move card", () => {
     expect(desk.requests("keyManagers.move").at(-1)?.params).toMatchObject({ verifyOnly: true });
   });
 });
+
+describe("the injection setting", () => {
+  it("edits credentials.injection and each account's override in credentials.injectionByAccount through settings.update", async () => {
+    const app = await opened({
+      accounts: [
+        { id: "account-1", label: "work" },
+        { id: "account-2", label: "personal" },
+      ],
+      settings: { "credentials.injection": "allow", "credentials.injectionByAccount": { "account-2": "deny" } },
+    });
+    const keyManagers = await openKeyManagers(app);
+    const injection = within(keyManagers).getByRole("region", { name: "Injection" });
+    const choice = (name: string) => within(injection).getByRole("combobox", { name }) as HTMLSelectElement;
+    await waitFor(() => expect(choice("Runs on desk").value).toBe("allow"));
+    await waitFor(() => expect(choice("Runs on work").value).toBe("inherit"));
+    expect(choice("Runs on personal").value).toBe("deny");
+    expect(within(choice("Runs on work")).getByRole("option", { selected: true }).textContent).toBe("As the environment: receive credentials");
+
+    const desk = app.environment("desk");
+    await app.user.selectOptions(choice("Runs on work"), "deny");
+    await waitFor(() => expect(desk.settings()["credentials.injectionByAccount"]).toEqual({ "account-1": "deny", "account-2": "deny" }));
+    await app.user.selectOptions(choice("Runs on personal"), "inherit");
+    await waitFor(() => expect(desk.settings()["credentials.injectionByAccount"]).toEqual({ "account-1": "deny" }));
+    await app.user.selectOptions(choice("Runs on desk"), "deny");
+    await waitFor(() => expect(desk.settings()["credentials.injection"]).toBe("deny"));
+    await waitFor(() => expect(within(choice("Runs on personal")).getByRole("option", { selected: true }).textContent).toBe("As the environment: receive none"));
+    expect(desk.requests("settings.update").map((request) => Object.keys(request.params["values"] as object))).toEqual([
+      ["credentials.injectionByAccount"],
+      ["credentials.injectionByAccount"],
+      ["credentials.injection"],
+    ]);
+  });
+});
