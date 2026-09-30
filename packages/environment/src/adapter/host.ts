@@ -101,16 +101,19 @@ import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
+  holdNothing,
   noAutoAnswer,
   noSkillSet,
   noToolServers,
   presetPolicy,
   undecidedTrust,
   type ComposedInstructions,
+  type GenerationHold,
   type InstructionComposer,
   type InstructionScope,
   type PolicySeam,
   type PromptAutoAnswer,
+  type RunTrust,
   type SkillSetScope,
   type SkillSetSeam,
   type ToolGateRule,
@@ -218,6 +221,12 @@ export interface AdapterHostOptions {
    * composed, and at each listing; preset: the empty set.
    */
   readonly skillSet?: SkillSetSeam;
+  /**
+   * Holds a skill set's generation while a provider process uses it (#496):
+   * as each spawn of a run's process is supplied, until the pool lets that
+   * process go, and through each commands listing. Preset: nothing held.
+   */
+  readonly holdGeneration?: GenerationHold;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
   /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
@@ -607,6 +616,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const instructions = options.instructions ?? composeInstructions();
   const trustOf = options.trust ?? undecidedTrust;
   const skillSetOf = options.skillSet ?? noSkillSet;
+  const holdGeneration = options.holdGeneration ?? holdNothing;
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -1364,12 +1374,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  /** What a run's instructions are composed for: its session, account, workspace and trust (read now, from the trust seam), who started it, its containment level and injection answer, and its account's channel. */
+  /** What a run's skill set is resolved for: its session, account, workspace and trust, and the roots its account's adapter loads itself. */
+  const skillSetScope = (run: { readonly sessionId: string | null; readonly account: AccountFacts; readonly workspace: Workspace; readonly trust: RunTrust }): SkillSetScope => ({
+    sessionId: run.sessionId,
+    accountId: run.account.id,
+    workspace: run.workspace,
+    trust: run.trust,
+    nativeRoots: run.account.descriptor.nativeSkillRoots,
+  });
+
+  /** What a run's instructions are composed for: its session, account, workspace, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
-    readonly repositoryIdentity: string | null;
+    readonly trust: RunTrust;
+    readonly skillSet: RunSkillSet;
     readonly origin: RunActorKind;
     readonly containment: ContainmentLevel;
     readonly injection: InjectionDecision;
@@ -1377,7 +1397,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     sessionId: run.sessionId,
     accountId: run.account.id,
     workspace: run.workspace,
-    trust: trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity }),
+    trust: run.trust,
+    skillSet: run.skillSet,
     origin: run.origin,
     containment: run.containment,
     injection: run.injection,
@@ -1464,19 +1485,23 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * adapter is asked for the run, which is once per run, under the injection
    * answer the run launched with: each spawn's release is reported to the
    * pool against the session's process as it is now, so the pool's letting
-   * it go releases it, and it runs once, whoever calls it first.
+   * it go releases it, and it runs once, whoever calls it first. A spawn
+   * holds the generation of the skill set it is spawned under as well
+   * (#496), which the same release lets go.
    */
-  const processEnvironmentOf = (plan: PlannedRun, injection: InjectionDecision): ProcessEnvironment => {
+  const processEnvironmentOf = (plan: PlannedRun, injection: InjectionDecision, skillSet: RunSkillSet): ProcessEnvironment => {
     const built = processEnvironments.of(holderOf(plan), injection);
     const report = pool.supplied(plan.sessionId);
     return {
       key: built.key,
       supply: async () => {
         const supplied = await built.supply();
+        const releaseGeneration = skillSet.generation === null ? undefined : holdGeneration(skillSet.generation);
         let released = false;
         const release = (): void => {
           if (released) return;
           released = true;
+          releaseGeneration?.();
           supplied.release();
         };
         report(release);
@@ -1496,21 +1521,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const entry = register(plan, prompt, true);
     // One injection answer for the run: what its instructions tell it and what its process is given.
     const injection = processEnvironments.decide(holderOf(plan));
-    const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection });
-    const skillScope: SkillSetScope = {
-      sessionId: plan.sessionId,
-      accountId: plan.account.id,
-      workspace: plan.workspace,
-      trust: scope.trust,
-      nativeRoots: plan.account.descriptor.nativeSkillRoots,
-    };
+    // Its trust, read once as it launches: its skill set, its instructions and its `trusted` all take it.
+    const trust = trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
         if (entry.containment.level !== "off") directories.make(plan.sessionId);
         // The composed text, then what the run appends after it (a completions request's, #138), never in its place; no
         // text at all through a channel of kind none.
-        const handed = scope.channel.kind === "none" ? [] : [composed.text, plan.appendedInstructions];
+        const handed = plan.account.descriptor.instructionChannel.kind === "none" ? [] : [composed.text, plan.appendedInstructions];
         const run = adapterOf(plan.account).createRun(
           {
             sessionId: plan.sessionId,
@@ -1527,10 +1546,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             target: plan.target,
             toolServers: toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools }),
             // Read once as it launched, as its instructions were composed: a decision since reaches the session's next run.
-            trusted: scope.trust.decision === "trusted",
+            trusted: trust.decision === "trusted",
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
-            processEnvironment: processEnvironmentOf(plan, injection),
+            processEnvironment: processEnvironmentOf(plan, injection, skillSet),
             skillSet,
             prompt,
           },
@@ -1540,11 +1559,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         for (const message of prompt) unstage(message.messageId);
         return run;
       });
-    // Its skill set, then its instructions, which will carry the set's fingerprint (#496); then its adapter.
+    // Its skill set, then its instructions, whose manifest carries the set's fingerprint (#496); then its adapter.
     const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
-      const skillSet = await skillSetFor(entry, skillScope);
+      const skillSet = await skillSetFor(entry, skillSetScope({ ...plan, trust }));
       if (skillSet === null) return null;
-      const composed = await composeFor(entry, scope);
+      const composed = await composeFor(entry, instructionScope({ ...plan, trust, skillSet, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection }));
       return composed === null ? null : [composed, skillSet];
     };
     void prepared().then(
@@ -2080,9 +2099,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
         throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
       }
-      // As a run a client starts would be composed: with no extra always-on names.
+      // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
       const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
-      return instructions(instructionScope({ ...run, account: facts, origin: "client", containment: containmentNow(run.containment), injection }));
+      const trust = trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity });
+      const skillSet = await skillSetOf(skillSetScope({ ...run, account: facts, trust }));
+      return instructions(instructionScope({ ...run, account: facts, trust, skillSet, origin: "client", containment: containmentNow(run.containment), injection }));
     },
     continueSession(sessionId) {
       if (closing || changingMode.has(sessionId)) return;
@@ -2217,10 +2238,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const held = heldAccount(accountId);
       const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands", "commands");
       // Under what a run in the workspace would have (#495): its trust, read with no repository identity as a new session's
-      // preview is, and the skill set resolved for the account and workspace, no session named.
+      // preview is, and the skill set resolved for the account and workspace, no session named, whose generation the
+      // listing's own process loads and so holds until it has answered (#496).
       const trust = trustOf({ workspace, repositoryIdentity: null });
       const skillSet = await skillSetOf({ sessionId: null, accountId: held.ref.id, workspace, trust, nativeRoots: held.adapter.descriptor.nativeSkillRoots });
-      return list.call(held.adapter, held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
+      const release = skillSet.generation === null ? undefined : holdGeneration(skillSet.generation);
+      try {
+        return await list.call(held.adapter, held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
+      } finally {
+        release?.();
+      }
     },
     providers: () => adapters.list().map((adapter) => adapter.descriptor),
     processes: {

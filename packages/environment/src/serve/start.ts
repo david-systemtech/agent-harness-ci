@@ -152,7 +152,9 @@ import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { trustMethods } from "../trust/methods.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
+import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
+import { runSkillSets } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
@@ -844,7 +846,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
-    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all, join(dataDir, KEY_MANAGER_CLI_DIRECTORY)],
+    // And the skills a run reads (#496): the own directory, the sources' snapshots and the generations linking to them.
+    exempt: [
+      join(dataDir, CONTAINMENT_DIRECTORY),
+      ...roots.all,
+      join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
+      ownSkillsPath,
+      join(dataDir, SNAPSHOTS_DIRECTORY),
+      join(dataDir, GENERATIONS_DIRECTORY),
+    ],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
@@ -938,6 +948,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
+
+  // The data directory's trash (#494): what is removed of what a person wrote, kept thirty days.
+  const trash = createTrash({ dataDir, clock });
+  // The own skills directory (#494): read at each run's start and each commands listing, as the run's skill set is resolved,
+  // and on skills.get, never watched.
+  const ownSkills = createOwnDirectory({ log, environmentId: record.id, path: ownSkillsPath, trash });
+  closers.push(() => ownSkills.close());
+  // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
+  // holds it or a resolution holds it current.
+  const generations = createGenerations({ dataDir, clock });
 
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
@@ -1043,6 +1063,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
       trust: (place) => trustStore.of(place),
+      // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
+      // spawned under it (#496).
+      skillSet: runSkillSets({ own: ownSkills, generations }),
+      holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
@@ -1199,12 +1223,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
-  // The data directory's trash (#494): what is removed of what a person wrote, kept thirty days.
-  const trash = createTrash({ dataDir, clock });
-  // The own skills directory (#494): read at each run's start and on skills.get, never watched.
-  const ownSkills = createOwnDirectory({ log, environmentId: record.id, path: ownSkillsPath, trash });
-  closers.push(() => ownSkills.close());
-  closers.push(ownSkills.readAtRunStart());
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
   // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
   const forgeAccounts = () => verifiedOrigins(forge.list());
@@ -1457,6 +1475,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
+  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly.
+  closers.push(generations.start());
   // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
   // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.

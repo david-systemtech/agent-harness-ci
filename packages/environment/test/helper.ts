@@ -19,6 +19,7 @@ import {
   type Registry,
 } from "@agent-harness/contracts";
 import type { z } from "zod";
+import type { Adapter } from "../src/adapter/contract.js";
 import type { Address } from "../src/serve/http.js";
 import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
@@ -60,6 +61,8 @@ export interface TestEnvironmentOptions {
   readonly clock?: ManualClock;
   /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
   readonly adapter?: FakeAdapter;
+  /** Adapters registered beside the fake, for accounts on their providers (the Claude adapter over a scripted SDK); preset: none. */
+  readonly adapters?: readonly Adapter[];
   /**
    * The accounts carried over from configuration into the account store on
    * the first start (#119's path, kept for this). Preset: one, `claude-max`,
@@ -371,7 +374,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       scrub,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
-      adapters: [adapter],
+      adapters: [adapter, ...(options.adapters ?? [])],
       accounts,
       probeContainment: async () => (await options.containment) ?? absentProbe(),
       ...passed,
