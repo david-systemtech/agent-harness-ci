@@ -329,7 +329,7 @@ What identifies a run's resolved skill set: a digest of each member's name, kind
 _Avoid_: hash, version, skill-set id
 
 **Generation**:
-The directory under the data directory, named by a fingerprint, that an adapter maps a run's skill set from (Claude: its one local plugin, named `agent-harness`): a link in `skills/` to each member the adapter does not load itself, never a copy. An unchanged fingerprint reuses it; it is deleted once no live process uses it and no resolution holds it current.
+The directory under the data directory, named by a fingerprint, that an adapter maps a run's skill set from (Claude: its one local plugin, named `agent-harness`): a link in `skills/` to each member the adapter does not load itself, never a copy. An unchanged fingerprint reuses it; it is deleted once no live process uses it, no resolution holds it current and none has resolved it since the sweep before.
 _Avoid_: plugin directory, bridge, skills folder
 
 **Readiness**:
