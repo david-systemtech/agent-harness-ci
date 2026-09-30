@@ -1,5 +1,6 @@
 import { DenylistSection, SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
+import { restoreDenylistPresets } from "../permissions/actions.js";
 import { saveSetting } from "../settings/editor.js";
 import { adminCall } from "../status/actions.js";
 import { isRegisteredStep } from "./checklist.js";
@@ -17,8 +18,9 @@ import { isRegisteredStep } from "./checklist.js";
  * `update` on Your machines `updates.apply`; `move` the Key manager step's
  * Move card, on Key managers. The authoring and import verbs are the step's
  * card's (`card`). Every other verb opens the step's home row, where its
- * card's controls live, until the method behind it is on the wire:
- * `pull-now` (`skills.sources.pull`, #499), `unpair` (#548), `install` and
+ * card's controls live: `unpair` until the Browser card maps it to
+ * `browser.chromes.unpair` (#548, #593), and until the method behind it is
+ * on the wire, `pull-now` (`skills.sources.pull`, #499) and `install` and
  * `update` of a tool (`tools.run`, #376).
  */
 
@@ -185,10 +187,8 @@ export const restoreStep = async (
     const saved = await saveSetting(runtime, environmentId, "appearance.theme", preset, { commandId });
     return saved.ok ? { ok: true, line: `Restored the ${preset.name} theme.` } : { ok: false, line: `Not restored: ${saved.line}` };
   }
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.restorePresets", { commandId, ...(sections !== undefined && { sections: [...sections] }) }));
-  if (!answer.ok) return { ok: false, line: `Not restored: ${answer.line}` };
-  const count = answer.result?.restored.length;
-  return { ok: true, line: count === undefined ? "Restored the denylist's presets." : `Restored the denylist's presets: ${count} put back.` };
+  const { ok, line } = await restoreDenylistPresets(runtime, environmentId, sections, commandId);
+  return { ok, line };
 };
 
 /**

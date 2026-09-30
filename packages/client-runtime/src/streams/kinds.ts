@@ -377,6 +377,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // A worktree kept at its last session's purge (#330) changes no status: the notices queue says it.
       case "workspace.kept":
         return data;
+      // A paired Chrome's change (#548) changes no status: the request cache reads browser.chromes.list and browser.status again.
+      case "chrome.updated":
+        return data;
     }
   },
   encode: (data) => data,

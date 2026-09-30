@@ -70,6 +70,7 @@ describe("environment notices", () => {
       "carry-over.imported",
       "state-import.finished",
       "workspace.kept",
+      "chrome.updated",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });

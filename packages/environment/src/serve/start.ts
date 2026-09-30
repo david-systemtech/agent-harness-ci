@@ -147,6 +147,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
@@ -772,6 +773,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       lookProjector,
       trustProjector,
       instructionsProjector,
+      chromesProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -797,7 +799,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
   // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
   // connection's removal. The Managed tools registry (#373) is made here too, before the forge, whose gh reads its row.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
+  const { record, vault, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -889,6 +891,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     capabilities.push("forge", "keyManagers", "managedTools");
     return {
       record: loaded,
+      vault,
       clientSessions: loadedClientSessions,
       pairings: loadedPairings,
       accessLog: access,
@@ -1359,7 +1362,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
-  // The extension's folder and its listener (#547): bound and made once the start is committed, below.
+  // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
+  // committed, below.
   const browser = createBrowserService({
     log,
     clock,
@@ -1370,6 +1374,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     dataDir,
     extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
+    vault,
   });
   const table = createMethodTable({
     ...lifecycle.handlers,
@@ -1451,7 +1456,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
     ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
-    // The extension's folder and its listener (#547): browser.status.
+    // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({

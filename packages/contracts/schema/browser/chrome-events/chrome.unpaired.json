@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromeUnpairedPayload",
+  "type": "object",
+  "properties": {},
+  "description": "chrome.unpaired: the Chrome was unpaired; its secret is forgotten and its socket refused."
+}
