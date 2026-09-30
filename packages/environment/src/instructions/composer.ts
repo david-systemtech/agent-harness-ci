@@ -27,7 +27,8 @@ import { projectParts } from "./project-layer.js";
  *    appended text, so nothing is added for it; an adapter without native
  *    project instructions is handed the trusted repository's `AGENTS.md`,
  *    else its `CLAUDE.md` (`project-layer.ts`, #500);
- * 4. the session's (its seam, which #506 fills);
+ * 4. the session's own instructions, under `# Instructions for this
+ *    session` (its seam, which `session-instructions.ts` fills; #506);
  * 5. a bot's persona (its seam; empty until milestone 2);
  * 6. always-on skills (#507).
  *

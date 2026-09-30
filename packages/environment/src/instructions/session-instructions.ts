@@ -30,10 +30,7 @@ export const SESSION_INSTRUCTIONS_TABLES = {
   ) STRICT`,
 } as const;
 
-/** The session's instructions heading in the composed text, over the session's text. */
-const HEADING = "# Instructions for this session";
-
-/** The session layer's part title, as `instructions.preview` shows it. */
+/** The session layer's part title, as `instructions.preview` shows it; the text heads the session's text with it. */
 const TITLE = "Instructions for this session";
 
 /** Keeps each session's latest instructions: a row while it has some, none once they are cleared or the session is purged. */
@@ -72,7 +69,7 @@ export const sessionInstructionsLayer =
   ({ sessionId }) => {
     if (sessionId === null) return [];
     const text = readSessionInstructions(reader, sessionId);
-    return text.trim() === "" ? [] : [{ id: sessionId, version: null, title: TITLE, text: `${HEADING}\n\n${text}` }];
+    return text.trim() === "" ? [] : [{ id: sessionId, version: null, title: TITLE, text: `# ${TITLE}\n\n${text}` }];
   };
 
 /**
