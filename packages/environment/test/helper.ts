@@ -98,7 +98,7 @@ export interface TestEnvironmentOptions {
   readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
-  /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
+  /** Preset: a machine with no Tailscale address, no tailnet name and no LAN address (`NO_INTERFACES`), so a test never binds a real interface. */
   readonly interfaces?: InterfaceDetector;
   readonly bindTailnet?: boolean;
   readonly bindLan?: boolean;
@@ -210,8 +210,8 @@ export const TEST_BUNDLED_CLAUDE = "/nonexistent/agent-harness-sdk/claude";
 /** The bundled Claude Code's version a test environment reads unless told otherwise. */
 export const TEST_CLAUDE_CODE_VERSION = "2.1.0-test";
 
-/** A machine with no Tailscale address and no tailnet name. */
-export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
+/** A machine with no Tailscale address, no tailnet name and no LAN address. */
+export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined, lanAddresses: () => [] };
 
 /** What a pairing is minted with, and the client session its exchange asks for. */
 export interface PairOptions {

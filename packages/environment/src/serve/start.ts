@@ -26,6 +26,7 @@ import {
   type ContainmentReport,
   type DiscoveryDocument,
   type DrainTrigger,
+  type EnvironmentBinding,
   type EnvironmentReadiness,
   type EnvironmentStatus,
   type HealthDocument,
@@ -172,7 +173,7 @@ import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
-import { LOOPBACK, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
+import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
@@ -274,13 +275,13 @@ export interface EnvironmentOptions {
   readonly tailnetName?: string;
   /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
   readonly timeZone?: string;
-  /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
+  /** What is found to bind beside loopback. Preset: the `tailscale` CLI and the machine's network interfaces (`tailscaleDetector`); tests pass their own. */
   readonly interfaces?: InterfaceDetector;
-  /** The tailnet setting: bind the Tailscale address. Preset: on when an address is found. The settings store (#117) will hold it. */
+  /** Bind the Tailscale address when one is found, over `network.bindTailnet` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindTailnet?: boolean;
-  /** The LAN setting: bind `lanAddress`, which must then be given. Preset: off. The settings store (#117) will hold it. */
+  /** Bind `lanAddress`, which must then be given, or no LAN address, over `network.bindLan` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindLan?: boolean;
-  /** The LAN address bound when `bindLan` is on. Never the wildcard address. */
+  /** The LAN address bound when `bindLan` is on: one the machine holds, never the wildcard address. */
   readonly lanAddress?: string;
   /** Preset: the running process's user (`processUserCheck`). */
   readonly user?: UserCheck;
@@ -695,6 +696,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let authPolicy: AuthPolicy = "local-only";
   // The name the Host check admits: set only once the tailnet address is bound.
   let tailnetName: string | undefined;
+  // What the listeners bind beside loopback, for environment.status (#574): nothing until they are bound.
+  let boundBeside: Pick<EnvironmentBinding, "tailnet" | "lan"> = { tailnet: null, lan: null };
+  // What is found to bind beside loopback: the Tailscale address and name, and the LAN addresses, read as each is asked.
+  const interfaces = options.interfaces ?? tailscaleDetector();
 
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
@@ -1184,6 +1189,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
+    binding: () => ({ ...boundBeside, lanAddresses: [...interfaces.lanAddresses()] }),
     onDraining: () => {
       readiness = "draining";
       // New runs are refused before any process stops, so none starts on a process the drain is stopping.
@@ -1280,6 +1286,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       managedTools,
       clock,
       look: () => look.read(),
+      accounts: () => accounts.list(),
+      status: () => lifecycle.status(),
     }),
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
@@ -1456,9 +1464,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   surface.upgrade(WIRE_PATH, wire.upgrade);
 
   const bound = await step("listen", async () => {
-    const interfaces = options.interfaces ?? tailscaleDetector();
     const tailscaleAddress = await interfaces.tailscaleAddress();
-    const binds = bindList({ tailscaleAddress, bindTailnet: options.bindTailnet, bindLan: options.bindLan, lanAddress: options.lanAddress });
+    // The binding keys as this start finds them (#574), which the start options override.
+    const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+    const choice = bindChoiceOf({ bindTailnet: values["network.bindTailnet"], bindLan: values["network.bindLan"] }, options);
+    const binds = bindList({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
     closers.push(() => surface.close());
     // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
     const listening: { address: Address; interface: BoundInterface }[] = [];
@@ -1471,6 +1481,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     address = loopback.address;
     authPolicy = listening.length > 1 ? "tailnet" : "local-only";
     if (listening.some((entry) => entry.interface === "tailnet")) tailnetName = options.tailnetName ?? (await interfaces.tailnetName());
+    const boundOn = (which: BoundInterface) => listening.find((entry) => entry.interface === which)?.address.host ?? null;
+    const tailnet = boundOn("tailnet");
+    boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());

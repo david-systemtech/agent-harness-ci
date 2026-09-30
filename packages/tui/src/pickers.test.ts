@@ -471,8 +471,8 @@ describe("/settings", () => {
     expect(frame).toMatch(/permissions\.defaultCeiling\s+acceptEdits/);
     expect(frame).toMatch(/permissions\.parkedPrompt\.ttl\s+24 hours/);
     expect(frame).toMatch(/permissions\.unattended\.bypassAcknowledgedAt\s+none\s+read-only/);
-    // Down to the Service row's keys, past the four, one, five, nine, two and five of the rows above it.
-    await app.press(...Array.from({ length: 26 }, () => KEY.down));
+    // Down to the Service row's keys, past the four, one, five, nine, two and seven of the rows above it.
+    await app.press(...Array.from({ length: 28 }, () => KEY.down));
     await app.waitFor(/sessions\.autoSettleAfterIdle\s+14 days/);
     // The key under the cursor says what it is.
     expect(app.frame()).toContain("How long a session is quiet before auto-settle settles it");
@@ -506,7 +506,7 @@ describe("/settings", () => {
     await app.waitFor("permissions.defaultCeiling is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
     // A switch flips on Enter: down past the rest of Permissions, Browser, Key managers and Your machines to the Service row's second key.
-    await app.press(...Array.from({ length: 22 }, () => KEY.down), KEY.enter);
+    await app.press(...Array.from({ length: 24 }, () => KEY.down), KEY.enter);
     await app.waitFor("sessions.autoSettleOnMerge is on.");
     expect(env.settings()["sessions.autoSettleOnMerge"]).toBe(true);
   });
@@ -601,7 +601,7 @@ describe("/settings by row (#389)", () => {
     expect(app.frame()).toMatch(/Default account and model\n.*accounts\.defaultAccount\s+none/);
     expect(app.frame()).toContain("The account a session with none of its own runs on");
     // Down the list, each row's label over its keys: Instructions, then Permissions, then Browser, then Key managers, then Your machines, then Service.
-    await app.press(...Array.from({ length: 28 }, () => KEY.down));
+    await app.press(...Array.from({ length: 30 }, () => KEY.down));
     await app.waitFor(/sessions\.transcriptCompactAfterDays\s+90/);
     const lines = linesOf(app.frame());
     const at = (text: string) => lines.findIndex((line) => line.startsWith(text));
@@ -610,7 +610,9 @@ describe("/settings by row (#389)", () => {
     expect(lines.slice(at("Key managers") + 1, at("Key managers") + 3).map((line) => line.split(/\s+/)[0])).toEqual(["credentials.injection", "credentials.injectionByAccount"]);
     expect(at("Your machines")).toBe(at("credentials.injectionByAccount") + 1);
     expect(at("updates.autoUpdate")).toBe(at("Your machines") + 1);
-    expect(at("Service")).toBeGreaterThan(at("updates.deferralCapHours"));
+    // The two binding keys after the update keys on Your machines (#574).
+    expect(lines.slice(at("updates.deferralCapHours") + 1, at("updates.deferralCapHours") + 3).map((line) => line.split(/\s+/)[0])).toEqual(["network.bindTailnet", "network.bindLan"]);
+    expect(at("Service")).toBe(at("network.bindLan") + 1);
     expect(lines.slice(at("Service") + 1, at("Service") + 4).map((line) => line.split(/\s+/)[0])).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",

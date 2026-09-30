@@ -147,6 +147,14 @@
       "title": "EnvironmentStatus"
     },
     {
+      "path": "network/bind-address.json",
+      "title": "BindAddress"
+    },
+    {
+      "path": "network/environment-binding.json",
+      "title": "EnvironmentBinding"
+    },
+    {
       "path": "bootstrap/kind.json",
       "title": "BootstrapKind"
     },
@@ -2253,6 +2261,14 @@
     {
       "path": "settings/keys/credentials.injectionByAccount.json",
       "title": "CredentialInjectionByAccount"
+    },
+    {
+      "path": "settings/keys/network.bindTailnet.json",
+      "title": "BindTailnet"
+    },
+    {
+      "path": "settings/keys/network.bindLan.json",
+      "title": "BindLan"
     },
     {
       "path": "settings/settings-values.json",

@@ -6,6 +6,7 @@ import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
+import { NETWORK_SETTINGS } from "./network.js";
 import { setOf } from "./primitives.js";
 import type { SettingsRowId } from "./settings-rows.js";
 import type { StepId } from "./steps.js";
@@ -128,9 +129,11 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * home row, `appearance.theme`, written by `settings.update` (#391). The
  * browser keys (#541) are the Browser step's, on `access.browser`, written
  * through `settings.update`, and the injection keys (#367) the Key manager
- * step's, on `access.key-managers`, written the same way. The orientation
- * switch (`instructions.orientation`, preset on, #505) is the Instructions
- * step's, on `knowledge.instructions`, written by `settings.update`.
+ * step's, on `access.key-managers`, written the same way. The binding keys
+ * (#574) are the Your machines step's, on `environments.machines`, written
+ * through `settings.update` and applied at the environment's next start. The
+ * orientation switch (`instructions.orientation`, preset on, #505) is the
+ * Instructions step's, on `knowledge.instructions`, written by `settings.update`.
  */
 const SESSIONS_PLACE = { id: "your-machines", row: "environments.service" } as const;
 const DEFAULT_MODEL_PLACE = { id: "account", row: "accounts.default-model" } as const;
@@ -180,6 +183,7 @@ export const SETTINGS = {
   }),
   ...BROWSER_SETTINGS,
   ...CREDENTIAL_SETTINGS,
+  ...NETWORK_SETTINGS,
   "instructions.orientation": setting({
     schema: OrientationOn,
     preset: true,

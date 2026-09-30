@@ -16,6 +16,7 @@ import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruct
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
 import { managedToolMethodFixtures, managedToolSchemaFixtures, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
+import { invalidBindings, networkSchemaFixtures, validBindings } from "./network-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
@@ -392,6 +393,7 @@ const validStatuses = [
   { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
   { readiness: "ready", activity: { state: "busy", reason: "parked-prompt", busyUntil: at }, updatesManagedOutside: true },
   { readiness: "draining", activity: { state: "draining", drainingSince: at }, updatesManagedOutside: false },
+  ...validBindings.map((binding) => ({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding })),
 ];
 const invalidStatuses = [
   {},
@@ -400,6 +402,7 @@ const invalidStatuses = [
   { readiness: "ready", activity: { state: "idle" } },
   { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: "no" },
   { readiness: "ready", activity: { state: "busy" }, updatesManagedOutside: false },
+  ...invalidBindings.map((binding) => ({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding })),
 ];
 
 /** Params and result instances for every registered method. */
@@ -960,6 +963,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
   ...managedToolSchemaFixtures,
+  ...networkSchemaFixtures,
   ...skillSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,

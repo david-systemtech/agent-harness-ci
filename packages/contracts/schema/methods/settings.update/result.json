@@ -563,6 +563,37 @@
           },
           "description": "credentials.injectionByAccount: by account id, allow or deny, which outranks credentials.injection for that account's runs and terminals and is outranked by a routine's own injection. An account not listed takes the environment's value; an account's entry is dropped when the account is removed. Preset empty."
         },
+        "network.bindTailnet": {
+          "type": "boolean",
+          "description": "Whether the environment binds its Tailscale address beside loopback from its next start, when one is found; preset on, so a machine with a tailnet address is reachable on it. With no address found it binds none either way."
+        },
+        "network.bindLan": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "ipv4",
+                  "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$"
+                },
+                {
+                  "type": "string",
+                  "format": "ipv6",
+                  "pattern": "^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$"
+                }
+              ],
+              "description": "An IPv4 or IPv6 address an environment binds or could bind: never the wildcard address (0.0.0.0, ::, or the IPv4-mapped ::ffff:0.0.0.0).",
+              "not": {
+                "type": "string",
+                "pattern": "^(?:[0.:]+|[0:]*:[fF]{4}:(?:0+\\.0+\\.0+\\.0+|0+:0+))$"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The LAN address the environment binds beside loopback from its next start, or null for none (off, the preset). It must be an address the machine holds, one environment.status lists as a LAN address it could bind; a start asked for one it does not hold fails, saying so. Anyone on that network could try to reach the environment; it still needs a paired client."
+        },
         "instructions.orientation": {
           "type": "boolean",
           "description": "Whether every run is handed the orientation block, first in its standing instructions; off, the block is left out of the next run's text."
@@ -598,6 +629,8 @@
         "browser.internalHosts",
         "credentials.injection",
         "credentials.injectionByAccount",
+        "network.bindTailnet",
+        "network.bindLan",
         "instructions.orientation"
       ],
       "additionalProperties": false,
