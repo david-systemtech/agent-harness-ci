@@ -5,7 +5,8 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { showSession } from "../grid/layout.js";
 import { keyLabel } from "../keys/chords.js";
-import { KeyContext, useEveryWiredAction, useIsKeyOf, useKeyAction, useMacOS, type Offer, type WiredAction } from "../keys/key-dispatch.js";
+import { KeyContext, useEveryWiredAction, useIsKeyOf, useKeyAction, useKeyMap, useMacOS, type Offer, type WiredAction } from "../keys/key-dispatch.js";
+import { keysInForce } from "../keys/key-map.js";
 import { dimReason } from "../settings/rail.js";
 import { useSettings } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
@@ -15,10 +16,10 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
  * stories 4 and 9; #406), opened over the window by Mod+K (`app.palette`),
  * over cmdk. Its first page lists every action the window has wired
  * (`useEveryWiredAction`), in the shared list's groups and order, each with
- * its GUI keys in force, the slash commands the window wires last among
- * them; its last entry opens the sessions page, which finds a session on
- * every environment through `projections.search` and opens it in the
- * focused pane. Every row of Settings is listed after the actions, by its
+ * its GUI keys in force (this client's remaps read over the defaults), the
+ * slash commands the window wires last among them; its last entry opens the
+ * sessions page, which finds a session on every environment through
+ * `projections.search` and opens it in the focused pane. Every row of Settings is listed after the actions, by its
  * label and old names, and opens Settings on it. Typing filters a page;
  * choosing an entry closes the palette, gives the focus back to where it
  * was, and runs it there.
@@ -71,9 +72,6 @@ const matches = (entry: Entry, query: string): boolean => {
   const text = `${entry.name} ${entry.detail ?? ""}`.toLowerCase();
   return query.toLowerCase().split(/\s+/).every((word) => text.includes(word));
 };
-
-/** The keys the GUI column binds to `action` now: none written off. */
-const keysInForce = (action: ListedAction): readonly string[] => (action.gui.status === "wired" && action.gui.off !== true ? action.gui.keys : []);
 
 type Page = "root" | "sessions";
 
@@ -158,6 +156,7 @@ const Palette = ({ listed, close }: PaletteProps) => {
  */
 const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readonly query: string; readonly toSessions: () => void }) => {
   const macOS = useMacOS();
+  const map = useKeyMap();
   const wired = useEveryWiredAction();
   const settings = useSettings();
   const entryOf = (action: ListedAction, wiredAction: WiredAction): Entry => {
@@ -166,7 +165,7 @@ const FirstPage = ({ listed, query, close, toSessions }: PaletteProps & { readon
       value: action.id,
       name: NAMES[action.id] ?? (command ? `/${action.id.slice("command.".length)}` : action.description),
       ...(command && { detail: action.description }),
-      keys: keysInForce(action).map((key) => keyLabel(key, macOS)),
+      keys: keysInForce(action, map).map((key) => keyLabel(key, macOS)),
       offer: wiredAction.offer,
       choose: () => close(wiredAction.run),
     };

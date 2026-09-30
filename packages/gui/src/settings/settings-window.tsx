@@ -1,7 +1,7 @@
 import { LOCAL_PLACEHOLDER_ID, homeEnvironment, parseSettingsLink, type EnvironmentView } from "@agent-harness/client-runtime";
 import { readStoredRow, type SettingsRowId } from "@agent-harness/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useKeyAction } from "../keys/key-dispatch.js";
+import { useEscapeStep, useKeyAction } from "../keys/key-dispatch.js";
 import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 
 /**
@@ -38,8 +38,9 @@ export const useSettings = (): SettingsWindow => {
 };
 
 /**
- * Holds Settings for the window, wires Mod+, to open and close it, and
- * opens a row on a settings deep link the desktop is handed
+ * Holds Settings for the window, wires Mod+, to open and close it, takes
+ * Esc while it is open at its step of Escape's order, and opens a row on a
+ * settings deep link the desktop is handed
  * (`shell.deepLinks.onOpen`: `agent-harness://settings/<address or row id>`).
  */
 export const SettingsProvider = ({ children }: { readonly children: ReactNode }) => {
@@ -59,6 +60,7 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
   );
   const close = useCallback(() => setShown(false), []);
   useKeyAction("app.settings.toggle", () => setShown((now) => !now));
+  useEscapeStep("settings", close, shown);
 
   useEffect(() => {
     if (runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.deepLinks.onOpen").status !== "present") return undefined;

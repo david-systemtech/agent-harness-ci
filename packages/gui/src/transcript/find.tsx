@@ -1,6 +1,6 @@
 import { createContext, use, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { Conditions } from "../keys/key-dispatch.js";
-import { useKeyAction } from "../keys/key-dispatch.js";
+import { useEscapeStep, useKeyAction } from "../keys/key-dispatch.js";
 import { Button } from "../ui/index.js";
 
 /**
@@ -158,12 +158,16 @@ export const useFindBar = (column: RefObject<HTMLElement | null>, stopFollowing:
   return { open, query, marked, conditions, field, bar, status, show, close, type, step };
 };
 
-/** The find bar's keys: `app.find` from anywhere in the window, and while the bar has the keys, the next and previous match and closing it. */
+/**
+ * The find bar's keys: `app.find` from anywhere in the window, and while the bar has the keys, the next and previous
+ * match and closing it; while it is open, Esc from elsewhere closes it too, the first step of Escape's order (#418).
+ */
 export const FindKeys = ({ find }: { readonly find: FindBarState }) => {
   useKeyAction("app.find", find.show);
   useKeyAction("transcript.findNext", () => find.step(1));
   useKeyAction("transcript.findPrevious", () => find.step(-1));
   useKeyAction("transcript.findClose", find.close);
+  useEscapeStep("surface", find.close, find.open);
   return null;
 };
 
