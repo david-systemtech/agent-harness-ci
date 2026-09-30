@@ -17,8 +17,9 @@ import { isRegisteredStep } from "./checklist.js";
  * `update` on Your machines `updates.apply`; `move` the Key manager step's
  * Move card, on Key managers. The authoring and import verbs are the step's
  * card's (`card`). Every other verb opens the step's home row, where its
- * card's controls live, until the method behind it is on the wire:
- * `pull-now` (`skills.sources.pull`, #499), `unpair` (#548), `install` and
+ * card's controls live: `unpair` until the Browser card maps it to
+ * `browser.chromes.unpair` (#548, #593), and until the method behind it is
+ * on the wire, `pull-now` (`skills.sources.pull`, #499) and `install` and
  * `update` of a tool (`tools.run`, #376).
  */
 
