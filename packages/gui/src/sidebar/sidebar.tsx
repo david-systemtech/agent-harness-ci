@@ -1,6 +1,7 @@
 import { keepsFold, rowKey, sessionHeadings, type DropTarget, type HeadingRow, type SessionHeading, type SessionRow } from "@agent-harness/client-runtime";
 import { useMemo, type ReactNode } from "react";
 import { useOpenPairing } from "../connections/pairing.js";
+import { focusedPane } from "../grid/layout.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { classes } from "../ui/classes.js";
 import { Button, Input } from "../ui/index.js";
@@ -61,7 +62,7 @@ const Headings = () => {
     });
 
   const views = new Map(environments.map((view) => [view.environmentId, view]));
-  const shown = layout.session;
+  const shown = focusedPane(layout).session;
   /** Each row, taking a session dropped on it at its place in its heading's block, or refusing it in the filtered list (null). */
   const rows = (lines: readonly HeadingRow[], heading: SessionHeading | null) =>
     lines.map((line) => (

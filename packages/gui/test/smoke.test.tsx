@@ -9,6 +9,7 @@ import { end, fakeAdapter, gate, say, type Script } from "../../environment/test
 import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { workspace } from "../../environment/test/sessions.js";
 import { App } from "../src/app.js";
+import { showSession } from "../src/grid/layout.js";
 import { openPresentation } from "../src/presentation.js";
 
 /**
@@ -56,7 +57,8 @@ const openWindow = async (t: TestEnvironment, opening?: { readonly sessionId: st
     const created = await runtime.commands.dispatch(environmentId, "sessions.create", { id: sessionId, workspace });
     if (!created.ok) throw new Error(`The session was not made: ${created.error.message}`);
   }
-  act(() => presentation.set("paneLayout", { session: { environmentId, sessionId } }));
+  const layout = presentation.values.read().paneLayout;
+  act(() => presentation.set("paneLayout", showSession(layout, layout.focused, { environmentId, sessionId })));
   const inWindow = within(view.container);
   const transcript = await inWindow.findByRole("region", { name: "Transcript" });
   await within(transcript).findByText("Nothing said yet.", {}, { timeout: 5000 });

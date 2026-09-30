@@ -1,0 +1,317 @@
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import type { RenderedApp } from "../test/harness.js";
+import { LAPTOP_ID, TRAIN, inUtc, row, settled, sidebar, two } from "../test/sidebar-fixtures.js";
+
+/**
+ * The pane grid (docs/specs/gui.md, "The seven panes and the grid" and "A
+ * session pane"; story 5; #407), through the harness over two scripted
+ * environments: rows of up to eight session panes, split right or down from
+ * the focused one by the header's actions and their keys, resized by their
+ * dividers down to a pixel floor, closed from the caption only, one pane per
+ * session; a session dragged from the sidebar onto a pane's centre or edge,
+ * and the context menu's Open in a new pane; the refusal at eight panes; the
+ * caption; and the layout kept by presentation across a remount.
+ */
+
+inUtc();
+
+/** The grid's panes in its rows, each region named "Session pane". */
+const panes = () => within(screen.getByRole("main")).getAllByRole("region", { name: "Session pane" });
+
+/** A pane's caption title, "·" for a pane with no session. */
+const titleOf = (pane: HTMLElement) => within(pane).queryByRole("button", { name: /^Rename / })?.textContent ?? "·";
+
+/** The grid as a person reads it: each row's panes left to right, by title, the focused one starred. */
+const grid = () =>
+  within(screen.getByRole("main"))
+    .getAllByRole("group", { name: /^Row \d+$/ })
+    .map((line) => within(line).getAllByRole("region", { name: "Session pane" }).map((pane) => `${pane.getAttribute("aria-current") === "true" ? "*" : ""}${titleOf(pane)}`));
+
+/** The pane showing `title`. */
+const paneOf = (title: string) => panes().find((pane) => titleOf(pane) === title) as HTMLElement;
+
+/** The header's words. */
+const header = () => screen.getByRole("banner");
+
+/** What the grid's line in the header says. */
+const gridLine = () => within(header()).queryByRole("status")?.textContent;
+
+/** Presses a key chord with the focus where it is. */
+const press = (app: RenderedApp, keys: string) => app.user.keyboard(keys);
+const SPLIT_RIGHT = "{Control>}\\{/Control}";
+const SPLIT_DOWN = "{Control>}{Shift>}[Backslash]{/Shift}{/Control}";
+
+/** Focuses a pane as a person does, by putting the focus in it. */
+const focusIn = (pane: HTMLElement) => act(() => (within(pane).queryByRole("textbox", { name: "Message" }) ?? pane.querySelector("button") ?? pane).focus());
+
+/** A drag as the browser carries one: one data transfer from the drag's start to its end. */
+const dataTransfer = () => {
+  const data = new Map<string, string>();
+  return {
+    setData: (type: string, value: string) => void data.set(type, value),
+    getData: (type: string) => data.get(type) ?? "",
+    get types() {
+      return [...data.keys()];
+    },
+    dropEffect: "none",
+    effectAllowed: "all",
+  };
+};
+
+/**
+ * Drags the sidebar's row `title` onto the target `zone` over `pane` ("Open here", "Open to the right", "Open below"),
+ * which a pane grows while a session is dragged, and drops it; answers whether the drop was taken, as the pointer shows it.
+ */
+const dropOn = (title: string, pane: () => HTMLElement, zone: string): boolean => {
+  const from = row(title);
+  const carried = dataTransfer();
+  fireEvent.dragStart(from, { dataTransfer: carried });
+  const onto = within(pane().closest("[data-panel]") as HTMLElement).getByLabelText(zone);
+  fireEvent.dragEnter(onto, { dataTransfer: carried });
+  const taken = !fireEvent.dragOver(onto, { dataTransfer: carried });
+  fireEvent.drop(onto, { dataTransfer: carried });
+  fireEvent.dragEnd(from, { dataTransfer: carried });
+  return taken;
+};
+
+/** The two environments with laptop's "Train tidy" open in the one pane. */
+const withTrain = async () => {
+  const app = await settled(await two());
+  await app.user.click(row("Train tidy"));
+  await within(paneOf("Train tidy")).findByRole("region", { name: "Transcript" });
+  return app;
+};
+
+describe("splitting", () => {
+  it("adds a pane beside the focused one from the header's actions and their keys, right in its row and down across the grid, each focused and empty; the header follows the focused pane", async () => {
+    const app = await withTrain();
+    expect(grid()).toEqual([["*Train tidy"]]);
+    expect(within(header()).getByText("laptop")).toBeDefined();
+
+    await app.user.click(within(header()).getByRole("button", { name: "Split right" }));
+    expect(grid()).toEqual([["Train tidy", "*·"]]);
+    expect(within(header()).queryByText("laptop")).toBeNull();
+    expect(within(paneOf("·")).getByText("No session is open. Choose one from the sidebar.")).toBeDefined();
+
+    // The sidebar opens a session in the focused pane: the new one.
+    await app.user.click(row("Fix the rail"));
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]));
+    expect(within(header()).getByText("desk")).toBeDefined();
+
+    await press(app, SPLIT_DOWN);
+    expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
+    await press(app, SPLIT_RIGHT);
+    expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["·", "*·"]]);
+    await app.user.click(within(header()).getByRole("button", { name: "Split down" }));
+    expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["·", "·"], ["*·"]]);
+
+    // The focus put in a pane focuses it, and the header follows it.
+    focusIn(paneOf("Train tidy"));
+    expect(grid()).toEqual([["*Train tidy", "Fix the rail"], ["·", "·"], ["·"]]);
+    expect(within(header()).getByText("laptop")).toBeDefined();
+  });
+
+  it("leaves the window's keys to the focused pane alone", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    await app.user.click(row("Fix the rail"));
+    await within(paneOf("Fix the rail")).findByRole("region", { name: "Transcript" });
+
+    await press(app, "{Control>}f{/Control}");
+    expect(within(paneOf("Fix the rail")).getByRole("search", { name: "Find in the conversation" })).toBeDefined();
+    expect(within(paneOf("Train tidy")).queryByRole("search")).toBeNull();
+    await press(app, "{Escape}");
+
+    // The pane opened first, focused again, answers them in place of the one opened after it.
+    focusIn(paneOf("Train tidy"));
+    await press(app, "{Control>}f{/Control}");
+    expect(within(paneOf("Train tidy")).getByRole("search", { name: "Find in the conversation" })).toBeDefined();
+    expect(within(paneOf("Fix the rail")).queryByRole("search")).toBeNull();
+  });
+});
+
+describe("eight panes", () => {
+  it("are the most the grid holds: a split, its keys, a drop on an edge and Open in a new pane are refused with the reason; a drop on a centre still opens", async () => {
+    const app = await withTrain();
+    for (let split = 1; split < 8; split += 1) await press(app, split % 2 === 0 ? SPLIT_DOWN : SPLIT_RIGHT);
+    expect(panes()).toHaveLength(8);
+    expect(gridLine()).toBeUndefined();
+
+    await app.user.click(within(header()).getByRole("button", { name: "Split right" }));
+    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+    await press(app, SPLIT_DOWN);
+    expect(panes()).toHaveLength(8);
+
+    expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open to the right")).toBe(false);
+    expect(dropOn("Fix the rail", () => paneOf("Train tidy"), "Open below")).toBe(false);
+    expect(panes()).toHaveLength(8);
+    expect(gridLine()).toBe("The grid holds eight panes; close one first.");
+
+    await app.user.pointer({ keys: "[MouseRight]", target: row("Fix the rail") });
+    const menu = await screen.findByRole("menu", { name: "Organise “Fix the rail”" });
+    const item = within(menu).getByRole("menuitem", { name: /^Open in a new pane/ });
+    expect(item.textContent).toBe("Open in a new paneThe grid holds eight panes; close one first.");
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    await app.user.keyboard("{Escape}");
+
+    // Opening in a pane adds none: it is not refused.
+    expect(dropOn("Fix the rail", () => panes()[7] as HTMLElement, "Open here")).toBe(true);
+    await waitFor(() => expect(grid().flat()).toContain("*Fix the rail"));
+    expect(panes()).toHaveLength(8);
+
+    // One closed, a pane can be added again.
+    await app.user.click(within(paneOf("Fix the rail")).getByRole("button", { name: "Close the pane" }));
+    await press(app, SPLIT_RIGHT);
+    expect(panes()).toHaveLength(8);
+    expect(gridLine()).toBeUndefined();
+  });
+});
+
+describe("a session dragged onto the grid", () => {
+  it("opens in the pane dropped on at its centre, splits the pane at its edge and opens in the new one, and one shown already is focused where it is", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    expect(grid()).toEqual([["Train tidy", "*·"]]);
+
+    expect(dropOn("Fix the rail", () => paneOf("·"), "Open here")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]));
+
+    expect(dropOn("Brand copy", () => paneOf("Train tidy"), "Open below")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*Brand copy"]]));
+
+    expect(dropOn("Spare", () => paneOf("Train tidy"), "Open to the right")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Spare", "Fix the rail"], ["Brand copy"]]));
+
+    // A session shows in one pane at a time.
+    expect(dropOn("Train tidy", () => paneOf("Brand copy"), "Open here")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["*Train tidy", "Spare", "Fix the rail"], ["Brand copy"]]));
+    expect(dropOn("Fix the rail", () => paneOf("Brand copy"), "Open to the right")).toBe(true);
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "Spare", "*Fix the rail"], ["Brand copy"]]));
+    await app.user.click(row("Spare"));
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Spare", "Fix the rail"], ["Brand copy"]]));
+    // Nothing covers the panes once the drag is over.
+    expect(screen.queryByLabelText("Open here")).toBeNull();
+  });
+});
+
+describe("Open in a new pane", () => {
+  it("splits the focused pane right and opens the session there", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_DOWN);
+    focusIn(paneOf("Train tidy"));
+
+    await app.user.pointer({ keys: "[MouseRight]", target: row("Fix the rail") });
+    const menu = await screen.findByRole("menu", { name: "Organise “Fix the rail”" });
+    act(() => within(menu).getByRole("menuitem", { name: "Open in a new pane" }).focus());
+    await app.user.keyboard("{Enter}");
+    await waitFor(() => expect(grid()).toEqual([["Train tidy", "*Fix the rail"], ["·"]]));
+  });
+});
+
+describe("closing a pane", () => {
+  /** What each divider between the panes says: the share of the row the pane before it holds, in percent. */
+  const dividers = () =>
+    within(screen.getByRole("main"))
+      .queryAllByRole("separator", { name: "Resize the panes" })
+      .map((divider) => Number(divider.getAttribute("aria-valuenow")));
+
+  it("is done from its caption, its space going to its neighbour, a row with its last pane; the grid keeps one pane", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    await press(app, SPLIT_RIGHT);
+    await app.user.click(row("Fix the rail"));
+    // The pane split twice holds a half, then two quarters.
+    await waitFor(() => expect(dividers()).toEqual([50, 25]));
+    expect(grid()).toEqual([["Train tidy", "·", "*Fix the rail"]]);
+
+    // The middle pane goes: the one before it takes its quarter.
+    await app.user.click(within(paneOf("·")).getByRole("button", { name: "Close the pane" }));
+    expect(grid()).toEqual([["Train tidy", "*Fix the rail"]]);
+    await waitFor(() => expect(dividers()).toEqual([75]));
+
+    await press(app, SPLIT_DOWN);
+    expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
+    await app.user.click(within(paneOf("·")).getByRole("button", { name: "Close the pane" }));
+    // The focused pane closed, the focus goes to the pane that took its space.
+    expect(grid()).toEqual([["*Train tidy", "Fix the rail"]]);
+    expect(within(screen.getByRole("main")).queryAllByRole("separator", { name: "Resize the rows" })).toEqual([]);
+
+    await app.user.click(within(paneOf("Train tidy")).getByRole("button", { name: "Close the pane" }));
+    expect(grid()).toEqual([["*Fix the rail"]]);
+    // The last pane has no close: the grid keeps one.
+    expect(within(paneOf("Fix the rail")).queryByRole("button", { name: "Close the pane" })).toBeNull();
+    // Closing a pane leaves its session as it was, in the sidebar.
+    expect(row("Train tidy")).toBeDefined();
+  });
+
+  it("gives its space to its neighbour when the panes left are ones the row held before, with its dividers moved since", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    await waitFor(() => expect(dividers()).toEqual([50]));
+    await press(app, SPLIT_RIGHT);
+    await waitFor(() => expect(dividers()).toEqual([50, 25]));
+    const first = within(screen.getByRole("main")).getAllByRole("separator", { name: "Resize the panes" })[0] as HTMLElement;
+    act(() => first.focus());
+    await app.user.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(dividers()).toEqual([45, 30]));
+
+    // The last pane goes: the one before it takes its quarter, not the half the row's two panes last held.
+    await app.user.click(within(panes()[2] as HTMLElement).getByRole("button", { name: "Close the pane" }));
+    await waitFor(() => expect(dividers()).toEqual([45]));
+  });
+});
+
+describe("the dividers", () => {
+  it("resize the panes and the rows down to a pixel floor, and the layout comes back as it was left, each pane's session with it, when the window opens again", async () => {
+    const app = await withTrain();
+    await press(app, SPLIT_RIGHT);
+    await app.user.click(row("Fix the rail"));
+    await press(app, SPLIT_DOWN);
+    const main = () => within(screen.getByRole("main"));
+
+    // jsdom measures every element as a 1280 by 800 window, so a group of two measures twice that: a pane's floor, 320
+    // pixels, is an eighth of a row of two (2560 pixels), and a row's, 200, an eighth of two rows (1600).
+    const panesDivider = main().getByRole("separator", { name: "Resize the panes" });
+    act(() => panesDivider.focus());
+    await app.user.keyboard("{Home}");
+    await waitFor(() => expect(Number(panesDivider.getAttribute("aria-valuenow"))).toBe(12.5));
+    await app.user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(Number(panesDivider.getAttribute("aria-valuenow"))).toBe(17.5));
+    const rowsDivider = main().getByRole("separator", { name: "Resize the rows" });
+    act(() => rowsDivider.focus());
+    await app.user.keyboard("{End}");
+    await waitFor(() => expect(Number(rowsDivider.getAttribute("aria-valuenow"))).toBe(87.5));
+
+    await settled(await app.remount());
+    expect(grid()).toEqual([["Train tidy", "Fix the rail"], ["*·"]]);
+    await waitFor(() => expect(Number(main().getByRole("separator", { name: "Resize the panes" }).getAttribute("aria-valuenow"))).toBe(17.5));
+    expect(Number(main().getByRole("separator", { name: "Resize the rows" }).getAttribute("aria-valuenow"))).toBe(87.5);
+    expect(await within(paneOf("Train tidy")).findByRole("region", { name: "Transcript" })).toBeDefined();
+  });
+});
+
+describe("the caption", () => {
+  it("shows the session's badge, its title renamed in place, run info, and close while the grid holds another pane", async () => {
+    const app = await withTrain();
+    const pane = paneOf("Train tidy");
+    expect(within(pane).getByRole("img", { name: "laptop" }).style.color).toBe("var(--environment-amber)");
+    expect(within(pane).queryByRole("button", { name: "Close the pane" })).toBeNull();
+
+    await app.user.click(within(pane).getByRole("button", { name: "Run info" }));
+    expect(await screen.findByText("No run yet: the session's first message starts one.")).toBeDefined();
+    await app.user.keyboard("{Escape}");
+
+    await app.user.click(within(pane).getByRole("button", { name: "Rename “Train tidy”" }));
+    // The field takes the focus with the title selected, so what is typed replaces it.
+    expect(document.activeElement).toBe(within(pane).getByRole("textbox", { name: "Rename “Train tidy”" }));
+    await app.user.keyboard("Train tidier{Enter}");
+    await waitFor(() => expect(app.environment("laptop").requests("sessions.rename").map((frame) => frame.params)).toEqual([expect.objectContaining({ sessionId: TRAIN, title: "Train tidier" })]));
+    await waitFor(() => expect(grid()).toEqual([["*Train tidier"]]));
+    expect(within(sidebar()).getByRole("button", { name: /Train tidier/ })).toBeDefined();
+    expect(app.shown()).toEqual({ environmentId: LAPTOP_ID, sessionId: TRAIN });
+
+    await press(app, SPLIT_RIGHT);
+    expect(within(paneOf("Train tidier")).getByRole("button", { name: "Close the pane" })).toBeDefined();
+  });
+});
