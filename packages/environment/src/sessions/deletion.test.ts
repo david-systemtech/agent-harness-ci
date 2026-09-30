@@ -241,6 +241,7 @@ describe("a deleted session", () => {
     // A deleted session is not found before the forge is asked (#317).
     "forge.pullRequests.link": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
     "forge.pullRequests.unlink": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
+    "instructions.import": { sessionId, id: randomUUID(), path: "instruction.md" },
     // A deleted session has no trust key to decide (#500).
     "trust.decide": { sessionId, decision: "trusted" },
   });
