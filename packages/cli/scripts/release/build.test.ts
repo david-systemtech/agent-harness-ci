@@ -275,7 +275,7 @@ const desktopBuilds = (): OtherAsset[] => {
   mkdirSync(sources, { recursive: true });
   const desktop = (name: string, platform: string, format: string): OtherAsset => {
     writeFileSync(join(sources, name), `the ${format} desktop build\n`);
-    return { kind: "desktop", path: join(sources, name), build: { platform, format } };
+    return { kind: "desktop", path: join(sources, name), target: { platform, format } };
   };
   return [
     desktop("agent-harness-desktop-darwin-arm64.zip", "darwin-arm64", "zip"),
@@ -338,9 +338,9 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
     const [zip, setup] = desktopBuilds() as [OtherAsset, OtherAsset, OtherAsset];
     const refused: [OtherAsset[], RegExp][] = [
       [[{ kind: "desktop", path: zip.path }], /agent-harness-desktop-darwin-arm64\.zip is a desktop build without its platform and format: --asset desktop:<platform>:<format>=<path>/],
-      [[{ ...zip, build: { platform: "macOS", format: "zip" } }], /"macOS" is not a platform: <os>-<arch> as Node names them, such as darwin-arm64/],
-      [[{ ...zip, build: { platform: "darwin-arm64", format: "Zip" } }], /"Zip" is not a format: lowercase letters and digits, in parts joined by dots, such as nsis or tar\.gz/],
-      [[zip, { ...setup, build: { platform: "darwin-arm64", format: "zip" } }], /two desktop builds for darwin-arm64 as zip/],
+      [[{ ...zip, target: { platform: "macOS", format: "zip" } }], /"macOS" is not a platform: <os>-<arch> as Node names them, such as darwin-arm64/],
+      [[{ ...zip, target: { platform: "darwin-arm64", format: "Zip" } }], /"Zip" is not a format: lowercase letters and digits, in parts joined by dots, such as nsis or tar\.gz/],
+      [[zip, { ...setup, target: { platform: "darwin-arm64", format: "zip" } }], /two desktop builds for darwin-arm64 as zip/],
     ];
     for (const [assets, message] of refused) {
       await expect(buildRelease(build.options({ platforms: ["linux-x64"], assets }), build.seams), String(message)).rejects.toThrow(message);
@@ -411,7 +411,7 @@ describe("the build's command line", () => {
   it("takes a desktop build as --asset desktop:<platform>:<format>=<path>, and no platform without its format", () => {
     const args = ["--tag", "v0.5.0", "--out", "release", "--image-reference", FIXTURE_IMAGE.reference, "--image-digest", FIXTURE_IMAGE.digest];
     expect(buildOptionsOf([...args, "--asset", "desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe"], "/work/checkout")).toMatchObject({
-      assets: [{ kind: "desktop", path: "/work/checkout/desktop/agent-harness-desktop-win32-x64-setup.exe", build: { platform: "win32-x64", format: "nsis" } }],
+      assets: [{ kind: "desktop", path: "/work/checkout/desktop/agent-harness-desktop-win32-x64-setup.exe", target: { platform: "win32-x64", format: "nsis" } }],
     });
     for (const asset of ["desktop:win32-x64=setup.exe", "desktop:win32-x64:nsis:x=setup.exe", "desktop::nsis=setup.exe", "desktop:win32-x64:=setup.exe"]) {
       expect(() => buildOptionsOf([...args, "--asset", asset], "/work"), asset).toThrow(/--asset takes <kind>=<path> or <kind>:<platform>:<format>=<path>/);

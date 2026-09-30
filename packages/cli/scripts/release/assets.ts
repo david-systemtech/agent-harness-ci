@@ -17,7 +17,7 @@ import { BuildError } from "./targets.js";
  */
 
 /** The platform an asset is built for and how it is packed, as the manifest lists them. */
-export interface AssetBuild {
+export interface AssetTarget {
   readonly platform: string;
   readonly format: string;
 }
@@ -32,7 +32,7 @@ export interface OtherAsset {
    * stages the desktop's build by the platform and format its shell reports
    * (#354). Without, the asset takes any platform and the format its name says.
    */
-  readonly build?: AssetBuild;
+  readonly target?: AssetTarget;
 }
 
 /** The kind of the desktop's builds, which the environment stages by platform and format. */
@@ -65,16 +65,16 @@ const placeholdersIn = (path: string): number => readFileSync(path, "utf8").spli
  * builds checked before it) has the same two, since the environment would
  * stage only the first. Any other is a `BuildError`.
  */
-const checkBuild = (asset: OtherAsset, desktops: Set<string>): void => {
-  const { build } = asset;
-  if (build === undefined) {
+const checkTarget = (asset: OtherAsset, desktops: Set<string>): void => {
+  const { target } = asset;
+  if (target === undefined) {
     if (asset.kind === DESKTOP_KIND) throw new BuildError(`${basename(asset.path)} is a desktop build without its platform and format: --asset desktop:<platform>:<format>=<path>.`);
     return;
   }
-  if (!ReleasePlatform.safeParse(build.platform).success) throw new BuildError(`${JSON.stringify(build.platform)} is not a platform: <os>-<arch> as Node names them, such as darwin-arm64.`);
-  if (!AssetFormat.safeParse(build.format).success) throw new BuildError(`${JSON.stringify(build.format)} is not a format: lowercase letters and digits, in parts joined by dots, such as nsis or tar.gz.`);
+  if (!ReleasePlatform.safeParse(target.platform).success) throw new BuildError(`${JSON.stringify(target.platform)} is not a platform: <os>-<arch> as Node names them, such as darwin-arm64.`);
+  if (!AssetFormat.safeParse(target.format).success) throw new BuildError(`${JSON.stringify(target.format)} is not a format: lowercase letters and digits, in parts joined by dots, such as nsis or tar.gz.`);
   if (asset.kind !== DESKTOP_KIND) return;
-  const key = `${build.platform} as ${build.format}`;
+  const key = `${target.platform} as ${target.format}`;
   if (desktops.has(key)) throw new BuildError(`The release would publish two desktop builds for ${key}.`);
   desktops.add(key);
 };
@@ -82,7 +82,7 @@ const checkBuild = (asset: OtherAsset, desktops: Set<string>): void => {
 /**
  * Checks the other `assets` before anything is built: each exists, is of a
  * kind the manifest can list that is not the artefacts' own, with a platform
- * and format as `checkBuild` asks, and neither its name nor its sidecar's is
+ * and format as `checkTarget` asks, and neither its name nor its sidecar's is
  * one another asset or its sidecar has, the artefacts' (`artefactNames`) and
  * `release.json` among them; a compose file names the unreleased image
  * exactly once. Any other is a `BuildError`.
@@ -95,7 +95,7 @@ export const checkOtherAssets = (assets: readonly OtherAsset[], artefactNames: r
     if (!existsSync(asset.path)) throw new BuildError(`The ${asset.kind} asset ${asset.path} does not exist.`);
     if (!ReleaseAssetKind.safeParse(asset.kind).success) throw new BuildError(`${JSON.stringify(asset.kind)} is not an asset kind: lowercase letters, digits and hyphens, such as install-script.`);
     if (asset.kind === "environment") throw new BuildError(`${asset.path} cannot be an environment asset: those are the build's own artefacts.`);
-    checkBuild(asset, desktops);
+    checkTarget(asset, desktops);
     const name = nameOf(asset);
     const taken = filesOf(name).find((file) => names.has(file));
     if (taken !== undefined) throw new BuildError(`The release would publish two assets named ${taken}.`);
@@ -119,5 +119,5 @@ export const writeOtherAsset = async (asset: OtherAsset, out: string, image: Rel
   else if (asset.kind === "compose") writeFileSync(path, readFileSync(asset.path, "utf8").replace(UNRELEASED_IMAGE, () => image.reference));
   else copyFileSync(asset.path, path);
   const sha256 = await writeSidecar(path);
-  return { name, kind: asset.kind, platform: asset.build?.platform ?? null, format: asset.build?.format ?? formatOf(name), size: statSync(path).size, sha256 };
+  return { name, kind: asset.kind, platform: asset.target?.platform ?? null, format: asset.target?.format ?? formatOf(name), size: statSync(path).size, sha256 };
 };

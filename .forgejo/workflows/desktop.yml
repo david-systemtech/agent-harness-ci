@@ -4,8 +4,8 @@
 # builds first with the release build (#356), then checked as far as the
 # runner can read it. Nothing is kept or published: the release workflow's
 # desktop jobs build the desktops a tag publishes with these same steps
-# (#359; test/release-workflow.test.ts holds the two to that), and this
-# proves the build by hand before a tag needs it.
+# (#359; packages/desktop/scripts/desktop-build/workflow.test.ts holds the
+# two to that), and this proves the build by hand before a tag needs it.
 #
 #   arch     linux-x64, the Arch package, on `ci-x64`, an x86_64 ci runner
 #            in node:24-bookworm (the release job's label; until #813 puts

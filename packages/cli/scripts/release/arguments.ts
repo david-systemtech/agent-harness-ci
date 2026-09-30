@@ -25,7 +25,7 @@ const otherAssetOf = (argument: string, cwd: string): OtherAsset => {
     throw new ArgumentsError(`--asset takes <kind>=<path> or <kind>:<platform>:<format>=<path>, not ${JSON.stringify(argument)}.`);
   }
   const path = resolve(cwd, argument.slice(at + 1));
-  return platform && format ? { kind, path, build: { platform, format } } : { kind, path };
+  return platform && format ? { kind, path, target: { platform, format } } : { kind, path };
 };
 
 /**
