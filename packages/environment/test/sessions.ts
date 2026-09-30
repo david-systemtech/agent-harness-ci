@@ -68,6 +68,7 @@ export type SessionCommand =
   | "sessions.tag"
   | "sessions.untag"
   | "sessions.setDraft"
+  | "sessions.setBrowser"
   | "sessions.setGroup"
   | "sessions.restore";
 
@@ -138,6 +139,7 @@ export const freshSummary = (id: string, overrides: Partial<SessionSummary> = {}
   accountId: null,
   model: null,
   mode: null,
+  browser: null,
   pullRequests: [],
   draft: null,
   ...overrides,

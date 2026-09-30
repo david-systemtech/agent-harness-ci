@@ -1,7 +1,11 @@
 import {
   MAX_TAGS,
   awakeShelfOf,
+  type BrowserChooser,
+  type BrowserOnCreate,
   type Mode,
+  type SessionBrowser,
+  type SessionBrowserSetPayload,
   type SessionArchivedPayload,
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
@@ -56,6 +60,8 @@ export interface SessionState {
   readonly draft: string | null;
   /** What a user's settle or unsettle holds the session to until its next activity, or null. */
   readonly settledOverride: "settled" | "active" | null;
+  /** The browser the session chose, or null for none chosen (#550). */
+  readonly browser: SessionBrowser | null;
 }
 
 /** A purged session: its id stays used, so it reads as deleted with nothing left of it. */
@@ -75,6 +81,7 @@ export const PURGED_STATE: SessionState = {
   tags: [],
   draft: null,
   settledOverride: null,
+  browser: null,
 };
 
 /** Why a command is refused: its target is not there, or its state does not allow it. */
@@ -119,6 +126,8 @@ export interface CreateSession {
   readonly account: string | null;
   readonly model: string | null;
   readonly mode: Mode | null;
+  /** The session's first browser and who chose it, recorded after its creation; null for none chosen. */
+  readonly browser: BrowserOnCreate | null;
 }
 
 /** Facts about other aggregates `sessions.create` depends on. */
@@ -238,8 +247,9 @@ export const refuseCreate = (
 
 /**
  * Creates a session that has never existed: one `session.created`, with the
- * workspace and repository identity the resolver gave; refused as
- * `refuseCreate` says.
+ * workspace and repository identity the resolver gave, then its first
+ * browser when one was chosen (`session.browser.set`, with who chose it);
+ * refused as `refuseCreate` says.
  */
 export const decideCreate = (state: SessionState | null, command: CreateSession, context: CreateContext): Decision => {
   const refused = refuseCreate(state, command, context);
@@ -254,7 +264,9 @@ export const decideCreate = (state: SessionState | null, command: CreateSession,
     model: command.model,
     mode: command.mode,
   };
-  return { events: [{ type: "session.created", payload }] };
+  const created: EventInput = { type: "session.created", payload };
+  if (command.browser === null) return { events: [created] };
+  return { events: [created, browserSetEvent(command.browser.value, command.browser.chosenBy)] };
 };
 
 /**
@@ -386,6 +398,38 @@ export const decideUntag = (state: SessionState | null, command: TagSession): De
   if (held === undefined) return unchanged;
   const payload: SessionUntaggedPayload = { tag: held };
   return { events: [{ type: "session.untagged", payload }] };
+};
+
+/** `sessions.setBrowser`, or the agent's answer to the several-Chromes question: the browser, and who chose it. */
+export interface SetBrowser extends OnSession {
+  readonly browser: SessionBrowser | null;
+  readonly chosenBy: BrowserChooser;
+}
+
+/** A browser as a session keeps it: a Chrome's environment and id in lowercase, as the environment keeps every id. */
+const keptBrowser = (browser: SessionBrowser | null): SessionBrowser | null =>
+  browser?.kind === "chrome" ? { kind: "chrome", environmentId: browser.environmentId.toLowerCase(), chromeId: browser.chromeId?.toLowerCase() ?? null } : browser;
+
+/** Whether two browsers are the same choice: the same kind, and for a Chrome the same environment and Chrome. */
+const sameBrowser = (a: SessionBrowser | null, b: SessionBrowser | null): boolean =>
+  a === null || b === null ? a === b : a.kind === "chrome" && b.kind === "chrome" ? a.environmentId === b.environmentId && a.chromeId === b.chromeId : a.kind === b.kind;
+
+/** `session.browser.set` for `browser`, as the session keeps it, chosen by `chosenBy`. */
+const browserSetEvent = (browser: SessionBrowser | null, chosenBy: BrowserChooser): EventInput => {
+  const payload: SessionBrowserSetPayload = { browser: keptBrowser(browser), chosenBy };
+  return { type: "session.browser.set", payload };
+};
+
+/**
+ * Sets the session's browser (#550): the next run resolves it; a live run
+ * keeps what it resolved. The browser the session has is unchanged,
+ * whoever chooses it again.
+ */
+export const decideSetBrowser = (state: SessionState | null, command: SetBrowser): Decision => {
+  const session = present(state, command.sessionId);
+  if ("rejected" in session) return session;
+  if (sameBrowser(keptBrowser(command.browser), session.browser)) return unchanged;
+  return { events: [browserSetEvent(command.browser, command.chosenBy)] };
 };
 
 /**

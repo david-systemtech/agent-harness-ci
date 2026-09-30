@@ -1,4 +1,4 @@
-import { DEFAULT_TITLE, type Group, type SessionSummary, type TitleSource } from "@agent-harness/contracts";
+import { DEFAULT_TITLE, type Group, type SessionBrowser, type SessionSummary, type TitleSource } from "@agent-harness/contracts";
 import type { SqlValue } from "../event-log/event-log.js";
 
 /**
@@ -48,6 +48,8 @@ export interface SessionRow {
   account_id: string | null;
   model: string | null;
   mode: string | null;
+  /** The session's browser as JSON; null for none chosen. */
+  browser: string | null;
   pull_requests: string;
   draft: string | null;
   deleted_at: string | null;
@@ -96,6 +98,7 @@ export const SESSION_LIST_TABLES = {
     account_id TEXT,
     model TEXT,
     mode TEXT,
+    browser TEXT,
     pull_requests TEXT NOT NULL DEFAULT '[]',
     draft TEXT,
     deleted_at TEXT,
@@ -130,6 +133,9 @@ export const titleOf = (userTitle: string | null, generatedTitle: string | null)
 export const tagsOf = (reader: Reader, id: string): string[] =>
   reader.all<{ tag: string }>("SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_key", id).map((row) => row.tag);
 
+/** The browser a `sessions` row holds as JSON; null for none chosen. */
+export const browserOf = (column: string | null): SessionBrowser | null => (column === null ? null : (JSON.parse(column) as SessionBrowser));
+
 /** A `sessions` row as the summary, its tags read beside it. */
 export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   id: row.id,
@@ -158,6 +164,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   accountId: row.account_id,
   model: row.model,
   mode: row.mode as SessionSummary["mode"],
+  browser: browserOf(row.browser),
   pullRequests: JSON.parse(row.pull_requests) as SessionSummary["pullRequests"],
   draft: row.draft,
 });
