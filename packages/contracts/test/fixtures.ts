@@ -15,7 +15,7 @@ import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
-import { managedToolMethodFixtures, managedToolSchemaFixtures, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
+import { managedToolMethodFixtures, managedToolSchemaFixtures, toolRunNotices, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
@@ -824,6 +824,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
         payload: { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] },
       },
       toolsUpdatedNotice.valid,
+      ...toolRunNotices.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       validEnvironmentStartedEvent,
     ],
@@ -854,6 +855,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: { step: "forges" } },
       { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
       toolsUpdatedNotice.invalid,
+      ...toolRunNotices.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       validEnvelope,
     ],

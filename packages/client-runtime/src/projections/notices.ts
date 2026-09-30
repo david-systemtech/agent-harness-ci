@@ -196,8 +196,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "key-manager.value-copied":
           return;
         // A probe changing managed-tool rows raises none: a newer version is a badge, and a required tool missing or below
-        // its minimum is its step's health failure (ADR 0026); tools.list's cache follows it (#384).
+        // its minimum is its step's health failure (ADR 0026); tools.list's cache follows it (#384). A tool run's start and end
+        // (#376) raise none either: the person who ran it watches its terminal, and its row changes through tools.updated.
         case "tools.updated":
+        case "tool.run-started":
+        case "tool.run-finished":
           return;
         // Settings changed (#391): the request cache reads them again; where they show says what changed.
         case "settings.changed":

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolCommandMethod",
+  "type": "string",
+  "enum": [
+    "homebrew",
+    "winget",
+    "apt",
+    "dnf",
+    "script",
+    "npm"
+  ],
+  "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package, which it only updates."
+}

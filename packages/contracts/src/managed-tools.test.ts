@@ -225,9 +225,14 @@ describe("tools.detail", () => {
 });
 
 describe("tools.list", () => {
-  it("is a read query taking an optional refresh, answering the rows in the table's order and when they were probed; tools.detail a read query and tools.verify an admin one", () => {
+  it("is a read query taking an optional refresh, answering the rows in the table's order and when they were probed; tools.detail a read query, tools.verify an admin one and tools.run an admin command", () => {
     const owned = methods.filter((m) => m.name.startsWith("tools."));
-    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({ "tools.list": ["query", "read"], "tools.detail": ["query", "read"], "tools.verify": ["query", "admin"] });
+    expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "tools.list": ["query", "read"],
+      "tools.detail": ["query", "read"],
+      "tools.verify": ["query", "admin"],
+      "tools.run": ["command", "admin"],
+    });
     const list = registry["tools.list"];
     expect(list.params.safeParse({}).success).toBe(true);
     expect(list.params.safeParse({ refresh: true }).success).toBe(true);

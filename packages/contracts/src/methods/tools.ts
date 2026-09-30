@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { DoctorToolName, ManagedToolDetail, ManagedToolRow, ManagedToolVerification, VerifiableToolName } from "../managed-tools.js";
-import { defineMethod } from "../method.js";
+import { InstallableToolName, RunnableToolAction, ToolCommandMethod, ToolNotRunnableError } from "../managed-tool-commands.js";
+import { DoctorToolName, ManagedToolDetail, ManagedToolName, ManagedToolRow, ManagedToolVerification, ToolDoctorReport, VerifiableToolName } from "../managed-tools.js";
+import { commandParams, defineMethod } from "../method.js";
 import { Timestamp } from "../primitives.js";
+import { TerminalColumns, TerminalId, TerminalRows, ToolTerminalInfo } from "../terminals.js";
 
 /**
  * The Managed tools methods (key-managers spec, "Wire methods"; ADR 0026).
@@ -9,7 +11,8 @@ import { Timestamp } from "../primitives.js";
  * its start, and on a `refresh` (Set up or About opening) at most every
  * fifteen minutes. A client never probes a tool itself, nor fetches its
  * latest version. `tools.detail` runs a tool's `doctor` (#374);
- * `tools.verify` runs a tool's verify command on the environment (#375).
+ * `tools.verify` runs a tool's verify command on the environment (#375);
+ * `tools.run` installs or updates a tool in a tool terminal (#376).
  */
 
 /**
@@ -74,4 +77,54 @@ export const toolsVerify = defineMethod({
   params: z.object({ tool: VerifiableToolName }),
   result: ManagedToolVerification,
   errors: [],
+});
+
+/**
+ * Installs or updates a tool (#376; ADR 0026): opens a tool terminal with
+ * the id given and runs, through the user's login shell, the command the
+ * closed command table holds for the tool, the method and this platform
+ * (`MANAGED_TOOL_COMMANDS`): Install the first method available here, in
+ * the order Homebrew, WinGet, the vendor's apt or dnf repository, the
+ * vendor's script; Update the method the tool's row says it was installed
+ * by. `vault` is never installed: its Install runs `bao`'s. Update on
+ * `claude` runs its `doctor` first (`tools.detail`), whose report the
+ * answer carries beside the method the row detected. The terminal streams
+ * through `terminals.subscribe` and takes a `sudo` password through
+ * `terminals.write`, which, like its resize and close, needs `admin`; it
+ * closes on `terminals.close`, or thirty minutes after its command exits.
+ * `tool.run-started` is appended with the command; when the command exits
+ * the login shell's PATH is read again, the tool probed (a changed row
+ * raising `tools.updated`) and verified, and `tool.run-finished` appended
+ * with the exit code and the verification.
+ *
+ * A Copy-only row, a tool no method available here installs, or `vault`'s
+ * Update is `tool_not_runnable`, answering the vendor's documented command.
+ * One tool run per environment runs at a time, since package managers
+ * lock: another while one is under way is `conflict` reason
+ * `tool_run_in_progress`, naming its tool and terminal. An id used on the
+ * environment already is `conflict` reason `exists`, and an environment that
+ * cannot start a pseudo-terminal `conflict` reason `pty_unavailable`.
+ */
+export const toolsRun = defineMethod({
+  name: "tools.run",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    tool: ManagedToolName.meta({ description: "The tool whose row's action this is; vault's Install installs bao." }),
+    action: RunnableToolAction,
+    id: TerminalId.meta({ description: "The tool terminal's id, a version 4 UUID the client mints so it can subscribe while the command is in flight." }),
+    cols: TerminalColumns.optional().meta({ description: "The terminal's width; preset 80." }),
+    rows: TerminalRows.optional().meta({ description: "The terminal's height; preset 24." }),
+  }),
+  result: z.object({
+    terminal: ToolTerminalInfo,
+    tool: InstallableToolName.meta({ description: "The tool installed or updated: bao for vault's Install." }),
+    action: RunnableToolAction,
+    method: ToolCommandMethod,
+    command: z.string().min(1).meta({ description: "The command line the login shell runs, each argument quoted as one word." }),
+    doctor: ToolDoctorReport.nullable().meta({
+      description: "For Update on claude, what claude doctor said before the command ran, to set beside the method the row detected, which the run used; null otherwise.",
+    }),
+  }),
+  errors: [ToolNotRunnableError],
 });

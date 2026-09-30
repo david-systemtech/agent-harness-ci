@@ -249,6 +249,7 @@ describe("the method registry", () => {
       "keyManagers.connections.remove",
       "keyManagers.move",
       "keyManagers.move.copyValue",
+      "tools.run",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -463,6 +464,7 @@ describe("the method registry", () => {
       | "tools.list"
       | "tools.detail"
       | "tools.verify"
+      | "tools.run"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

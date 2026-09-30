@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstallableToolName",
+  "type": "string",
+  "enum": [
+    "claude",
+    "bao",
+    "doppler",
+    "op",
+    "bws",
+    "gh"
+  ],
+  "description": "A managed tool the harness installs or updates: every one but vault, which it never installs, being under the Business Source License."
+}

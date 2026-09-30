@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolRunFinishedPayload",
+  "type": "object",
+  "properties": {
+    "tool": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "bao",
+        "doppler",
+        "op",
+        "bws",
+        "gh"
+      ],
+      "description": "The tool installed or updated: bao for vault's Install."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "install",
+        "update"
+      ],
+      "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "homebrew",
+        "winget",
+        "apt",
+        "dnf",
+        "script",
+        "npm"
+      ],
+      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package, which it only updates."
+    },
+    "terminalId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The tool terminal the command runs in, so its id is never used again."
+    },
+    "exitCode": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The command's exit code: -1 when it could not start; null when the environment stopped before it exited."
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The signal that ended it, when one did."
+    },
+    "cause": {
+      "type": "string",
+      "enum": [
+        "exited",
+        "closed",
+        "failed"
+      ],
+      "description": "Why it ended: exited on its own; closed (terminals.close, or the environment stopping); failed (it could not start)."
+    },
+    "verification": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tool": {
+              "type": "string",
+              "enum": [
+                "bao",
+                "vault",
+                "doppler",
+                "op",
+                "bws",
+                "gh"
+              ],
+              "description": "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none."
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed",
+                "not-installed"
+              ],
+              "description": "How a verify command came out: passed; failed; or not-installed, the tool not found where its row says, so nothing ran."
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[^\\r\\n]+$",
+              "description": "One line saying why: what passed (for bao or vault, the run token's policies; for gh, the hosts and logins it is signed in to), or what failed (OpenBao sealed, unreachable, a lookup refused, no connection injecting for the tool's provider), scrubbed of every secret."
+            }
+          },
+          "required": [
+            "tool",
+            "outcome",
+            "reason"
+          ],
+          "description": "A managed tool's verify command, as it came out: the tool, passed, failed or not installed, and one line saying why."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How the tool's verify command came out once the PATH was read again and the tool probed; null for claude, which has none, and when the environment stopped first."
+    }
+  },
+  "required": [
+    "tool",
+    "action",
+    "method",
+    "terminalId",
+    "exitCode",
+    "signal",
+    "cause",
+    "verification"
+  ],
+  "description": "tool.run-finished: a tool run ended: its exit code and why, once the login shell's PATH was read again, the tool probed (a changed row raising tools.updated) and verified."
+}

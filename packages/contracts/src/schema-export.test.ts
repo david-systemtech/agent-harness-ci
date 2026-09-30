@@ -68,6 +68,7 @@ describe("the JSON Schema export", () => {
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
       { path: "data/settings-addresses.json", title: "Settings addresses", schema: "settings/address-row.json" },
       { path: "data/managed-tools.json", title: "Managed tools", schema: "managed-tools/tool.json" },
+      { path: "data/managed-tool-commands.json", title: "Managed tool commands", schema: "managed-tools/command-entry.json" },
       { path: "data/catalogue-skills.json", title: "Catalogue skills", schema: "catalogue/skill-entry.json" },
       { path: "data/catalogue-instruction-groups.json", title: "Catalogue instruction groups", schema: "catalogue/instruction-group.json" },
       { path: "data/catalogue-instructions.json", title: "Catalogue instructions", schema: "catalogue/instruction-entry.json" },
