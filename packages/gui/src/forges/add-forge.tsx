@@ -1,6 +1,6 @@
 import { FORGE_KIND_WORDS, addFromGh, addPastedForge, detectForge, tokenPageWords, type ForgeOutcome } from "@agent-harness/client-runtime";
 import type { ResultOf } from "@agent-harness/contracts";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogContent, Field, Input } from "../ui/index.js";
 import { ExternalLink } from "../session/external-link.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -27,6 +27,8 @@ export const AddForge = ({ environmentId, environmentName, close, say }: AddForg
   const runtime = useRuntime();
   const clock = useClock();
   const [url, setUrl] = useState("");
+  // The URL as typed now, which an answer to Find the forge is checked against when it lands.
+  const typed = useRef(url);
   const [token, setToken] = useState("");
   const [found, setFound] = useState<ResultOf<"forge.detect"> | undefined>(undefined);
   const [line, setLine] = useState<string | undefined>(undefined);
@@ -34,6 +36,7 @@ export const AddForge = ({ environmentId, environmentName, close, say }: AddForg
   const gh = runtime.capability(environmentId, "shell.gh");
 
   const type = (next: string) => {
+    typed.current = next;
     setUrl(next);
     // What was found is for the URL it was found at.
     setFound(undefined);
@@ -53,8 +56,11 @@ export const AddForge = ({ environmentId, environmentName, close, say }: AddForg
     if (url.trim() === "") return setLine("Give the forge's URL.");
     setLine(undefined);
     setSending(true);
-    void detectForge(runtime, environmentId, url).then((detection) => {
+    const asked = url;
+    void detectForge(runtime, environmentId, asked).then((detection) => {
       setSending(false);
+      // An answer for a URL edited since is for none in the form: it is dropped.
+      if (typed.current !== asked) return;
       if (!detection.ok) return setLine(detection.line);
       setFound(detection.found);
     });

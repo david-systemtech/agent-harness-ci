@@ -54,6 +54,8 @@ export interface ScriptedForgesHandle {
   forgeToken(forgeAccountId: string): string | undefined;
   /** The environment's own verification of the forge account runs now and finds `problem` (null for none), recording it as `forge.account.verified` when it changed. */
   verifyForge(forgeAccountId: string, problem: Pick<ForgeProblem, "kind" | "message"> | null): void;
+  /** Holds every `forge.detect` unanswered until the function it returns is called, each then answered as asked. */
+  holdDetects(): () => void;
 }
 
 export interface ForgesHost {
@@ -147,7 +149,9 @@ export const scriptedForges = (host: ForgesHost): ScriptedForgesHandle => {
 
   wire.answer("forge.accounts.list", () => ({ result: { accounts: [...accounts] } }));
 
-  wire.answer("forge.detect", (params) => {
+  // The detections a test holds (`holdDetects`), each answered at the release; undefined while none are held.
+  let heldDetects: (() => void)[] | undefined;
+  const detect = (params: Record<string, unknown>): FakeAnswer => {
     const remote = normaliseRemote(String(params["url"]));
     if (remote === null) return noRemote(params["url"]);
     const found = detected(remote.origin);
@@ -155,6 +159,11 @@ export const scriptedForges = (host: ForgesHost): ScriptedForgesHandle => {
     if (refused !== undefined) return { error: refused };
     const kind = found as Exclude<ForgeKind, "gitlab">;
     return { result: { origin: remote.origin, kind, version: kind === "github" ? null : "11.0.1+gitea-1.22.0", tokenPages: forgeTokenPages(kind, remote.origin) } };
+  };
+  wire.answer("forge.detect", (params) => {
+    const waiting = heldDetects;
+    if (waiting === undefined) return detect(params);
+    return new Promise<FakeAnswer>((resolve) => waiting.push(() => resolve(detect(params))));
   });
 
   /** The source a given credential is kept as, and the token the vault keeps for it. */
@@ -298,6 +307,14 @@ export const scriptedForges = (host: ForgesHost): ScriptedForgesHandle => {
       if (record === undefined) throw new Error(`No forge account ${forgeAccountId} is scripted.`);
       pending.set(record.id, problem);
       verified(record, problemFound(record, problem), record.capabilities);
+    },
+    holdDetects() {
+      heldDetects ??= [];
+      return () => {
+        const waiting = heldDetects ?? [];
+        heldDetects = undefined;
+        for (const release of waiting) release();
+      };
     },
   };
 };

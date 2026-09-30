@@ -146,6 +146,30 @@ describe("Add by paste", () => {
     expect(await within(add).findByText("The forge could not be told: https://intranet.example.test answered, but not as a forge the harness knows: name its kind to add it anyway.")).toBeDefined();
     expect(within(add).queryByRole("region", { name: "The forge found" })).toBeNull();
   });
+
+  it("drops what forge.detect found once the URL was edited while it answered, and the add carries no kind for the URL typed", async () => {
+    const app = await opened();
+    await app.user.click(within(await openForges(app)).getByRole("button", { name: "Add a forge" }));
+    const add = await dialog("Add a forge on desk");
+    const desk = app.environment("desk");
+    const url = within(add).getByRole("textbox", { name: "URL" });
+    await app.user.type(url, "https://github.com");
+    const release = desk.holdDetects();
+    await app.user.click(within(add).getByRole("button", { name: "Find the forge" }));
+    await waitFor(() => expect(desk.requests("forge.detect")).toHaveLength(1));
+    await app.user.clear(url);
+    await app.user.type(url, "https://git.example.test");
+    release();
+    await waitFor(() => expect(within(add).getByRole("button", { name: "Find the forge" }).hasAttribute("disabled")).toBe(false));
+    expect(within(add).queryByRole("region", { name: "The forge found" })).toBeNull();
+
+    await app.user.type(within(add).getByLabelText("Token"), TOKEN);
+    await app.user.click(within(add).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
+    const [added] = desk.requests("forge.accounts.add");
+    expect(added?.params).toMatchObject({ url: "https://git.example.test" });
+    expect(added?.params).not.toHaveProperty("kind");
+  });
 });
 
 describe("Add from this computer's gh", () => {
