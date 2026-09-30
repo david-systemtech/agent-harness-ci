@@ -10,3 +10,4 @@ export { CHALLENGE_MARKERS, detectChallenge, type ChallengeMarkers } from "./cha
 export { SHELL_TEXT_CHARS, isShell } from "./shell.js";
 export { READ_PAGE_CHARS, pageStatement, pageText, type TextPage } from "./paging.js";
 export { articleMarkdown, type MarkdownOptions, type ReaderArticle } from "./markdown.js";
+export { readArticle, readFetchedPage, type FetchedPage } from "./reader.js";

@@ -53,6 +53,9 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@mozilla/readability':
+        specifier: ^0.6.0
+        version: 0.6.0
     devDependencies:
       jsdom:
         specifier: ^30.1.1
@@ -120,6 +123,9 @@ importers:
 
   packages/environment:
     dependencies:
+      '@agent-harness/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -135,6 +141,12 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.1
         version: 1.30.1(zod@4.6.5)
+      jsdom:
+        specifier: ^30.1.1
+        version: 30.1.1
+      pdfjs-dist:
+        specifier: ^6.3.289
+        version: 6.3.289
       ws:
         specifier: ^8.21.3
         version: 8.21.3
@@ -712,6 +724,10 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@mozilla/readability@0.6.0':
+    resolution: {integrity: sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ==}
+    engines: {node: '>=14.0.0'}
 
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
@@ -2659,6 +2675,10 @@ packages:
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
 
+  pdfjs-dist@6.3.289:
+    resolution: {integrity: sha512-ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw==}
+    engines: {node: '>=22.13.0 || >=24'}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -3257,6 +3277,9 @@ packages:
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
+ignoredOptionalDependencies:
+  - '@napi-rs/canvas'
+
 snapshots:
 
   '@alcalzone/ansi-tokenize@0.3.1':
@@ -3600,6 +3623,8 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
+
+  '@mozilla/readability@0.6.0': {}
 
   '@oxc-project/types@0.151.0': {}
 
@@ -5660,6 +5685,8 @@ snapshots:
   path-to-regexp@8.4.2: {}
 
   pathe@2.0.3: {}
+
+  pdfjs-dist@6.3.289: {}
 
   picocolors@1.1.1: {}
 
