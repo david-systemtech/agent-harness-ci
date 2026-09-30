@@ -25,7 +25,9 @@ import { SKILL_FILE } from "./reader.js";
  * followed its resolution, so a process resolved for and not yet spawned
  * still finds it; every other is deleted by the sweep, at start and
  * hourly. The materialiser's work runs one piece at a time, so a sweep
- * never meets a generation half made.
+ * never meets a generation half made, and a sweep renames a generation
+ * aside before deleting it, so one whose deletion is cut short never lies
+ * under its fingerprint for a resolution to reuse.
  */
 
 /** Where the generations lie, from the data directory. */
@@ -45,6 +47,9 @@ const FINGERPRINT_LENGTH = 32;
 
 /** The prefix of a generation being made, renamed to its fingerprint once whole. */
 const BUILDING = ".building-";
+
+/** The prefix of a generation being deleted, renamed from its fingerprint first. */
+const REMOVING = ".removing-";
 
 /** The plugin manifest's place in a generation, where Claude reads a local plugin's name. */
 const PLUGIN_MANIFEST = join(".claude-plugin", "plugin.json");
@@ -253,7 +258,12 @@ export const createGenerations = (options: GenerationsOptions): Generations => {
       for (const entry of entries) {
         if (kept.has(entry)) continue;
         try {
-          await removeGeneration(join(root, entry));
+          // Renamed aside whole first: a deletion cut short part-way (a file another process holds open) then leaves
+          // nothing under a fingerprint, where the set's next resolution would take it for whole.
+          const path = join(root, entry);
+          const aside = entry.startsWith(BUILDING) || entry.startsWith(REMOVING) ? path : join(root, `${REMOVING}${randomUUID()}`);
+          if (aside !== path) await rename(path, aside);
+          await removeGeneration(aside);
         } catch (error) {
           console.error(`Deleting the skill-set generation ${entry} failed; the next sweep will try again:`, error);
         }

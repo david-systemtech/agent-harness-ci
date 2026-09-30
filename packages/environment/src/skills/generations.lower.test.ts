@@ -16,8 +16,12 @@ import { GENERATIONS_DIRECTORY, GENERATION_SWEEP_INTERVAL_MS, createGenerations,
  * runs (`materialisation.test.ts`).
  */
 
-/** Whether the next file symlink is refused as Windows refuses one without the privilege; the rest go through. */
-const refusals = vi.hoisted(() => ({ fileSymlinks: false }));
+/**
+ * Whether a file symlink is refused as Windows refuses one without the
+ * privilege, and how many unlinks go through before the next is refused as
+ * a file another process holds open is (null: none is); the rest go through.
+ */
+const refusals = vi.hoisted(() => ({ fileSymlinks: false, unlinksBeforeBusy: null as number | null }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -27,6 +31,15 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       refusals.fileSymlinks && type === "file"
         ? Promise.reject(Object.assign(new Error(`EPERM: operation not permitted, symlink '${target}' -> '${path}'`), { code: "EPERM" }))
         : actual.symlink(target, path, type),
+    unlink: (path: string) => {
+      if (refusals.unlinksBeforeBusy === null) return actual.unlink(path);
+      if (refusals.unlinksBeforeBusy > 0) {
+        refusals.unlinksBeforeBusy -= 1;
+        return actual.unlink(path);
+      }
+      refusals.unlinksBeforeBusy = null;
+      return Promise.reject(Object.assign(new Error(`EBUSY: resource busy or locked, unlink '${path}'`), { code: "EBUSY" }));
+    },
   };
 });
 
@@ -185,6 +198,26 @@ describe("the sweep", () => {
     const two = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "account two");
     for (let sweep = 0; sweep < 3; sweep += 1) await generations.sweep();
     expect(listed(root)).toEqual([one.fingerprint, two.fingerprint].sort());
+  });
+
+  it("never leaves a generation whose deletion was cut short under its fingerprint, so the set's next resolution makes it whole", async () => {
+    const { generations, tdd, review, root } = fixture();
+    const whole = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "scope");
+    await generations.materialise({ members: [tdd], hiddenNativeNames: [] }, "scope");
+    await generations.sweep();
+    // One link goes, and the next is refused as a file another process holds open is: the deletion stops part-way.
+    refusals.unlinksBeforeBusy = 1;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    await generations.sweep();
+    expect(errors).toHaveBeenCalledOnce();
+    expect(listed(root)).not.toContain(whole.fingerprint);
+    const again = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "scope");
+    expect(again).toEqual(whole);
+    expect(readdirSync(join(again.generation as string, "skills")).sort()).toEqual(["review", "tdd"]);
+    // What the cut-short deletion left goes at the next sweep, with the generation no resolution holds current.
+    await generations.sweep();
+    expect(listed(root)).toEqual([whole.fingerprint]);
   });
 
   it("clears what a start before this one left: generations and a build a crash cut short", async () => {
