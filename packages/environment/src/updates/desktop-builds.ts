@@ -14,17 +14,23 @@ import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
  * the platform and format the desktop's shell reports, from the release the
  * environment's settings follow (the pin, else the channel's newest), so the
  * channel is the environment's by construction. The build is downloaded
- * through the ForgeService into `desktop/<version>/` in the data directory,
- * checked against the manifest's size and SHA-256, and answered with its
- * path, version and SHA-256; one already staged there that still matches
- * is answered without a download. One is staged at a time. Once a build is
- * staged, every other folder of the desktop's builds is removed; a removal
- * that fails is said on standard error as a cleanup failure and never fails
- * the build staged, so it never reads as a release that could not be read.
+ * through the ForgeService into `desktop-builds/<version>/` in the data
+ * directory, checked against the manifest's size and SHA-256, and answered
+ * with its path, version and SHA-256; one already staged there that still
+ * matches is answered without a download. One is staged at a time. Once a
+ * build is staged, every other folder of the desktop's builds is removed; a
+ * removal that fails is said on standard error as a cleanup failure and
+ * never fails the build staged, so it never reads as a release that could
+ * not be read.
  */
 
-/** The folder of the data directory the desktop's builds are staged in, one folder per version. */
-export const DESKTOP_BUILDS_DIRECTORY = "desktop";
+/**
+ * The folder of the data directory the desktop's builds are staged in, one
+ * folder per version. Never the desktop's own data directory, `desktop`
+ * (#394): everything in this folder but the build staged is removed, which
+ * there would be the desktop's profile, tokens and log (#788).
+ */
+export const DESKTOP_BUILDS_DIRECTORY = "desktop-builds";
 
 export interface DesktopStageOptions {
   readonly dataDir: string;

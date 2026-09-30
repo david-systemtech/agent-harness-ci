@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { SCOPES, STAGING_DIRECTORY, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { serverArtefact } from "../../test/artefacts.js";
@@ -71,7 +71,7 @@ describe("updates.desktop.stage", () => {
     const staged = await stage(client, { platform: "linux-x64", format: "pacman" });
 
     const bytes = buildBytes("0.5.0", "pacman");
-    expect(staged).toEqual({ path: join(t.dataDir, "desktop", "0.5.0", "agent-harness-0.5.0.pacman"), version: "0.5.0", sha256: sha256Of(bytes) });
+    expect(staged).toEqual({ path: join(t.dataDir, "desktop-builds", "0.5.0", "agent-harness-0.5.0.pacman"), version: "0.5.0", sha256: sha256Of(bytes) });
     expect(new Uint8Array(readFileSync(staged.path))).toEqual(bytes);
     expect(buildReads(fake)).toEqual([{ method: "GET", path: "/david/agent-harness/releases/download/v0.5.0/agent-harness-0.5.0.pacman", scheme: "token" }]);
   });
@@ -108,7 +108,7 @@ describe("updates.desktop.stage", () => {
     expect(await refusal(stage(client, { platform: "darwin-arm64", format: "zip" }))).toMatchObject({ code: "not_found" });
     expect(await refusal(stage(client, { platform: "linux-x64", format: "deb" }))).toMatchObject({ code: "not_found" });
     expect(buildReads(fake)).toEqual([]);
-    expect(existsSync(join(t.dataDir, "desktop", "0.5.0"))).toBe(false);
+    expect(existsSync(join(t.dataDir, "desktop-builds", "0.5.0"))).toBe(false);
   });
 
   it("takes the pinned version's build when a version is pinned, and on the stable channel passes over a prerelease", async () => {
@@ -129,7 +129,7 @@ describe("updates.desktop.stage", () => {
     fake.publish({ version: "0.5.0", desktop: [{ ...pacman, listed: { sha256: "c".repeat(64) } }] });
 
     expect(await refusal(stage(client, { platform: "linux-x64", format: "pacman" }))).toMatchObject({ code: "conflict", data: { reason: "artefact" } });
-    expect(readdirSync(join(t.dataDir, "desktop"))).toEqual([]);
+    expect(readdirSync(join(t.dataDir, "desktop-builds"))).toEqual([]);
   });
 
   it("refuses with the channel's reason when the release cannot be read: conflict no_release_access with no forge account for its origin", async () => {
@@ -151,7 +151,32 @@ describe("updates.desktop.stage", () => {
     const staged = await stage(client, { platform: "linux-x64", format: "pacman" });
 
     expect(staged.version).toBe("0.6.0");
-    expect(readdirSync(join(t.dataDir, "desktop"), { recursive: true })).toEqual(["0.6.0", join("0.6.0", "agent-harness-0.6.0.pacman")]);
+    expect(readdirSync(join(t.dataDir, "desktop-builds"), { recursive: true })).toEqual(["0.6.0", join("0.6.0", "agent-harness-0.6.0.pacman")]);
+  });
+
+  it("leaves the desktop's own data directory as it was, its profile, client session tokens and log, through a stage and the removal of the build staged before", async () => {
+    const { fake, t, client } = await withReleases();
+    // The desktop's data directory is `desktop` in the environment's (#394).
+    const own = join(t.dataDir, "desktop");
+    const files = {
+      "Local State": "{}\n",
+      [join("IndexedDB", "agent-harness_app_0.indexeddb.leveldb", "CURRENT")]: "MANIFEST-000001\n",
+      [join("secrets", "tokens.json")]: '{"token":"token-for-tests"}\n',
+      [join("logs", "desktop.log")]: "started\n",
+    };
+    for (const [name, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(own, name)), { recursive: true });
+      writeFileSync(join(own, name), content);
+    }
+    fake.publish(release("0.5.0"));
+    await stage(client, { platform: "linux-x64", format: "pacman" });
+    fake.publish(release("0.6.0"));
+
+    await stage(client, { platform: "linux-x64", format: "pacman" });
+
+    for (const [name, content] of Object.entries(files)) expect(readFileSync(join(own, name), "utf8")).toBe(content);
+    expect(readdirSync(own).sort()).toEqual(["IndexedDB", "Local State", "logs", "secrets"]);
+    expect(readdirSync(join(t.dataDir, "desktop-builds"))).toEqual(["0.6.0"]);
   });
 
   it("answers the build staged when a folder staged before cannot be removed, saying so as a cleanup failure and never as a release that could not be read", async () => {
@@ -160,7 +185,7 @@ describe("updates.desktop.stage", () => {
     fake.publish(release("0.5.0"));
     await stage(client, { platform: "linux-x64", format: "pacman" });
     fake.publish(release("0.6.0"));
-    const older = join(t.dataDir, "desktop", "0.5.0");
+    const older = join(t.dataDir, "desktop-builds", "0.5.0");
     vi.mocked(rm).mockImplementation(async (path, options) => {
       if (path === older) throw Object.assign(new Error(`EBUSY: resource busy or locked, rmdir '${older}'`), { code: "EBUSY" });
       return actual.rm(path, options);
@@ -171,9 +196,9 @@ describe("updates.desktop.stage", () => {
 
     const staged = await stage(client, { platform: "linux-x64", format: "pacman" });
 
-    expect(staged).toMatchObject({ version: "0.6.0", path: join(t.dataDir, "desktop", "0.6.0", "agent-harness-0.6.0.pacman") });
+    expect(staged).toMatchObject({ version: "0.6.0", path: join(t.dataDir, "desktop-builds", "0.6.0", "agent-harness-0.6.0.pacman") });
     expect(said).toHaveBeenCalledWith(expect.stringContaining(`Cleaning up the staged desktop build ${older} failed`), expect.any(Error));
-    expect(readdirSync(join(t.dataDir, "desktop")).sort()).toEqual(["0.5.0", "0.6.0"]);
+    expect(readdirSync(join(t.dataDir, "desktop-builds")).sort()).toEqual(["0.5.0", "0.6.0"]);
   });
 });
 
