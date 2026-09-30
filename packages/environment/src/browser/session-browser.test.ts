@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   ChatCompletion,
   CompletionsErrorBody,
+  RunBrowserResolution,
   registry,
   type Mode,
   type ParamsOf,
@@ -159,12 +160,10 @@ const program = (attended: boolean, ceiling: Mode = "acceptEdits"): Who => ({ ac
 const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
   vi.waitFor(() => expect(eventsOf(t, sessionId).some((event) => event.type === "run.ended" && event.payload["runId"] === runId)).toBe(true));
 
-/** The run's `run.browser.resolved`, less its run id. */
-const resolvedOf = (t: TestEnvironment, sessionId: string, runId: string): Omit<RunBrowserResolvedPayload, "runId"> | undefined => {
+/** The run's `run.browser.resolved`: what the field resolved to, and why. */
+const resolvedOf = (t: TestEnvironment, sessionId: string, runId: string): RunBrowserResolution | undefined => {
   const found = payloadsOf<RunBrowserResolvedPayload>(t, sessionId, "run.browser.resolved").find((payload) => payload.runId === runId);
-  if (found === undefined) return undefined;
-  const { runId: _, ...resolution } = found;
-  return resolution;
+  return found === undefined ? undefined : RunBrowserResolution.parse(found);
 };
 
 /** A session in the test workspace whose browser is `browser` (none chosen for null). */
