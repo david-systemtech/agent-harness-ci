@@ -228,7 +228,7 @@ Decided in building the Claude adapter (#121):
 - **Deviations, each with its follow-up**:
   - Unknown SDK message types, and known ones the vocabulary has no event for (`compact_boundary` among them), are dropped: ADR 0001 is about a reader keeping an unknown kind rather than failing on it, and the adapter contract has no opaque adapter event that would carry one to the log. Follow-up: an opaque adapter event type in the contract (the scoped append's accepted types and the snapshot's `opaque` item), and a compaction marker in the vocabulary.
   - `command.ran` is not produced; the mapper reads no slash-command envelope. Follow-up: map the CLI's command envelopes and `local_command_output`.
-  - A run's plugin is its skill set's generation (#495), which the host's skill-set seam resolves; until the materialiser (#496) fills the seam a run has none. The session store is passed since #137.
+  - A run's plugin is its skill set's generation (#495), which the host's skill-set seam resolves: the environment's materialiser (#496) links the own directory's members into it, and a run whose set has nothing to link has none. The session store is passed since #137.
   - Only `test/fixtures/sdk/signed-out.json` is recorded from the bundled binary; the other fixtures are shaped from the declarations. The ownership handshake (the owners on a turn's first reply naming the uuid-stamped prompts) rests on the declarations' description until a signed-in streaming-input turn with uuid-stamped prompts, a mid-turn send and a queued turn is recorded. Follow-up: record it on an account and replay it through `adapter.test.ts` before the handshake is trusted.
 
 Decided in building attachment staging (#185):
