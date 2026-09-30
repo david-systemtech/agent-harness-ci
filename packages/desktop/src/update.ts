@@ -268,12 +268,19 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
 
   const inTurn = oneAtATime();
   let handedOver: HandedOver | undefined;
+  let installingAtQuit = false;
 
   // The quit a build was handed over for: held back until it is installed, then let through.
+  // Every quit asked for meanwhile is held too, so none can leave the install half done.
   app.on("will-quit", (details) => {
+    if (installingAtQuit) {
+      details.preventDefault();
+      return;
+    }
     const handed = handedOver;
     if (handed === undefined) return;
     handedOver = undefined;
+    installingAtQuit = true;
     details.preventDefault();
     void inTurn(async () => {
       const found = await installable(handed.staged);
@@ -282,7 +289,10 @@ export const desktopUpdate = ({ app, platform, system, report }: UpdateParts): S
       .then((outcome) => {
         if (outcome.outcome === "failed") report(new Error(`The desktop's update at the quit: ${outcome.message}`));
       }, report)
-      .finally(() => app.quit());
+      .finally(() => {
+        installingAtQuit = false;
+        app.quit();
+      });
   });
 
   const apply = (staged: ShellStagedBuild, when: ShellApplyWhen): Promise<ShellApplyOutcome> =>

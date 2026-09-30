@@ -311,6 +311,33 @@ describe("apply on Arch", () => {
     expect(String(reported[0])).toMatch(/the authentication was refused, so 0\.5\.0 stays installed/);
     expect(electron.app.calls.map(([method]) => method)).not.toContain("relaunch");
   });
+
+  it("refuses every quit asked for while the install at the quit runs, and quits once it is done", async () => {
+    const { system, shell, electron } = await onArch(succeeded);
+    const staged = stagedBuild("0.6.0", "agent-harness-desktop-linux-x64.pkg.tar.zst");
+    // pacman says when it has started, and runs until the test lets it finish.
+    let started = () => {};
+    let finish = () => {};
+    const running = new Promise<void>((resolve) => (started = resolve));
+    system.answer("pkexec", () => {
+      started();
+      return new Promise<CommandResult>((resolve) => (finish = () => resolve(succeeded)));
+    });
+    let gone = false;
+    void electron.app.quitted.then(() => (gone = true));
+
+    await shell().update.apply(staged, "quit");
+    electron.app.quit();
+    await running;
+    // A second quit while pacman runs, as the dock's Quit or another Cmd-Q asks for.
+    electron.app.quit();
+    await Promise.resolve();
+    expect(gone).toBe(false);
+
+    finish();
+    await electron.app.quitted;
+    expect(system.ran.filter(([command]) => command === "pkexec")).toEqual([["pkexec", "pacman", "-U", "--noconfirm", staged.path]]);
+  });
 });
 
 describe("apply, on every platform", () => {
