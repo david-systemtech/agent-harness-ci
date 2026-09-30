@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueTag",
+  "type": "string",
+  "maxLength": 40,
+  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+  "description": "A word a skills entry is filed under, such as engineering or writing: a-z, 0-9 and single hyphens."
+}

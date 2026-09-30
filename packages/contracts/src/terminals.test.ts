@@ -65,7 +65,7 @@ describe("the terminal vocabulary", () => {
 
   it("snapshots a terminal with its retained scrollback and the sequences it spans", () => {
     const snapshot = {
-      terminal: { id: terminalId, sessionId, openedAt: "2026-09-24T00:00:00.000Z", cols: 80, rows: 24, exitCode: null, signal: null },
+      terminal: { id: terminalId, owner: "session", sessionId, openedAt: "2026-09-24T00:00:00.000Z", cols: 80, rows: 24, exitCode: null, signal: null },
       scrollback: "$ ",
       firstSequence: 1,
       lastSequence: 1,

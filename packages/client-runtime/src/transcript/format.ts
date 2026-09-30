@@ -164,6 +164,17 @@ export const clockTime = (iso: string): string => {
   return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
 };
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** A time where the client is: its clock time on the day it is `now`, else its day and clock time, the year too when it is not this one. */
+export const whenWords = (iso: string, now: Date): string => {
+  const at = new Date(iso);
+  const time = clockTime(iso);
+  if (at.toDateString() === now.toDateString()) return time;
+  const day = `${String(at.getDate())} ${MONTHS[at.getMonth()] ?? ""}`;
+  return at.getFullYear() === now.getFullYear() ? `${day} ${time}` : `${day} ${String(at.getFullYear())} ${time}`;
+};
+
 /** All the tokens a run spent, and its dollars when the provider said. */
 const spend = (usage: readonly ModelUsage[] | null): { readonly input: number; readonly output: number; readonly dollars: number | null } => {
   let input = 0;

@@ -19,6 +19,14 @@ import { GitCommit, SkillOrigin, SkillSetFingerprint } from "./skills.js";
  */
 
 /**
+ * An owned instruction's bounds (skills spec, "Owned instructions"): its
+ * title at most 120 characters, its Markdown body at most 20,000. A
+ * catalogue entry's title and text keep them, so a ticked copy always fits.
+ */
+export const MAX_INSTRUCTION_TITLE = 120;
+export const MAX_INSTRUCTION_BODY = 20_000;
+
+/**
  * The layers, from general to specific, in the order the text holds them:
  * the user layer (the orientation block, then owned instructions), the team
  * bank's, the project's (which Claude loads natively, so nothing is added
@@ -163,12 +171,6 @@ export const INSTRUCTION_SESSION_EVENT_TYPES = {
 
 /** The stream kind of the owned instructions; its one stream's id is the environment's. */
 export const INSTRUCTIONS_STREAM_KIND = "instructions";
-
-/** The most characters an owned instruction's title holds once trimmed (chosen default). */
-export const MAX_INSTRUCTION_TITLE = 120;
-
-/** The most characters an owned instruction's body holds (chosen default). */
-export const MAX_INSTRUCTION_BODY = 20000;
 
 export const InstructionId = z.uuidv4().meta({ description: "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase." });
 export type InstructionId = z.infer<typeof InstructionId>;

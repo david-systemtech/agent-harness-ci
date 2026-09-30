@@ -3,6 +3,7 @@ import { ACTION_GROUPS, SETTINGS_ROWS, isCommandId, type ActionId, type ListedAc
 import { Command } from "cmdk";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
+import { showSession } from "../grid/layout.js";
 import { keyLabel } from "../keys/chords.js";
 import { KeyContext, useEveryWiredAction, useIsKeyOf, useKeyAction, useMacOS, type Offer, type WiredAction } from "../keys/key-dispatch.js";
 import { dimReason } from "../settings/rail.js";
@@ -214,7 +215,7 @@ const SessionsPage = ({ query, close }: { readonly query: string; readonly close
     detail: environments.find((environment) => environment.environmentId === row.environmentId)?.name ?? THIS_MACHINE,
     keys: [],
     offer: PRESENT,
-    choose: () => close(() => setLayout({ session: { environmentId: row.environmentId, sessionId: row.summary.id } })),
+    choose: () => close(() => setLayout((held) => showSession(held, held.focused, { environmentId: row.environmentId, sessionId: row.summary.id }))),
   });
   return (
     <>

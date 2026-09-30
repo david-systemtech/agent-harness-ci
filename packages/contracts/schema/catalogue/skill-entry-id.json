@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueSkillEntryId",
+  "type": "string",
+  "maxLength": 64,
+  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+  "description": "A skills entry's id: 1 to 64 of a-z, 0-9 and single hyphens, such as mattpocock-engineering. Stable across builds."
+}

@@ -79,6 +79,24 @@ export const loginShell = (
   return { file: shell, args: LOGIN_FLAG_SHELLS.has(name) ? ["-l"] : [] };
 };
 
+/** Shells whose `-l` must be their only flag, so a command line is given them without it. */
+const LOGIN_FLAG_ALONE = new Set(["csh", "tcsh"]);
+
+/** PowerShell, which takes a command line after `-Command`. */
+const POWERSHELL = /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/i;
+
+/**
+ * `shell` running the command line `line` and nothing else: after `-c`,
+ * with the login flag it has (so the profile builds the PATH as it would
+ * for a person's terminal), but alone for csh and tcsh, whose `-l` takes no
+ * other flag; after `-Command` for PowerShell. What a tool terminal (#362)
+ * and the read of the login shell's PATH run.
+ */
+export const throughShell = (shell: ShellCommand, line: string): ShellCommand => {
+  if (POWERSHELL.test(shell.file)) return { file: shell.file, args: [...shell.args, "-Command", line] };
+  return { file: shell.file, args: [...(LOGIN_FLAG_ALONE.has(basename(shell.file)) ? [] : shell.args), "-c", line] };
+};
+
 /** What Windows needs of the environment to run anything, carried when present. */
 const WINDOWS_KEPT = [
   "SystemRoot",

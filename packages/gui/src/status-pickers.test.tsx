@@ -175,7 +175,7 @@ describe("the account picker", () => {
     await app.user.click(within(await openPicker(app, "Account")).getByRole("menuitem", { name: /^personal/ }));
     await waitFor(() => expect(sent(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: session, account: "account-2" })]));
     const fork = String(sent(env, "sessions.fork")[0]?.["id"]);
-    await waitFor(() => expect(app.presentation.values.read().paneLayout.session).toEqual({ environmentId: env.environmentId, sessionId: fork }));
+    await waitFor(() => expect(app.shown()).toEqual({ environmentId: env.environmentId, sessionId: fork }));
     await waitFor(() => expect(env.summary(fork).draft).toBe("and the tests"));
     expect(await within(statusLine()).findByRole("button", { name: "Account: personal seth@home.test" })).toBeTruthy();
   });
@@ -224,7 +224,7 @@ describe("the hand-off offer and picker", () => {
     await waitFor(() => expect(sent(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: session, account: "account-2" })]));
     expect(screen.queryByRole("dialog")).toBeNull();
     const fork = String(sent(env, "sessions.fork")[0]?.["id"]);
-    await waitFor(() => expect(app.presentation.values.read().paneLayout.session?.sessionId).toBe(fork));
+    await waitFor(() => expect(app.shown()?.sessionId).toBe(fork));
   });
 });
 

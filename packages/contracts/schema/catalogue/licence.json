@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueLicence",
+  "type": "object",
+  "properties": {
+    "spdx": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9.+-]+(?: (?:AND|OR|WITH) [A-Za-z0-9.+-]+)*$"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The licence as an SPDX identifier or expression, such as MIT or Apache-2.0; null exactly when nothing declares one."
+    },
+    "where": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "file"
+            },
+            "path": {
+              "description": "The licence file's path from the repository's root, such as LICENSE, or cursor-team-kit/LICENSE where each folder has its own.",
+              "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "A licence file states it."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "frontmatter"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "Only a license key in the skills' SKILL.md frontmatter states it: no licence file."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "readme"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "Only the README states it: no licence file."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "Nothing states a licence."
+        }
+      ],
+      "description": "Where a skills entry's licence was declared: file (a licence file, by its path from the repository's root), frontmatter (a license key in SKILL.md, no file), readme (the README, no file) or none. A client shows a file plainly and anything else with a caution and the note."
+    },
+    "holder": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The copyright holder the declaration names; null when it names none."
+    },
+    "link": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "An https link to read the declaration: the licence file, the SKILL.md or the README; the repository when nothing declares one."
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What a person should know before relying on the licence, shown beside it: present whenever it is not declared in a file or names no holder; null when a file states it with its holder."
+    }
+  },
+  "required": [
+    "spdx",
+    "where",
+    "holder",
+    "link",
+    "note"
+  ],
+  "description": "A skills entry's licence: the SPDX id (null when nothing declares one), where it was declared, the copyright holder or null, an https link to the declaration, and a note, present whenever the licence is not in a file or names no holder."
+}
