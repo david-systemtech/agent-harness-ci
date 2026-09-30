@@ -1,7 +1,12 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
+import {
+  getSessionMessages as sdkGetSessionMessages,
+  getSubagentMessages as sdkGetSubagentMessages,
+  listSessions as sdkListSessions,
+  listSubagents as sdkListSubagents,
+} from "@anthropic-ai/claude-agent-sdk";
 import { SKILL_PLUGIN_NAME, SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
@@ -11,6 +16,7 @@ import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
+import { readDirectoryHistory } from "./imported-history.js";
 import { createLoginRefresher, reachedPlanLimits, type RefreshOutcome } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
@@ -307,6 +313,17 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     invocationText: (member) => (member.native ? `/${member.name}` : `/${SKILL_PLUGIN_NAME}:${member.name}`),
     // An account directory's sessions, every project of it, for Carry over (#578): read, and never written.
     listSessions: (account) => listDirectorySessions({ queue, directory: configDirectory(account), listSessions: () => sdkListSessions() }),
+    // A listed session's history, for an imported session's first open (#579): read through the SDK's helpers, and never written.
+    readHistory: (account, providerSessionId) =>
+      readDirectoryHistory({
+        queue,
+        directory: configDirectory(account),
+        providerSessionId,
+        clock,
+        getSessionMessages: (id) => sdkGetSessionMessages(id),
+        listSubagents: (id) => sdkListSubagents(id),
+        getSubagentMessages: (id, agent) => sdkGetSubagentMessages(id, agent),
+      }),
     async commands(account, workspace, scope): Promise<readonly ProviderCommand[]> {
       try {
         // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.
