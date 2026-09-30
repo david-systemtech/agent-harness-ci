@@ -460,7 +460,7 @@ const runFields = {
   terminalId: TerminalId.meta({ description: "The tool terminal the command runs in, so its id is never used again." }),
 };
 
-/** `tool.run-started`: a tool run began, by the client session the event names (#376). */
+/** `tool.run-started`: a tool run began, by the client session the event's actor names (#376). */
 export const ToolRunStartedPayload = z
   .object({ ...runFields, command: CommandLine.meta({ description: "The command line the login shell runs." }) })
   .meta({ description: "tool.run-started: a client session began installing or updating a tool in a tool terminal: the tool, the action, the method, the terminal and the command line." });
