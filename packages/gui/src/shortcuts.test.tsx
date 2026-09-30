@@ -257,6 +257,14 @@ describe("a remap", () => {
     expect(remaps(app)).toEqual({});
   });
 
+  it("is the key the find bar's tooltips name", async () => {
+    const app = await opened({ presentation: { keyRemaps: { "transcript.findClose": ["Mod+W"] } } });
+    await app.user.keyboard("{Control>}f{/Control}");
+    const bar = await screen.findByRole("search", { name: "Find in the conversation" });
+    expect(within(bar).getByRole("button", { name: "Close find" }).getAttribute("title")).toBe("Close (Ctrl+W)");
+    expect(within(bar).getByRole("button", { name: "Next match" }).getAttribute("title")).toBe("Next match (Enter)");
+  });
+
   it("is read by id against the defaults: one of an id the list no longer has is dropped, the rest kept", async () => {
     const app = await opened({ presentation: { keyRemaps: { "app.sidebar.toggle": ["Mod+Shift+S"], "app.gone": ["Mod+G"] } as never } });
     expect(remaps(app)).toEqual({ "app.sidebar.toggle": ["Mod+Shift+S"] });

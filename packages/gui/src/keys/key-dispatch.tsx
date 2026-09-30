@@ -10,7 +10,7 @@ import {
   type KeyActionId,
 } from "@agent-harness/contracts";
 import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { chordOfEvent, chordOfKey, type PressedKey } from "./chords.js";
+import { chordOfEvent, chordOfKey, keyLabel, type PressedKey } from "./chords.js";
 import { DEFAULT_KEY_MAP, keysInForce, type KeyMap } from "./key-map.js";
 
 /**
@@ -294,6 +294,15 @@ export const useMacOS = (): boolean => useDispatch().macOS;
 
 /** What the keys in force are read from: this client's remaps and "Esc stops the run" (`keysInForce`). */
 export const useKeyMap = (): KeyMap => use(KeyMapContext);
+
+/** The first of the action `id`'s keys in force, as this platform writes it (`Ctrl+F`, `⌘F`); undefined while it has none. */
+export const useFirstKey = (id: KeyActionId): string | undefined => {
+  const { macOS } = useDispatch();
+  const map = useKeyMap();
+  const action = actionById(id);
+  const key = action === undefined ? undefined : keysInForce(action, map)[0];
+  return key === undefined ? undefined : keyLabel(key, macOS);
+};
 
 /** Whether a key pressed is one of the action `id`'s keys in force on this platform. */
 export const useIsKeyOf = (id: KeyActionId): ((event: PressedKey) => boolean) => {

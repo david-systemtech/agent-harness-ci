@@ -1,10 +1,8 @@
 import { COUNTDOWN_TICK_MS, choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
-import { actionById, describeDenylistMatch, type KeyActionId, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
+import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useInFocusedPane } from "../grid/grid.js";
-import { keyLabel } from "../keys/chords.js";
-import { KeyContext, useEscapeStep, useKeyAction, useKeyMap, useMacOS } from "../keys/key-dispatch.js";
-import { keysInForce, type KeyMap } from "../keys/key-map.js";
+import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { Markdown } from "../transcript/markdown.js";
 import { Button, Input } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
@@ -306,20 +304,11 @@ const CardKeys = ({ allow, deny, offer }: { readonly allow: () => void; readonly
   return null;
 };
 
-/** The first of an action's GUI keys in force, as this platform writes it. */
-const firstKey = (id: KeyActionId, map: KeyMap, macOS: boolean): string | undefined => {
-  const action = actionById(id);
-  const key = action === undefined ? undefined : keysInForce(action, map)[0];
-  return key === undefined ? undefined : keyLabel(key, macOS);
-};
-
 /** What the card's keys do, in the keys in force as this platform writes them. */
 const KeysHint = ({ kind }: { readonly kind: PromptKind }) => {
-  const macOS = useMacOS();
-  const map = useKeyMap();
   const said = [
-    [firstKey("permission.deny", map, macOS), KEY_WORDS[kind].deny],
-    [firstKey("permission.allow", map, macOS), KEY_WORDS[kind].allow],
+    [useFirstKey("permission.deny"), KEY_WORDS[kind].deny],
+    [useFirstKey("permission.allow"), KEY_WORDS[kind].allow],
   ].flatMap(([key, words]) => (key === undefined ? [] : [`${key} ${words}`]));
   return <p className="text-xs text-ink-faint">{said.join(" · ")}</p>;
 };
