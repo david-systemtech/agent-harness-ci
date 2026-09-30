@@ -93,12 +93,16 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
       return { aggregate: accessLog.stream, result: { denylist: next }, events: changes(held, next) };
     },
 
-    /** Every preset the denylist no longer holds, by id, at the end of its section; an edited or disabled preset is left as it is. */
-    "permissions.denylist.restorePresets": () => {
+    /**
+     * Every preset the denylist no longer holds, by id, at the end of its section, in the sections named or every one;
+     * an edited or disabled preset is left as it is.
+     */
+    "permissions.denylist.restorePresets": (params) => {
       const held = readDenylist(reader);
       const restored: { section: DenylistSection; entry: DenylistEntry }[] = [];
       const next: Denylist = { ...held };
-      for (const section of DENYLIST_SECTIONS) {
+      const named = params.sections;
+      for (const section of DENYLIST_SECTIONS.filter((candidate) => named === undefined || named.includes(candidate))) {
         const ids = new Set(held[section].map((entry) => entry.id));
         const missing = presets()[section].filter((entry) => !ids.has(entry.id));
         next[section] = [...held[section], ...missing];

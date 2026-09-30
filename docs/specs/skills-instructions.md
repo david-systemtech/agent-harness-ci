@@ -248,13 +248,20 @@ Chosen in the trust gate's build (#500), for review:
 - **The project layer** for an adapter whose descriptor's `nativeProjectInstructions` is false: the file as it is, one part named by the file, read from the root of the repository holding the workspace.
 - **The client runtime** refreshes `trust.get` and `trust.list` on `trust.updated` and on a forge account added, updated, verified or removed, which can move a key's canonical host.
 
+Chosen in the adapter contract's build (#495), for review:
+
+- **The descriptor's `nativeSkillRoots`** name roots of a trusted repository: `.claude/skills`, `.agents/skills` or `.claude/commands` (the repository's own commands). Claude declares `.claude/skills` and `.claude/commands`.
+- **The run's skill set** (`RunSkillSet`, contracts) is the generation's absolute path or null, the fingerprint or null while nothing resolves one, every member by name with its origin, invocation and whether it is native, and `hiddenNativeNames`. The host's skill-set seam resolves it for the session (none for a commands listing), the account, the workspace, the trust and the adapter's native roots, before the run's instructions are composed; a resolution that fails ends the run `error` with no provider process begun. The seam's preset is the empty set.
+- **A commands listing** is handed the workspace's trust read with no repository identity, as `instructions.preview` reads a new session's, until `commands.list` takes a session (#503); and its control query hides the hidden native names as a run does, so the listing shows what a run would offer.
+- **The invocation text** is a required member of the adapter contract, since every optional one pairs with a flag.
+
 Verify first, on the pinned SDK and its bundled CLI:
 
 1. A local plugin whose `skills/` entries are symbolic links loads each one, and junctions do on Windows (links were measured on Linux and Windows junctions fixed previously; re-check on this CLI).
-2. `skillOverrides` passed through the SDK's flag settings hides a project skill and leaves plugin skills alone, as the settings reference says.
+2. `skillOverrides` passed through the SDK's flag settings hides a project skill and leaves plugin skills alone, as the settings reference says. *Verified by #495 on 0.3.283 (CLI 2.1.283)*, through `supportedCommands()` on an unsampled query with the project source and a local plugin: `off` for a name hides the project's `.claude/skills` member and its `.claude/commands` command of that name, and leaves the plugin's member of the same name listed as `agent-harness:<name>`; keyed by the plugin's qualified name it hides nothing. A plugin's `skills/` entry that is a symbolic link loads on Linux (item 1's Windows junction is not measured).
 3. Under `settingSources ['project']` the trusted repository's `.claude/skills` and `.claude/commands` load natively, so leaving them out of the plugin lists each once.
 4. `supportedCommands()` marks built-ins, which the `/name` rule reads; if not, the rule needs its own list.
-5. Whether `reloadPlugins`, which the SDK now declares, could replace the fresh spawn after a skill-set change; the spawn is the safe first build.
+5. Whether `reloadPlugins`, which the SDK now declares, could replace the fresh spawn after a skill-set change; the spawn is the safe first build. *Measured by #495 on 0.3.283*: `reloadPlugins()` re-reads the plugin directories the process was started with (a skill added to one appears) and takes no path, so it cannot move a process to another generation's directory; `applyFlagSettings({skillOverrides})` changes nothing listed until a reload follows it. It could replace the spawn only if a generation were a directory changed in place, which snapshot members and generations kept while a process uses them rule out, so the spawn stays.
 6. Frontmatter `hooks` and `allowed-tools` in a tracked skill act as Claude defines them while the skill is active: the tool gate and denylist still run first, but a prompt may be skipped. `skills.get` should flag such members so the Skills pane can say so.
 
 Constraints on other workstreams: the orientation block (#91) and the forge's orientation lines (#87, whose draft names "when verified") must render from state without a clock, or every run after a verification spawns a fresh process; #90's bank layer the same. #88 seeds "About my setup" and calls `skills.carryOver`. The state import (ticket 56) maps the existing tracked repositories, always-on names and instruction library onto these commands.

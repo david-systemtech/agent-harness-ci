@@ -8,6 +8,21 @@
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
       "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "sections": {
+      "description": "The sections whose missing presets to re-add; absent, every section's.",
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "browserDomains",
+          "paths",
+          "commandPatterns",
+          "hosts"
+        ],
+        "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+      }
     }
   },
   "required": [

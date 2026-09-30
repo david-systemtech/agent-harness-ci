@@ -465,6 +465,7 @@ import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, Set
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
+  NativeSkillRoot,
   SkillInvocation,
   SkillMemberProblem,
   SkillMemberWarning,
@@ -533,12 +534,15 @@ import {
 } from "./routines.js";
 import {
   GitCommit,
+  RunSkillSet,
+  RunSkillSetMember,
   SkillChoice,
   SkillLayer,
   SkillMember,
   SkillMemberKind,
   SkillMemberRef,
   SkillOrigin,
+  SkillSetFingerprint,
   SkillSetMember,
   SkillSource,
   SkillSourceBranch,
@@ -875,6 +879,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/choice.json", title: "SkillChoice", schema: SkillChoice },
   { path: "skills/view.json", title: "SkillsView", schema: SkillsView },
   { path: "skills/skills-updated.json", title: "SkillsUpdatedPayload", schema: SkillsUpdatedPayload },
+  { path: "skills/native-root.json", title: "NativeSkillRoot", schema: NativeSkillRoot },
+  { path: "skills/set-fingerprint.json", title: "SkillSetFingerprint", schema: SkillSetFingerprint },
+  { path: "skills/run-skill-set-member.json", title: "RunSkillSetMember", schema: RunSkillSetMember },
+  { path: "skills/run-skill-set.json", title: "RunSkillSet", schema: RunSkillSet },
   { path: "skills/source-id.json", title: "SkillSourceId", schema: SkillSourceId },
   { path: "skills/git-commit.json", title: "GitCommit", schema: GitCommit },
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },

@@ -1,7 +1,8 @@
+import type { RunSkillSet } from "@agent-harness/contracts";
 import { query as sdkQuery, type Options, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Clock } from "../../serve/clock.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
-import { CLIENT_APP } from "./options.js";
+import { CLIENT_APP, flagSettings, skillPlugins } from "./options.js";
 
 /**
  * A query that is never sampled (the models fetch and the plan-usage read,
@@ -21,12 +22,25 @@ export interface ControlQueryOptions {
   /** The account's config directory, resolved. */
   readonly directory: string;
   readonly cwd: string;
-  /** Plugins to load: only the commands listing passes them, since only it describes what a run would offer. */
-  readonly pluginDirectory?: string | null;
+  /**
+   * The skill set to load as a run would, the generation as its plugin and
+   * the hidden native names off: only the commands listing passes one,
+   * since only it describes what a run would offer.
+   */
+  readonly skillSet?: RunSkillSet;
   /** Whether the workspace's repository passed the trust gate: its project settings then load, as a run's would. */
   readonly trusted?: boolean;
   readonly timeoutMs: number;
 }
+
+/** A skill set's plugin and flag settings as a run's options carry them (`options.ts`); nothing without a set. */
+const skillOptions = (skillSet: RunSkillSet | undefined): Pick<Options, "plugins" | "settings"> => {
+  if (skillSet === undefined) return {};
+  const plugins = skillPlugins(skillSet);
+  // No auto-memory directory: a listing keeps no memory, so the flag settings carry only what hides a skill.
+  const settings = flagSettings(null, skillSet);
+  return { ...(plugins.length > 0 && { plugins }), ...(settings !== null && { settings }) };
+};
 
 export const withControlQuery = async <T>(options: ControlQueryOptions, ask: (query: Query) => Promise<T>): Promise<T> => {
   const abort = new AbortController();
@@ -51,7 +65,7 @@ export const withControlQuery = async <T>(options: ControlQueryOptions, ask: (qu
     // Nothing is said, so nothing is kept: no transcript file for a query that never ran a turn.
     persistSession: false,
     ...(options.executablePath !== null && { pathToClaudeCodeExecutable: options.executablePath }),
-    ...(options.pluginDirectory !== undefined && options.pluginDirectory !== null && { plugins: [{ type: "local", path: options.pluginDirectory }] }),
+    ...skillOptions(options.skillSet),
   };
   let query: Query | undefined;
   try {

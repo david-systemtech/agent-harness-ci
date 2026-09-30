@@ -86,6 +86,27 @@ platform with two stand-in versions, A and B: a second copy of the stand-in whos
 1. Install from A and start it. Stop the service, copy B into `versions/B` and write its empty `.complete` last, set `activeVersion` to B in `service-state.json`, and start the service. The log says `B carries another launcher than this one's A` and, at the first ask the environment answers idle (at once, or ten minutes later after recent activity), `handing over to the launcher of B`, `stopping: draining B` and B's exit; the service manager starts the entry again (on Windows the log says `the launcher exited with code 75, so it starts again in 5 s`), and B's launcher says `confirmed the handover from the launcher of A`. `service status` says `Launcher version: B`, `launcher-version` names B, and `launcher-handover` and `launcher-handover-starts` are gone. Record how long the service manager took to start the entry again.
 2. Stop the service, put `launcher-version` back to A and `launcherVersion` in `service-state.json` to A, and make B's launcher fail: in `versions/B/packages/cli/dist/main.js`, make the `launch` branch exit 1 at once. Start the service. A hands over; the entry starts B's launcher three times (`launcher-handover-starts` reads 1, 2, 3), then logs `the launcher of B was started 3 times without confirming that its child passed the gate, so the launcher of A starts again`; A logs `the handover to the launcher of B failed` and runs B's environment on. `service status` shows `Failed handover: to the launcher of B at …`, and A asks nothing more. Record the time from the first handover to A running again.
 
+## Server artefacts (#356)
+
+The release build (`pnpm --filter agent-harness build-artefacts`) checks the
+artefact of its own platform on its runner: it unpacks it, runs `--version`,
+`preflight` and `serve` with no Node on the path, and reads discovery and
+health. The macOS and Windows artefacts are built on that Linux runner and
+never run there, and no runner opens a terminal. These steps run each
+platform's artefact on a machine of that platform, as an ordinary user with
+no Node on the `PATH`. Use a release's artefact, or build one on a linux-x64
+machine (`--tag v0.0.0-check.1 --out <folder> --image-reference check
+--image-digest sha256:` and 64 zeros) and copy the platform's archive over.
+Record the result in the pull request that changes the build, or list the
+platform as not run.
+
+1. Unpack the archive with the platform's own `tar` into a new folder: `tar -xf agent-harness-<platform>.tar.gz -C <folder>` (on Windows, `tar -xf agent-harness-win32-x64.zip -C <folder>` from PowerShell or `cmd`). It unpacks with no error, and the folder holds `bin`, `node`, `node_modules` and `packages`.
+2. `<folder>/bin/agent-harness --version` (`<folder>\bin\agent-harness.cmd --version` on Windows) prints `agent-harness` and the release's version. On macOS it starts with no Gatekeeper prompt; `xattr -l <folder>/node/bin/node` shows no `com.apple.quarantine` when the archive came through `curl` (#423 asks the same of the desktop's copy).
+3. `<folder>/bin/agent-harness preflight` prints one JSON line naming the release's version and `bundledClaudeCodeVersion`, and exits 0: SQLite, `node-pty` and the Claude binary loaded from the artefact.
+4. `<folder>/bin/agent-harness serve --data-dir <a new folder>` prints its discovery address; `<folder>/bin/agent-harness status` in another terminal names the release's version and `ready`.
+5. From a client paired with that environment, open a terminal and run `echo ok` in it: it prints `ok`. On macOS this spawns through `node-pty`'s `spawn-helper`, which the build makes executable; on Windows it runs through ConPTY from the prebuild's `conpty` folder.
+6. Stop `serve` with Ctrl-C: it drains and exits.
+
 ## Headless Linux (the install script)
 
 **Blocked until a release publishes an artefact.** The script looks for a

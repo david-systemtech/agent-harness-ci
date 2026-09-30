@@ -1,9 +1,8 @@
 import { GITHUB_ORIGIN, forgeApiBase, type ForgeAccountRecord, type ForgeCapabilityName, type ForgeKind, type ForgeProblemKind } from "@agent-harness/contracts";
 import type { InjectionDecision, InjectionLevel } from "../adapter/process-environment.js";
-import type { OrientationContent, OrientationList, OrientationSection } from "../instructions/orientation.js";
+import { injectionDenier, utcMinute, type OrientationContent, type OrientationList, type OrientationSection } from "../instructions/orientation.js";
 import { isInjected } from "./forge-store.js";
 import { servedOrigins } from "./git-helper.js";
-import { readableMinute } from "./verification.js";
 
 /**
  * The orientation block's forges section (forge spec, "Orientation";
@@ -50,7 +49,7 @@ const sentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text
 
 /** Its status and since when it has held: verified, or its problem with the problem's own line. */
 const statusOf = (account: ForgeAccountRecord): string => {
-  const since = readableMinute(account.statusSince);
+  const since = utcMinute(account.statusSince);
   if (account.problem === null) return `verified, unchanged since ${since}.`;
   return `${PROBLEM_WORDS[account.problem.kind]} since ${since}. ${sentence(account.problem.message)}`;
 };
@@ -118,12 +117,9 @@ const standingLines = (injected: readonly ForgeAccountRecord[]): string => {
   return `Git over https to these origins just works, the harness's credential helper answering for it: ${listed(origins)}. ssh uses the user's own keys. Other origins have no credential here.`;
 };
 
-/** Who denied a run injection, as the deny line names them: this environment's setting, or the account, routine or bot by id. */
-const deniedBy = (level: InjectionLevel): string => (level.kind === "environment" ? "this environment's setting" : `the ${level.kind} ${level.id}`);
-
 /** A run denied injection: it is given no forge variables or git credential, who denied it, and that ssh is the user's own. */
 const deniedLine = (level: InjectionLevel): string =>
-  `This run is given no forge variables or git credential: credential injection is denied for it by ${deniedBy(level)}. ssh uses the user's own keys.`;
+  `This run is given no forge variables or git credential: credential injection is denied for it by ${injectionDenier(level)}. ssh uses the user's own keys.`;
 
 /** With no forge account: none is connected, and where to connect one. */
 const NONE_CONNECTED =

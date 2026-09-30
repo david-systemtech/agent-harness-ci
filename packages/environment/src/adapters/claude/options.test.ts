@@ -1,3 +1,4 @@
+import { EMPTY_RUN_SKILL_SET, type RunSkillSet } from "@agent-harness/contracts";
 import type { CanUseTool, HookCallback, SessionStore } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
@@ -47,9 +48,21 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
   },
   denylist: null,
   processEnvironment: EMPTY_PROCESS_ENVIRONMENT,
+  skillSet: EMPTY_RUN_SKILL_SET,
   prompt: [{ messageId: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", text: "Go", attachments: [] }],
   ...overrides,
 });
+
+/** A resolved set: its generation linking `tdd`, a trusted repository's `release` native, and its native `triage` switched off. */
+const skillSet: RunSkillSet = {
+  generation: "/data/skills/generations/3f9a",
+  fingerprint: "3f9a",
+  members: [
+    { name: "tdd", origin: null, invocation: "model+slash", native: false },
+    { name: "release", origin: null, invocation: "slash-only", native: true },
+  ],
+  hiddenNativeNames: ["triage"],
+};
 
 const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput> = {}): RunOptionsInput => ({
   run: run(overrides),
@@ -57,7 +70,6 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   supplied: {},
   configDirectory: "/data/accounts/work",
   executablePath: "/sdk/claude-agent-sdk-linux-x64/claude",
-  pluginDirectory: "/data/skills/work",
   autoMemoryDirectory: "/data/auto-memory/repo",
   checkoutRoot: null,
   sessionStore: store,
@@ -185,14 +197,23 @@ describe("the options a run is handed", () => {
     expect(buildRunOptions(input())).not.toHaveProperty("allowedTools");
   });
 
-  it("hands the account's skill-set plugin directory over as a local plugin", () => {
-    expect(buildRunOptions(input()).plugins).toEqual([{ type: "local", path: "/data/skills/work" }]);
-    expect(buildRunOptions(input({}, { pluginDirectory: null }))).not.toHaveProperty("plugins");
+  it("hands the run's generation over as its one local plugin, and no plugin when it has none", () => {
+    expect(buildRunOptions(input({ skillSet })).plugins).toEqual([{ type: "local", path: "/data/skills/generations/3f9a" }]);
+    expect(buildRunOptions(input())).not.toHaveProperty("plugins");
+    expect(buildRunOptions(input({ skillSet: { ...skillSet, generation: null } }))).not.toHaveProperty("plugins");
   });
 
   it("points auto memory at the environment's directory for the repository", () => {
     expect(buildRunOptions(input()).settings).toEqual({ autoMemoryDirectory: "/data/auto-memory/repo" });
     expect(buildRunOptions(input({}, { autoMemoryDirectory: null }))).not.toHaveProperty("settings");
+  });
+
+  it("hides each native name to hide with skillOverrides off, in the flag settings beside the auto-memory directory", () => {
+    const hiding = { ...skillSet, hiddenNativeNames: ["triage", "to-spec"] };
+    expect(buildRunOptions(input({ skillSet: hiding })).settings).toEqual({ autoMemoryDirectory: "/data/auto-memory/repo", skillOverrides: { triage: "off", "to-spec": "off" } });
+    expect(buildRunOptions(input({ skillSet: hiding }, { autoMemoryDirectory: null })).settings).toEqual({ skillOverrides: { triage: "off", "to-spec": "off" } });
+    // Nothing hidden overrides nothing: a member of the generation is never named, whatever the set holds.
+    expect(buildRunOptions(input({ skillSet: { ...skillSet, hiddenNativeNames: [] } })).settings).toEqual({ autoMemoryDirectory: "/data/auto-memory/repo" });
   });
 
   it("streams partial messages and asks the host's broker through canUseTool", () => {

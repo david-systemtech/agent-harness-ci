@@ -86,7 +86,7 @@ const fakeForge = async (): Promise<FakeForge> => {
 const HELPER = ["/opt/agent-harness/bin/agent-harness"];
 
 describe("the OrientationRenderer", () => {
-  it("renders the sections registered with it in the order environment, key managers, forges, banks, other environments, whatever order they registered in", async () => {
+  it("renders the sections registered with it in the order environment, accounts, key managers, forges, banks, other environments, whatever order they registered in", async () => {
     const forge = await fakeForge();
     const t = await start({
       forgeFetch: forge.fetch,
@@ -105,7 +105,7 @@ describe("the OrientationRenderer", () => {
     const text = await runTo(t, client, session.id);
 
     expect(text.startsWith("# Orientation\n\n## This environment\n\n")).toBe(true);
-    expect(headings(text)).toEqual(["## This environment", "## Key managers", "## Forges", "## Banks", "## Other environments"]);
+    expect(headings(text)).toEqual(["## This environment", "## Accounts", "## Key managers", "## Forges", "## Banks", "## Other environments"]);
   });
 
   it("is byte-identical across runs whose state has not changed, twenty minutes and a verification that changed nothing between them, so the session's process is reused", async () => {
@@ -123,8 +123,8 @@ describe("the OrientationRenderer", () => {
     const second = await runTo(t, client, session.id, "Twenty minutes later");
 
     expect(second).toBe(first);
-    // No line reads the clock: the only time is the forge's status's last change, 00:00.
-    expect(second.match(/\d{2}:\d{2}/g)).toEqual(["00:00"]);
+    // No line reads the clock: the only times are when the account's status and the forge's last changed, 00:00.
+    expect(second.match(/\d{2}:\d{2}/g)).toEqual(["00:00", "00:00"]);
     expect(t.adapter.processesOf(session.id)).toHaveLength(1);
   });
 
@@ -135,7 +135,8 @@ describe("the OrientationRenderer", () => {
 
     const text = await runTo(t, client, session.id);
 
-    expect(headings(text)).toEqual(["## This environment", "## Banks"]);
+    // No forge is reachable without a harness command, and no provider is registered for the other environments.
+    expect(headings(text)).toEqual(["## This environment", "## Accounts", "## Key managers", "## Banks"]);
     expect(text.endsWith("## Banks\n\ncortex: a memory bank")).toBe(true);
   });
 
@@ -156,7 +157,7 @@ describe("the OrientationRenderer", () => {
 
     const text = await runTo(t, client, session.id);
 
-    expect(headings(text)).toEqual(["## This environment", "## Key managers", "## Banks", "## Other environments"]);
+    expect(headings(text)).toEqual(["## This environment", "## Accounts", "## Key managers", "## Banks", "## Other environments"]);
     expect(text).toContain("## Key managers\n\nCould not be read.\n\n## Banks\n\ncortex: a memory bank\n\n## Other environments\n\nCould not be read.");
     expect(manifestOf(t, session.id)).toMatchObject({ unreadRegistries: ["key-managers", "other-environments"] });
     expect(ended(t, session.id).at(-1)?.payload).not.toMatchObject({ reason: "error" });

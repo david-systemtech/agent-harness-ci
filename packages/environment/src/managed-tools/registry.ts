@@ -87,6 +87,12 @@ export interface ManagedTools {
   list(options?: { readonly refresh?: boolean | undefined }): Promise<ToolsListing>;
   /** One tool's row, once any probe under way has ended. */
   row(tool: ManagedToolName): Promise<ManagedToolRow>;
+  /**
+   * One tool's row as last known, at once, never awaiting a probe: the last
+   * probe's, else the one the log last carried, else not installed, as a
+   * tool the log never carried is (#381: the orientation block reads it).
+   */
+  known(tool: ManagedToolName): ManagedToolRow;
   /** Stops a probe under way, killing what it runs; no row changes after. */
   close(): void;
 }
@@ -249,6 +255,12 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
       const found = (await list()).tools.find((row) => row.tool === tool);
       if (found === undefined) throw new Error(`The Managed tools table has no ${tool}.`);
       return found;
+    },
+    known(tool) {
+      const probed = rows?.find((row) => row.tool === tool);
+      if (probed !== undefined) return probed;
+      recorded ??= readRecorded();
+      return recorded.get(tool) ?? notInstalled(managedTool(tool));
     },
     close: () => closing.abort(),
   };
