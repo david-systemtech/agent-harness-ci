@@ -162,7 +162,7 @@ describe("a row's scope", () => {
   it("groups every environment under its heading in an everywhere row, with no picker", async () => {
     const app = await opened();
     await openSettings(app);
-    for (const label of ["Usage", "Routines", "Your machines"]) {
+    for (const label of ["Routines", "Your machines"]) {
       const everywhere = await openRow(app, label);
       expect(pickedIn(everywhere), label).toBeNull();
       expect(
@@ -222,8 +222,8 @@ describe("an unreachable environment", () => {
     expect(within(field(service, "sessions.transcriptCompactAfterDays")).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
 
     // Every environment's heading in an everywhere row says it too.
-    const usage = await openRow(app, "Usage");
-    expect(within(within(usage).getByRole("region", { name: "laptop" })).getByText(/^Unreachable since \d\d:\d\d\.$/)).toBeDefined();
+    const routines = await openRow(app, "Routines");
+    expect(within(within(routines).getByRole("region", { name: "laptop" })).getByText(/^Unreachable since \d\d:\d\d\.$/)).toBeDefined();
   });
 
   it("says so when this window has read none of its values", async () => {
@@ -242,25 +242,23 @@ describe("a row whose feature is not built", () => {
   it("shows its hint, its step's link and the generic editor for its keys, each drawn by its form", async () => {
     const app = await opened();
     await openSettings(app);
-    const model = await openRow(app, "Default account and model");
-    expect(within(model).getByText("The account, model family and effort a new session starts on.")).toBeDefined();
+    const service = await openRow(app, "Service");
+    expect(within(service).getByText("The environment's service, draining it, and how long sessions stay before they settle or compact.")).toBeDefined();
     expect(
-      within(model)
+      within(service)
         .getAllByRole("group")
         .map((group) => within(group).getAllByText(/\./)[0]?.textContent),
-    ).toEqual(["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"]);
-    expect((within(field(model, "providers.processIdleMinutes")).getByRole("textbox") as HTMLInputElement).value).toBe("30");
+    ).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
+    expect((within(field(service, "sessions.transcriptCompactAfterDays")).getByRole("textbox") as HTMLInputElement).value).toBe("90");
 
     // A step's link opens the full checklist on its card; closing it comes back to Settings.
-    await app.user.click(within(model).getByRole("button", { name: "Open the Account step in Set up" }));
+    await app.user.click(within(service).getByRole("button", { name: "Open the Your machines step in Set up" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
-    expect(within(checklist).getByRole("region", { name: "Account" })).toBeDefined();
+    expect(within(checklist).getByRole("region", { name: "Your machines" })).toBeDefined();
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
-    expect(pane("Default account and model")).toBeDefined();
-
-    const service = await openRow(app, "Service");
-    expect(within(field(service, "sessions.autoSettleOnMerge")).getByRole("switch").getAttribute("aria-checked")).toBe("false");
-    expect((within(field(service, "sessions.autoSettleAfterIdle")).getByRole("textbox") as HTMLInputElement).value).toBe("14 days");
+    const again = pane("Service");
+    expect(within(field(again, "sessions.autoSettleOnMerge")).getByRole("switch").getAttribute("aria-checked")).toBe("false");
+    expect((within(field(again, "sessions.autoSettleAfterIdle")).getByRole("textbox") as HTMLInputElement).value).toBe("14 days");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox");
     expect(within(ceiling).getAllByRole("option").map((option) => option.textContent)).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);
