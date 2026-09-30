@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build-artefacts": "tsx --conditions=@agent-harness/source scripts/build-artefacts.ts",
+    "publish-release": "tsx --conditions=@agent-harness/source scripts/publish-release.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -60,7 +60,7 @@ const rewound = (toMessageId: string, draft: string): Entry[] => [
 ];
 const undone = (toMessageId: string, rewindSequence: number): Entry => ["session.rewind-undone", { toMessageId, rewindSequence }];
 
-const NOTHING = { runs: [], items: [], parkedPrompts: [], rewinds: [] };
+const NOTHING = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 
 /** The events as the environment's log holds them: its actor is a string. */
 const logged = (events: readonly EventEnvelope[]) => events.map((event) => ({ ...event, actor: "adapter:fake" }));
@@ -72,8 +72,8 @@ const asJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const snapshotAfter = (events: readonly EventEnvelope[]) => {
   const parts = foldTranscript(logged(events));
   const sent = asJson({ sequence: events.at(-1)?.sequence ?? 0, summary: freshSummary, ...parts });
-  const { runs, items, parkedPrompts, rewinds } = SessionSnapshot.parse(sent);
-  return { runs, items, parkedPrompts, rewinds };
+  const { runs, items, parkedPrompts, rewinds, instructions } = SessionSnapshot.parse(sent);
+  return { runs, items, parkedPrompts, rewinds, instructions };
 };
 
 /** The fragment kind and item id an assistant event opens or settles. */

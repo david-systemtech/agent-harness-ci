@@ -34,8 +34,8 @@ export interface SideColumnViewProps {
  * in its place.
  *
  * It wires the slash commands that open its panes, `/terminal`, `/files
- * [path]`, `/diff` and `/tasks`, for as long as the session is open in the
- * pane. The Terminal pane stays drawn while the connection cannot open a
+ * [path]`, `/diff`, `/documents` (#427) and `/tasks`, for as long as the
+ * session is open in the pane. The Terminal pane stays drawn while the connection cannot open a
  * terminal, keeping the one it draws, and its close button closes that
  * terminal too (#409).
  */
@@ -78,6 +78,7 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
     capabilityOf("files"),
   );
   useSlashCommand("diff", () => show("diff"), capabilityOf("diff"));
+  useSlashCommand("documents", () => show("documents"), capabilityOf("documents"));
   useSlashCommand("tasks", () => show("tasks"), capabilityOf("tasks"));
 
   const { shown } = column;

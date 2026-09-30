@@ -44,13 +44,14 @@ const realOrSelf = (file: string): string => {
 };
 
 /**
- * The first executable `name` on `pathValue`, in order: absolute entries
+ * The first executable `name` (a managed tool, or a program an install
+ * method needs) on `pathValue`, in order: absolute entries
  * only (a relative one would resolve against the service's working
  * directory), each of Windows' executable extensions in turn there, and
  * never a path, or a realpath, inside the harness's own files. Null when
  * there is none.
  */
-export const findOnPath = (name: ManagedToolName, pathValue: string, lookup: PathLookup): FoundTool | null => {
+export const findOnPath = (name: string, pathValue: string, lookup: PathLookup): FoundTool | null => {
   const windows = lookup.platform === "win32";
   const paths = windows ? win32 : posix;
   const isExecutable = lookup.isExecutable ?? executableFile;

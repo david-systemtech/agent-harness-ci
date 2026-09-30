@@ -8,6 +8,7 @@ import {
   RunId,
 } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { SessionInstructions } from "./instructions.js";
 import { Mode } from "./permissions-modes.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
 import { ParkedPrompt, PromptAnsweredPayload, PromptOpenedPayload } from "./prompts.js";
@@ -629,6 +630,11 @@ export const SessionSnapshot = z
         description:
           "The rewinds standing on the session (not undone) that no later rewind cut, oldest first, each with what it hid; one a later rewind cut is nested in it. Each sits among items at its own sequence, where its branch was cut; the latest standing is the one sessions.undoRewind undoes. Absent from an environment older than the field, read as none.",
       }),
+    // Defaults to none: an environment from before #506 has no session instructions to send.
+    instructions: SessionInstructions.default("").meta({
+      description:
+        "The session's own instructions (sessions.setInstructions), read at the head as the summary is; empty when it has none. Its next runs are handed them. Absent from an environment older than the field, read as none.",
+    }),
   })
-  .meta({ description: "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts and the rewinds standing on it." });
+  .meta({ description: "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts, the rewinds standing on it, and its own instructions." });
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;

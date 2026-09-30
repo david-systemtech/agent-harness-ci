@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tools.run params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "bao",
+        "vault",
+        "doppler",
+        "op",
+        "bws",
+        "gh"
+      ],
+      "description": "The tool whose row's action this is; vault's Install installs bao."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "install",
+        "update"
+      ],
+      "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The tool terminal's id, a version 4 UUID the client mints so it can subscribe while the command is in flight."
+    },
+    "cols": {
+      "description": "The terminal's width; preset 80.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "rows": {
+      "description": "The terminal's height; preset 24.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    }
+  },
+  "required": [
+    "commandId",
+    "tool",
+    "action",
+    "id"
+  ]
+}

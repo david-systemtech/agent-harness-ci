@@ -1,4 +1,4 @@
-import { documentFacts } from "@agent-harness/client-runtime";
+import { NO_DOCUMENTS, documentFacts } from "@agent-harness/client-runtime";
 import { useMemo } from "react";
 import { usePaneDocuments } from "../session/pane-documents.js";
 import { usePaneLine } from "../session/pane-line.js";
@@ -35,7 +35,7 @@ export const DocumentsPane = ({ environmentId, sessionId, source }: DocumentsPan
   const [, say] = usePaneLine();
   const previewOffer = paneCapability(runtime, environmentId, "preview");
   const sourceOffer = paneCapability(runtime, environmentId, "files");
-  if (documents.length === 0) return <p className="px-3 py-2 text-sm text-ink-faint">No pages, SVGs or markdown written yet.</p>;
+  if (documents.length === 0) return <p className="px-3 py-2 text-sm text-ink-faint">{NO_DOCUMENTS}</p>;
   const now = clock.now();
   return (
     <ul aria-label="The session's documents" className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-2">

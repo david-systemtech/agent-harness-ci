@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsSuggestionDismissedPayload",
+  "type": "object",
+  "properties": {
+    "catalogueId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A catalogue instruction entry's id."
+    }
+  },
+  "required": [
+    "catalogueId"
+  ],
+  "description": "instructions.suggestion-dismissed: a catalogue entry is dismissed on this environment, by removing its copy or dismissing it untaken; it stays so until restored."
+}

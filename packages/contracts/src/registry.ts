@@ -93,13 +93,19 @@ import {
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
 import {
   instructionsCreate,
+  instructionsDiff,
+  instructionsDismissSuggestion,
   instructionsEdit,
+  instructionsImport,
   instructionsList,
   instructionsMove,
   instructionsPreview,
   instructionsRemove,
+  instructionsResolveVersion,
+  instructionsRestoreSuggestion,
   instructionsSetEnabled,
   instructionsSetScope,
+  sessionsSetInstructions,
 } from "./methods/instructions.js";
 import {
   forgeAccountsAdd,
@@ -166,7 +172,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
-import { toolsDetail, toolsList, toolsVerify } from "./methods/tools.js";
+import { toolsDetail, toolsList, toolsRun, toolsVerify } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -218,6 +224,7 @@ export const methods = [
   sessionsFork,
   sessionsRewind,
   sessionsUndoRewind,
+  sessionsSetInstructions,
   groupsCreate,
   groupsRename,
   groupsReorder,
@@ -255,12 +262,17 @@ export const methods = [
   commandsList,
   instructionsPreview,
   instructionsList,
+  instructionsDiff,
   instructionsCreate,
   instructionsEdit,
   instructionsSetScope,
   instructionsSetEnabled,
   instructionsMove,
+  instructionsResolveVersion,
   instructionsRemove,
+  instructionsDismissSuggestion,
+  instructionsRestoreSuggestion,
+  instructionsImport,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,
@@ -292,6 +304,7 @@ export const methods = [
   toolsList,
   toolsDetail,
   toolsVerify,
+  toolsRun,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,

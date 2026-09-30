@@ -15,15 +15,21 @@
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
       "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
     },
-    "title": {
+    "catalogueId": {
+      "description": "The catalogue entry to copy, with no title and no body: a tick.",
       "type": "string",
-      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,118}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
-      "description": "An owned instruction's title: 1 to 120 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed. A run reads it as the instruction's heading."
+      "maxLength": 100,
+      "pattern": "^(?:setup|coding|working|custom)\\.[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "description": "With body and no catalogueId: the title of one written here (Custom).",
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,118}[^\\s\\p{Cc}\\p{Cf}])?\\s*$"
     },
     "body": {
+      "description": "With title and no catalogueId: the body of one written here (Custom).",
       "type": "string",
-      "maxLength": 20000,
-      "description": "An owned instruction's body: Markdown, at most 20000 characters, which a run reads under its title."
+      "maxLength": 20000
     },
     "scope": {
       "description": "The accounts it reaches; preset all.",
@@ -58,8 +64,30 @@
   },
   "required": [
     "commandId",
-    "id",
-    "title",
-    "body"
+    "id"
+  ],
+  "description": "A Custom instruction's title and body, or the catalogue entry a tick copies; then its scope, whether it is enabled and its position.",
+  "oneOf": [
+    {
+      "required": [
+        "title",
+        "body"
+      ],
+      "properties": {
+        "title": true,
+        "body": true,
+        "catalogueId": false
+      }
+    },
+    {
+      "required": [
+        "catalogueId"
+      ],
+      "properties": {
+        "catalogueId": true,
+        "title": false,
+        "body": false
+      }
+    }
   ]
 }

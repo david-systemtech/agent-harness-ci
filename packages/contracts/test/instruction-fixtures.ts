@@ -4,7 +4,8 @@
  * the preview's parts, and `instructions.preview`'s params and result;
  * owned instructions (#505): the record and its parts, the instructions
  * stream's payloads, the notice's, the list's rows, and the commands'
- * params and results. A
+ * params and results; suggested instructions (#509): the version choice,
+ * the diff, the new events, and the new methods' params and results. A
  * valid and an invalid instance of each file the export writes;
  * `fixtures.ts` folds them into the package's table.
  */
@@ -64,7 +65,9 @@ const noChannelAccount = {
   reason: "Local has no instruction channel: its runs are handed no standing instructions.",
 };
 const orientationRow = { enabled: true, text: "# Orientation\n\n## This environment", unreadRegistries: [], accounts: [channelAccount, noChannelAccount] };
-const ownedRow = { ...owned, accounts: [channelAccount, noChannelAccount] };
+const ownedRow = { ...owned, newerVersion: null, accounts: [channelAccount, noChannelAccount] };
+const tickedRow = { ...ticked, newerVersion: 3, accounts: [] };
+const diff = { catalogueId: "coding.small-modules", fromVersion: 2, toVersion: 3, from: "Prefer small modules.", to: "Prefer small, deep modules.", body: "Prefer small modules, mostly." };
 
 const previewPart = { layer: "user", id: "orientation", title: "Orientation", text: "You are on SYSTEM-SERVER, a Linux machine." };
 
@@ -120,8 +123,32 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...owned, title: "" }, { ...owned, body: "b".repeat(20001) }, { ...owned, scope: [] }, { ...owned, position: "na" }, { ...owned, enabled: undefined }],
   },
   "instructions/event-type.json": {
-    valid: ["instructions.created", "instructions.edited", "instructions.scope-set", "instructions.enabled-set", "instructions.moved", "instructions.removed"],
-    invalid: ["instructions.updated", "instructions.version-resolved", ""],
+    valid: [
+      "instructions.created",
+      "instructions.edited",
+      "instructions.scope-set",
+      "instructions.enabled-set",
+      "instructions.moved",
+      "instructions.version-resolved",
+      "instructions.removed",
+      "instructions.suggestion-dismissed",
+      "instructions.suggestion-restored",
+    ],
+    invalid: ["instructions.updated", "instructions.dismissed", ""],
+  },
+  "instructions/events/instructions.version-resolved.json": {
+    valid: [
+      { id: instructionId, choice: "replace", version: 3, body: "Prefer small, deep modules." },
+      { id: instructionId, choice: "keep", version: 3 },
+    ],
+    invalid: [{ id: instructionId, choice: "replace", version: 3 }, { id: instructionId, choice: "merge", version: 3 }, { id: instructionId, choice: "keep", version: 0 }],
+  },
+  "instructions/events/instructions.suggestion-dismissed.json": { valid: [{ catalogueId: "coding.small-modules" }], invalid: [{}, { catalogueId: "" }] },
+  "instructions/events/instructions.suggestion-restored.json": { valid: [{ catalogueId: "coding.small-modules" }], invalid: [{}, { catalogueId: "" }] },
+  "instructions/version-choice.json": { valid: ["replace", "keep"], invalid: ["merge", ""] },
+  "instructions/diff.json": {
+    valid: [diff, { ...diff, from: null }],
+    invalid: [{ ...diff, to: undefined }, { ...diff, fromVersion: 0 }, { ...diff, body: "b".repeat(20001) }],
   },
   "instructions/events/instructions.created.json": { valid: [owned, ticked], invalid: [{ ...owned, id: "i-1" }, { id: instructionId }] },
   "instructions/events/instructions.edited.json": {
@@ -142,8 +169,16 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...orientationRow, id: instructionId }, { ...orientationRow, enabled: undefined }, { ...orientationRow, unreadRegistries: [""] }],
   },
   "instructions/owned-instruction-row.json": {
-    valid: [ownedRow, { ...ticked, accounts: [] }],
-    invalid: [{ ...ownedRow, id: undefined }, { ...ownedRow, accounts: undefined }, { ...ownedRow, title: "" }],
+    valid: [ownedRow, tickedRow],
+    invalid: [{ ...ownedRow, id: undefined }, { ...ownedRow, accounts: undefined }, { ...ownedRow, title: "" }, { ...ownedRow, newerVersion: undefined }, { ...tickedRow, newerVersion: 0 }],
+  },
+  "instructions/session-instructions.json": {
+    valid: ["", "Only touch the CLI package in this session.", "t".repeat(20000)],
+    invalid: ["t".repeat(20001), null, 7],
+  },
+  "sessions/events/session.instructions-set.json": {
+    valid: [{ text: "Only touch the CLI package in this session." }, { text: "" }],
+    invalid: [{}, { text: null }, { text: "t".repeat(20001) }],
   },
   "sessions/events/run.instructions.composed.json": {
     valid: [
@@ -178,8 +213,18 @@ export const instructionMethodFixtures: Record<string, { params: Fixtures; resul
   "instructions.list": {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [{ orientation: orientationRow, instructions: [] }, { orientation: orientationRow, instructions: [ownedRow, { ...ticked, accounts: orientationRow.accounts }] }],
-      invalid: [{ instructions: [ownedRow] }, { orientation: orientationRow }, { orientation: ownedRow, instructions: [] }, { orientation: orientationRow, instructions: [orientationRow] }],
+      valid: [
+        { orientation: orientationRow, instructions: [], dismissed: [] },
+        { orientation: orientationRow, instructions: [ownedRow, { ...tickedRow, accounts: orientationRow.accounts }], dismissed: ["working.plain-answers"] },
+      ],
+      invalid: [
+        { instructions: [ownedRow], dismissed: [] },
+        { orientation: orientationRow, dismissed: [] },
+        { orientation: orientationRow, instructions: [] },
+        { orientation: ownedRow, instructions: [], dismissed: [] },
+        { orientation: orientationRow, instructions: [orientationRow], dismissed: [] },
+        { orientation: orientationRow, instructions: [], dismissed: ["Not an id"] },
+      ],
     },
   },
   "instructions.create": {
@@ -187,9 +232,16 @@ export const instructionMethodFixtures: Record<string, { params: Fixtures; resul
       valid: [
         { commandId, id: instructionId, title: "Coding style", body: "Prefer small modules." },
         { commandId, id: instructionId, title: "Coding style", body: "", scope: ["local"], enabled: false, position: "c" },
+        { commandId, id: instructionId, catalogueId: "coding.small-modules" },
+        { commandId, id: instructionId, catalogueId: "setup.about-my-setup", scope: ["local"], enabled: false },
       ],
       invalid: [
         { id: instructionId, title: "Coding style", body: "" },
+        { commandId, id: instructionId, title: "Coding style" },
+        { commandId, id: instructionId },
+        { commandId, id: instructionId, catalogueId: "coding.small-modules", title: "Coding style", body: "" },
+        { commandId, id: instructionId, catalogueId: "coding.small-modules", body: "" },
+        { commandId, id: instructionId, catalogueId: "Coding.Small" },
         { commandId, id: instructionId, title: "", body: "" },
         { commandId, id: instructionId, title: "Coding style", body: "b".repeat(20001) },
         { commandId, id: instructionId, title: "Coding style", body: "", scope: [] },
@@ -219,5 +271,45 @@ export const instructionMethodFixtures: Record<string, { params: Fixtures; resul
   "instructions.remove": {
     params: { valid: [{ commandId, instructionId }], invalid: [{ commandId }, { commandId, instructionId: "i-1" }] },
     result: { valid: [{ instructionId }], invalid: [{}, { instructionId: "i-1" }] },
+  },
+  "instructions.diff": {
+    params: { valid: [{ instructionId }], invalid: [{}, { instructionId: "i-1" }] },
+    result: { valid: [diff], invalid: [{}, { ...diff, toVersion: undefined }] },
+  },
+  "instructions.resolveVersion": {
+    params: { valid: [{ commandId, instructionId, choice: "replace" }, { commandId, instructionId, choice: "keep" }], invalid: [{ commandId, instructionId }, { commandId, instructionId, choice: "merge" }] },
+    result: instructionResult,
+  },
+  "instructions.dismissSuggestion": {
+    params: { valid: [{ commandId, catalogueId: "working.plain-answers" }], invalid: [{ commandId }, { commandId, catalogueId: "plain-answers" }] },
+    result: { valid: [{ catalogueId: "working.plain-answers", dismissed: true }], invalid: [{ catalogueId: "working.plain-answers" }, { dismissed: true }] },
+  },
+  "instructions.restoreSuggestion": {
+    params: { valid: [{ commandId, catalogueId: "working.plain-answers" }], invalid: [{ commandId }, { catalogueId: "working.plain-answers" }] },
+    result: { valid: [{ catalogueId: "working.plain-answers", dismissed: false }], invalid: [{}, { catalogueId: "", dismissed: false }] },
+  },
+  "instructions.import": {
+    params: {
+      valid: [
+        { commandId, id: instructionId, sessionId, path: "instruction.md" },
+        { commandId, id: instructionId, sessionId, path: "/data/scratch/7c9e6679/out/instruction.md", catalogueId: "coding.small-modules" },
+      ],
+      invalid: [{ commandId, id: instructionId, sessionId }, { commandId, id: instructionId, sessionId, path: "" }, { commandId, id: instructionId, path: "instruction.md" }, { commandId, sessionId, path: "a.md" }],
+    },
+    result: instructionResult,
+  },
+  "sessions.setInstructions": {
+    params: {
+      valid: [
+        { commandId, sessionId, text: "Only touch the CLI package in this session." },
+        { commandId, sessionId, text: "" },
+        { commandId, sessionId, text: "t".repeat(20000) },
+      ],
+      invalid: [{ commandId, sessionId }, { sessionId, text: "" }, { commandId, sessionId: "s-1", text: "" }, { commandId, sessionId, text: "t".repeat(20001) }],
+    },
+    result: {
+      valid: [{ sessionId, text: "Only touch the CLI package in this session." }, { sessionId, text: "" }],
+      invalid: [{ text: "" }, { sessionId }, { sessionId, text: "t".repeat(20001) }],
+    },
   },
 };

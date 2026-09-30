@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "instructions.dismissSuggestion result",
+  "type": "object",
+  "properties": {
+    "catalogueId": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^(?:setup|coding|working|custom)\\.[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "An instruction entry's id: its group, a dot, then a-z, 0-9 and single hyphens, such as coding.fresh-checkout. Stable across builds and versions: an owned copy's origin names it."
+    },
+    "dismissed": {
+      "type": "boolean",
+      "description": "Whether the entry is dismissed now."
+    }
+  },
+  "required": [
+    "catalogueId",
+    "dismissed"
+  ]
+}

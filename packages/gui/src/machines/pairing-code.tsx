@@ -1,5 +1,5 @@
-import { adminCall, clockTime, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
-import { formatPairingCode, parsePairingLink, type MintedPairing } from "@agent-harness/contracts";
+import { adminCall, clockTime, grantWords, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
+import { formatPairingCode, parsePairingLink, type Ceiling, type MintedPairing, type Scope } from "@agent-harness/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
 import { Button } from "../ui/index.js";
@@ -38,14 +38,30 @@ interface Minted {
   readonly until: Date;
 }
 
+/** What a pairing code is asked to grant: its scopes and its ceiling. */
+export interface PairingGrant {
+  readonly scopes: readonly Scope[];
+  readonly ceiling: Ceiling;
+}
+
+interface PairingCodeProps {
+  readonly view: EnvironmentView;
+  readonly writable: boolean;
+  /** What the code grants, said beside it; preset the environment's defaults, every scope and its default ceiling. */
+  readonly grant?: PairingGrant;
+  /** What the button that makes one says: preset "Make a pairing code". */
+  readonly action?: string;
+}
+
 /**
  * A pairing code for another client (ADR 0025; #416): `access.pairings.create`
  * at `admin` with the environment's defaults, every scope and its default
- * ceiling (the presets are #577's), then the link, the address and the code
- * to type, the QR of the link, and when it expires, ten minutes on and for
- * one use; once it has, that it has, and no code that no longer pairs.
+ * ceiling (the presets are #577's), or with the grant asked, which is then
+ * said beside it (a program's, #417); then the link, the address and the
+ * code to type, the QR of the link, and when it expires, ten minutes on and
+ * for one use; once it has, that it has, and no code that no longer pairs.
  */
-export const PairingCode = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
+export const PairingCode = ({ view, writable, grant, action = "Make a pairing code" }: PairingCodeProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const [minted, setMinted] = useState<Minted | undefined>(undefined);
@@ -60,7 +76,8 @@ export const PairingCode = ({ view, writable }: { readonly view: EnvironmentView
 
   const mint = async () => {
     setRefused(undefined);
-    const outcome = await adminCall(() => runtime.requests.call(view.environmentId, "access.pairings.create", { commandId: uuidv7(clock.now()) }));
+    const asked = grant === undefined ? {} : { scopes: [...grant.scopes], ceiling: grant.ceiling };
+    const outcome = await adminCall(() => runtime.requests.call(view.environmentId, "access.pairings.create", { commandId: uuidv7(clock.now()), ...asked }));
     if (!outcome.ok || outcome.result === undefined) return setRefused(`No pairing code: ${outcome.ok ? "the environment answered none." : outcome.line}`);
     const left = Date.parse(outcome.result.expiresAt) - runtime.environmentNow(view.environmentId).getTime();
     setExpired(false);
@@ -79,6 +96,7 @@ export const PairingCode = ({ view, writable }: { readonly view: EnvironmentView
             <code className="font-mono text-xs break-all select-all">{live.pairing.link}</code>
             {origin !== undefined && <p>Address: {origin.replace(/^http:\/\//, "")}</p>}
             <p>Code: {formatPairingCode(live.pairing.code)}</p>
+            {grant !== undefined && <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>}
             <p className="text-ink-muted">Expires at {clockTime(live.until.toISOString())}, for one use.</p>
           </div>
         </div>
@@ -87,7 +105,7 @@ export const PairingCode = ({ view, writable }: { readonly view: EnvironmentView
       {refused !== undefined && <p className="text-sm text-signal">{refused}</p>}
       <div>
         <Button disabled={!writable} onClick={() => void mint()}>
-          Make a pairing code
+          {action}
         </Button>
       </div>
     </>

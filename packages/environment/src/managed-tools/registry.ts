@@ -3,15 +3,18 @@ import { isDeepStrictEqual } from "node:util";
 import {
   ENVIRONMENT_STREAM_KIND,
   MANAGED_TOOLS,
+  MANAGED_TOOL_COMMANDS,
   ManagedToolRow,
   compareToolVersions,
   managedTool,
+  toolCommandMethodOf,
   type ManagedTool,
   type ManagedToolAction,
   type ManagedToolInstallMethod,
   type ManagedToolName,
   type ManagedToolStatus,
   type ResultOf,
+  type ToolCommandEntry,
 } from "@agent-harness/contracts";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
@@ -39,6 +42,11 @@ import { runCommand } from "./run.js";
  * does a first start that finds no tool. The sign-in director's managed
  * tool and the forge's `gh` read their rows here.
  *
+ * A row's action is Update where the closed command table (#376) updates
+ * the tool installed the way it was, else Copy; Install for a tool not
+ * installed. After a tool run the registry probes again at once
+ * (`probeNow`), whatever the cadence, reading the PATH anew.
+ *
  * Each installed tool's row carries its latest version (#374), cached in the
  * data directory and fetched on a client's refresh at most once a day per
  * tool, from the source its install method matches, else the vendor's feed
@@ -59,9 +67,6 @@ export const VERSION_TIMEOUT_MS = 5_000;
 /** How long reading the login shell's PATH, or asking a package manager, may take. */
 export const LOOKUP_TIMEOUT_MS = 10_000;
 
-/** The install methods whose Update the harness can run (#376's command table); every other installed tool's action is Copy the command. */
-const DRIVEN_METHODS: ReadonlySet<ManagedToolInstallMethod> = new Set(["homebrew", "winget", "npm", "native", "apt", "dnf"]);
-
 export interface ManagedToolsOptions {
   readonly log: EventLog;
   readonly clock: Clock;
@@ -80,6 +85,8 @@ export interface ManagedToolsOptions {
   readonly hostEnv?: HostEnvironment;
   /** Preset: this process's. */
   readonly platform?: NodeJS.Platform;
+  /** The closed command table a row's Update is read from (#376). Preset: the contracts' (`MANAGED_TOOL_COMMANDS`); tests give one of their own. */
+  readonly commands?: readonly ToolCommandEntry[];
 }
 
 /** What `tools.list` answers. */
@@ -109,6 +116,17 @@ export interface ManagedTools {
    * tool the log never carried is (#381: the orientation block reads it).
    */
   known(tool: ManagedToolName): ManagedToolRow;
+  /**
+   * Probes now, whatever the cadence, once any probe under way has ended, so
+   * the PATH is read anew: after a tool run's command exits (#376).
+   */
+  probeNow(): Promise<void>;
+  /**
+   * The programs of `names` found on the PATH the last probe resolved the
+   * tools on, the harness's own files passed over, once any probe under way
+   * has ended: which install methods are available (#376).
+   */
+  programsOnPath(names: readonly string[]): Promise<ReadonlySet<string>>;
   /** Stops a probe under way, killing what it runs; no row changes after. */
   close(): void;
 }
@@ -133,7 +151,15 @@ const statusOf = (tool: ManagedTool, { version, method }: Detected, latest: stri
   return "current";
 };
 
-const actionOf = (method: ManagedToolInstallMethod): ManagedToolAction => (DRIVEN_METHODS.has(method) ? "update" : "copy");
+/**
+ * An installed tool's action: Update where the command table updates it
+ * installed that way, on any platform (a method's shape says its platform),
+ * else Copy the command; `vault`, which has no entry, is always Copy.
+ */
+const actionOf = (commands: readonly ToolCommandEntry[], tool: ManagedToolName, method: ManagedToolInstallMethod): ManagedToolAction => {
+  const driven = toolCommandMethodOf(method);
+  return commands.some((entry) => entry.tool === tool && entry.method === driven) ? "update" : "copy";
+};
 
 const notInstalled = (tool: ManagedTool): ManagedToolRow => ({
   tool: tool.name,
@@ -151,6 +177,7 @@ const notInstalled = (tool: ManagedTool): ManagedToolRow => ({
 export const createManagedTools = (options: ManagedToolsOptions): ManagedTools => {
   const { log, clock } = options;
   const platform = options.platform ?? process.platform;
+  const commands = options.commands ?? MANAGED_TOOL_COMMANDS;
   const hostEnv: HostEnvironment = { ...(options.hostEnv ?? process.env) };
   const stream = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   const closing = new AbortController();
@@ -236,7 +263,7 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
   const rowOf = (tool: ManagedTool, found: Detected | null): ManagedToolRow => {
     if (found === null) return notInstalled(tool);
     const known = latest.known(tool.name, found.method);
-    return { ...notInstalled(tool), ...found, latest: known, status: statusOf(tool, found, known), action: actionOf(found.method) };
+    return { ...notInstalled(tool), ...found, latest: known, status: statusOf(tool, found, known), action: actionOf(commands, tool.name, found.method) };
   };
 
   const rowsOf = (found: ReadonlyMap<ManagedToolName, Detected | null>): ManagedToolRow[] => MANAGED_TOOLS.map((tool) => rowOf(tool, found.get(tool.name) ?? null));
@@ -344,6 +371,14 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
       if (probed !== undefined) return probed;
       recorded ??= readRecorded();
       return recorded.get(tool) ?? notInstalled(managedTool(tool));
+    },
+    async probeNow() {
+      if (running !== null) await running;
+      if (!signal.aborted) await probe();
+    },
+    async programsOnPath(names) {
+      await list();
+      return new Set(names.filter((name) => findOnPath(name, probedPath, { platform, ownResources: options.ownResources }) !== null));
     },
     close: () => closing.abort(),
   };

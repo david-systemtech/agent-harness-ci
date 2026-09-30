@@ -1,18 +1,15 @@
 import {
   AdapterCapabilities,
-  Ceiling,
   DISCOVERY_PATH,
   LIST_PATCH_KEY,
   MODES,
   PAIR_PATH,
   PROTOCOL_VERSION,
-  SCOPES,
   ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
   WIRE_PATH,
   eventTypeEntry,
   isListEvent,
-  registry,
   AccountCatalogue,
   AccountRecord,
   AmbientProbe,
@@ -42,6 +39,7 @@ import {
   type CapabilityFlags,
   type CommandEntry,
   type DiscoveryDocument,
+  type EnvironmentStatus,
   type EventEnvelope,
   type Frame,
   Group,
@@ -69,6 +67,7 @@ import { uuidv4 } from "../ids.js";
 import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
 import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
+import { ACCESS_COMMANDS, scriptedAccess, type ClientSessionRow, type ScriptedAccessEvent, type ScriptedAccessHandle } from "./scripted-access.js";
 import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
 import { FORGE_COMMANDS, scriptedForges, type ScriptedForges, type ScriptedForgesHandle } from "./scripted-forges.js";
 import { KEY_MANAGER_COMMANDS, scriptedKeyManagers, type ScriptedKeyManagers, type ScriptedKeyManagersHandle } from "./scripted-key-managers.js";
@@ -97,9 +96,6 @@ export type ScriptedReceipt = "accepted" | { readonly rejected: string; readonly
 /** What discovery answers: ready, starting, or nothing at all (nothing listens). */
 export type ScriptedDiscovery = "ready" | "starting" | "nothing";
 
-/** A client session as `access.sessions.list` lists it. */
-export type ClientSessionRow = ResultOf<"access.sessions.list">["sessions"][number];
-
 /** Why the pairing exchange refuses every code, as the environment answers it. */
 export type ScriptedPairingRefusal = "expired-code" | "used-code" | "invalid-code";
 
@@ -123,6 +119,10 @@ export interface ScriptedEnvironment {
   readonly groups?: readonly Partial<Group>[];
   /** What `access.sessions.list` lists besides this terminal's own client session. */
   readonly clientSessions?: readonly Partial<ClientSessionRow>[];
+  /** What the access log holds before anything is done, oldest first (`access.log.list`): preset nothing. */
+  readonly accessLog?: readonly ScriptedAccessEvent[];
+  /** What `environment.status` says: preset ready and idle, its updates its own; a drain says draining. */
+  readonly status?: Partial<EnvironmentStatus>;
   /**
    * How each method named is answered: preset accepted. A command's
    * rejection is its receipt; a query's (`access.sessions.list`) is an
@@ -286,7 +286,7 @@ export interface LookChanges {
   readonly colour?: EnvironmentColour;
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedForgesHandle, ScriptedPermissionsHandle {
+export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedForgesHandle, ScriptedPermissionsHandle, ScriptedAccessHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -465,26 +465,6 @@ const groupOf = (clock: ManualClock, partial: Partial<Group>, index: number): Gr
     orderKey: null,
     createdAt: at,
     updatedAt: at,
-    ...partial,
-  });
-};
-
-/** A client session row's schema: contracts exports none by name, so it is read off `access.sessions.list`'s result. */
-const ClientSessionRowSchema = registry["access.sessions.list"].result.shape.sessions.element;
-
-const clientSessionOf = (clock: ManualClock, partial: Partial<ClientSessionRow>, index: number): ClientSessionRow => {
-  const at = clock.now().toISOString();
-  return checked(ClientSessionRowSchema, {
-    id: `0199cc00-0000-7000-8000-${String(index + 1).padStart(12, "0")}`,
-    kind: "desktop",
-    label: `client ${index + 1}`,
-    createdAt: at,
-    lastSeenAt: at,
-    expiresAt: new Date(clock.now().getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    revokedAt: null,
-    scopes: [...SCOPES],
-    ceiling: Ceiling.parse("bypassPermissions"),
-    local: false,
     ...partial,
   });
 };
@@ -1762,21 +1742,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     clientSession: () => wire.credential()?.clientSessionId,
   });
 
-  const others = (spec.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
-  const revoked = new Set<string>();
-  wire.answer("access.sessions.list", (params) => {
-    const refusal = spec.receipts?.["access.sessions.list"];
-    if (refusal !== undefined && refusal !== "accepted") {
-      return { error: { code: refusal.rejected, message: refusal.message ?? `Rejected: ${refusal.rejected}.`, data: {} } };
-    }
-    const own = wire.credential();
-    const listed: ClientSessionRow[] = [
-      ...others,
-      ...(own ? [clientSessionOf(clock, { id: own.clientSessionId, kind: "tui", label: "seth@desk:pts/3", local: spec.reach === "local" }, others.length)] : []),
-    ].map((c) => (revoked.has(c.id) ? { ...c, revokedAt: clock.now().toISOString() } : c));
-    return { result: { sessions: params["live"] === true ? listed.filter((c) => c.revokedAt === null) : listed } };
-  });
-
   const receiptFor = (method: string): FakeAnswer | undefined => {
     const scriptedReceipt = spec.receipts?.[method] ?? "accepted";
     if (scriptedReceipt === "accepted") return undefined;
@@ -1793,29 +1758,23 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       },
     };
   };
-  const accepted = (result: Record<string, unknown>): FakeAnswer => ({
-    result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result },
-  });
-  wire.answer("access.sessions.revoke", (params) => {
-    const refusal = receiptFor("access.sessions.revoke");
-    if (refusal) return refusal;
-    revoked.add(String(params["clientSessionId"]));
-    return accepted({ revokedAt: clock.now().toISOString() });
-  });
-  let pairings = 0;
-  wire.answer("access.pairings.create", () => {
-    const refusal = receiptFor("access.pairings.create");
-    if (refusal) return refusal;
-    pairings++;
-    const code = `K7Q2MXH4R${"TVWXYZ"[pairings % 6]}`;
-    return accepted({
-      pairingId: `0199dd00-0000-7000-8000-${String(pairings).padStart(12, "0")}`,
-      code,
-      link: `${wire.origin}/pair#${code}`,
-      expiresAt: new Date(clock.now().getTime() + 10 * 60 * 1000).toISOString(),
-      scopes: [...SCOPES],
-      ceiling: Ceiling.parse("bypassPermissions"),
-    });
+  // The client sessions, their ceilings and revocations, pairings, the access log and the lifecycle's verbs (`scripted-access.ts`).
+  const access = scriptedAccess({
+    clock,
+    wire,
+    local: spec.reach === "local",
+    clientSessions: spec.clientSessions,
+    accessLog: spec.accessLog,
+    status: spec.status,
+    settings: () => values,
+    head: () => sequence,
+    next: () => ++sequence,
+    refusal: receiptFor,
+    queryRefusal(method) {
+      const refusal = spec.receipts?.[method];
+      return refusal === undefined || refusal === "accepted" ? undefined : { error: { code: refusal.rejected, message: refusal.message ?? `Rejected: ${refusal.rejected}.`, data: {} } };
+    },
+    notice,
   });
   // The environment's name, icon and colour (#323): a look command, or `setLook`, changes what discovery and `hello` say and
   // notices each field that changed; a value already held appends nothing (`changed: false`). The answer is the look as it
@@ -1852,9 +1811,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // Every other scripted command, `access.*` ones included, answers its receipt alone, as a retry answered from a stored receipt does.
   const ownResponders = new Set([
     ...Object.keys(lookCommands),
-    "access.sessions.list",
-    "access.sessions.revoke",
-    "access.pairings.create",
+    ...ACCESS_COMMANDS,
     "runs.start",
     "runs.send",
     "runs.interrupt",
@@ -2007,6 +1964,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     setSetup: setup.setSetup,
     ...keyManagers,
     ...forges,
+    ...access,
     denylist: permissions.denylist,
     reviewWatermark: permissions.reviewWatermark,
     holdDenylistWrites: permissions.holdDenylistWrites,
@@ -2076,3 +2034,4 @@ export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js
 export { type ScriptedDetection, type ScriptedForges } from "./scripted-forges.js";
 export { certificateOf, type ScriptedKeyManagers, type ScriptedMoveItem } from "./scripted-key-managers.js";
 export { type ScriptedPermissionsHandle } from "./scripted-permissions.js";
+export { type ClientSessionRow, type ScriptedAccessEvent, type ScriptedAccessHandle } from "./scripted-access.js";

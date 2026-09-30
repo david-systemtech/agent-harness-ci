@@ -39,6 +39,7 @@ export * from "./key-manager-moves.js";
 export * from "./launcher.js";
 export * from "./lifecycle.js";
 export * from "./managed-tools.js";
+export * from "./managed-tool-commands.js";
 export * from "./network.js";
 export * from "./notices.js";
 export * from "./one-off.js";

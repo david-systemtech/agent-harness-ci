@@ -252,6 +252,23 @@ posix("the install method", () => {
     expect(owners.asked.sort()).toEqual([gh.file, op.file, bws.file, doppler.file].sort());
   });
 
+  it("offers Update only where the closed command table updates the tool installed that way (#376): never vault, nor bws from Homebrew or gh from npm", async () => {
+    const path = fakePath();
+    path.install("vault", { at: "homebrew/Cellar/vault/1.15.0/bin/vault", output: "Vault v1.15.0" });
+    path.install("bws", { at: "homebrew/Cellar/bws/1.0.0/bin/bws", output: "bws 1.0.0" });
+    path.install("gh", { at: "lib/node_modules/gh/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    const claude = path.install("claude", { output: "2.1.283 (Claude Code)" });
+    const { client } = await withTools(path, { managedTools: { packageOwner: scriptedPackageOwners({ [claude.file]: { manager: "dpkg", package: "claude-code" } }) } });
+
+    const rows = (await list(client)).tools;
+    expect(Object.fromEntries(["vault", "bws", "gh", "claude"].map((tool) => [tool, [rowOf(rows, tool).method, rowOf(rows, tool).action]]))).toEqual({
+      vault: ["homebrew", "copy"],
+      bws: ["homebrew", "copy"],
+      gh: ["npm", "copy"],
+      claude: ["apt", "update"],
+    });
+  });
+
   it("says below-minimum before method-unknown: a tool too old to use needs attention first", async () => {
     const path = fakePath();
     const bws = path.install("bws", { output: "bws 0.2.1" });

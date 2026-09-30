@@ -10,11 +10,17 @@ import {
   INSTRUCTIONS_STREAM_KIND,
   InstructionManifest,
   MAX_INSTRUCTION_BODY,
+  MAX_SESSION_INSTRUCTIONS,
   MAX_INSTRUCTION_TITLE,
+  InstructionVersionResolvedPayload,
   OwnedInstruction,
+  OwnedInstructionRow,
   SETTINGS,
   STEP_REGISTRY,
   RunInstructionsComposedPayload,
+  SessionInstructions,
+  SessionInstructionsSetPayload,
+  SessionSnapshot,
   exportedSchemas,
   isListEvent,
   methodPath,
@@ -121,24 +127,39 @@ describe("owned instructions (#505)", () => {
     expect(OwnedInstruction.safeParse({ ...record, title: "t".repeat(120), body: "b".repeat(20000) }).success).toBe(true);
   });
 
-  it("are one stream per environment whose six events change nothing listed", () => {
+  it("are one stream per environment whose nine events change nothing listed", () => {
     expect(INSTRUCTIONS_STREAM_KIND).toBe("instructions");
     const types = Object.keys(EVENT_TYPES.instructions);
-    expect(types).toEqual(["instructions.created", "instructions.edited", "instructions.scope-set", "instructions.enabled-set", "instructions.moved", "instructions.removed"]);
+    expect(types).toEqual([
+      "instructions.created",
+      "instructions.edited",
+      "instructions.scope-set",
+      "instructions.enabled-set",
+      "instructions.moved",
+      "instructions.version-resolved",
+      "instructions.removed",
+      "instructions.suggestion-dismissed",
+      "instructions.suggestion-restored",
+    ]);
     for (const type of types) expect(isListEvent("instructions", type), type).toBe(false);
   });
 
-  it("are driven by six commands at admin and listed by a query at read", () => {
+  it("are driven by ten commands at admin, and listed and diffed by queries at read", () => {
     const owned = methods.filter((m) => m.name.startsWith("instructions.")).map((m) => [m.name, m.kind, m.scope]);
     expect(owned).toEqual([
       ["instructions.preview", "query", "read"],
       ["instructions.list", "query", "read"],
+      ["instructions.diff", "query", "read"],
       ["instructions.create", "command", "admin"],
       ["instructions.edit", "command", "admin"],
       ["instructions.setScope", "command", "admin"],
       ["instructions.setEnabled", "command", "admin"],
       ["instructions.move", "command", "admin"],
+      ["instructions.resolveVersion", "command", "admin"],
       ["instructions.remove", "command", "admin"],
+      ["instructions.dismissSuggestion", "command", "admin"],
+      ["instructions.restoreSuggestion", "command", "admin"],
+      ["instructions.import", "command", "admin"],
     ]);
   });
 
@@ -149,14 +170,97 @@ describe("owned instructions (#505)", () => {
     ];
     const orientation = { enabled: true, text: "# Orientation", unreadRegistries: [], accounts };
     const { result } = registry["instructions.list"];
-    expect(Object.keys(result.shape)).toEqual(["orientation", "instructions"]);
-    expect(result.safeParse({ orientation, instructions: [{ ...record, accounts }] }).success).toBe(true);
-    expect(result.safeParse({ orientation: { ...orientation, id }, instructions: [] }).success).toBe(false);
-    expect(result.safeParse({ orientation: { ...record, accounts }, instructions: [] }).success).toBe(false);
+    expect(Object.keys(result.shape)).toEqual(["orientation", "instructions", "dismissed"]);
+    expect(result.safeParse({ orientation, instructions: [{ ...record, newerVersion: null, accounts }], dismissed: [] }).success).toBe(true);
+    expect(result.safeParse({ orientation: { ...orientation, id }, instructions: [], dismissed: [] }).success).toBe(false);
+    expect(result.safeParse({ orientation: { ...record, accounts }, instructions: [], dismissed: [] }).success).toBe(false);
   });
 
   it("put instructions.orientation, preset on, on the Instructions step's registry entry", () => {
     expect(SETTINGS["instructions.orientation"]).toMatchObject({ preset: true, step: { id: "instructions", row: "knowledge.instructions" } });
     expect(STEP_REGISTRY.find((step) => step.id === "instructions")).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], skippable: false });
+  });
+});
+
+describe("suggested instructions (#509)", () => {
+  const instructionId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const commandId = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+
+  it("tick by instructions.create with a catalogue id in place of a title and a body, never both", () => {
+    const { params } = registry["instructions.create"];
+    expect(params.safeParse({ commandId, id: instructionId, catalogueId: "coding.fresh-checkout" }).success).toBe(true);
+    expect(params.safeParse({ commandId, id: instructionId, title: "Mine", body: "" }).success).toBe(true);
+    for (const wrong of [{}, { title: "Mine" }, { catalogueId: "coding.fresh-checkout", title: "Mine" }, { catalogueId: "coding.fresh-checkout", title: "Mine", body: "" }]) {
+      expect(params.safeParse({ commandId, id: instructionId, ...wrong }).success, JSON.stringify(wrong)).toBe(false);
+    }
+    const document = exported(methodPath("instructions.create", "params"));
+    expect(document["oneOf"]).toEqual([
+      { required: ["title", "body"], properties: { title: true, body: true, catalogueId: false } },
+      { required: ["catalogueId"], properties: { catalogueId: true, title: false, body: false } },
+    ]);
+  });
+
+  it("list each copy's newer version, and the dismissed entries", () => {
+    expect(Object.keys(OwnedInstructionRow.shape)).toEqual(["id", "title", "body", "origin", "scope", "enabled", "position", "newerVersion", "accounts"]);
+  });
+
+  it("round-trip version-resolved, both choices, through the JSON Schema export", () => {
+    const path = "instructions/events/instructions.version-resolved.json";
+    expect(exportedSchemas().find((schema) => schema.path === path)?.schema).toBe(InstructionVersionResolvedPayload);
+    const ajv = validator();
+    const validate = ajv.compile(exported(path));
+    for (const payload of [
+      { id: instructionId, choice: "replace", version: 2, body: "The new text." },
+      { id: instructionId, choice: "keep", version: 2 },
+    ]) {
+      const written = JSON.parse(JSON.stringify(InstructionVersionResolvedPayload.parse(payload))) as unknown;
+      expect(validate(written), ajv.errorsText(validate.errors)).toBe(true);
+      expect(InstructionVersionResolvedPayload.parse(written)).toEqual(payload);
+    }
+    expect(validate({ id: instructionId, choice: "replace", version: 2 })).toBe(false);
+  });
+
+  it("round-trip the diff through the JSON Schema export", () => {
+    const ajv = validator();
+    const validate = ajv.compile(exported(methodPath("instructions.diff", "result")));
+    const diff = { catalogueId: "coding.fresh-checkout", fromVersion: 1, toVersion: 2, from: "Old.", to: "New.", body: "Old, edited." };
+    const written = JSON.parse(JSON.stringify(registry["instructions.diff"].result.parse(diff))) as unknown;
+    expect(validate(written), ajv.errorsText(validate.errors)).toBe(true);
+    expect(registry["instructions.diff"].result.parse(written)).toEqual(diff);
+  });
+});
+
+describe("session instructions (#506)", () => {
+  it("are set by sessions.setInstructions, a command at runs:drive as sessions.rewind is, registered and indexed with its documents", () => {
+    expect(registry["sessions.setInstructions"]).toMatchObject({ name: "sessions.setInstructions", kind: "command", scope: "runs:drive" });
+    expect(Object.keys(registry["sessions.setInstructions"].params.shape)).toEqual(["commandId", "sessionId", "text"]);
+    const index = exported("index.json") as { methods: { name: string; scope: string; params: string; result: string }[] };
+    expect(index.methods).toContainEqual(expect.objectContaining({ name: "sessions.setInstructions", scope: "runs:drive", params: methodPath("sessions.setInstructions", "params") }));
+  });
+
+  it("hold at most 20,000 characters, and empty text is none", () => {
+    expect(MAX_SESSION_INSTRUCTIONS).toBe(20000);
+    const params = registry["sessions.setInstructions"].params;
+    const base = { commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", sessionId };
+    expect(params.safeParse({ ...base, text: "t".repeat(20000) }).success).toBe(true);
+    expect(params.safeParse({ ...base, text: "" }).success).toBe(true);
+    expect(params.safeParse({ ...base, text: "t".repeat(20001) }).success).toBe(false);
+    expect(params.safeParse(base).success).toBe(false);
+  });
+
+  it("append session.instructions-set on the session stream, which changes nothing listed", () => {
+    expect(EVENT_TYPES.session["session.instructions-set"].payload).toBe(SessionInstructionsSetPayload);
+    expect(isListEvent("session", "session.instructions-set")).toBe(false);
+    expect(Object.keys(SessionInstructionsSetPayload.shape)).toEqual(["text"]);
+    expect(SessionInstructionsSetPayload.shape.text).toBe(SessionInstructions);
+    expect(publishedEventPayloads()).toContainEqual(["session.instructions-set", SessionInstructionsSetPayload]);
+  });
+
+  it("are carried by the per-session snapshot, read as none from an environment older than the field", () => {
+    expect(SessionSnapshot.shape.instructions.unwrap()).toBe(SessionInstructions);
+    expect(exported("sessions/events/session.instructions-set.json")).toMatchObject({ type: "object", required: ["text"] });
+    const snapshot = exported("transcript/session-snapshot.json") as { required: string[]; properties: Record<string, { default?: unknown }> };
+    expect(snapshot.required).not.toContain("instructions");
+    expect(snapshot.properties["instructions"]?.default).toBe("");
   });
 });

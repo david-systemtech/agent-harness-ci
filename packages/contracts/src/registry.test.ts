@@ -97,6 +97,8 @@ describe("the method registry", () => {
       "sessions.rewind": ["command", "runs:drive"],
       // Undoing one, beside it (ADR 0022, #218).
       "sessions.undoRewind": ["command", "runs:drive"],
+      // Setting a session's own instructions, as rewinding, changes what its next run does (#506).
+      "sessions.setInstructions": ["command", "runs:drive"],
       // The session's browser chooses what its next run may drive (browser spec, "The browser as a session field"; #550).
       "sessions.setBrowser": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
@@ -234,7 +236,11 @@ describe("the method registry", () => {
       "instructions.setScope",
       "instructions.setEnabled",
       "instructions.move",
+      "instructions.resolveVersion",
       "instructions.remove",
+      "instructions.dismissSuggestion",
+      "instructions.restoreSuggestion",
+      "instructions.import",
       "forge.accounts.add",
       "forge.accounts.update",
       "forge.accounts.remove",
@@ -251,6 +257,7 @@ describe("the method registry", () => {
       "keyManagers.connections.remove",
       "keyManagers.move",
       "keyManagers.move.copyValue",
+      "tools.run",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -395,6 +402,7 @@ describe("the method registry", () => {
       | "sessions.fork"
       | "sessions.rewind"
       | "sessions.undoRewind"
+      | "sessions.setInstructions"
       | "groups.create"
       | "groups.rename"
       | "groups.reorder"
@@ -432,12 +440,17 @@ describe("the method registry", () => {
       | "commands.list"
       | "instructions.preview"
       | "instructions.list"
+      | "instructions.diff"
       | "instructions.create"
       | "instructions.edit"
       | "instructions.setScope"
       | "instructions.setEnabled"
       | "instructions.move"
+      | "instructions.resolveVersion"
       | "instructions.remove"
+      | "instructions.dismissSuggestion"
+      | "instructions.restoreSuggestion"
+      | "instructions.import"
       | "forge.accounts.list"
       | "forge.accounts.add"
       | "forge.accounts.update"
@@ -469,6 +482,7 @@ describe("the method registry", () => {
       | "tools.list"
       | "tools.detail"
       | "tools.verify"
+      | "tools.run"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

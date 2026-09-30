@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolCommandEntry",
+  "type": "object",
+  "properties": {
+    "tool": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "bao",
+        "doppler",
+        "op",
+        "bws",
+        "gh"
+      ],
+      "description": "A managed tool the harness installs or updates: every one but vault, which it never installs, being under the Business Source License."
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "homebrew",
+        "winget",
+        "apt",
+        "dnf",
+        "script",
+        "npm"
+      ],
+      "description": "A way the harness installs or updates a tool: homebrew; winget; apt or dnf, the vendor's repository added with its signing key; script, the vendor's install script (claude's native installer among them); npm, a global package, which it only updates."
+    },
+    "platforms": {
+      "minItems": 1,
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "darwin",
+          "linux",
+          "win32"
+        ],
+        "description": "A platform the command table has commands for, as Node names it: darwin (macOS), linux or win32 (Windows)."
+      },
+      "description": "The platforms the commands are for."
+    },
+    "needs": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+      },
+      "description": "The programs Install needs on the login shell's PATH: the package manager, sudo, the downloader. The method is available where every one is found."
+    },
+    "install": {
+      "anyOf": [
+        {
+          "minItems": 1,
+          "maxItems": 12,
+          "type": "array",
+          "items": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "minItems": 1,
+              "maxItems": 24,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[^\\p{Cc}]+$",
+                "description": "One argument, given to the program as one word whatever it holds; never a control character."
+              },
+              "description": "A program and its arguments, as a fixed list: the first is the program."
+            },
+            "description": "One step of a command: its programs, each one's output piped into the next."
+          },
+          "description": "An install or update command as fixed argument lists: its steps, each run once the one before it has succeeded; never a fetched string or a shell line."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The install command; null for a method that only updates (npm, claude's own apt and dnf repositories)."
+    },
+    "update": {
+      "minItems": 1,
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "minItems": 1,
+        "maxItems": 3,
+        "type": "array",
+        "items": {
+          "minItems": 1,
+          "maxItems": 24,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[^\\p{Cc}]+$",
+            "description": "One argument, given to the program as one word whatever it holds; never a control character."
+          },
+          "description": "A program and its arguments, as a fixed list: the first is the program."
+        },
+        "description": "One step of a command: its programs, each one's output piped into the next."
+      },
+      "description": "The update command, for the tool installed by this method."
+    }
+  },
+  "required": [
+    "tool",
+    "method",
+    "platforms",
+    "needs",
+    "install",
+    "update"
+  ],
+  "description": "One entry of the closed command table: a tool's install and update commands by one method, on the platforms it names."
+}

@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "tools.run error",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unauthorized"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session's token is missing, invalid, foreign or expired."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "forbidden"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "read",
+                "sessions:write",
+                "runs:drive",
+                "terminal",
+                "admin"
+              ],
+              "description": "The scope the method requires."
+            },
+            "reason": {
+              "description": "Present when the scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session) or local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage).",
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "local"
+              ]
+            },
+            "ceiling": {
+              "description": "With reason ceiling: the caller's own ceiling, the highest it may grant.",
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ]
+            }
+          },
+          "required": [
+            "scope"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason local, only a local client session may ask it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "readiness": {
+              "type": "string",
+              "enum": [
+                "starting",
+                "draining"
+              ],
+              "description": "Why the environment cannot answer: it is not ready yet, or it is draining."
+            }
+          },
+          "required": [
+            "readiness"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment is starting or draining; data.readiness says which."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "invalid_params"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "path",
+                  "message"
+                ],
+                "additionalProperties": {},
+                "description": "One schema issue: a code, the path to the offending value and a message."
+              }
+            }
+          },
+          "required": [
+            "issues"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The params or the frame did not match the schema; data.issues lists the schema's issues."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "not_found"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The method's target does not exist."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "conflict"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The target's state does not allow the method now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "internal"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment failed; nothing the client sent is at fault."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "tool_not_runnable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "tool": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "bao",
+                "vault",
+                "doppler",
+                "op",
+                "bws",
+                "gh"
+              ],
+              "description": "A managed tool, by the name it is found under on the PATH: claude (claude in your terminal, never the bundled binary), bao (OpenBao), vault (Vault), doppler, op (1Password), bws (Bitwarden Secrets Manager) or gh (GitHub)."
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "install",
+                "update"
+              ],
+              "description": "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing."
+            },
+            "command": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192,
+                  "pattern": "^[^\\r\\n]+$",
+                  "description": "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The vendor's documented command, to copy and run where the harness cannot: the vendor script's update for a tool it installed by hand, else the install the table has for this platform. Null when there is none: vault, which the harness never installs or updates."
+            }
+          },
+          "required": [
+            "tool",
+            "action",
+            "command"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The harness does not run this tool's install or update here: a Copy-only row (installed by hand, or by mise, asdf or Scoop, or not known how), a tool no method available on the environment installs, or vault, which is never installed; data.command is the vendor's documented command to copy."
+    }
+  ]
+}

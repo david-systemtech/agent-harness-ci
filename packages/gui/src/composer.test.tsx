@@ -299,8 +299,8 @@ const PROVIDER_COMMANDS = [
 ];
 
 /**
- * The slash commands the window wires (the composer's, the side column's, #408, the status line's pickers, #402, and the
- * session pane's fork and rewind, #665), in
+ * The slash commands the window wires (the composer's, the side column's, #408 and #427, the status line's pickers, #402,
+ * and the session pane's fork and rewind, #665), in
  * the shared list's order, as the menu and the palette list them; the menu offers the first `MENU_ROWS` at once.
  */
 const WINDOW_COMMANDS = [
@@ -314,12 +314,13 @@ const WINDOW_COMMANDS = [
   "/containmentSet how contained this session's runs are",
   "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
+  "/documentsThe pages, SVGs and markdown this session wrote, newest first",
   "/forkFork this session n prompts back; bare, at the end",
   "/rewindRewind n prompts, one by default; undo takes the rewind back",
 ];
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
-const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[8]];
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[8], WINDOW_COMMANDS[10]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {
