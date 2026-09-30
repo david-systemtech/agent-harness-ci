@@ -72,8 +72,8 @@ export type SetupActionPlan =
   | { readonly kind: "sign-in"; readonly account: NamedItem }
   /** The environment checked updated, under its idle rules (`updateEnvironment`). */
   | { readonly kind: "update" }
-  /** A verb the step's card carries out on the items named; with no card of the step's own, its home row. */
-  | { readonly kind: "card"; readonly step: StepId; readonly home: SettingsRowId; readonly action: CardAction; readonly targets: readonly SetupTarget[] }
+  /** A verb the step's card carries out on the items named; on a step with no card of its own, its home row. */
+  | { readonly kind: "card"; readonly action: CardAction; readonly targets: readonly SetupTarget[]; readonly home: SettingsRowId }
   /** A row of Settings opened on the environment checked. */
   | { readonly kind: "row"; readonly row: SettingsRowId };
 
@@ -83,20 +83,21 @@ export interface ActingStep {
   readonly home: SettingsRowId;
 }
 
-/** Where a verb whose item has no method of its own on the wire yet is carried out: the row of Settings where that item lives. */
-const ROW_OF_KIND: { readonly [Kind in SetupTarget["kind"]]?: SettingsRowId } = {
+/** Where the sign-in of an item that is no provider account is given until its card is built: the row it lives on. */
+const SIGN_IN_ROWS: { readonly [Kind in SetupTarget["kind"]]?: SettingsRowId } = {
   "forge-account": "access.forges",
   "key-manager-connection": "access.key-managers",
 };
 
 /**
- * What `action`, offered by `step`'s result, does on `targets`, the items
- * of the result's targets that serve it: the one item a button acts on, or
- * every item for Restore.
+ * What `action`, offered by `step`'s result, does on those of `targets`
+ * that serve it: the one item a button acts on, or every item Restore
+ * names.
  */
-export const planSetupAction = (step: ActingStep, action: SetupAction, targets: readonly SetupTarget[] = []): SetupActionPlan => {
+export const planSetupAction = (step: ActingStep, action: SetupAction, given: readonly SetupTarget[] = []): SetupActionPlan => {
+  const targets = given.filter((target) => target.action === action);
   const [first] = targets;
-  if (isCardAction(action)) return { kind: "card", step: step.id, home: step.home, action, targets };
+  if (isCardAction(action)) return { kind: "card", action, targets, home: step.home };
   switch (action) {
     case "check-again":
       return { kind: "check", step: isRegisteredStep(step.id) ? step.id : undefined };
@@ -115,7 +116,7 @@ export const planSetupAction = (step: ActingStep, action: SetupAction, targets: 
       return first?.kind === "environment" ? { kind: "pick", environmentId: first.id } : { kind: "row", row: "environments.machines" };
     case "sign-in-again":
       if (first?.kind === "account") return { kind: "sign-in", account: { id: first.id, label: first.label } };
-      return { kind: "row", row: (first === undefined ? undefined : ROW_OF_KIND[first.kind]) ?? step.home };
+      return { kind: "row", row: (first === undefined ? undefined : SIGN_IN_ROWS[first.kind]) ?? step.home };
     case "update":
       // A tool's update is `tools.run`'s (#376), not on the wire yet: its step's row.
       return step.id === "your-machines" && first?.kind !== "tool" ? { kind: "update" } : { kind: "row", row: step.home };
