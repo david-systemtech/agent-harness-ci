@@ -16,8 +16,8 @@ import { refusalWords } from "./words.js";
  * environment's heading and a filtered list refuse it: nothing is sent, the
  * pointer shows no drop, and the sidebar's line says why. The session
  * dragged is held above the sidebar (`useDraggedRow`) and carried as
- * `SESSION_DRAG_TYPE`, so a drop elsewhere in the window reads it (the pane
- * grid, #407).
+ * `SESSION_DRAG_TYPE` alone, so a drop elsewhere in the window reads it (the
+ * pane grid, #407) and a text field it is dropped on takes nothing in.
  */
 
 /** The drag data a session carries: its environment's id and its own, as JSON. */
@@ -30,7 +30,6 @@ export const useDragRow = (row: SessionRow) => {
     draggable: true,
     onDragStart: (event: DragEvent) => {
       event.dataTransfer.setData(SESSION_DRAG_TYPE, JSON.stringify({ environmentId: row.environmentId, sessionId: row.summary.id }));
-      event.dataTransfer.setData("text/plain", row.summary.title);
       event.dataTransfer.effectAllowed = "move";
       setDragged(row);
     },

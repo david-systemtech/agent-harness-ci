@@ -452,11 +452,14 @@ describe("dragging", () => {
     const carried = dataTransfer();
     const loose = row("Loose");
     fireEvent.dragStart(loose, { dataTransfer: carried });
+    // It carries the session alone, as its own type: no text a field it is dropped on would take in as typed.
+    const desk = app.environment("desk");
+    expect(carried.types).toEqual(["application/x-agent-harness-session"]);
+    expect(JSON.parse(carried.getData("application/x-agent-harness-session"))).toEqual({ environmentId: desk.environmentId, sessionId: desk.sessionId(0) });
     const zone = within(sidebar()).getByText("Pinned: drop here to pin it.");
     expect(fireEvent.dragOver(zone, { dataTransfer: carried })).toBe(false);
     fireEvent.drop(zone, { dataTransfer: carried });
     fireEvent.dragEnd(loose, { dataTransfer: carried });
-    const desk = app.environment("desk");
     await waitFor(() => expect(desk.requests("sessions.pin").map((frame) => frame.params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: desk.sessionId(0) }]));
     await waitFor(() => expect(drawn().slice(0, 2)).toEqual(["▾ Pinned", "  Loose"]));
   });
