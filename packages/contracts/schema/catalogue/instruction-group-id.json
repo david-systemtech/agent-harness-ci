@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueInstructionGroupId",
+  "type": "string",
+  "enum": [
+    "setup",
+    "coding",
+    "working",
+    "custom"
+  ],
+  "description": "An instruction group: setup (only the seeded About my setup), coding (habits for work in a repository), working (Working with me: how the agent talks to you and delegates) or custom (a person's own, which the catalogue leaves empty)."
+}
