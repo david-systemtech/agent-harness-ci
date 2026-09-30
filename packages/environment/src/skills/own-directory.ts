@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ENVIRONMENT_STREAM_KIND, SESSION_STREAM_KIND, type SkillLayer, type SkillMember, type SkillOrigin } from "@agent-harness/contracts";
+import { ENVIRONMENT_STREAM_KIND, type SkillLayer, type SkillMember, type SkillOrigin } from "@agent-harness/contracts";
 import { formatActor, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, CommandRejection, PreparedCommand } from "../serve/methods.js";
 import type { Trash } from "../serve/trash.js";
@@ -14,12 +14,13 @@ import { SKILL_FILE, readCommandFolder, readSkillFolder, type FoundMember } from
  * 0018, ADR 0009): each environment's own skills, under its data directory
  * with `skills/` and `commands/`, which David writes by hand (from a
  * terminal pane or an editor, `skills.get` naming the path) or with
- * `skills.own.create`. It is read at each run's start and on `skills.get`,
- * never watched: a read that finds its members changed since the last read
- * raises `skills.updated` on the environment's stream, and so does each
- * command that changes it, with its receipt. A provenance manifest in its
- * root gives its folders their origin. `skills.own.remove` moves a member
- * to the data directory's trash.
+ * `skills.own.create`. It is read as each run's skill set is resolved, at
+ * the run's start and at each commands listing (`run-skill-set.ts`), and
+ * on `skills.get`, never watched: a read that finds its members changed
+ * since the last read raises `skills.updated` on the environment's stream,
+ * and so does each command that changes it, with its receipt. A provenance
+ * manifest in its root gives its folders their origin. `skills.own.remove`
+ * moves a member to the data directory's trash.
  */
 
 /** The own directory, from the data directory. */
@@ -50,8 +51,6 @@ export interface OwnDirectory {
   readonly create: PreparedCommand<"skills.own.create">;
   /** `skills.own.remove`: a member moved to the trash. */
   readonly remove: PreparedCommand<"skills.own.remove">;
-  /** Reads the own directory as each run starts, off the log's path; answers the stop. */
-  readAtRunStart(): () => void;
   /** Waits for the reads under way; no read after it raises a notice. */
   close(): Promise<void>;
 }
@@ -190,12 +189,6 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
         return changed(member, await readMembers());
       },
     },
-
-    readAtRunStart: () =>
-      log.subscribe((event) => {
-        if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "run.started") return;
-        read().catch((error: unknown) => console.error("Reading the own skills directory as a run started failed:", error));
-      }),
 
     async close() {
       closed = true;

@@ -32,7 +32,8 @@ export const NOTICE_LIMIT = 100;
  * its credential, or an origin had none, #320), `key-manager` (a
  * key-manager connection came to stand in a status that needs David, #384),
  * `routine` (a routine's result delivered to the clients, a success or a
- * failure, #525); and the outbox's (#128):
+ * failure, #525), `workspace-kept` (a worktree stayed when the last session
+ * naming it was purged, #330); and the outbox's (#128):
  * `command-rejected` (the environment refused a command, by its receipt or
  * an error) and `command-dropped` (a command left the outbox unsent,
  * whatever dropped it: seven days without reaching its environment, a run
@@ -51,6 +52,7 @@ export type NoticeKind =
   | "forge"
   | "key-manager"
   | "routine"
+  | "workspace-kept"
   | "command-rejected"
   | "command-dropped";
 

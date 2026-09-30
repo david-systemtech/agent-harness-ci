@@ -15,6 +15,7 @@ import {
   registry,
   AccountCatalogue,
   AccountRecord,
+  AmbientProbe,
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
   ContainmentReport,
@@ -31,6 +32,7 @@ import {
   lowerMode,
   normaliseEnvironmentName,
   presetSettings,
+  type AccountChange,
   type AccountUsage,
   type ContainmentLevel,
   type EnvironmentColour,
@@ -171,6 +173,11 @@ export interface ScriptedEnvironment {
   readonly recommendation?: Partial<HandoffRecommendation>;
   /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
+  /**
+   * What `accounts.probe` reads of the machine's own Claude directory, `/home/seth/.claude`, which `accounts.adopt`
+   * adopts while it is there and signed in: preset not there.
+   */
+  readonly ambient?: Partial<AmbientProbe>;
   /** The directories a new session is refused in, by the path as recorded (`~` read as the scripted home), each with its problem (`workspace_unusable`): preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
   /**
@@ -346,6 +353,13 @@ export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle,
   editFile(sessionId: string, runId: string, path: string, oldText: string, newText: string): string;
   /** The session's log as the environment holds it: every event appended since its snapshot, in order. */
   events(sessionId: string): readonly EventEnvelope[];
+  /** The accounts the environment holds now, as `accounts.list` answers them. */
+  accounts(): readonly AccountRecord[];
+  /**
+   * Changes an account as another client or the environment's own status read would: the fields given replace its
+   * own, or `null` removes it; an `account.updated` notice says what changed.
+   */
+  changeAccount(accountId: string, changes: Partial<AccountRecord> | null): void;
   /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
@@ -430,6 +444,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     accountId: null,
     model: null,
     mode: null,
+    browser: null,
     pullRequests: [],
     draft: null,
     ...partial,
@@ -1401,12 +1416,102 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ...account,
     });
   const accounts: AccountRecord[] = (spec.accounts ?? []).map(accountOf);
+  /** The accounts minted so far, so a new account's id is never one a removed account had. */
+  let accountsMinted = accounts.length;
   wire.answer("accounts.list", () =>
     spec.accountsError !== undefined ? { error: { code: "internal", message: spec.accountsError, data: {} } } : { result: { accounts: [...accounts] } },
   );
   wire.answer("models.list", () => ({
     result: { catalogues: (spec.models ?? []).map((catalogue) => checked(AccountCatalogue, { accountId: "account-1", live: false, models: [], ...catalogue })) },
   }));
+  // The account store's commands (claude-adapter spec, "The account store"): each change said with `account.updated`.
+  let ambient = checked(AmbientProbe, {
+    provider: "claude",
+    directory: "/home/seth/.claude",
+    present: false,
+    signedIn: false,
+    identity: null,
+    accountId: null,
+    detail: null,
+    checkedAt: clock.now().toISOString(),
+    ...spec.ambient,
+  });
+  const accountUpdated = (accountId: string, change: AccountChange) => notice("account.updated", { accountId, change, warning: null });
+  const accountRefusal = (reason: string, message: string, data: Record<string, unknown> = {}): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message, data: { reason, ...data } } } },
+  });
+  const accountNotHeld = (accountId: unknown): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "not_found", error: { code: "not_found", message: `No account ${String(accountId)} on this environment.`, data: { kind: "account" } } } },
+  });
+  /** The refusal of `label` for another account than `accountId` holding it, ignoring case. */
+  const labelTaken = (label: string, accountId?: string): FakeAnswer | undefined => {
+    const holder = accounts.find((a) => a.id !== accountId && a.label.toLowerCase() === label.toLowerCase());
+    return holder ? accountRefusal("label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id }) : undefined;
+  };
+  /** Removes `held`, releasing the machine's own directory if it held it, as the account store does. */
+  const removeAccount = (held: AccountRecord) => {
+    accounts.splice(accounts.indexOf(held), 1);
+    if (ambient.accountId === held.id) ambient = { ...ambient, accountId: null };
+    accountUpdated(held.id, "removed");
+  };
+  wire.answer("accounts.probe", () => ({ result: { ...ambient, checkedAt: clock.now().toISOString() } }));
+  wire.answer("accounts.refresh", () => ({ result: { accounts: [...accounts] } }));
+  wire.answer("accounts.adopt", (params) => {
+    const refused = rejection("accounts.adopt");
+    if (refused) return refused;
+    if (ambient.directory === null || !ambient.present || !ambient.signedIn) {
+      return accountRefusal("ambient_unavailable", `The machine's own Claude directory is not signed in (${ambient.directory ?? "none"}); sign in with Claude's own CLI, then call accounts.probe.`);
+    }
+    const holder = accounts.find((a) => a.id === ambient.accountId);
+    if (holder) return accountRefusal("already_added", `${ambient.directory} is already added as ${holder.label}.`, { accountId: holder.id });
+    const label = (params["label"] as string | undefined) ?? ambient.identity?.email ?? "";
+    const taken = labelTaken(label);
+    if (taken) return taken;
+    const account = accountOf({ id: `account-${++accountsMinted}`, label, directory: { kind: "adopted", path: ambient.directory }, identity: ambient.identity }, accounts.length);
+    accounts.push(account);
+    ambient = { ...ambient, accountId: account.id };
+    accountUpdated(account.id, "adopted");
+    return acceptedWith({ account });
+  });
+  wire.answer("accounts.relabel", (params) => {
+    const refused = rejection("accounts.relabel");
+    if (refused) return refused;
+    const at = accounts.findIndex((a) => a.id === params["accountId"]);
+    const held = accounts[at];
+    if (!held) return accountNotHeld(params["accountId"]);
+    const label = String(params["label"]);
+    if (held.label === label) return acceptedWith({ account: held });
+    const taken = labelTaken(label, held.id);
+    if (taken) return taken;
+    const account = { ...held, label };
+    accounts[at] = account;
+    accountUpdated(account.id, "relabelled");
+    return acceptedWith({ account });
+  });
+  wire.answer("accounts.remove", (params) => {
+    const refused = rejection("accounts.remove");
+    if (refused) return refused;
+    const held = accounts.find((a) => a.id === params["accountId"]);
+    if (!held) return accountNotHeld(params["accountId"]);
+    const deleteDirectory = params["deleteDirectory"] === true;
+    if (deleteDirectory && held.directory.kind === "adopted") {
+      return accountRefusal(
+        "adopted_directory",
+        `${held.label} is the machine's own provider directory, adopted in place; the environment never deletes it. Remove the account without deleting its directory.`,
+        { accountId: held.id },
+      );
+    }
+    removeAccount(held);
+    return acceptedWith({ accountId: held.id, directoryDeleted: deleteDirectory });
+  });
+  const changeAccount = (accountId: string, changes: Partial<AccountRecord> | null) => {
+    const at = accounts.findIndex((a) => a.id === accountId);
+    const held = accounts[at];
+    if (!held) throw new Error(`${spec.name} holds no account ${accountId}.`);
+    if (changes === null) return removeAccount(held);
+    accounts[at] = checked(AccountRecord, { ...held, ...changes });
+    accountUpdated(accountId, changes.label !== undefined ? "relabelled" : changes.identity !== undefined ? "identity-set" : "status-changed");
+  };
 
   // The sign-in director (ADR 0018): one sign-in at a time, moved by the handle as the provider's CLI would move it.
   let signIn: SignIn | null = null;
@@ -1442,7 +1547,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("accounts.add", (params) => {
     const refused = rejection("accounts.add");
     if (refused) return refused;
-    const account = accountOf({ id: `account-${accounts.length + 1}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${accounts.length + 1}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const id = ++accountsMinted;
+    const account = accountOf({ id: `account-${id}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start = spec.addSignIn ?? { started: true, message: null };
     if (start.started) startSignIn(account.id);
@@ -1763,7 +1869,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "sessions.fork",
     "sessions.rewind",
     "sessions.undoRewind",
+    "accounts.adopt",
     "accounts.add",
+    "accounts.relabel",
+    "accounts.remove",
     "accounts.signin.start",
     "accounts.signin.code",
     "accounts.signin.cancel",
@@ -1883,6 +1992,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     },
     events: (sessionId) => [...(logs.get(sessionId)?.events ?? [])],
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
+    accounts: () => [...accounts],
+    changeAccount,
     setUsage,
     setUpdates,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),

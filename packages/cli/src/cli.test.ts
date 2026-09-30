@@ -65,7 +65,7 @@ const harness = (containerDetector: ContainerDetector = { inContainer: () => fal
       user: { isPrivileged: () => false },
       launcher: { present: () => true, prepared, close, onQuery: (respond) => void (answer = respond), request: () => Promise.resolve(NO_LAUNCHER) },
       runs,
-      interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
+      interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined, lanAddresses: () => [] },
       probeContainment: async () => NO_BUBBLEWRAP,
       containerDetector,
       // The extension's listener on any free port, never 47615 (#547).
@@ -144,6 +144,7 @@ describe("agent-harness serve", () => {
       readiness: "ready",
       activity: { state: "idle" },
       updatesManagedOutside: false,
+      binding: { tailnet: null, lan: null, lanAddresses: [] },
     });
     expect(cli.ask({ type: "drain?" })).toMatchObject({ type: "draining", trigger: "launcher" });
     expect(await exit).toBe(0);

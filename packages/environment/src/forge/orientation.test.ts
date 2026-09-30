@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { RUN_SECRET_VARIABLE, registry, type KeyManagerReference, type RunInstructionsComposedPayload } from "@agent-harness/contracts";
+import { EMPTY_RUN_SKILL_SET, RUN_SECRET_VARIABLE, registry, type KeyManagerReference, type RunInstructionsComposedPayload } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
@@ -435,6 +435,7 @@ describe("the forges section in the orientation block", () => {
       accountId: "claude-max",
       workspace,
       trust: undecidedTrust({ workspace, repositoryIdentity: null }),
+      skillSet: EMPTY_RUN_SKILL_SET,
       origin: "client",
       containment: "off",
       injection: { answer: "allow", level: { kind: "environment" } },

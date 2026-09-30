@@ -104,6 +104,13 @@ export const CompletionsExtension = z
       .boolean()
       .nullish()
       .meta({ description: "A person is present to answer prompts: they park until a client answers. False when absent: the unattended rule answers them." }),
+    browser: z
+      .literal("headless")
+      .nullish()
+      .meta({
+        description:
+          "The browser a session the turn makes (a fresh one, or a fork) has: headless, the environment's headless browser; none when absent, since a program brings its own tools. Any other value is refused 400. Reported ignored on a turn that makes no session.",
+      }),
     after: Sequence.nullish().meta({ description: "On a session whose run is live, the log sequence to attach from: the events of the run after it are sent first." }),
     ignoreUnsupported: z.boolean().nullish().meta({ description: "Ignore, and report, the OpenAI parameters the surface would otherwise refuse with 400." }),
   })

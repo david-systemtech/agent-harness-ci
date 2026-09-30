@@ -46,6 +46,7 @@ import { TrustUpdatedPayload } from "./trust.js";
 import { InstructionsUpdatedPayload } from "./instructions.js";
 import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
+import { WorkspaceKeptPayload } from "./workspaces.js";
 
 /**
  * The environment's own notices: the events on its `environment` stream,
@@ -58,45 +59,19 @@ import { UsageUpdatedPayload } from "./usage.js";
 export const ENVIRONMENT_STREAM_KIND = "environment";
 
 /**
- * The notices there are: the environment finished starting; it was updated
- * from one harness version to another (appended by the settle after the
- * restart, #344); it began to drain (appended by the lifecycle ticket,
- * #112); an update became pending, began, failed or was withdrawn (the
- * update coordinator: the launcher-update spec's notices, #335); it was
- * renamed, or took an icon or a colour (#323, whose three commands append
- * them, so every client redraws its badge); an account
- * changed (the account store, #134), appended once the change has committed;
- * the sign-in changed state, carrying the sign-in (the sign-in director,
- * #135); the executable sign-ins run was chosen, once per environment and
- * bundled binary (#135); a prompt parked, waiting for a person, and a parked
- * prompt was resolved (#130); an account's plan-usage reading changed
- * (#136); a forge account was added, updated, made primary, verified,
- * taught a capability, refused by git or removed, or an origin had no forge
- * account (#310: the ForgeService's own events, which its store is kept
- * from); a key-manager connection was added, signed in, signed out,
- * updated, had its policies ticked or its base path set, was verified with
- * something changed, or was removed (#365, #366, #371: the key-manager
- * connections' own events), an item's stored value was moved into a key
- * manager, or one a move left behind was deleted (#371), or an item's
- * stored value was copied to a client session to paste by hand (#372); a
- * routine changed, a routine's result was delivered to the clients or could
- * not be delivered to its webhook, or a webhook endpoint was set or removed
- * (#519: the routines' notices); settings changed, with every
- * `settings.updated` (#391); a Set up step's result changed from the one
- * its result cache held, carrying the result (#569: ADR 0031's `setup`
- * subscription); the skill set changed, by a command or a read that
- * found the own directory changed (#494); a trust decision was recorded or
- * revoked (#500); an owned instruction changed (#505); a probe changed managed-tool rows (#373: the Managed tools
- * registry's notice); an extension that holds no credential opened its
- * socket to the environment's listener (#547: the Browser card's Load
- * sub-step); an import of an adopted account's directory ended (#578:
- * Carry over's `carry-over.imported`); so every connected client
- * learns of it whatever else it is subscribed to.
+ * The notices there are, in the order the schema lists them, a comment above
+ * each group naming the tickets that added it. Every one goes on the
+ * environment stream, so every connected client learns of it whatever else it
+ * is subscribed to; what each says is its line in `ENVIRONMENT_NOTICE_GLOSSES`.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
+  // The environment's start, its update to another version (appended by the settle after the
+  // restart, #344) and its drain (appended by the lifecycle ticket, #112).
   "environment.started",
   "environment.updated",
   "environment.draining",
+  // An update pending, begun, failed or withdrawn: the update coordinator's, the launcher-update
+  // spec's notices (#335).
   "environment.update-pending",
   "environment.update-started",
   "environment.update-failed",
@@ -105,12 +80,18 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.renamed",
   "environment.icon-set",
   "environment.colour-set",
+  // An account changed, appended by the account store once the change has committed (#134); the
+  // sign-in's state and the executable its sign-ins run, chosen once per environment and bundled
+  // binary (the sign-in director, #135).
   "account.updated",
   "signin.updated",
   "signin.executable-chosen",
+  // A prompt parked, waiting for a person, and resolved (#130); an account's plan-usage reading
+  // changed (#136).
   "prompt.parked",
   "prompt.resolved",
   "usage.updated",
+  // The ForgeService's own events, which its store is kept from (#310).
   "forge.account.added",
   "forge.account.updated",
   "forge.account.primary-set",
@@ -119,6 +100,8 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "forge.account.git-rejected",
   "forge.account.removed",
   "forge.origin-missing",
+  // The key-manager connections' own events (#365, #366, #371), Move's (#371) and a stored value
+  // copied to paste by hand (#372).
   "key-manager.connection.added",
   "key-manager.connection.signed-in",
   "key-manager.connection.signed-out",
@@ -131,25 +114,100 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "key-manager.moved",
   "key-manager.stored-value-deleted",
   "key-manager.value-copied",
+  // The routines' notices (#519).
   "routine.updated",
   "routine.delivered",
   "routine.delivery-failed",
   "routine.endpoint-set",
   "routine.endpoint-removed",
+  // Settings changed, with every settings.updated (#391); a Set up step's result changed (ADR
+  // 0031's setup subscription, #569); the skill set changed, by a command or a read that found the
+  // own directory changed (#494); a trust decision recorded or revoked (#500); an owned instruction
+  // changed (#505).
   "settings.changed",
   "setup.result-changed",
   "skills.updated",
   "trust.updated",
   "instructions.updated",
+  // The Managed tools registry's notice (#373); an extension that holds no credential seen at the
+  // listener (the Browser card's Load sub-step, #547); an import of an adopted account's directory
+  // ended (Carry over's, #578).
   "tools.updated",
   "tool.run-started",
   "tool.run-finished",
   "extension.seen",
   "carry-over.imported",
+  // A worktree the environment made stayed, unlocked, when the last session naming it was purged
+  // (the reaper's notice, which the client runtime raises, #330).
+  "workspace.kept",
 ] as const;
+
+/**
+ * `EnvironmentNoticeType`'s description, a line for each notice type, which
+ * the description joins in `ENVIRONMENT_NOTICE_TYPES` order: the separator
+ * before the type (none for the first), the type, and its gloss in brackets,
+ * which the types of a group share at the group's last. A line each, so two
+ * changes that add notices edit different lines rather than the one long
+ * string (#799), and a type without its line is a type error. A new type's
+ * line reads `, <type> (<gloss>)`.
+ */
+const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE_TYPES)[number]]: string } = {
+  "environment.started": "environment.started (startup finished)",
+  "environment.updated": ", environment.updated (a new harness version now runs)",
+  "environment.draining": ", environment.draining (new runs are refused before a restart)",
+  "environment.update-pending": ", environment.update-pending (an update waits for idle, the cap or a request)",
+  "environment.update-started": ", environment.update-started (an update began its drain)",
+  "environment.update-failed": ", environment.update-failed (an update did not take, and the version it went from runs)",
+  "environment.update-cancelled": ", environment.update-cancelled (a pending update was withdrawn)",
+  "environment.renamed": ", environment.renamed (the environment was renamed; a client redraws its badge)",
+  "environment.icon-set": ", environment.icon-set (the environment took another icon; a client redraws its badge)",
+  "environment.colour-set": ", environment.colour-set (the environment took another colour; a client redraws its badge)",
+  "account.updated": ", account.updated (an account changed; a client refreshes what it caches of the accounts)",
+  "signin.updated": ", signin.updated (the sign-in changed state: the verification URL, the end)",
+  "signin.executable-chosen": ", signin.executable-chosen (which executable sign-ins run, recorded once)",
+  "prompt.parked": ", prompt.parked (a run waits for a person's answer)",
+  "prompt.resolved": ", prompt.resolved (a parked prompt was answered)",
+  "usage.updated": ", usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings)",
+  "forge.account.added": ", and the forge's: forge.account.added",
+  "forge.account.updated": ", forge.account.updated",
+  "forge.account.primary-set": ", forge.account.primary-set",
+  "forge.account.verified": ", forge.account.verified",
+  "forge.account.capability-learned": ", forge.account.capability-learned",
+  "forge.account.git-rejected": ", forge.account.git-rejected",
+  "forge.account.removed": ", forge.account.removed",
+  "forge.origin-missing": " and forge.origin-missing (a client refreshes what it caches of the forge accounts)",
+  "key-manager.connection.added": ", and the key managers': key-manager.connection.added",
+  "key-manager.connection.signed-in": ", key-manager.connection.signed-in",
+  "key-manager.connection.signed-out": ", key-manager.connection.signed-out",
+  "key-manager.connection.updated": ", key-manager.connection.updated",
+  "key-manager.connection.policies-set": ", key-manager.connection.policies-set",
+  "key-manager.connection.base-path-set": ", key-manager.connection.base-path-set",
+  "key-manager.connection.injected-set": ", key-manager.connection.injected-set",
+  "key-manager.connection.verified": ", key-manager.connection.verified",
+  "key-manager.connection.removed": " and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections)",
+  "key-manager.moved": ", key-manager.moved (an item's stored value was moved into a key manager)",
+  "key-manager.stored-value-deleted": ", key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move)",
+  "key-manager.value-copied": " and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write)",
+  "routine.updated": ", and the routines': routine.updated (a routine changed; a client refreshes its routines list)",
+  "routine.delivered": ", routine.delivered (a routine's result for every connected client)",
+  "routine.delivery-failed": ", routine.delivery-failed (a routine's result could not be delivered to its webhook)",
+  "routine.endpoint-set": ", routine.endpoint-set",
+  "routine.endpoint-removed": " and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints)",
+  "settings.changed": ", settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings)",
+  "setup.result-changed": ", and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it)",
+  "skills.updated": ", skills.updated (the skill set changed; a client reads skills.get again)",
+  "trust.updated": ", trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again)",
+  "instructions.updated": ", instructions.updated (an owned instruction changed; a client reads instructions.list and instructions.preview again)",
+  "tools.updated": ", the Managed tools registry's tools.updated (a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list)",
+  "tool.run-started": ", tool.run-started",
+  "tool.run-finished": " and tool.run-finished (a tool's install or update began in a tool terminal, and ended with its exit code and verification)",
+  "extension.seen": ", extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load)",
+  "carry-over.imported": ", Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
+  "workspace.kept": ", workspace.kept (a worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why)",
+};
+
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
-  description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.injected-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager), key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move) and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again), instructions.updated (an owned instruction changed; a client reads instructions.list and instructions.preview again), the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list), tool.run-started and tool.run-finished (a tool's install or update began in a tool terminal, and ended with its exit code and verification), extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load), and Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again).",
+  description: `An environment notice's event type: ${ENVIRONMENT_NOTICE_TYPES.map((type) => ENVIRONMENT_NOTICE_GLOSSES[type]).join("")}.`,
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -343,7 +401,11 @@ const InstructionsUpdated = describedNotice(
   InstructionsUpdatedPayload,
   "An owned instruction changed, in the transaction of its instructions event: a client reads instructions.list and instructions.preview again.",
 );
-const ToolsUpdated = describedNotice("tools.updated", ToolsUpdatedPayload, "A probe of the managed tools changed rows: those rows as they are now.");
+const ToolsUpdated = describedNotice(
+  "tools.updated",
+  ToolsUpdatedPayload,
+  "A probe of the managed tools, or a latest version fetched, changed rows: those rows as they are now.",
+);
 const ToolRunStarted = describedNotice("tool.run-started", ToolRunStartedPayload, "A client session began installing or updating a tool in a tool terminal (tools.run): the tool, the action, the method, the terminal and the command line.");
 const ToolRunFinished = describedNotice(
   "tool.run-finished",
@@ -359,6 +421,12 @@ const CarryOverImported = describedNotice(
   "carry-over.imported",
   CarryOverImportedPayload,
   "An import of an adopted account's directory ended, in the transaction of what it imported: the account, what it did with the sessions, and what failed.",
+);
+
+const WorkspaceKept = describedNotice(
+  "workspace.kept",
+  WorkspaceKeptPayload,
+  "A worktree the environment made stayed, unlocked, when the last session naming it was purged: its path, branch, the session's title and why.",
 );
 
 /**
@@ -419,6 +487,7 @@ export const EnvironmentNotice = z
     ToolRunFinished,
     ExtensionSeen,
     CarryOverImported,
+    WorkspaceKept,
   ])
   .meta({
     description:

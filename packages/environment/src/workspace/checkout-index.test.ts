@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { create, deleteSession } from "../../test/sessions.js";
 import { git } from "../../test/workspaces.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
  * The checkout index (workspace-picker spec, "Completions, minted sessions,
@@ -55,6 +55,11 @@ describe("the checkout index", () => {
     // A run is a use: the older session's directory, run in last, comes first.
     t.clock.advance(60_000);
     await client.apply("runs.start", { commandId: randomUUID(), sessionId: early, text: "Go" });
+    // Its activity is its provider's, once its adapter has it, past its skill set and instructions (#493, #496).
+    const run = await t.adapter.reached(1);
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: early }).some((event) => event.type === "run.ended" && event.payload["runId"] === run.input.runId)).toBe(true), {
+      timeout: WAIT_MS,
+    });
     expect(await t.env.workspaces.checkoutIndex.checkoutFor(IDENTITY)).toEqual({ kind: "directory", path: laptop });
 
     // A worktree's known directory is the repository it was made from, not the worktree.

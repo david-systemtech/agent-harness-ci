@@ -16,6 +16,7 @@ import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruct
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
 import { managedToolMethodFixtures, managedToolSchemaFixtures, toolRunNotices, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
+import { invalidBindings, networkSchemaFixtures, validBindings } from "./network-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
@@ -31,7 +32,7 @@ import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
 import { carryOverMethodFixtures, carryOverSchemaFixtures } from "./carry-over-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
-import { workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
+import { workspaceKept, workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -392,6 +393,7 @@ const validStatuses = [
   { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
   { readiness: "ready", activity: { state: "busy", reason: "parked-prompt", busyUntil: at }, updatesManagedOutside: true },
   { readiness: "draining", activity: { state: "draining", drainingSince: at }, updatesManagedOutside: false },
+  ...validBindings.map((binding) => ({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding })),
 ];
 const invalidStatuses = [
   {},
@@ -400,6 +402,7 @@ const invalidStatuses = [
   { readiness: "ready", activity: { state: "idle" } },
   { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: "no" },
   { readiness: "ready", activity: { state: "busy" }, updatesManagedOutside: false },
+  ...invalidBindings.map((binding) => ({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding })),
 ];
 
 /** Params and result instances for every registered method. */
@@ -777,6 +780,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "instructions.updated",
       "extension.seen",
       "carry-over.imported",
+      "workspace.kept",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
@@ -826,6 +830,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       toolsUpdatedNotice.valid,
       ...toolRunNotices.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
+      { type: "workspace.kept", payload: workspaceKept },
+      { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -857,6 +863,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       toolsUpdatedNotice.invalid,
       ...toolRunNotices.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
+      { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
       validEnvelope,
     ],
   },
@@ -962,6 +969,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...forgeSchemaFixtures,
   ...keyManagerSchemaFixtures,
   ...managedToolSchemaFixtures,
+  ...networkSchemaFixtures,
   ...skillSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,

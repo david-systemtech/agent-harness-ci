@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserChooser",
+  "type": "string",
+  "enum": [
+    "person",
+    "agent",
+    "reach",
+    "completions"
+  ],
+  "description": "Who chose a session's browser: person (a client's sessions.setBrowser or sessions.create), agent (the agent answering the several-Chromes question), reach (the account's browser.reach default, sent with sessions.create), or completions (the completions surface for a session it made: none, or headless when the request asked)."
+}

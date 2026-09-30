@@ -380,7 +380,7 @@ describe("runs.readNow", () => {
     await session.until("run.ended", first.runId);
     const [started] = await session.until("run.started");
     expect(started?.payload).toMatchObject({ queuedMessageIds: queued.map((sent) => sent.messageId) });
-    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Second", "Third"]);
+    expect((await t.adapter.reached(2)).input.prompt.map((message) => message.text)).toEqual(["Second", "Third"]);
     held.open();
   });
 

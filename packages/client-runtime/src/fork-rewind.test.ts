@@ -70,10 +70,14 @@ const start = async (options: FakeAdapterOptions = {}) => {
     if (found?.kind !== "user-message") throw new Error(`The session shows no message ${text}.`);
     return found.messageId;
   };
-  /** Sends `text` as a run's prompt; waits for the run's end, or, for a run that goes on (`working`), for it to be running. */
+  /**
+   * Sends `text` as a run's prompt; waits for the run's end, or, for a run that goes on (`working`), for it to be running
+   * on its adapter, past its skill set and instructions (#493, #496).
+   */
   const send = async (text: string, until: "ended" | "running" = "ended") => {
     const before = session.read().runs.length;
     expect(await runtime.commands.dispatch(env, "runs.start", { sessionId, text })).toMatchObject({ ok: true });
+    await adapter.reached(before + 1);
     await vi.waitFor(() => {
       expect(session.read().runs).toHaveLength(before + 1);
       expect(session.read().runs.at(-1)?.state).toBe(until);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AccountId } from "./accounts.js";
+import { SessionBrowser } from "./browser-choice.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
@@ -375,13 +376,18 @@ export const SessionSummary = z
       description:
         "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again.",
     }),
+    // Browser (browser spec; ADR 0014): what the session's next run may drive, resolved at each run's start.
+    browser: SessionBrowser.nullable().meta({
+      description:
+        "The session's browser: a Chrome (a null chromeId the plain My Chrome), headless, the dock or none, as sessions.setBrowser or sessions.create last set it; null when none was chosen, so each run resolves a default. Each run resolves it again at its start.",
+    }),
     // Forge (ADR 0012).
     pullRequests: z.array(PullRequest),
     // Composer: the draft is a session field, so it follows the session between clients.
     draft: StoredDraft,
   })
   .meta({
-    description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, forge and the composer draft.",
+    description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, forge and the composer draft.",
   });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

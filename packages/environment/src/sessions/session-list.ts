@@ -7,6 +7,7 @@ import {
   type GroupPatch,
   type SessionActiveReorderedPayload,
   type SessionArchivedPayload,
+  type SessionBrowserSetPayload,
   type SessionCreatedPayload,
   type SessionDeletedPayload,
   type SessionDraftSetPayload,
@@ -134,6 +135,11 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     setColumns(event, db, { repository_identity: (event.payload as SessionRepositoryIdentifiedPayload).repositoryIdentity }),
   // The mode the permissions workstream gave the session (#129, #179); not an organisation change, so `updatedAt` stays.
   "session.mode.set": (event, db) => setColumns(event, db, { mode: (event.payload as SessionModeSetPayload).mode.effective }),
+  // The browser the session's next run resolves (#550): like the mode, what its runs may do, so `updatedAt` stays.
+  "session.browser.set": (event, db) => {
+    const { browser } = event.payload as SessionBrowserSetPayload;
+    setColumns(event, db, { browser: browser === null ? null : JSON.stringify(browser) });
+  },
   "session.title-set": (event, db) => {
     const payload = event.payload as SessionTitleSetPayload;
     const [row] = db.all<Pick<SessionRow, "generated_title">>("SELECT generated_title FROM sessions WHERE id = ?", event.streamId);
