@@ -72,6 +72,35 @@ export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
 export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js";
 export type { Forges, HandOverParams } from "./forges.js";
 export type { KeyManagers } from "./key-managers.js";
+export {
+  KEY_MANAGER_METHOD_WORDS,
+  KEY_MANAGER_PROVIDER_WORDS,
+  KEY_MANAGER_STATUS_ADVICE,
+  KEY_MANAGER_STATUS_WORDS,
+  basePathWords,
+  cliRowOf,
+  cliWords,
+  injectsWords,
+  listWords,
+  methodWords,
+  mintWords,
+  originWords,
+  policyWarning,
+  statusWords,
+  tokenWords,
+} from "./key-managers/words.js";
+export {
+  KEY_MANAGER_ADDRESS_PRESETS,
+  KEY_MANAGER_LABEL_PRESETS,
+  addConnection,
+  credentialOf,
+  credentialTyped,
+  formProblem,
+  type ConnectionForm,
+  type KeyManagerHands,
+  type KeyManagerOutcome,
+  type TypedCredential,
+} from "./key-managers/actions.js";
 export type { CopyOutcome, CopyReport, CopySource, CopyTarget } from "./copies.js";
 export {
   pairingDeepLink,
