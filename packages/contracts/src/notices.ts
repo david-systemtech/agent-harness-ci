@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
 import { CarryOverImportedPayload } from "./carry-over.js";
+import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
 import {
@@ -134,6 +135,8 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "tools.updated",
   "extension.seen",
   "carry-over.imported",
+  // A state import ended (#581's contract, #94's build).
+  "state-import.finished",
   // A worktree the environment made stayed, unlocked, when the last session naming it was purged
   // (the reaper's notice, which the client runtime raises, #330).
   "workspace.kept",
@@ -198,6 +201,7 @@ const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE
   "tools.updated": ", the Managed tools registry's tools.updated (a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list)",
   "extension.seen": ", extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load)",
   "carry-over.imported": ", Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
+  "state-import.finished": ", state-import.finished (a state import ended, with its report and what failed; a client reads stateImport.detect again)",
   "workspace.kept": ", workspace.kept (a worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why)",
 };
 
@@ -411,6 +415,11 @@ const CarryOverImported = describedNotice(
   CarryOverImportedPayload,
   "An import of an adopted account's directory ended, in the transaction of what it imported: the account, what it did with the sessions, and what failed.",
 );
+const StateImportFinished = describedNotice(
+  "state-import.finished",
+  StateImportFinishedPayload,
+  "A state import ended, in the transaction of what it carried: what it carried per kind, what must be entered again, what arrives in milestone 2, what never carries, and what failed.",
+);
 
 const WorkspaceKept = describedNotice(
   "workspace.kept",
@@ -474,6 +483,7 @@ export const EnvironmentNotice = z
     ToolsUpdated,
     ExtensionSeen,
     CarryOverImported,
+    StateImportFinished,
     WorkspaceKept,
   ])
   .meta({

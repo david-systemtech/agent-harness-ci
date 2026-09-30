@@ -66,6 +66,7 @@ describe("environment notices", () => {
       "tools.updated",
       "extension.seen",
       "carry-over.imported",
+      "state-import.finished",
       "workspace.kept",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");

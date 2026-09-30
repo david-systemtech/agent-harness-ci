@@ -1,0 +1,223 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { StepResult } from "@agent-harness/contracts";
+import { describe, expect, it } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
+import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { fakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
+import { startTestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import type { WireClient } from "../../test/wire-client.js";
+import type { ProviderSessionInfo } from "../adapter/contract.js";
+import { machinePointedAt } from "../state-import/source/folders.js";
+
+/**
+ * The Carry over step's check (setup spec, "2. Carry over"; ADR 0021, ADR
+ * 0031, ADR 0036; #581) through the primary seam: an in-process environment
+ * and a real client over a real WebSocket, the fake adapter listing a
+ * fixture adopted directory's sessions, and the state import's source reader
+ * pointed at fixture folders. What is asserted is what `setup.check` and
+ * `stateImport.detect` answer a client.
+ */
+
+const { onCleanup, tempDir } = useCleanups();
+
+const ACCOUNT = "claude-max";
+const TARGET = { kind: "account", id: ACCOUNT, label: ACCOUNT } as const;
+
+/** The step's line when every check holds. */
+const ALL_HOLD =
+  "An adopted account's directory holds something to carry, or a source data folder or terminal-client state folder is on this machine. " +
+  "Every adopted account's directory can be read. Every adopted account with something to carry has been imported, and its last import finished.";
+
+/** The step's line when it is skipped. */
+const NOTHING =
+  "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.";
+
+/** An adopted provider directory on disk, with a project folder. */
+const adoptedDirectory = (): string => {
+  const directory = join(tempDir(), ".fake");
+  mkdirSync(join(directory, "projects", "-work-repo"), { recursive: true });
+  return directory;
+};
+
+/** A session as the adapter lists it, in a directory that is there. */
+const listed = (fields: Partial<ProviderSessionInfo> = {}): ProviderSessionInfo => ({
+  providerSessionId: randomUUID(),
+  customTitle: null,
+  summary: "A session",
+  firstPrompt: null,
+  workingDirectory: tempDir(),
+  tag: null,
+  createdAt: "2026-08-01T09:00:00.000Z",
+  lastModified: "2026-08-03T17:30:00.000Z",
+  ...fields,
+});
+
+/** The source's fixture data folder: six profiles, two banks, a routine of each kind, instructions of each kind, a skill source, no connection file. */
+const sourceDataFolder = (): string => {
+  const folder = tempDir();
+  const write = (file: string, value: unknown) => writeFileSync(join(folder, file), JSON.stringify(value));
+  write("profiles.json", { version: 1, profiles: ["a", "b", "c", "d", "e", "f"].map((id) => ({ id, providerId: "claude", configDir: `/data/profiles/${id}` })) });
+  write("memory-banks.json", { version: 1, banks: [{ slug: "cortex" }, { slug: "brands" }], default: "cortex" });
+  write("routines.json", { routines: [{ id: "r1" }] });
+  write("serverRoutines.json", { routines: [{ id: "r2" }] });
+  write("agent-prompts.json", {
+    version: 1,
+    prompts: [{ id: "p1", markdown: "Mine" }, { id: "p2", builtIn: "orientation", markdown: "" }, { id: "p3", builtIn: "style", markdown: "Taken over", overridden: true }],
+  });
+  write("skills.json", { version: 1, alwaysOn: [], sources: [{ url: "https://git.example/skills.git" }] });
+  writeFileSync(join(folder, "memory-banks.json.bak"), "not read");
+  return folder;
+};
+
+/** The source terminal client's fixture state folder. */
+const sourceTerminalFolder = (): string => {
+  const folder = tempDir();
+  writeFileSync(join(folder, "history.jsonl"), '{"text":"hello"}\n');
+  return folder;
+};
+
+interface Start extends Omit<TestEnvironmentOptions, "adapter"> {
+  /** The adopted directory's sessions as the fake lists them; absent, the fake declares no listing. */
+  readonly sessions?: FakeAdapterOptions["sessions"];
+  /** The adopted directory: preset, a fixture one. */
+  readonly directory?: string;
+}
+
+const start = async (options: Start = {}): Promise<WireClient> => {
+  const { sessions, directory = adoptedDirectory(), ...rest } = options;
+  const t = await startTestEnvironment({ ...rest, adapter: fakeAdapter({ ambientDirectory: directory, ...(sessions !== undefined && { sessions }) }) });
+  onCleanup(() => t.close());
+  return t.client();
+};
+
+/** The one result `setup.check` answers for Carry over. */
+const checkCarryOver = async (client: WireClient): Promise<StepResult> => {
+  const { results } = await client.request("setup.check", { step: "carry-over" });
+  expect(results.map((result) => result.step)).toEqual(["carry-over"]);
+  return results[0] as StepResult;
+};
+
+const importNow = (client: WireClient) => client.request("carryOver.run", { commandId: randomUUID(), accountId: ACCOUNT, dryRun: false, skills: false });
+
+describe("the Carry over step with nothing to carry", () => {
+  it("answers skipped with carry-over.present's line when no account is adopted and no source folder is found", async () => {
+    const client = await start({ accounts: [] });
+    expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "skipped", reason: NOTHING, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+  });
+
+  it("answers skipped when the adopted directory lists no session, or is not there at all", async () => {
+    expect((await checkCarryOver(await start({ sessions: [] }))).state).toBe("skipped");
+    expect((await checkCarryOver(await start({ sessions: [listed()], directory: join(tempDir(), "gone") }))).state).toBe("skipped");
+  });
+});
+
+describe("the Carry over step with an adopted directory to carry", () => {
+  it("needs attention before the first import, naming the account with Import again", async () => {
+    const client = await start({ sessions: [listed(), listed()] });
+    expect(await checkCarryOver(client)).toEqual({
+      step: "carry-over",
+      state: "needs-attention",
+      reason: "Nothing has been imported yet from the directory of claude-max: Import again to import it.",
+      failing: ["carry-over.last-import"],
+      actions: ["import-again"],
+      targets: [{ action: "import-again", ...TARGET }],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+  });
+
+  it("is done after an import, and stays done when new sessions appear in the directory after it", async () => {
+    const sessions = [listed()];
+    const client = await start({ sessions: () => sessions });
+    await importNow(client);
+    expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+    sessions.push(listed());
+    expect((await checkCarryOver(client)).state).toBe("done");
+  });
+
+  it("is not done by a dry run", async () => {
+    const client = await start({ sessions: [listed()] });
+    await client.request("carryOver.run", { commandId: randomUUID(), accountId: ACCOUNT, dryRun: true, skills: false });
+    expect(await checkCarryOver(client)).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
+  });
+
+  it("needs attention after an import that failed part way, naming what failed, and is done once a re-run imports it", async () => {
+    const foreign = listed({ workingDirectory: "C:relative\\work" });
+    const sessions = [listed(), foreign];
+    const client = await start({ sessions: () => sessions });
+    await importNow(client);
+    expect(await checkCarryOver(client)).toEqual({
+      step: "carry-over",
+      state: "needs-attention",
+      reason:
+        "The last import from the directory of claude-max failed part way: Its working directory C:relative\\work is not an absolute path on this environment. Import again to retry what failed.",
+      failing: ["carry-over.last-import"],
+      actions: ["import-again"],
+      targets: [{ action: "import-again", ...TARGET }],
+      checkedAt: MANUAL_CLOCK_START,
+    });
+    sessions.pop();
+    await importNow(client);
+    expect((await checkCarryOver(client)).state).toBe("done");
+  });
+
+  it("names the first three failures of an import and counts the rest", async () => {
+    const client = await start({ sessions: ["a", "b", "c", "d", "e"].map((name) => listed({ workingDirectory: `relative/${name}` })) });
+    await importNow(client);
+    const { reason } = await checkCarryOver(client);
+    expect(reason).toBe(
+      "The last import from the directory of claude-max failed part way: Its working directory relative/a is not an absolute path on this environment. " +
+        "Its working directory relative/b is not an absolute path on this environment. Its working directory relative/c is not an absolute path on this environment. " +
+        "2 more failed. Import again to retry what failed.",
+    );
+  });
+
+  it("needs attention with a directory that cannot be read, naming the account with Check again", async () => {
+    const file = join(tempDir(), "not-a-directory");
+    writeFileSync(file, "");
+    const client = await start({ sessions: [listed()], directory: file });
+    const result = await checkCarryOver(client);
+    expect(result).toMatchObject({
+      step: "carry-over",
+      state: "needs-attention",
+      failing: ["carry-over.readable"],
+      actions: ["check-again"],
+      targets: [{ action: "check-again", ...TARGET }],
+    });
+    expect(result.reason).toMatch(new RegExp(`^The directory of claude-max, ${file}, cannot be read \\(ENOTDIR[^)]*\\): Check again once it can\\.$`));
+  });
+});
+
+describe("the state import's detection", () => {
+  it("finds the fixture data folder with what it holds by kind and the terminal client's state folder, and holds carry-over.present with nothing adopted", async () => {
+    const dataFolder = sourceDataFolder();
+    const terminalFolder = sourceTerminalFolder();
+    const client = await start({ accounts: [], stateImportSource: machinePointedAt({ dataFolder, terminalFolder, home: tempDir() }) });
+
+    expect(await client.request("stateImport.detect", {})).toEqual({
+      dataFolder: { path: dataFolder, holds: { profiles: 6, banks: 2, routines: 2, instructions: 2, skillSources: 1, connections: 0 } },
+      terminalFolder: { path: terminalFolder },
+    });
+    expect(await checkCarryOver(client)).toEqual({ step: "carry-over", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: MANUAL_CLOCK_START });
+  });
+
+  it("finds the terminal client's state folder alone, and says a data folder file it cannot read holds an unknown count", async () => {
+    const terminalFolder = sourceTerminalFolder();
+    const client = await start({ accounts: [], stateImportSource: machinePointedAt({ terminalFolder, home: tempDir() }) });
+    expect(await client.request("stateImport.detect", {})).toEqual({ dataFolder: null, terminalFolder: { path: terminalFolder } });
+    expect((await checkCarryOver(client)).state).toBe("done");
+
+    const dataFolder = sourceDataFolder();
+    writeFileSync(join(dataFolder, "memory-banks.json"), "{ not json");
+    const other = await start({ accounts: [], stateImportSource: machinePointedAt({ dataFolder, home: tempDir() }) });
+    expect(await other.request("stateImport.detect", {})).toMatchObject({ dataFolder: { holds: { banks: null, profiles: 6 } }, terminalFolder: null });
+  });
+
+  it("finds nothing on a machine whose folders hold none, and offers no stateImport flag, the run unserved until the switch-over build", async () => {
+    const client = await start({ accounts: [] });
+    expect(await client.request("stateImport.detect", {})).toEqual({ dataFolder: null, terminalFolder: null });
+    expect(client.hello.capabilities).not.toContain("stateImport");
+    await expect(client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).rejects.toMatchObject({ code: "not_found" });
+  });
+});

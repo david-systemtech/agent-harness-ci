@@ -1,6 +1,8 @@
-import { DRAIN_CAP_MS, denylistPresets, type AccountRecord, type ContainmentReport, type EnvironmentLook, type EnvironmentStatus } from "@agent-harness/contracts";
+import { DRAIN_CAP_MS, denylistPresets, type AccountRecord, type ContainmentReport, type EnvironmentLook, type EnvironmentStatus, type StateImportDetection } from "@agent-harness/contracts";
 import { accountStateChecks } from "../accounts/step-checks.js";
+import type { AdapterRegistry } from "../adapter/registry.js";
 import { themeMeetsRules } from "../appearance/contrast.js";
+import { carryOverStateChecks } from "../carry-over/step-checks.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { forgesStateChecks } from "../forge/step-checks.js";
@@ -18,8 +20,9 @@ import type { StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
- * (#141): the Account step's two, from the account store (#574), the Your
- * machines step's not-root line, release channel (#346),
+ * (#141): the Account step's two, from the account store (#574), the Carry
+ * over step's three (#581), the Your machines step's not-root line, release
+ * channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348), that the environment is named (#323) and ready,
  * not draining past its cap (#574), the Forges step's seven (#319), the Key
@@ -31,7 +34,9 @@ import type { StateCheckers } from "./check.js";
  * accounts from the account store (`accounts/step-checks.ts`), readiness
  * from the lifecycle's status document on the environment's clock, the
  * denylist from its read model beside the presets for this environment's
- * data directory, the release channel from its checks (`updates/checks.ts`),
+ * data directory, the adopted accounts' directories, their listings, the
+ * imports the log records and the state import's detection
+ * (`carry-over/step-checks.ts`), the release channel from its checks (`updates/checks.ts`),
  * the updates from the update coordinator (`updates/coordinator.ts`), the
  * host-side updater's poll from its record (`updates/host-updater.ts`), the
  * forge accounts from the ForgeService (`forge/step-checks.ts`), the
@@ -43,6 +48,10 @@ import type { StateCheckers } from "./check.js";
 
 export interface StateChecksOptions {
   readonly log: EventLog;
+  /** The adapters, by provider: an adopted account's lists its directory's sessions. */
+  readonly adapters: Pick<AdapterRegistry, "get">;
+  /** Whether a source data folder or terminal-client state folder is on this machine (`stateImport.detect`). */
+  readonly detectStateImport: () => Promise<StateImportDetection>;
   /** What containment can enforce here, as the start's probe found it (#133). */
   readonly containment: ContainmentReport;
   /** Whether the environment runs as root: what `permissions.settings.get` answers. */
@@ -57,7 +66,7 @@ export interface StateChecksOptions {
   readonly hostUpdater: () => StateCheckAnswer;
   /** The environment's name, icon and colour now (#323). */
   readonly look: () => EnvironmentLook;
-  /** The accounts the account store holds now, each with its latest status (#134). */
+  /** The accounts the account store holds now, each with its latest status (#134): the Account step checks them, and Carry over reads the adopted ones' directories. */
   readonly accounts: () => readonly AccountRecord[];
   /** The environment's status document now: its readiness, and since when it drains (`lifecycle.ts`). */
   readonly status: () => EnvironmentStatus;
@@ -92,6 +101,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
   const presets = denylistPresets(options.dataDir);
   return {
     ...accountStateChecks({ accounts: options.accounts }),
+    ...carryOverStateChecks({ accounts: options.accounts, adapters: options.adapters, reader, detect: options.detectStateImport }),
     "your-machines.not-root": () => runsAsNonRoot(report().isRoot),
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,
