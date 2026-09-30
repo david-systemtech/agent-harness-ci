@@ -95,6 +95,7 @@ const Note = ({ children, tone = "text-ink-muted" }: { readonly children: string
 export const EnvironmentSection = ({ heading, rows }: { readonly heading: EnvironmentHeading; readonly rows: DrawRows }) => {
   const name = useId();
   const view: EnvironmentView = heading.environment;
+  const named = view.name ?? THIS_MACHINE;
   const freshness = freshnessWords(heading.list);
   const fault = heading.list?.fault ?? null;
   const target = useDropTarget({ kind: "heading", heading });
@@ -103,7 +104,7 @@ export const EnvironmentSection = ({ heading, rows }: { readonly heading: Enviro
       <div {...target.handlers} className={classes("flex items-center gap-1.5 rounded-sm", target.over && "bg-wash-strong")}>
         <EnvironmentDot view={view} />
         <h2 id={name} className={classes("min-w-0 truncate text-xs font-semibold", heading.dim ? "text-ink-faint" : "text-ink-muted")}>
-          {heading.holds === "unidentified" ? `${view.name ?? THIS_MACHINE} · no repository` : (view.name ?? THIS_MACHINE)}
+          {heading.holds === "unidentified" ? `${named} · no repository` : named}
         </h2>
         {view.pendingCommands > 0 && (
           <span className="text-xs">

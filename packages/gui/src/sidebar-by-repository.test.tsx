@@ -21,19 +21,20 @@ const HARNESS = "https://git.systemtech.dev/david/agent-harness";
 const SITE_ON_GITHUB = "https://github.com/brandsolidate/site";
 const SITE_ON_FORGE = "https://git.example.test/brandsolidate/site";
 
-/** The fixtures' sessions, in their order, each given its repository identity (null for none). */
-const identified = (sessions: ScriptedEnvironment["sessions"], identities: readonly (string | null)[]) =>
-  (sessions ?? []).map((session, at) => ({ ...session, repositoryIdentity: identities[at] ?? null }));
+/** The fixtures' sessions, each given the repository identity its title names here, else none. */
+const identified = (sessions: ScriptedEnvironment["sessions"], identities: Readonly<Record<string, string>>) =>
+  (sessions ?? []).map((session) => ({ ...session, repositoryIdentity: identities[session.title ?? ""] ?? null }));
 
 /**
- * The desk's "Fix the rail" and the laptop's "Train tidy" are in one repository; the desk's "Brand copy" and the laptop's
- * "Brand on laptop" in two that share a path on different hosts; "Spare", "Later", "Old thing" and "Laptop pin" in none.
+ * The desk's "Fix the rail", pinned "Pinned one" and settled "Done" and the laptop's "Train tidy" are in one repository;
+ * the desk's "Brand copy" and the laptop's "Brand on laptop" in two that share a path on different hosts; "Spare",
+ * "Later", "Old thing" and "Laptop pin" in none.
  */
 const inRepositories = (options: Parameters<typeof two>[0] = {}) =>
   two({
     ...options,
-    desk: { sessions: identified(desk().sessions, [HARNESS, null, SITE_ON_GITHUB, HARNESS, null, HARNESS]) },
-    laptop: { sessions: identified(laptop().sessions, [HARNESS, SITE_ON_FORGE, null, null]) },
+    desk: { sessions: identified(desk().sessions, { "Fix the rail": HARNESS, "Brand copy": SITE_ON_GITHUB, "Pinned one": HARNESS, Done: HARNESS }) },
+    laptop: { sessions: identified(laptop().sessions, { "Train tidy": HARNESS, "Brand on laptop": SITE_ON_FORGE }) },
   });
 
 const byRepository = () => within(sidebar()).getByRole("switch", { name: "By repository" });
