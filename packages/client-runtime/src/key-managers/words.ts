@@ -12,6 +12,7 @@ import {
   type ManagedToolRow,
   type ManagedToolStatus,
 } from "@agent-harness/contracts";
+import type { CopyReport } from "../copies.js";
 import { whenWords } from "../transcript/format.js";
 
 /**
@@ -187,3 +188,7 @@ export const overridesWith = (overrides: Readonly<Record<string, InjectionAnswer
   const { [accountId]: _dropped, ...others } = overrides;
   return answer === null ? others : { ...others, [accountId]: answer };
 };
+
+/** What a copy of a connection came to on one environment, named as this client names it: copied, awaiting its sign-in there, or refused and why. */
+export const copyLine = (report: CopyReport<KeyManagerConnectionRecord | null>, environmentName: string): string =>
+  report.status === "copied" ? `${environmentName}: copied, awaiting a sign-in there.` : `${environmentName}: not copied: ${report.error.message}`;

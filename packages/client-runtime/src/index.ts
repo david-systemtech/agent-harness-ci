@@ -84,6 +84,7 @@ export {
   certificateFacts,
   cliRowOf,
   cliWords,
+  copyLine,
   injectsWords,
   listWords,
   methodWords,

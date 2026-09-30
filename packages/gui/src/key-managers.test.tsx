@@ -475,3 +475,31 @@ describe("the injection setting", () => {
     ]);
   });
 });
+
+describe("copies to other environments", () => {
+  it("offers the environments this client holds an admin connection to, and copies the connection there without its credential, one line each", async () => {
+    const connection = { label: "Home OpenBao", address: "https://bao.home.test", basePath: "personal/harness" } as const;
+    const app = await opened({ keyManagers: { connections: [connection] } }, [
+      { name: "laptop", reach: "paired", capabilities: [...FLAGGED] },
+      { name: "tablet", reach: "paired", capabilities: [...FLAGGED], keyManagers: { connections: [{ label: "Tablet's", address: connection.address }] } },
+      { name: "phone", reach: "paired", capabilities: [...FLAGGED], scopes: ["read", "sessions:write", "runs:drive", "terminal"] },
+    ]);
+    await openKeyManagers(app);
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Copy to other environments" }));
+    const copy = await dialog("Copy Home OpenBao to other environments");
+    expect(within(copy).getAllByRole("checkbox").map((box) => box.getAttribute("name"))).toEqual(["laptop", "tablet"]);
+    expect(within(copy).getByText(/without its credential/)).toBeDefined();
+    await app.user.click(within(copy).getByRole("checkbox", { name: "laptop" }));
+    await app.user.click(within(copy).getByRole("checkbox", { name: "tablet" }));
+    await app.user.click(within(copy).getByRole("button", { name: "Copy" }));
+    expect(await within(copy).findByText("laptop: copied, awaiting a sign-in there.")).toBeDefined();
+    expect(within(copy).getByText(`tablet: not copied: A connection to OpenBao at ${connection.address} is on this environment already.`)).toBeDefined();
+
+    const laptop = app.environment("laptop");
+    const [copied] = laptop.keyManagerConnections();
+    expect(copied).toMatchObject({ label: "Home OpenBao", address: connection.address, basePath: "personal/harness", status: { kind: "awaiting-sign-in" } });
+    expect(copied?.copiedFrom).toMatchObject({ environmentName: "desk" });
+    expect(laptop.requests("keyManagers.connections.add")[0]?.params).not.toHaveProperty("credential");
+    expect(app.environment("phone").requests("keyManagers.connections.add")).toEqual([]);
+  });
+});

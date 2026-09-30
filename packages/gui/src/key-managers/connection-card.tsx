@@ -21,10 +21,11 @@ import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CertificateCheck } from "./certificate-check.js";
 import { ConfirmRemove, ConfirmSignOut, EditConnection, SignInAgain } from "./connection-dialogs.js";
+import { CopyConnection } from "./copy-connection.js";
 import { PolicyTicks } from "./policy-ticks.js";
 
 /** The dialog a card has open: none, or one of its verbs'. */
-type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | null;
+type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | "copy" | null;
 
 /** The statuses a sign-in answers: no credential here, or one the key manager no longer takes. */
 const SIGN_IN_FIXES: ReadonlySet<KeyManagerConnectionRecord["status"]["kind"]> = new Set(["awaiting-sign-in", "credential-rejected", "expired"]);
@@ -120,6 +121,7 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
         <Button disabled={!writable} onClick={() => setOpen("remove")}>
           Remove
         </Button>
+        <Button onClick={() => setOpen("copy")}>Copy to other environments</Button>
       </div>
       {open === "certificate" && (
         <CertificateCheck
@@ -133,6 +135,7 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
       {open === "edit" && <EditConnection {...dialog} />}
       {open === "sign-out" && <ConfirmSignOut {...dialog} />}
       {open === "remove" && <ConfirmRemove {...dialog} />}
+      {open === "copy" && <CopyConnection environmentId={environmentId} connection={connection} close={close} />}
     </section>
   );
 };
