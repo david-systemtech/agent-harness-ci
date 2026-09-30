@@ -149,5 +149,5 @@ export const ChromeUpdatedPayload = z
     name: ChromeName.meta({ description: "The Chrome's name after the change; an unpaired Chrome's, the name it had." }),
     change: ChromeChange,
   })
-  .meta({ description: "chrome.updated: a paired Chrome changed, connected or disconnected; which, its name, and what changed. A client reads browser.chromes.list again." });
+  .meta({ description: "chrome.updated: a paired Chrome changed, connected or disconnected; which, its name, and what changed. A client reads browser.chromes.list and browser.status again." });
 export type ChromeUpdatedPayload = z.infer<typeof ChromeUpdatedPayload>;

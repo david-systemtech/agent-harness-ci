@@ -4786,7 +4786,7 @@
             "name",
             "change"
           ],
-          "description": "chrome.updated: a paired Chrome changed, connected or disconnected; which, its name, and what changed. A client reads browser.chromes.list again."
+          "description": "chrome.updated: a paired Chrome changed, connected or disconnected; which, its name, and what changed. A client reads browser.chromes.list and browser.status again."
         }
       },
       "required": [
