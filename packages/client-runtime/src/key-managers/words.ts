@@ -1,5 +1,6 @@
 import {
   MANAGED_TOOLS,
+  type KeyManagerCertificate,
   type KeyManagerAuthMethod,
   type KeyManagerConnectionRecord,
   type KeyManagerPolicyWrites,
@@ -71,6 +72,25 @@ export const methodWords = (record: Pick<KeyManagerConnectionRecord, "method" | 
   const as = record.username === null ? "" : ` as ${record.username}`;
   return `${KEY_MANAGER_METHOD_WORDS[record.method]}${as}, at ${record.mount ?? record.method}`;
 };
+
+/** Whether an OpenBao connection pins a CA; null for another provider, which pins none. */
+export const caWords = (record: Pick<KeyManagerConnectionRecord, "provider" | "ca">): string | null => {
+  if (record.provider !== "openbao") return null;
+  return record.ca === null ? "None pinned: the system's trusted CAs verify it." : "Pinned: requests to it trust this CA alone.";
+};
+
+/**
+ * A certificate the preview read, as a person checks it before trusting it
+ * (key-managers spec, "Providers"): its SHA-256 fingerprint, subject, names,
+ * expiry and whether it signs itself, each by its name, in that order.
+ */
+export const certificateFacts = (certificate: KeyManagerCertificate, now: Date): readonly (readonly [string, string])[] => [
+  ["SHA-256 fingerprint", certificate.sha256Fingerprint],
+  ["Subject", certificate.subject],
+  ["Names", certificate.names.length === 0 ? "None." : certificate.names.join(", ")],
+  ["Expires", whenWords(certificate.expiresAt, now)],
+  ["Signs itself", certificate.selfSigned ? "Yes: it is a root CA." : "No: another CA issued it."],
+];
 
 /** Names in a list: `a`, `a and b`, `a, b and c`. */
 export const listWords = (names: readonly string[]): string =>

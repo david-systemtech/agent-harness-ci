@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+import { certificateOf, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
  * The Key managers row (docs/specs/gui.md, "Settings"; key-managers spec,
@@ -149,5 +149,142 @@ describe("Add", () => {
     await fillAppRole(app, add, { label: "Again", address: "https://bao.home.test:8200", secretId: "secret-for-tests" });
     await app.user.click(within(add).getByRole("button", { name: "Add" }));
     expect(await within(add).findByText("Not added: A connection to OpenBao at https://bao.home.test:8200 is on this environment already.")).toBeDefined();
+  });
+});
+
+describe("a certificate the environment does not trust", () => {
+  it("shows keyManagers.certificate.preview's anchor, and pins it as the connection's CA only once it is accepted", async () => {
+    const address = "https://bao.home.test:8200";
+    const app = await opened({ keyManagers: { untrusted: [address] } });
+    const keyManagers = await openKeyManagers(app);
+    await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
+    const add = await dialog("Add a key manager on desk");
+    await fillAppRole(app, add, { label: "Home OpenBao", address, secretId: "secret-for-tests" });
+    await app.user.click(within(add).getByRole("button", { name: "Add" }));
+    const home = await card("Home OpenBao");
+    expect(facts(home)["Status"]).toMatch(/^Certificate not trusted since /);
+    expect(facts(home)["CA"]).toBe("None pinned: the system's trusted CAs verify it.");
+    expect(within(home).getByText(/Check its certificate: trust it if it is your key manager's, and it signs in again\./)).toBeDefined();
+
+    // Looked at and left: nothing is pinned.
+    await app.user.click(within(home).getByRole("button", { name: "Check its certificate" }));
+    const check = await dialog(`The certificate ${address} presents`);
+    const anchor = certificateOf(address);
+    expect(facts(check)).toEqual({
+      "SHA-256 fingerprint": anchor.sha256Fingerprint,
+      Subject: "CN=bao.home.test test CA",
+      Names: "bao.home.test",
+      Expires: expect.stringMatching(/^24 Sep 2027 \d\d:\d\d$/),
+      "Signs itself": "Yes: it is a root CA.",
+    });
+    await app.user.click(within(check).getByRole("button", { name: "Cancel" }));
+    const desk = app.environment("desk");
+    expect(desk.requests("keyManagers.connections.update")).toEqual([]);
+
+    await app.user.click(within(home).getByRole("button", { name: "Check its certificate" }));
+    await app.user.click(within(await dialog(`The certificate ${address} presents`)).getByRole("button", { name: "Trust this certificate" }));
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Status"]).toMatch(/^Signed in since /));
+    expect(desk.requests("keyManagers.connections.update")[0]?.params).toMatchObject({ ca: anchor.pem });
+    expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["CA"]).toBe("Pinned: requests to it trust this CA alone.");
+  });
+});
+
+describe("the card's verbs", () => {
+  it("says what each status asks, and Verify now refreshes the card with what keyManagers.connections.verify found", async () => {
+    const status = (kind: string, message: string) => ({ kind, since: "2026-09-24T00:00:00.000Z", message }) as const;
+    const app = await opened({
+      keyManagers: {
+        connections: [
+          { label: "Down", address: "https://bao-down.test", status: status("unreachable", "OpenBao at https://bao-down.test could not answer (HTTP 500: internal error).") },
+          { label: "Sealed", address: "https://bao-sealed.test", status: status("sealed", "OpenBao at https://bao-sealed.test is sealed: unseal it to sign in.") },
+          { label: "Old", address: "https://bao-old.test", method: "token", mount: "token", status: status("expired", "The token this connection signed in with expired.") },
+          { label: "Refused", address: "https://bao-refused.test", status: status("credential-rejected", "OpenBao at https://bao-refused.test refused the credential.") },
+          { label: "Copied", address: "https://bao-copied.test", status: status("awaiting-sign-in", "No credential is on this environment: sign in in Set up, Key manager."), tokenInformation: null },
+        ],
+      },
+    });
+    await openKeyManagers(app);
+    const advice: Record<string, string> = {
+      Down: "Check the address and that the key manager is up and reachable from this environment, then Verify now.",
+      Sealed: "Unseal it, then Verify now.",
+      Old: "Sign in again with a new token.",
+      Refused: "Sign in again with a credential the key manager takes.",
+      Copied: "Sign in to give this environment its credential.",
+    };
+    for (const [label, line] of Object.entries(advice)) expect(within(await card(label)).getByText(line)).toBeDefined();
+
+    const desk = app.environment("desk");
+    const down = desk.keyManagerConnections().find((connection) => connection.label === "Down");
+    desk.setKeyManagerStatus(down?.id ?? "", { kind: "signed-in", message: "Signed in to OpenBao as approle." });
+    await app.user.click(within(await card("Down")).getByRole("button", { name: "Verify now" }));
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Down" }))["Status"]).toMatch(/^Signed in since /));
+    expect(desk.requests("keyManagers.connections.verify")[0]?.params).toEqual({ connectionId: down?.id });
+    expect(within(pane()).getByText("Verified Down: Signed in to OpenBao as approle.")).toBeDefined();
+  });
+
+  it("signs in again with keyManagers.connections.signIn, sent directly, a refusal said in the form with the secret emptied", async () => {
+    const refused = { kind: "credential-rejected", since: "2026-09-24T00:00:00.000Z", message: "OpenBao at https://bao.home.test refused the credential." } as const;
+    const app = await opened({ keyManagers: { rejects: ["password-rejected-for-tests"], connections: [{ label: "Home OpenBao", address: "https://bao.home.test", status: refused }] } });
+    await openKeyManagers(app);
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Sign in again" }));
+    const signIn = await dialog("Sign in to Home OpenBao again");
+    expect((within(signIn).getByRole("combobox", { name: "Signs in by" }) as HTMLSelectElement).value).toBe("approle");
+    await app.user.selectOptions(within(signIn).getByRole("combobox", { name: "Signs in by" }), "userpass");
+    await app.user.type(within(signIn).getByRole("textbox", { name: "Username" }), "david");
+    await app.user.type(within(signIn).getByLabelText("Password"), "password-rejected-for-tests");
+    await app.user.click(within(signIn).getByRole("button", { name: "Sign in" }));
+    expect(await within(signIn).findByText(/^Not signed in: OpenBao at https:\/\/bao\.home\.test refused the credential/)).toBeDefined();
+    expect((within(signIn).getByLabelText("Password") as HTMLInputElement).value).toBe("");
+
+    await app.user.type(within(signIn).getByLabelText("Password"), "password-for-tests");
+    await app.user.click(within(signIn).getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sign in to Home OpenBao again" })).toBeNull());
+    const home = await card("Home OpenBao");
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Status"]).toMatch(/^Signed in since /));
+    expect(facts(home)["Signs in by"]).toBe("userpass as david, at userpass");
+    expect(app.environment("desk").requests("keyManagers.connections.signIn").at(-1)?.params).toMatchObject({
+      credential: { method: "userpass", password: "password-for-tests" },
+      mount: "userpass",
+      username: "david",
+    });
+    expect(JSON.stringify([app.platform.documents.entries(), app.shell.calls])).not.toContain("password-for-tests");
+  });
+
+  it("edits the label and token role with keyManagers.connections.update, sending only what changed", async () => {
+    const app = await opened({ keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test" }] } });
+    await openKeyManagers(app);
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Edit" }));
+    const edit = await dialog("Edit Home OpenBao");
+    expect((within(edit).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe("https://bao.home.test");
+    await app.user.clear(within(edit).getByRole("textbox", { name: "Label" }));
+    await app.user.type(within(edit).getByRole("textbox", { name: "Label" }), "Bao at home");
+    await app.user.type(within(edit).getByRole("textbox", { name: "Token role (optional)" }), "harness-runs");
+    await app.user.click(within(edit).getByRole("button", { name: "Save" }));
+    expect(await card("Bao at home")).toBeDefined();
+    const params = app.environment("desk").requests("keyManagers.connections.update")[0]?.params ?? {};
+    expect(Object.keys(params).sort()).toEqual(["commandId", "connectionId", "label", "tokenRole"]);
+    expect(params).toMatchObject({ label: "Bao at home", tokenRole: "harness-runs" });
+  });
+
+  it("signs out and removes, each only once it is confirmed", async () => {
+    const app = await opened({ keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test" }] } });
+    await openKeyManagers(app);
+    const desk = app.environment("desk");
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Sign out" }));
+    const signOut = await dialog("Sign out of Home OpenBao?");
+    await app.user.click(within(signOut).getByRole("button", { name: "Cancel" }));
+    expect(desk.requests("keyManagers.connections.signOut")).toEqual([]);
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Sign out" }));
+    await app.user.click(within(await dialog("Sign out of Home OpenBao?")).getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Status"]).toMatch(/^Awaiting a sign-in since /));
+
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Remove" }));
+    const remove = await dialog("Remove Home OpenBao?");
+    await app.user.click(within(remove).getByRole("button", { name: "Cancel" }));
+    expect(desk.requests("keyManagers.connections.remove")).toEqual([]);
+    await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Remove" }));
+    await app.user.click(within(await dialog("Remove Home OpenBao?")).getByRole("button", { name: "Remove" }));
+    expect(await within(pane()).findByText("No key manager is connected here.")).toBeDefined();
+    expect(desk.keyManagerConnections()).toEqual([]);
   });
 });

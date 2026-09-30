@@ -20,6 +20,7 @@ import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-p
 import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
 
 export {
+  certificateOf,
   scriptedWorld,
   type EnvironmentHandle,
   type Script,

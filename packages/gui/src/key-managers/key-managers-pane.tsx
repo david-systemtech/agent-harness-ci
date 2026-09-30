@@ -71,7 +71,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
         ? ready && <p className="text-sm text-ink-faint">{listed?.error == null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
         : connections.length === 0
           ? <p className="text-sm text-ink-muted">No key manager is connected here.</p>
-          : connections.map((connection) => <ConnectionCard key={connection.id} connection={connection} tools={tools} />)}
+          : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} tools={tools} writable={writable} say={say} />)}
       {adding && <AddConnection environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} />}
     </>
   );
