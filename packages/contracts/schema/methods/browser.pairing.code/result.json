@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "browser.pairing.code result",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$",
+      "description": "A Chrome's pairing code: eight characters of the pairing alphabet, typed into the extension's options page."
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When the code stops pairing, five minutes after it was minted."
+    }
+  },
+  "required": [
+    "code",
+    "expiresAt"
+  ],
+  "description": "The live pairing code, to type into the extension's options page, and when it expires."
+}

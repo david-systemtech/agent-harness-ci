@@ -1,0 +1,156 @@
+import { readdir } from "node:fs/promises";
+import {
+  CarryOverImportedPayload,
+  ENVIRONMENT_STREAM_KIND,
+  type AccountRecord,
+  type SetupAction,
+  type SetupTarget,
+  type StateCheckId,
+  type StateImportDetection,
+} from "@agent-harness/contracts";
+import type { AccountRef } from "../adapter/contract.js";
+import type { AdapterRegistry } from "../adapter/registry.js";
+import type { StateCheckAnswer } from "../permissions/step-checks.js";
+import type { StateChecker } from "../setup/check.js";
+import type { Reader } from "../sessions/session-tables.js";
+import { listAccountSessions } from "./sessions.js";
+
+/**
+ * The Carry over step's state checks (setup spec, "2. Carry over"; ADR 0021,
+ * ADR 0036; #581), answered from the adopted accounts' directories, their
+ * adapters' session listings, the imports the log records and the state
+ * import's detection. `carry-over.present` is the step's skip check: with
+ * nothing to carry in any adopted directory and no source data folder or
+ * terminal-client state folder, the step answers skipped. A directory that
+ * is not there holds nothing to carry; one that is there but cannot be read
+ * is named by `carry-over.readable`. `carry-over.last-import` names each
+ * adopted account with something to carry that was never imported, or whose
+ * last import (`carry-over.imported`) failed part way; new sessions after an
+ * import that finished do not turn the step amber (ADR 0021).
+ */
+
+/** The Carry over step's state checks, by id. */
+type CarryOverStateCheckId = Extract<StateCheckId, `carry-over.${string}`>;
+
+export interface CarryOverStateChecksOptions {
+  /** The accounts the store holds now (`AccountService.list`): those whose directory is adopted are carried over. */
+  readonly accounts: () => readonly AccountRecord[];
+  /** The adapters, by provider: an adopted account's lists its directory's sessions. */
+  readonly adapters: Pick<AdapterRegistry, "get">;
+  /** The log's read: the imports it records. */
+  readonly reader: Reader;
+  /** Whether a source data folder or terminal-client state folder is on the machine (`stateImport.detect`). */
+  readonly detect: () => Promise<StateImportDetection>;
+}
+
+/** The most failures of an import a line names; the rest are counted. */
+const FAILURES_NAMED = 3;
+
+/** What a look at an adopted account's directory found: not there, there but unreadable, or readable. */
+type Look = { readonly kind: "gone" } | { readonly kind: "unreadable"; readonly why: string } | { readonly kind: "readable" };
+
+const look = async (directory: string): Promise<Look> => {
+  try {
+    await readdir(directory);
+    return { kind: "readable" };
+  } catch (error) {
+    const { code, message } = error as NodeJS.ErrnoException;
+    if (code === "ENOENT") return { kind: "gone" };
+    return { kind: "unreadable", why: message.replace(/\.$/, "") };
+  }
+};
+
+/** The account `action` applies to. */
+const accountTarget = (action: SetupAction, account: AccountRecord): SetupTarget => ({ action, kind: "account", id: account.id, label: account.label });
+
+/** One account's failure of a check: its line, and the account its action applies to. */
+interface Finding {
+  readonly line: string;
+  readonly target: SetupTarget;
+}
+
+/** A check's answer from its findings: it holds with none. */
+const answerOf = (findings: readonly Finding[]): StateCheckAnswer =>
+  findings.length === 0 ? true : { reason: findings.map((finding) => finding.line).join(" "), targets: findings.map((finding) => finding.target) };
+
+export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { readonly [Id in CarryOverStateCheckId]: StateChecker } => {
+  /** The accounts whose directory is adopted in place: the only ones with anything to carry. */
+  const adopted = () => options.accounts().filter((account) => account.directory.kind === "adopted");
+
+  /** Whether the account's directory lists a session to carry; false for an adapter that lists none. */
+  const holdsSessions = async (account: AccountRecord): Promise<boolean> => {
+    const adapter = options.adapters.get(account.provider);
+    if (adapter === undefined || !adapter.descriptor.sessionListing || adapter.listSessions === undefined) return false;
+    const ref: AccountRef = { id: account.id, directory: account.directory.path, label: account.label };
+    return (await listAccountSessions(adapter, ref)).length > 0;
+  };
+
+  /** Each account's last import, as the log records it: the latest `carry-over.imported` naming it. */
+  const lastImports = (): ReadonlyMap<string, CarryOverImportedPayload> => {
+    const rows = options.reader.all<{ payload: string }>(
+      "SELECT payload FROM events WHERE stream_kind = ? AND type = 'carry-over.imported' ORDER BY sequence DESC",
+      ENVIRONMENT_STREAM_KIND,
+    );
+    const latest = new Map<string, CarryOverImportedPayload>();
+    for (const row of rows) {
+      const payload = CarryOverImportedPayload.parse(JSON.parse(row.payload));
+      if (!latest.has(payload.accountId)) latest.set(payload.accountId, payload);
+    }
+    return latest;
+  };
+
+  const present = async (): Promise<StateCheckAnswer> => {
+    for (const account of adopted()) {
+      const found = await look(account.directory.path);
+      // A directory there but unreadable is something to check: carry-over.readable names it.
+      if (found.kind === "unreadable") return true;
+      if (found.kind === "readable" && (await holdsSessions(account))) return true;
+    }
+    const { dataFolder, terminalFolder } = await options.detect();
+    return (
+      dataFolder !== null ||
+      terminalFolder !== null || {
+        reason: "No adopted account's directory holds anything to carry, and no source data folder or terminal-client state folder is on this machine.",
+      }
+    );
+  };
+
+  const readable = async (): Promise<StateCheckAnswer> => {
+    const findings: Finding[] = [];
+    for (const account of adopted()) {
+      const found = await look(account.directory.path);
+      if (found.kind !== "unreadable") continue;
+      const line = `The directory of ${account.label}, ${account.directory.path}, cannot be read (${found.why}): Check again once it can.`;
+      findings.push({ line, target: accountTarget("check-again", account) });
+    }
+    return answerOf(findings);
+  };
+
+  const lastImport = async (): Promise<StateCheckAnswer> => {
+    const imports = lastImports();
+    const findings: Finding[] = [];
+    for (const account of adopted()) {
+      if ((await look(account.directory.path)).kind !== "readable") continue;
+      const last = imports.get(account.id);
+      if (last === undefined) {
+        if (!(await holdsSessions(account))) continue;
+        const line = `Nothing has been imported yet from the directory of ${account.label}: Import again to import it.`;
+        findings.push({ line, target: accountTarget("import-again", account) });
+        continue;
+      }
+      if (last.failed.length === 0) continue;
+      const named = last.failed.slice(0, FAILURES_NAMED).map((failure) => failure.message.replace(/\.?$/, "."));
+      const more = last.failed.length - named.length;
+      const line = [
+        `The last import from the directory of ${account.label} failed part way:`,
+        ...named,
+        ...(more > 0 ? [`${more} more failed.`] : []),
+        "Import again to retry what failed.",
+      ].join(" ");
+      findings.push({ line, target: accountTarget("import-again", account) });
+    }
+    return answerOf(findings);
+  };
+
+  return { "carry-over.present": present, "carry-over.readable": readable, "carry-over.last-import": lastImport };
+};

@@ -145,6 +145,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
+import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
@@ -161,6 +162,8 @@ import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
+import { stateImportMethods } from "../state-import/methods.js";
+import { detectSource, type SourceMachine } from "../state-import/source/folders.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
@@ -427,6 +430,13 @@ export interface EnvironmentOptions {
    * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
+  /**
+   * The machine the state import's source reader looks at for a source data
+   * folder and terminal-client state folder (#581): its environment
+   * variables, platform and home. Preset: this process's; tests point it at
+   * fixture folders (`machinePointedAt`).
+   */
+  readonly stateImportSource?: SourceMachine;
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
   /** How long one call to a forge, and one verification of a forge account, may take (#311). Preset: `FORGE_CALL_TIMEOUT_MS`, ADR 0031's ten seconds. */
@@ -759,6 +769,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       lookProjector,
       trustProjector,
       instructionsProjector,
+      chromesProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -784,7 +795,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // credential the vault holds is registered, and the entries of connections that are gone deleted. They come first, since
   // the forge reads its references through their registry (#370), and the forge accounts holding a reference hold back a
   // connection's removal. The Managed tools registry (#373) is made here too, before the forge, whose gh reads its row.
-  const { record, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
+  const { record, vault, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
@@ -876,6 +887,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     capabilities.push("forge", "keyManagers", "managedTools");
     return {
       record: loaded,
+      vault,
       clientSessions: loadedClientSessions,
       pairings: loadedPairings,
       accessLog: access,
@@ -1309,10 +1321,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
+  // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
+  const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
       log,
+      adapters: host.adapters,
+      detectStateImport: () => detectSource(stateImportSource),
       containment,
       isRoot,
       dataDir,
@@ -1330,7 +1346,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
-  // The extension's folder and its listener (#547): bound and made once the start is committed, below.
+  // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
+  // committed, below.
   const browser = createBrowserService({
     log,
     clock,
@@ -1341,6 +1358,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     dataDir,
     extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
+    vault,
   });
   const table = createMethodTable({
     ...lifecycle.handlers,
@@ -1422,7 +1440,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The skill set (#494): skills.get, and the own directory's create and remove.
     ...skillsMethods({ log, own: ownSkills, defaultAccountId: () => accounts.defaultId() }),
-    // The extension's folder and its listener (#547): browser.status.
+    // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
@@ -1434,6 +1452,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there.
     ...carryOverMethods({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path) }),
+    // The state import's detection (#581); its run is the switch-over build's (#94), which offers the stateImport flag.
+    ...stateImportMethods({ machine: stateImportSource }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,

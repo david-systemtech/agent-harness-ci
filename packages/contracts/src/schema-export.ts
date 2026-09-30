@@ -8,6 +8,20 @@ import {
   CarryOverSessionsImported,
   CarryOverSessionsInventory,
 } from "./carry-over.js";
+import {
+  StateImportCarried,
+  StateImportClientLocal,
+  StateImportDataFolder,
+  StateImportDetection,
+  StateImportFailure,
+  StateImportFinishedPayload,
+  StateImportHoldings,
+  StateImportLater,
+  StateImportNotCarried,
+  StateImportReEnter,
+  StateImportReport,
+  StateImportTerminalFolder,
+} from "./state-import.js";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
 import {
   ACCOUNT_EVENT_TYPES,
@@ -242,6 +256,15 @@ import {
   HeadlessExecutable,
   HeadlessLimits,
 } from "./browser-settings.js";
+import {
+  CHROME_EVENT_TYPES,
+  ChromeChange,
+  ChromeEventType,
+  ChromeName,
+  ChromePairingCode,
+  ChromeUpdatedPayload,
+  PairedChrome,
+} from "./browser-chromes.js";
 import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
 import {
   Catalogue,
@@ -1127,6 +1150,18 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "carry-over/failure.json", title: "CarryOverFailure", schema: CarryOverFailure },
   { path: "carry-over/notices/carry-over.imported.json", title: "CarryOverImportedPayload", schema: CarryOverImportedPayload },
   { path: "carry-over/report.json", title: "CarryOverReport", schema: CarryOverReport },
+  { path: "state-import/holdings.json", title: "StateImportHoldings", schema: StateImportHoldings },
+  { path: "state-import/data-folder.json", title: "StateImportDataFolder", schema: StateImportDataFolder },
+  { path: "state-import/terminal-folder.json", title: "StateImportTerminalFolder", schema: StateImportTerminalFolder },
+  { path: "state-import/detection.json", title: "StateImportDetection", schema: StateImportDetection },
+  { path: "state-import/carried.json", title: "StateImportCarried", schema: StateImportCarried },
+  { path: "state-import/re-enter.json", title: "StateImportReEnter", schema: StateImportReEnter },
+  { path: "state-import/later.json", title: "StateImportLater", schema: StateImportLater },
+  { path: "state-import/not-carried.json", title: "StateImportNotCarried", schema: StateImportNotCarried },
+  { path: "state-import/failure.json", title: "StateImportFailure", schema: StateImportFailure },
+  { path: "state-import/client-local.json", title: "StateImportClientLocal", schema: StateImportClientLocal },
+  { path: "state-import/notices/state-import.finished.json", title: "StateImportFinishedPayload", schema: StateImportFinishedPayload },
+  { path: "state-import/report.json", title: "StateImportReport", schema: StateImportReport },
   { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
   { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
@@ -1300,6 +1335,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
+  { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
+  { path: "browser/chrome-name.json", title: "ChromeName", schema: ChromeName },
+  { path: "browser/paired-chrome.json", title: "PairedChrome", schema: PairedChrome },
+  { path: "browser/chrome-event-type.json", title: "ChromeEventType", schema: ChromeEventType },
+  ...Object.entries(CHROME_EVENT_TYPES).map(([type, entry]) => ({ path: `browser/chrome-events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
+  { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
+  { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,

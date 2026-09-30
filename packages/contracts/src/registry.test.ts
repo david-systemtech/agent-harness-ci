@@ -260,6 +260,7 @@ describe("the method registry", () => {
       "permissions.denylist.set",
       "permissions.denylist.restorePresets",
       "carryOver.run",
+      "stateImport.run",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -281,6 +282,8 @@ describe("the method registry", () => {
       "skills.own.remove",
       "trust.decide",
       "trust.revoke",
+      "browser.chromes.rename",
+      "browser.chromes.unpair",
     ]);
   });
 
@@ -483,6 +486,8 @@ describe("the method registry", () => {
       | "setup.check"
       | "carryOver.inventory"
       | "carryOver.run"
+      | "stateImport.detect"
+      | "stateImport.run"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"
@@ -527,6 +532,10 @@ describe("the method registry", () => {
       | "trust.decide"
       | "trust.revoke"
       | "browser.status"
+      | "browser.pairing.code"
+      | "browser.chromes.list"
+      | "browser.chromes.rename"
+      | "browser.chromes.unpair"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

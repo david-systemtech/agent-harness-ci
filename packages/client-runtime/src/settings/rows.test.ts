@@ -86,7 +86,9 @@ describe("the steps a row links to", () => {
     expect(rowSteps("accounts.default-model")).toEqual(["account"]);
     expect(rowSteps("environments.service")).toEqual(["your-machines"]);
     expect(rowSteps("access.permissions")).toEqual(["permissions"]);
-    expect(rowSteps("knowledge.banks")).toEqual(["memory-bank"]);
+    // Carry over links the rows where what it copies lands (#581).
+    expect(rowSteps("knowledge.banks")).toEqual(["memory-bank", "carry-over"]);
+    expect(rowSteps("knowledge.skills")).toEqual(["skills", "carry-over"]);
   });
 
   it("are none on a row no step lives on, and none on Set up, which is home to the whole checklist", () => {

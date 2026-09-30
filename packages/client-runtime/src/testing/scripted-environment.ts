@@ -19,14 +19,10 @@ import {
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
   ContainmentReport,
-  DENYLIST_SECTIONS,
-  denylistPresets,
-  type Denylist,
-  type DenylistSection,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
   UPDATE_SETTINGS_KEYS,
-  ReviewRun,
+  type ReviewRun,
   SignIn,
   compareModes,
   lowerMode,
@@ -77,6 +73,7 @@ import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
 import { FORGE_COMMANDS, scriptedForges, type ScriptedForges, type ScriptedForgesHandle } from "./scripted-forges.js";
 import { KEY_MANAGER_COMMANDS, scriptedKeyManagers, type ScriptedKeyManagers, type ScriptedKeyManagersHandle } from "./scripted-key-managers.js";
 import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
+import { PERMISSION_COMMANDS, scriptedPermissions, type ScriptedPermissionsHandle } from "./scripted-permissions.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
 import { scriptedSetup, type ScriptedSetup, type ScriptedSetupHandle } from "./scripted-setup.js";
 
@@ -166,9 +163,12 @@ export interface ScriptedEnvironment {
   readonly containment?: Partial<ContainmentReport>;
   /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
   readonly settings?: Partial<SettingsValues>;
-  /** The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back, of the sections it names: preset none. */
+  /**
+   * The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back, of the sections it
+   * names: preset none. The denylist is otherwise the presets, which `permissions.denylist.set` changes (`scripted-permissions.ts`).
+   */
   readonly lostPresets?: readonly string[];
-  /** What `permissions.review.list` lists: preset nothing. */
+  /** What `permissions.review.list` lists until `permissions.review.seen` marks it seen: preset nothing. */
   readonly review?: readonly Partial<ReviewRun>[];
   /** What `accounts.handoff.recommend` answers, over no recommendation. */
   readonly recommendation?: Partial<HandoffRecommendation>;
@@ -286,7 +286,7 @@ export interface LookChanges {
   readonly colour?: EnvironmentColour;
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedForgesHandle {
+export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedForgesHandle, ScriptedPermissionsHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -1623,25 +1623,16 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
   });
-  // The denylist: the presets, but those the script says it lost, which restorePresets puts back in their sections.
-  const presets = denylistPresets(`${SCRIPTED_HOME}/.agent-harness`);
-  const lost = new Set(spec.lostPresets ?? []);
-  const kept = (entry: { readonly id: string }) => !lost.has(entry.id);
-  const denylistNow = (): Denylist => ({
-    browserDomains: presets.browserDomains.filter(kept),
-    paths: presets.paths.filter(kept),
-    commandPatterns: presets.commandPatterns.filter(kept),
-    hosts: presets.hosts.filter(kept),
-  });
-  wire.answer("permissions.denylist.restorePresets", (params) => {
-    const refused = rejection("permissions.denylist.restorePresets");
-    if (refused) return refused;
-    const named = params["sections"] as readonly DenylistSection[] | undefined;
-    const restored = DENYLIST_SECTIONS.filter((section) => named === undefined || named.includes(section)).flatMap((section) =>
-      presets[section].filter((entry) => lost.has(entry.id)).map((entry) => ({ section, entry })),
-    );
-    for (const { entry } of restored) lost.delete(entry.id);
-    return acceptedWith({ restored, denylist: denylistNow() });
+  // The denylist and the Unattended review (`scripted-permissions.ts`).
+  const permissions = scriptedPermissions({
+    clock,
+    wire,
+    lostPresets: spec.lostPresets,
+    review: spec.review,
+    sessionId: () => sessions[0]?.id ?? "0199aa00-0000-4000-8000-000000000001",
+    head: () => sequence,
+    next: () => ++sequence,
+    refusal: (method) => rejection(method),
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
@@ -1687,13 +1678,33 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return acceptedWith({ updateId: uuidv4(), toVersion });
   });
 
+  /** The refusal of a level the probe says cannot be enforced (`containment_unavailable`); undefined for one it can. */
+  const unavailable = (level: ContainmentLevel): FakeAnswer | undefined => {
+    const availability = containment.levels.find((l) => l.level === level);
+    if (!availability || availability.available) return undefined;
+    return {
+      result: {
+        receipt: {
+          status: "rejected",
+          sequence: ++sequence,
+          changed: false,
+          reason: "containment_unavailable",
+          error: { code: "containment_unavailable", message: `${level} cannot be enforced here: ${availability.reason}`, data: { level, reason: availability.reason, cause: availability.cause } },
+        },
+      },
+    };
+  };
   wire.answer("permissions.settings.get", () => ({
-    result: { values: permissionValues(), containment, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
+    result: { values: permissionValues(), containment, isRoot: false, denylist: permissions.counts() },
   }));
   wire.answer("permissions.settings.set", (params) => {
     const refused = rejection("permissions.settings.set");
     if (refused) return refused;
     const asked = params["values"] as Partial<SettingsValues>;
+    // A containment default the probe cannot enforce is refused, checked only when it differs from the one stored (#133).
+    const level = asked["permissions.containment.default"];
+    const unenforceable = level === undefined || level === values["permissions.containment.default"] ? undefined : unavailable(level);
+    if (unenforceable) return unenforceable;
     let acknowledged: Partial<SettingsValues> = {};
     if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
       if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
@@ -1722,45 +1733,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (refused) return refused;
     const sessionId = String(params["sessionId"]);
     const level = params["level"] as ContainmentLevel;
-    const availability = containment.levels.find((l) => l.level === level);
-    if (availability && !availability.available) {
-      return {
-        result: {
-          receipt: {
-            status: "rejected",
-            sequence: ++sequence,
-            changed: false,
-            reason: "containment_unavailable",
-            error: { code: "containment_unavailable", message: `${level} cannot be enforced here: ${availability.reason}`, data: { level, reason: availability.reason, cause: availability.cause } },
-          },
-        },
-      };
-    }
+    const unenforceable = unavailable(level);
+    if (unenforceable) return unenforceable;
     const payload = { containment: { requested: level, effective: level, clamped: false } };
     emit(sessionId, "session.containment.set", payload);
     return acceptedWith({ sessionId, ...payload });
   });
-  wire.answer("permissions.review.list", () => ({
-    result: {
-      watermark: 0,
-      head: sequence,
-      runs: (spec.review ?? []).map((run, i) =>
-        checked(ReviewRun, {
-          sessionId: sessions[0]?.id ?? "0199aa00-0000-4000-8000-000000000001",
-          runId: `0199a900-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
-          ranAt: clock.now().toISOString(),
-          actor: { kind: "routine", name: "nightly" },
-          attended: false,
-          mode: { requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null },
-          containment: { requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null },
-          counts: { toolCalls: 0, autoApproved: 0, denied: 0, answeredByPerson: 0, expired: 0 },
-          denials: [],
-          ...run,
-        }),
-      ),
-    },
-  }));
-
   // The key-manager connections and Move (`scripted-key-managers.ts`).
   const keyManagers = scriptedKeyManagers({
     clock,
@@ -1907,6 +1885,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "terminals.close",
     ...KEY_MANAGER_COMMANDS,
     ...FORGE_COMMANDS,
+    ...PERMISSION_COMMANDS,
     ...LIST_COMMANDS,
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
@@ -2028,6 +2007,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     setSetup: setup.setSetup,
     ...keyManagers,
     ...forges,
+    denylist: permissions.denylist,
+    reviewWatermark: permissions.reviewWatermark,
+    holdDenylistWrites: permissions.holdDenylistWrites,
     holdSetupChecks: setup.holdSetupChecks,
     passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
@@ -2093,3 +2075,4 @@ export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scrip
 export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js";
 export { type ScriptedDetection, type ScriptedForges } from "./scripted-forges.js";
 export { certificateOf, type ScriptedKeyManagers, type ScriptedMoveItem } from "./scripted-key-managers.js";
+export { type ScriptedPermissionsHandle } from "./scripted-permissions.js";

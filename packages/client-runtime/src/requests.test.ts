@@ -419,6 +419,41 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
   });
 
+  it("fetches browser.chromes.list and browser.status again on chrome.updated, and no other query (#548)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const chromeId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    const chrome = { id: chromeId, name: "Work", pairedAt: "2026-09-24T00:00:00.000Z", lastConnectedAt: "2026-09-24T00:00:00.000Z", lastReportedVersion: "0.4.2", outdated: false };
+    const reads = { list: 0, status: 0 };
+    wire.answer("browser.chromes.list", () => {
+      reads.list++;
+      return { result: { chromes: [{ ...chrome, connected: reads.list > 1 }] } };
+    });
+    wire.answer("browser.status", () => {
+      reads.status++;
+      return {
+        result: {
+          listener: { state: "listening", port: 47615 },
+          folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
+          shippedVersion: "0.4.2",
+          unpairedConnected: reads.status === 1,
+        },
+      };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const list = runtime.requests.cached(id, "browser.chromes.list", {});
+    list.subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "browser.status", {});
+    status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.list, reads.status]).toEqual([1, 1, 1]);
+
+    environment?.event(noticeEvent(1, wire.environmentId, "chrome.updated", { chromeId, name: "Work", change: "connected" }));
+    await flush();
+    expect([asked(), reads.list, reads.status]).toEqual([1, 2, 2]);
+    expect(list.read()).toMatchObject({ result: { chromes: [{ id: chromeId, connected: true }] }, error: null });
+    expect(status.read()).toMatchObject({ result: { unpairedConnected: false }, error: null });
+  });
+
   it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
@@ -488,6 +523,29 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(7, wire.environmentId, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
     await flush();
     expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
+  });
+
+  it("fetches stateImport.detect again when a state import ends, and no other query (#581)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    wire.answer("stateImport.detect", () => {
+      reads++;
+      return { result: { dataFolder: null, terminalFolder: reads > 1 ? null : { path: "/home/david/.local/state/source" } } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const detection = runtime.requests.cached(id, "stateImport.detect", {});
+    detection.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    const carried = { accounts: 0, archived: 0, pins: 0, groups: 0, forgeAccounts: 0, keyManagerConnections: 0, banks: 0, routines: 0, instructions: 0, skillSources: 0, alwaysOnSkills: 0, drafts: 0, devSites: 0 };
+    environment?.event(noticeEvent(1, wire.environmentId, "state-import.finished", { carried, reEnter: [], later: [], notCarried: [], failed: [] }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(detection.read()).toMatchObject({ result: { terminalFolder: null }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "carry-over.imported", { accountId: "claude-max", sessions: { listed: 0, imported: 0, archived: 0, missingDirectory: 0, held: 0 }, failed: [] }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {

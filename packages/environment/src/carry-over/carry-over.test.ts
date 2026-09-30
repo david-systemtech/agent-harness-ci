@@ -8,6 +8,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, gate, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
@@ -66,7 +67,12 @@ interface Start extends Omit<TestEnvironmentOptions, "adapter"> {
 const start = async (sessions: FakeAdapterOptions["sessions"], options: Start = {}) => {
   const directory = adoptedDirectory();
   const { fake, ...rest } = options;
-  const t = await startTestEnvironment({ ...rest, adapter: fakeAdapter({ ambientDirectory: directory, ...(sessions !== undefined && { sessions }), ...fake }) });
+  // With no Set up step, whose Carry over check lists the adopted directory as the environment starts and on each import (#581).
+  const t = await startTestEnvironment({
+    setupSteps: NO_SETUP_STEPS,
+    ...rest,
+    adapter: fakeAdapter({ ambientDirectory: directory, ...(sessions !== undefined && { sessions }), ...fake }),
+  });
   onCleanup(() => t.close());
   return { t, directory };
 };

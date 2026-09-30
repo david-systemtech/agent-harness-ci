@@ -6,7 +6,6 @@ import {
   EnvironmentNotice,
   bridgeUrl,
   eventTypeEntry,
-  methods,
   registry,
 } from "./index.js";
 
@@ -23,10 +22,7 @@ const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedC
 
 describe("browser.status", () => {
   it("is a query at read, the one scope every browser reading has, taking no params", () => {
-    const browserMethods = methods.filter((method) => method.name.startsWith("browser."));
-    expect(Object.fromEntries(browserMethods.map((method) => [method.name, [method.kind, method.scope]]))).toEqual({
-      "browser.status": ["query", "read"],
-    });
+    expect([registry["browser.status"].kind, registry["browser.status"].scope]).toEqual(["query", "read"]);
     expect(registry["browser.status"].params.parse({})).toEqual({});
   });
 

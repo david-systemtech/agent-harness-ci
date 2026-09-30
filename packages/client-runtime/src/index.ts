@@ -543,3 +543,29 @@ export {
   type FamilyChoice,
 } from "./accounts/words.js";
 export { adoptAccount, relabelAccount, removeAccount, type AccountOutcome } from "./accounts/actions.js";
+export {
+  DENYLIST_SECTION_NAMES,
+  DENYLIST_TEST_KIND_NAMES,
+  NOTHING_TO_REVIEW,
+  availabilityWords,
+  reviewCountsWords,
+  reviewDenialWords,
+  reviewRanWords,
+  reviewRunWords,
+  sectionGrammar,
+  sectionHasPresets,
+  sectionHolds,
+} from "./permissions/words.js";
+export {
+  editedSection,
+  markReviewSeen,
+  restoreDenylistPresets,
+  saveDenylistSection,
+  testDenylist,
+  type DenylistEdit,
+  type DenylistEntryInput,
+  type DenylistRestored,
+  type DenylistSaved,
+  type DenylistTested,
+  type ReviewMarked,
+} from "./permissions/actions.js";

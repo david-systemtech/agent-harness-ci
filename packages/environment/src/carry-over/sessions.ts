@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import type { CarryOverFailure } from "@agent-harness/contracts";
-import type { ProviderSessionInfo } from "../adapter/contract.js";
+import { capability } from "../adapter/capabilities.js";
+import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { Finding } from "../workspace/availability.js";
 
@@ -51,6 +52,12 @@ export const eachSessionOnce = (listing: readonly ProviderSessionInfo[]): Provid
     if (kept === undefined || Date.parse(session.lastModified) > Date.parse(kept.lastModified)) byId.set(session.providerSessionId, session);
   }
   return [...byId.values()];
+};
+
+/** The sessions `adapter` lists in the account's directory, each provider session once; `unsupported` for an adapter that cannot list them. */
+export const listAccountSessions = async (adapter: Adapter, account: AccountRef): Promise<ProviderSessionInfo[]> => {
+  const list = capability(adapter.descriptor, "sessionListing", adapter.listSessions, "list an account directory's sessions", "listSessions");
+  return eachSessionOnce(await list.call(adapter, account));
 };
 
 /**

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportLater",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What it is, for a person."
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The provider its adapter serves."
+    }
+  },
+  "required": [
+    "label",
+    "provider"
+  ],
+  "description": "A profile of a provider whose adapter arrives in milestone 2: a re-run then carries it with its sessions."
+}
