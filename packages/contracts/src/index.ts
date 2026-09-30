@@ -36,6 +36,7 @@ export * from "./instructions.js";
 export * from "./key-managers.js";
 export * from "./key-manager-connections.js";
 export * from "./key-manager-moves.js";
+export * from "./known-environments.js";
 export * from "./launcher.js";
 export * from "./lifecycle.js";
 export * from "./managed-tools.js";

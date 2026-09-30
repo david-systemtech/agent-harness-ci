@@ -28,6 +28,7 @@ describe("environment notices", () => {
       "environment.renamed",
       "environment.icon-set",
       "environment.colour-set",
+      "environment.known-environments-updated",
       "account.updated",
       "signin.updated",
       "signin.executable-chosen",

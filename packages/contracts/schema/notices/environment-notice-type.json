@@ -54,6 +54,11 @@
     },
     {
       "type": "string",
+      "const": "environment.known-environments-updated",
+      "description": "The union of the other environments client sessions report changed; a client reads instructions.preview again."
+    },
+    {
+      "type": "string",
       "const": "account.updated",
       "description": "An account changed; a client refreshes what it caches of the accounts."
     },
