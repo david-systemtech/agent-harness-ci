@@ -30,17 +30,17 @@ import { useObservable, usePresentation, useRuntime, useShell } from "../window-
  * `focus` and `blur`, starting from `document.hasFocus()`.
  */
 
-/** The title's word for what the harness is doing. */
-const TITLE_WORDS: Readonly<Record<HarnessActivity, string>> = { "needs-you": "needs you", working: "working", ready: "ready" };
+/** What the harness is doing, in the title's words. */
+const ACTIVITY_WORDS: Readonly<Record<HarnessActivity, string>> = { "needs-you": "needs you", working: "working", ready: "ready" };
 
 /** A session as a notification's tag: a link of the app's own (a chosen default), handed back when the notification is clicked. */
-const sessionTag = ({ environmentId, sessionId }: PaneSession): string => `${PRODUCT_NAME}://session/${encodeURIComponent(environmentId)}/${encodeURIComponent(sessionId)}`;
+const sessionLink = ({ environmentId, sessionId }: PaneSession): string => `${PRODUCT_NAME}://session/${encodeURIComponent(environmentId)}/${encodeURIComponent(sessionId)}`;
 
-const SESSION_TAG = new RegExp(`^${PRODUCT_NAME}://session/([^/?#\\s]+)/([^/?#\\s]+)$`);
+const SESSION_LINK = new RegExp(`^${PRODUCT_NAME}://session/([^/?#\\s]+)/([^/?#\\s]+)$`);
 
-/** The session a tag names; undefined for any other string. */
-const sessionOfTag = (tag: string): PaneSession | undefined => {
-  const match = SESSION_TAG.exec(tag);
+/** The session a notification's tag names; undefined for any other string. */
+const sessionOfLink = (tag: string): PaneSession | undefined => {
+  const match = SESSION_LINK.exec(tag);
   if (!match) return undefined;
   try {
     return { environmentId: decodeURIComponent(match[1] as string), sessionId: decodeURIComponent(match[2] as string) };
@@ -76,7 +76,7 @@ const notificationOf = (runtime: Runtime, layout: PaneLayout, event: AttentionEv
       const { environmentId, sessionId, promptId } = event;
       const tool = runtime.projections.runs.read().parkedAsks.find((ask) => ask.environmentId === environmentId && ask.promptId === promptId)?.prompt.toolName ?? undefined;
       const { title, body } = notificationFor("needs-you", { session: event.title, prompt: event.promptKind, ...(tool !== undefined && { tool }) });
-      return { title, body, tag: sessionTag({ environmentId, sessionId }) };
+      return { title, body, tag: sessionLink({ environmentId, sessionId }) };
     }
     case "run-ended": {
       const session = { environmentId: event.environmentId, sessionId: event.sessionId };
@@ -84,14 +84,14 @@ const notificationOf = (runtime: Runtime, layout: PaneLayout, event: AttentionEv
       const title = titleOf(runtime, session);
       const reply = lastReply(runtime.projections.session(session.environmentId, session.sessionId).read())?.text;
       const words = notificationFor("finished", { ...(title !== undefined && { session: title }), ...(reply !== undefined && { reply }) });
-      return { title: words.title, body: words.body, tag: sessionTag(session) };
+      return { title: words.title, body: words.body, tag: sessionLink(session) };
     }
     case "notice-arrived": {
       const { notice } = event;
       if (notice.kind !== "routine") return undefined;
       const session = notice.about === null ? undefined : { environmentId: notice.environmentId, sessionId: notice.about.sessionId };
       const title = session === undefined ? undefined : titleOf(runtime, session);
-      return { title: title ?? PRODUCT_NAME, body: notice.message, ...(session !== undefined && { tag: sessionTag(session) }) };
+      return { title: title ?? PRODUCT_NAME, body: notice.message, ...(session !== undefined && { tag: sessionLink(session) }) };
     }
   }
 };
@@ -109,7 +109,7 @@ export const WindowAttention = () => {
 
   const { state, needing } = harnessActivity(useObservable(runtime.projections.runs));
   const windowMember = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.window").status === "present" ? shell?.window : undefined;
-  const title = `${TITLE_WORDS[state]} · ${PRODUCT_NAME}`;
+  const title = `${ACTIVITY_WORDS[state]} · ${PRODUCT_NAME}`;
   useEffect(() => windowMember?.setTitle(title), [windowMember, title]);
   useEffect(() => windowMember?.setBadge(needing > 0 ? needing : undefined), [windowMember, needing]);
 
@@ -128,7 +128,7 @@ export const WindowAttention = () => {
   useEffect(
     () =>
       onActivate?.((tag) => {
-        const session = sessionOfTag(tag);
+        const session = sessionOfLink(tag);
         if (session === undefined) return;
         windowMember?.focus();
         openInPane(session);

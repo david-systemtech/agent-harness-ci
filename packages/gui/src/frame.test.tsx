@@ -9,9 +9,9 @@ import { renderApp } from "../test/harness.js";
  * client runtime, each region through the harness.
  */
 describe("the frame", () => {
-  it("draws the header across the window, naming the product, with New session and the grid's split actions", async () => {
+  it("draws the header across the window, naming the product, with New session, the grid's split actions and Parked asks", async () => {
     await renderApp({ environments: [{ name: "desk", reach: "local" }] });
-    expect(screen.getByRole("banner")).toHaveProperty("textContent", `${PRODUCT_NAME}New sessionSplit rightSplit down`);
+    expect(screen.getByRole("banner")).toHaveProperty("textContent", `${PRODUCT_NAME}New sessionSplit rightSplit downParked asks`);
   });
 
   it("draws the sidebar region with a heading for each environment the runtime reaches, the local one and one paired", async () => {

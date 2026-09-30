@@ -7,7 +7,7 @@ import { OVERLAY, classes } from "./classes.js";
 export const Toasts = ({ children, label = "Notifications ({hotkey})" }: { readonly children: ReactNode; readonly label?: string }) => (
   <RadixToast.Provider label={label}>
     {children}
-    <RadixToast.Viewport className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2 outline-none" />
+    <RadixToast.Viewport className="fixed bottom-4 right-4 z-50 flex max-h-[calc(100dvh-2rem)] w-80 flex-col gap-2 overflow-y-auto outline-none" />
   </RadixToast.Provider>
 );
 
