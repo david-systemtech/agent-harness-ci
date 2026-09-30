@@ -1,4 +1,4 @@
-import { SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
+import { DenylistSection, SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { saveSetting } from "../settings/editor.js";
 import { adminCall } from "../status/actions.js";
@@ -7,15 +7,19 @@ import { isRegisteredStep } from "./checklist.js";
 /**
  * What each named action a step's result offers does (the Set up
  * specification, "Actions"; ADR 0031: actions are commands, so every
- * renderer runs them alike; #413): each maps to a command or to a row of
- * Settings. `check-again` is `setup.check` of the step; `restore` the
- * step's restore (the denylist's presets put back, the preset theme written
- * back); `start-service` `connections.startService`; `set-up-this-machine`
- * the checklist switched to the environment it targets. Every other verb
- * opens the step's home row, where its card's controls live, until the
- * method behind it is on the wire (#88): `sign-in-again` the Account step's
- * Accounts (a forge account's Forges, a key-manager connection's Key
- * managers), `pair-another` and `unpair` Browser, `move` Key managers.
+ * renderer runs them alike; #413, #573), on the items its result names as
+ * its targets (#568): `check-again` is `setup.check` of the step;
+ * `restore` the step's restore (the denylist's presets put back in the
+ * sections it names, the preset theme written back); `start-service`
+ * `connections.startService`; `set-up-this-machine` the checklist switched
+ * to the environment it names; `sign-in-again` the sign-in of the account it
+ * names (a forge account's Forges, a key-manager connection's Key managers);
+ * `update` on Your machines `updates.apply`; `move` the Key manager step's
+ * Move card, on Key managers. The authoring and import verbs are the step's
+ * card's (`card`). Every other verb opens the step's home row, where its
+ * card's controls live, until the method behind it is on the wire:
+ * `pull-now` (`skills.sources.pull`, #499), `unpair` (#548), `install` and
+ * `update` of a tool (`tools.run`, #376).
  */
 
 /** Each action in words, as a button names it: ADR 0031's names and the step decisions' verbs. */
@@ -42,39 +46,121 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
 export type RestorableStep = Extract<StepId, "permissions" | "appearance">;
 
+/** The verbs a step's card carries out itself (the Set up specification, "Actions" and "The LLM step"): an import run again, and an authoring session's. */
+export type CardAction = Extract<SetupAction, "import-again" | "try-again" | "write-it-myself" | "start-over" | "revise">;
+
+const CARD_ACTIONS: readonly SetupAction[] = ["import-again", "try-again", "write-it-myself", "start-over", "revise"] satisfies readonly CardAction[];
+const isCardAction = (action: SetupAction): action is CardAction => CARD_ACTIONS.includes(action);
+
+/** An item an action applies to, as a person reads it. */
+export interface NamedItem {
+  readonly id: string;
+  readonly label: string;
+}
+
 /** What doing an action is, for a renderer to carry out. */
 export type SetupActionPlan =
   /** `setup.check` of the step, or of every step when this build cannot ask about it alone. */
   | { readonly kind: "check"; readonly step: RegisteredStepId | undefined }
-  /** The step's restore (`restoreStep`), then its check again. */
-  | { readonly kind: "restore"; readonly step: RestorableStep }
+  /** The step's restore (`restoreStep`), of the denylist sections named or of every one, then its check again. */
+  | { readonly kind: "restore"; readonly step: RestorableStep; readonly sections: readonly DenylistSection[] | undefined }
   /** `connections.startService` of the environment checked. */
   | { readonly kind: "start-service" }
   /** The checklist switched to another environment. */
   | { readonly kind: "pick"; readonly environmentId: string }
+  /** The sign-in of an account of the environment checked (`accounts.signin.start`, through the sign-in card). */
+  | { readonly kind: "sign-in"; readonly account: NamedItem }
+  /** The environment checked updated, under its idle rules (`updateEnvironment`). */
+  | { readonly kind: "update" }
+  /** A verb the step's card carries out on the items named; with no card of the step's own, its home row. */
+  | { readonly kind: "card"; readonly step: StepId; readonly home: SettingsRowId; readonly action: CardAction; readonly targets: readonly SetupTarget[] }
   /** A row of Settings opened on the environment checked. */
   | { readonly kind: "row"; readonly row: SettingsRowId };
 
-/** What `action`, offered by `step`'s result with its `targets`, does. */
-export const planSetupAction = (step: { readonly id: StepId; readonly home: SettingsRowId }, action: SetupAction, targets: readonly SetupTarget[] = []): SetupActionPlan => {
+/** A step as an action reads it: which step, and its home row. */
+export interface ActingStep {
+  readonly id: StepId;
+  readonly home: SettingsRowId;
+}
+
+/** Where a verb whose item has no method of its own on the wire yet is carried out: the row of Settings where that item lives. */
+const ROW_OF_KIND: { readonly [Kind in SetupTarget["kind"]]?: SettingsRowId } = {
+  "forge-account": "access.forges",
+  "key-manager-connection": "access.key-managers",
+};
+
+/**
+ * What `action`, offered by `step`'s result, does on `targets`, the items
+ * of the result's targets that serve it: the one item a button acts on, or
+ * every item for Restore.
+ */
+export const planSetupAction = (step: ActingStep, action: SetupAction, targets: readonly SetupTarget[] = []): SetupActionPlan => {
+  const [first] = targets;
+  if (isCardAction(action)) return { kind: "card", step: step.id, home: step.home, action, targets };
   switch (action) {
     case "check-again":
       return { kind: "check", step: isRegisteredStep(step.id) ? step.id : undefined };
-    case "restore":
-      return step.id === "permissions" || step.id === "appearance" ? { kind: "restore", step: step.id } : { kind: "row", row: step.home };
+    case "restore": {
+      if (step.id === "appearance") return { kind: "restore", step: "appearance", sections: undefined };
+      if (step.id !== "permissions") return { kind: "row", row: step.home };
+      const sections = targets.flatMap((target) => {
+        const section = DenylistSection.safeParse(target.id);
+        return target.kind === "denylist-section" && section.success ? [section.data] : [];
+      });
+      return { kind: "restore", step: "permissions", sections: sections.length === 0 ? undefined : sections };
+    }
     case "start-service":
       return { kind: "start-service" };
-    case "set-up-this-machine": {
-      const machine = targets.find((target) => target.action === action && target.kind === "environment");
-      return machine === undefined ? { kind: "row", row: "environments.machines" } : { kind: "pick", environmentId: machine.id };
-    }
+    case "set-up-this-machine":
+      return first?.kind === "environment" ? { kind: "pick", environmentId: first.id } : { kind: "row", row: "environments.machines" };
+    case "sign-in-again":
+      if (first?.kind === "account") return { kind: "sign-in", account: { id: first.id, label: first.label } };
+      return { kind: "row", row: (first === undefined ? undefined : ROW_OF_KIND[first.kind]) ?? step.home };
+    case "update":
+      // A tool's update is `tools.run`'s (#376), not on the wire yet: its step's row.
+      return step.id === "your-machines" && first?.kind !== "tool" ? { kind: "update" } : { kind: "row", row: step.home };
+    case "move":
+      return { kind: "row", row: "access.key-managers" };
     default:
       return { kind: "row", row: step.home };
   }
 };
 
-/** How a restore went, in one line. */
-export interface Restored {
+/** One button a step's card offers: its words and what it does. */
+export interface OfferedSetupAction {
+  /** Unique among the step's: the action, and the item it acts on. */
+  readonly key: string;
+  readonly action: SetupAction;
+  /** Its name: the verb's words, and the item it acts on after a colon. */
+  readonly words: string;
+  readonly plan: SetupActionPlan;
+}
+
+/** The verbs that act on every item they name at once, one button for all: Restore's sections, Pull now's sources. The rest act on one item at a time. */
+const ALL_AT_ONCE: readonly SetupAction[] = ["restore", "pull-now"];
+
+/**
+ * The buttons a step's result offers, in its actions' order: an action with
+ * no item, one button in the verb's words ("Update now" on Your machines,
+ * which updates the machine); one acting on each item it names alone (a
+ * sign-in, an unpairing, an authoring session), a button an item, named for
+ * it ("Sign in again: Work"); Restore and Pull now, one button for every item
+ * they name ("Restore: paths, hosts").
+ */
+export const setupActions = (step: ActingStep, result: { readonly actions: readonly SetupAction[]; readonly targets?: readonly SetupTarget[] | undefined }): readonly OfferedSetupAction[] =>
+  result.actions.flatMap((action): OfferedSetupAction[] => {
+    const offer = (key: string, targets: readonly SetupTarget[]): OfferedSetupAction => {
+      const plan = planSetupAction(step, action, targets);
+      const verb = plan.kind === "update" ? "Update now" : SETUP_ACTION_WORDS[action];
+      return { key, action, words: targets.length === 0 ? verb : `${verb}: ${targets.map((target) => target.label).join(", ")}`, plan };
+    };
+    const targets = (result.targets ?? []).filter((target) => target.action === action);
+    if (targets.length === 0 || ALL_AT_ONCE.includes(action)) return [offer(action, targets)];
+    return targets.map((target) => offer(`${action} ${target.kind} ${target.id}`, [target]));
+  });
+
+/** How an action carried out on the environment went, in one line. */
+export interface ActionOutcome {
   readonly ok: boolean;
   readonly line: string;
 }
@@ -82,17 +168,36 @@ export interface Restored {
 /**
  * The step's restore, as a direct `admin` command with `commandId`: the
  * Permissions step's `permissions.denylist.restorePresets`, which puts back
- * the presets a section lost; the Appearance step's `settings.update` of the
- * preset theme (#391). A refusal is "Not restored: <why>".
+ * the presets the sections named lost, or every section's with none named;
+ * the Appearance step's `settings.update` of the preset theme (#391). A
+ * refusal is "Not restored: <why>".
  */
-export const restoreStep = async (runtime: Pick<Runtime, "requests">, environmentId: string, step: RestorableStep, commandId: string): Promise<Restored> => {
+export const restoreStep = async (
+  runtime: Pick<Runtime, "requests">,
+  environmentId: string,
+  step: RestorableStep,
+  commandId: string,
+  sections?: readonly DenylistSection[],
+): Promise<ActionOutcome> => {
   if (step === "appearance") {
     const preset = SETTINGS["appearance.theme"].preset;
     const saved = await saveSetting(runtime, environmentId, "appearance.theme", preset, { commandId });
     return saved.ok ? { ok: true, line: `Restored the ${preset.name} theme.` } : { ok: false, line: `Not restored: ${saved.line}` };
   }
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.restorePresets", { commandId }));
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "permissions.denylist.restorePresets", { commandId, ...(sections !== undefined && { sections: [...sections] }) }));
   if (!answer.ok) return { ok: false, line: `Not restored: ${answer.line}` };
   const count = answer.result?.restored.length;
   return { ok: true, line: count === undefined ? "Restored the denylist's presets." : `Restored the denylist's presets: ${count} put back.` };
+};
+
+/**
+ * Your machines' Update now (ADR 0025): `updates.apply` of the version the
+ * environment waits on (the pin, else the channel's newest), under the idle
+ * rules, as a direct `admin` command with `commandId`. Says which version it
+ * goes to, naming the environment; a refusal is "Not updated: <why>".
+ */
+export const updateEnvironment = async (runtime: Pick<Runtime, "requests">, environmentId: string, name: string, commandId: string): Promise<ActionOutcome> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when: "idle" }));
+  if (!answer.ok) return { ok: false, line: `Not updated: ${answer.line}` };
+  return { ok: true, line: answer.result === undefined ? `Updating ${name} once it is idle.` : `Updating to ${answer.result.toVersion} once ${name} is idle.` };
 };

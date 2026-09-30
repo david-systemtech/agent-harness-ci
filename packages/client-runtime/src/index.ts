@@ -119,7 +119,20 @@ export {
   type SetupStepView,
   type SetupView,
 } from "./projections/setup.js";
-export { SETUP_ACTION_WORDS, planSetupAction, restoreStep, type RestorableStep, type Restored, type SetupActionPlan } from "./setup/actions.js";
+export {
+  SETUP_ACTION_WORDS,
+  planSetupAction,
+  restoreStep,
+  setupActions,
+  updateEnvironment,
+  type ActingStep,
+  type ActionOutcome,
+  type CardAction,
+  type NamedItem,
+  type OfferedSetupAction,
+  type RestorableStep,
+  type SetupActionPlan,
+} from "./setup/actions.js";
 export {
   STEP_STATE_WORDS,
   checkedAgoWords,

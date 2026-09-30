@@ -7,8 +7,8 @@ import { useFollowed, useObservable, useRuntime, useShell } from "../window-cont
 
 export interface SignInCardProps {
   readonly environmentId: string;
-  /** The account to sign in; null to add a new one, labelled first. */
-  readonly account: AccountRecord | null;
+  /** The account to sign in, by its id and label; null to add a new one, labelled first. */
+  readonly account: Pick<AccountRecord, "id" | "label"> | null;
   /** Closes the card. */
   readonly close: () => void;
   /** Says one line where the card was opened from: how the sign-in ended, or why it could not go on. */
@@ -21,7 +21,8 @@ type Sending = "add" | "start" | "code" | null;
 /**
  * The sign-in card (docs/specs/gui.md, "A session pane": Add an account with
  * the sign-in card; ADR 0018; #147's card in the window, #402), which the
- * account picker, the hand-off picker and the Accounts pane open. The rules
+ * account picker, the hand-off picker, the Accounts pane and Set up's Sign
+ * in again (#573) open. The rules
  * are the client runtime's (`status/sign-in.ts`), so the terminal UI's card
  * runs the same:
  *

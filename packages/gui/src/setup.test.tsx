@@ -4,6 +4,7 @@ import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, STEP_ORDER, denylistPresets } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../test/harness.js";
+import type { StepCardProps } from "./setup/cards.js";
 
 /**
  * Set up in the window (docs/specs/gui.md, "Set up in the window"; the Set
@@ -359,7 +360,7 @@ describe("a step's named actions", () => {
     await waitFor(() => expect(desk.requests("setup.check")).toHaveLength(asked + 1));
     expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "your-machines" });
 
-    await app.user.click(within(machines).getByRole("button", { name: "Set up this machine" }));
+    await app.user.click(within(machines).getByRole("button", { name: "Set up this machine: laptop" }));
     expect(pickedIn(checklist() as HTMLElement)).toBe("laptop");
     await waitFor(() => expect(laptop.requests("setup.check").length).toBeGreaterThan(0));
 
@@ -369,6 +370,159 @@ describe("a step's named actions", () => {
     await app.user.click(await within(account).findByRole("button", { name: "Sign in again" }));
     expect(within(settings()).getByRole("region", { name: "Accounts" })).toBeDefined();
     expect(pickedIn(within(settings()).getByRole("region", { name: "Accounts" }))).toBe("desk");
+  });
+});
+
+describe("a step's named actions on their targets", () => {
+  it("sign in again opens the sign-in of the account it names, one button an account, and a forge account's the Forges row", async () => {
+    const app = await renderApp({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          accounts: [
+            { id: "account-work", label: "Work", status: { state: "signed-out", checkedAt: null, detail: null } },
+            { id: "account-home", label: "Home", status: { state: "expired", checkedAt: null, detail: null } },
+          ],
+          setup: {
+            account: {
+              state: "needs-attention",
+              reason: "Work is signed out and Home has expired.",
+              failing: ["account.signed-in"],
+              actions: ["sign-in-again"],
+              targets: [
+                { action: "sign-in-again", kind: "account", id: "account-work", label: "Work" },
+                { action: "sign-in-again", kind: "account", id: "account-home", label: "Home" },
+              ],
+            },
+            forges: {
+              state: "needs-attention",
+              reason: "david on git.example.com answers as someone else.",
+              failing: ["forges.identity"],
+              actions: ["sign-in-again", "check-again"],
+              targets: [{ action: "sign-in-again", kind: "forge-account", id: "https://git.example.com", label: "david on git.example.com" }],
+            },
+          },
+        },
+      ],
+    });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+    const account = await cardOf(app, "Account");
+    expect(await within(account).findByRole("button", { name: "Sign in again: Home" })).toBeDefined();
+    await app.user.click(within(account).getByRole("button", { name: "Sign in again: Work" }));
+    expect(await screen.findByRole("dialog", { name: "Sign in: Work on desk" })).toBeDefined();
+    await waitFor(() => expect(desk.requests("accounts.signin.start").map((request) => request.params["accountId"])).toEqual(["account-work"]));
+
+    await app.user.click(screen.getByRole("button", { name: "Cancel the sign-in" }));
+    await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
+    const forges = within(checklist() as HTMLElement).getByRole("region", { name: "Forges" });
+    await app.user.click(within(forges).getByRole("button", { name: "Sign in again: david on git.example.com" }));
+    expect(within(settings()).getByRole("region", { name: "Forges" })).toBeDefined();
+  });
+
+  it("restore puts back the presets of the denylist sections it names alone, and update is Update now on Your machines", async () => {
+    const presets = denylistPresets("/home");
+    const app = await renderApp({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          setup: {
+            permissions: {
+              state: "needs-attention",
+              reason: "The paths section of the denylist is missing 1 of its presets (~/.ssh); Restore puts them back.",
+              failing: ["permissions.denylist"],
+              actions: ["restore"],
+              targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }],
+            },
+            "your-machines": {
+              state: "needs-attention",
+              reason: "A failed update left this machine behind.",
+              failing: ["your-machines.updates"],
+              actions: ["update"],
+            },
+          },
+          lostPresets: [presets.paths[0]!.id, presets.commandPatterns[0]!.id],
+          updates: { status: { version: "1.2.0", newest: "1.3.0" } },
+        },
+      ],
+    });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+
+    const permissions = await cardOf(app, "Permissions");
+    await app.user.click(within(permissions).getByRole("button", { name: "Restore: paths" }));
+    expect(await within(permissions).findByText("Restored the denylist's presets: 1 put back.")).toBeDefined();
+    expect(desk.requests("permissions.denylist.restorePresets").map((request) => request.params["sections"])).toEqual([["paths"]]);
+
+    await app.user.click(within(steps()).getByRole("button", { name: "Your machines" }));
+    const machines = within(checklist() as HTMLElement).getByRole("region", { name: "Your machines" });
+    await app.user.click(within(machines).getByRole("button", { name: "Update now" }));
+    expect(await within(machines).findByText("Updating to 1.3.0 once desk is idle.")).toBeDefined();
+    expect(desk.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
+  });
+
+  it("opens the step's home row for a verb whose method is not on the wire yet, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
+    const app = await renderApp({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          setup: {
+            forges: {
+              state: "needs-attention",
+              reason: "gh is older than its minimum.",
+              failing: ["forges.gh"],
+              actions: ["update"],
+              targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }],
+            },
+            "memory-bank": {
+              state: "needs-attention",
+              reason: "The describe conversation stopped before BANK.md was written.",
+              failing: ["memory-bank.manifest"],
+              actions: ["try-again", "start-over"],
+              targets: [{ action: "try-again", kind: "session", id: "0199aa00-0000-7000-8000-0000000000b1", label: "Describe work-memory" }],
+            },
+          },
+        },
+      ],
+    });
+    await screen.findByText(NO_SESSION);
+
+    const forges = await cardOf(app, "Forges");
+    await app.user.click(within(forges).getByRole("button", { name: "Update: gh" }));
+    expect(within(settings()).getByRole("region", { name: "Forges" })).toBeDefined();
+
+    await app.user.click(within(settings()).getByRole("button", { name: "Set up" }));
+    await app.user.click(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
+    const bank = within(checklist() as HTMLElement).getByRole("region", { name: "Memory bank" });
+    expect(within(bank).getByRole("button", { name: "Start over" })).toBeDefined();
+    await app.user.click(within(bank).getByRole("button", { name: "Try again: Describe work-memory" }));
+    expect(within(settings()).getByRole("region", { name: "Memory banks" })).toBeDefined();
+  });
+});
+
+describe("a card registered for a step", () => {
+  it("replaces the fallback card for that step alone, under the step's name and dot, with the checklist's Continue", async () => {
+    const PermissionsCard = ({ environmentId, step }: StepCardProps) => (
+      <p>
+        The Permissions card on {environmentId}: {step.result?.reason}
+      </p>
+    );
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] }, { stepCards: { permissions: PermissionsCard } });
+    await screen.findByText(NO_SESSION);
+    const permissions = await cardOf(app, "Permissions");
+    const desk = app.environment("desk").environmentId;
+    expect(await within(permissions).findByText(new RegExp(`^The Permissions card on ${desk}: The containment default can be enforced here\\.`))).toBeDefined();
+    expect(within(permissions).queryByRole("button", { name: "Check now" })).toBeNull();
+    expect(within(permissions).getByRole("img", { name: "Permissions: done" })).toBeDefined();
+    expect(within(permissions).getByRole("button", { name: "Continue" })).toBeDefined();
+
+    await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
+    const appearance = within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" });
+    expect(within(appearance).getByRole("button", { name: "Check now" })).toBeDefined();
   });
 });
 
