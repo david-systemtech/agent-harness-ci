@@ -3,6 +3,7 @@ import type {
   AssistantEntry,
   CommandEntry,
   ForkedEntry,
+  HistoryUnreadableEntry,
   OpaqueEntry,
   PromptEntry,
   RewoundEntry,
@@ -69,6 +70,8 @@ export type TranscriptRow =
   | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry }
   /** A fork's first row: the session it was forked from and the message it was taken before, which opening the row opens. */
   | { readonly kind: "forked"; readonly id: string; readonly runId: null; readonly entry: ForkedEntry }
+  /** An imported session's line saying its history could not be read from the account's directory, and why (#579). */
+  | { readonly kind: "history-unreadable"; readonly id: string; readonly runId: null; readonly entry: HistoryUnreadableEntry }
   /** The branch a rewind cut, folded where it was cut: the rows it holds, drawn under it when unfolded. */
   | { readonly kind: "rewound"; readonly id: string; readonly runId: null; readonly entry: RewoundEntry; readonly rows: readonly TranscriptRow[] };
 
@@ -164,6 +167,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         break;
       case "forked":
         push({ kind: "forked", id: `forked:${entry.sequence}`, runId: null, entry });
+        break;
+      case "history-unreadable":
+        push({ kind: "history-unreadable", id: `history-unreadable:${entry.sequence}`, runId: null, entry });
         break;
       case "rewound":
         // The cut branch's rows are its own: what its runs read opens them inside the fold, and its turns close them there.

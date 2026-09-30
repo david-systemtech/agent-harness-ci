@@ -70,6 +70,13 @@ describe("an opaque row's line", () => {
   });
 });
 
+describe("an imported session's unreadable history (#579)", () => {
+  it("is one line saying the history could not be read, and why", () => {
+    const rows = transcriptRows(view([{ kind: "history-unreadable", sequence: 2, message: "No transcript of p-1 is in /home/david/.claude any more." }]));
+    expect(shown(transcriptLines(rows, CONTEXT))).toEqual(["  · The history could not be read: No transcript of p-1 is in /home/david/.claude any more."]);
+  });
+});
+
 describe("a rewound fold's lines", () => {
   const fold: TranscriptEntry = {
     kind: "rewound",

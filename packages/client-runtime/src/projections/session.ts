@@ -21,6 +21,7 @@ import {
   type RunSummary,
   type SessionContainmentSetPayload,
   type SessionForkedPayload,
+  type SessionHistoryImportedPayload,
   type SessionInstructionsSetPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
@@ -192,6 +193,13 @@ export interface OpaqueEntry {
 }
 
 /**
+ * The line an imported session shows where its history could not be read
+ * from the account's directory (#579): its `session.history-imported` with
+ * outcome `unreadable`, and why. An appended history is its own entries.
+ */
+export type HistoryUnreadableEntry = SnapshotItem<"history-unreadable">;
+
+/**
  * A fork's first entry (#390): where it came from, as its `session.forked`
  * names it. The fork's stream holds nothing of its source's history, so a
  * renderer draws this as one row naming the source and the message, which
@@ -241,6 +249,7 @@ export type TranscriptEntry =
   | PromptEntry
   | SubagentEntry
   | ForkedEntry
+  | HistoryUnreadableEntry
   | RewoundEntry
   | OpaqueEntry;
 
@@ -311,6 +320,7 @@ type Held =
   | Mutable<TasksEntry>
   | Mutable<PromptEntry>
   | ForkedEntry
+  | HistoryUnreadableEntry
   | Fold
   | OpaqueEntry;
 
@@ -360,6 +370,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
     case "command":
     case "tasks":
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
+    case "history-unreadable":
+      return { ...(item as HistoryUnreadableEntry) };
     case "assistant-text":
     case "assistant-thinking": {
       const settled = item as SnapshotItem<"assistant-text" | "assistant-thinking">;
@@ -654,6 +666,12 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         const { fromSessionId, atMessageId } = event.payload as SessionForkedPayload;
         if (typeof fromSessionId !== "string") throw new TypeError("session.forked names no source.");
         push<ForkedEntry>({ kind: "forked", sequence, fromSessionId, atMessageId: atMessageId ?? null });
+        return;
+      }
+      case "session.history-imported": {
+        // An imported session's history that could not be read is one line where it would have been (#579).
+        const { outcome, message } = event.payload as SessionHistoryImportedPayload;
+        if (outcome === "unreadable") push<HistoryUnreadableEntry>({ kind: "history-unreadable", sequence, message: message ?? "The history could not be read." });
         return;
       }
       case "session.rewound": {

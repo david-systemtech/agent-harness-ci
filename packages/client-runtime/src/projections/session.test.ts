@@ -453,6 +453,23 @@ describe("session.forked", () => {
   });
 });
 
+describe("session.history-imported (#579)", () => {
+  const RUN = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
+  const MESSAGE = "No transcript of provider-session-1 is in /home/david/.claude any more.";
+
+  it("is one line where an imported session's history could not be read, and nothing for one appended, whose events are its entries", () => {
+    const unreadable = reduce(numbered(1, [["session.history-imported", { runId: RUN, providerSessionId: "provider-session-1", outcome: "unreadable", message: MESSAGE }]]));
+    expect(unreadable.items).toEqual([{ kind: "history-unreadable", sequence: 1, message: MESSAGE }]);
+    const appended = reduce(numbered(1, [["message.sent", recorded("message.sent")], ["session.history-imported", { runId: RUN, providerSessionId: "provider-session-1", outcome: "appended", message: null }]]));
+    expect(kinds(appended.items)).toEqual(["user-message"]);
+  });
+
+  it("keeps the line a snapshot carries", () => {
+    const line = { kind: "history-unreadable", sequence: 2, message: MESSAGE } as const;
+    expect(reduceSession({ ...NO_SNAPSHOT, items: [line] }, []).items).toEqual([line]);
+  });
+});
+
 describe("session.rewound", () => {
   const conversation = numbered(1, [
     ["run.started", recorded("run.started")],
