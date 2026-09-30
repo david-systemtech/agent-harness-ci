@@ -3,9 +3,11 @@ import { EnvironmentBadge } from "../connections/environment-badge.js";
 import { GridLine } from "../grid/grid.js";
 import { focusedPane } from "../grid/layout.js";
 import { SplitActions } from "../grid/split-actions.js";
+import { HeaderNewSession } from "../new-session/control.js";
 import { SetupLine } from "../setup/setup-line.js";
 import { SidePanesMenu } from "../side-column/side-panes-menu.js";
 import { TerminalAction } from "../terminal/terminal-action.js";
+import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
@@ -23,8 +25,9 @@ const FocusedEnvironment = () => {
 /**
  * The window's header, across its top (docs/specs/gui.md, "The window and
  * the sidebar"): the product, the focused pane's environment and its
- * actions, the split actions with the grid's line, and the Set up line
- * while a step on the home environment needs attention.
+ * actions, New session (#420), the split actions with the grid's line,
+ * "Restart to update" once a desktop build is staged (#424), and the Set up
+ * line while a step on the home environment needs attention.
  */
 export const Header = () => (
   <header className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-panel px-3">
@@ -32,9 +35,11 @@ export const Header = () => (
     <FocusedEnvironment />
     <TerminalAction />
     <SidePanesMenu />
+    <HeaderNewSession />
     <SplitActions />
     <GridLine />
-    <span className="ml-auto">
+    <span className="ml-auto flex items-center gap-2">
+      <RestartToUpdate />
       <SetupLine />
     </span>
   </header>

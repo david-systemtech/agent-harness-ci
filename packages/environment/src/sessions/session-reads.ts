@@ -1,4 +1,4 @@
-import type { DeletedSessionSummary, SessionSummary } from "@agent-harness/contracts";
+import type { DeletedSessionSummary, SessionOrigin, SessionSummary } from "@agent-harness/contracts";
 import type { SessionState } from "./decider.js";
 import { browserOf, tagsOf, toSummary, type Reader, type SessionRow } from "./session-tables.js";
 
@@ -63,3 +63,8 @@ export const readDeletion = (reader: Reader, id: string): { deletedAt: string; p
   return row === undefined ? null : { deletedAt: row.deleted_at as string, purgeAt: row.purge_at as string };
 };
 
+/** Where the session came from when no client asked for it (an imported session's origin, #578); null for any other session, or one not here. */
+export const readOrigin = (reader: Reader, id: string): SessionOrigin | null => {
+  const [row] = reader.all<{ origin: string | null }>("SELECT origin FROM sessions WHERE id = ?", id);
+  return row?.origin == null ? null : (JSON.parse(row.origin) as SessionOrigin);
+};

@@ -348,6 +348,30 @@ export const SessionRewindUndonePayload = z
   });
 export type SessionRewindUndonePayload = z.infer<typeof SessionRewindUndonePayload>;
 
+/** What the first open of an imported session did with its history (ADR 0021; #579). */
+export const HISTORY_IMPORT_OUTCOMES = ["appended", "unreadable"] as const;
+export const HistoryImportOutcome = z.enum(HISTORY_IMPORT_OUTCOMES).meta({
+  description:
+    "What the first open of an imported session did with its history: appended (the history is in the log, before this event) or unreadable (the account's directory no longer gave it; the session opens without it).",
+});
+export type HistoryImportOutcome = z.infer<typeof HistoryImportOutcome>;
+
+export const SessionHistoryImportedPayload = z
+  .object({
+    runId: RunId.meta({
+      description:
+        "The id the appended history's events carry in their runId, which no run.started names: the history is the provider's record of what ran before the import, no harness run's.",
+    }),
+    providerSessionId: z.string().min(1).meta({ description: "The provider session whose history it is: the imported session's origin." }),
+    outcome: HistoryImportOutcome,
+    message: z.string().min(1).nullable().meta({ description: "Why the history could not be read, for a person; null when it was appended." }),
+  })
+  .meta({
+    description:
+      "session.history-imported: the first time a client opened an imported session, its history (the provider's transcript and its subagent transcripts, read from the account's directory) was appended before it, or could not be read; once per session. Later opens read the log.",
+  });
+export type SessionHistoryImportedPayload = z.infer<typeof SessionHistoryImportedPayload>;
+
 /**
  * What became of a run an update cut (launcher-update spec, "Interrupted runs
  * and parked prompts"): one run continued it, a prompt of its session is
@@ -426,6 +450,8 @@ export const TRANSCRIPT_EVENT_TYPES = {
   "session.forked": unlisted(SessionForkedPayload),
   "session.rewound": unlisted(SessionRewoundPayload),
   "session.rewind-undone": unlisted(SessionRewindUndonePayload),
+  // An imported session's history, appended the first time a client opens it (ADR 0021; #579).
+  "session.history-imported": unlisted(SessionHistoryImportedPayload),
   "run.ended": { list: true, payload: RunEndedPayload, patch: SummaryPatch },
   // The settle after an update marks each run the update cut (#335; the launcher-update spec), on the run's session.
   "run.update-interrupted": unlisted(RunUpdateInterruptedPayload),
@@ -526,8 +552,16 @@ const PromptItem = z
   })
   .meta({ description: "A prompt, where it was asked: what it asked and, once answered, its answer and who gave it." });
 
+const HistoryUnreadableItem = z
+  .object({
+    kind: z.literal("history-unreadable"),
+    ...itemPart,
+    message: z.string().min(1).meta({ description: "Why it could not be read, as its session.history-imported says." }),
+  })
+  .meta({ description: "The line an imported session shows where its history could not be read from the account's directory (session.history-imported, outcome unreadable)." });
+
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
-export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt"] as const;
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt", "history-unreadable"] as const;
 
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
@@ -555,11 +589,12 @@ export const TranscriptItem = z
     CommandItem,
     TasksItem,
     PromptItem,
+    HistoryUnreadableItem,
     OpaqueItem,
   ])
   .meta({
     description:
-      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, or an item of a kind the reader does not know, kept opaque.",
+      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, or an item of a kind the reader does not know, kept opaque.",
   });
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
 

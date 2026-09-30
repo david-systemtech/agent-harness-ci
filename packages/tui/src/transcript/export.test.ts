@@ -125,6 +125,11 @@ describe("what a rewind cut, in /export (#232)", () => {
     expect(exported([forked])).toContain("_Forked from another session._");
   });
 
+  it("writes an unreadable history's line on one line, whatever lines its reason spans (#579)", () => {
+    const unreadable: TranscriptEntry = { kind: "history-unreadable", sequence: 2, message: "Reading p-1 failed: Unexpected token\n  at line 3" };
+    expect(exported([unreadable])).toContain("_The history could not be read: Reading p-1 failed: Unexpected token at line 3_");
+  });
+
   it("writes only the line for a cut with nothing in it", () => {
     const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [])]);
     expect(text.trimEnd().endsWith("_Rewound to Add the tests: what the rewind cut follows._")).toBe(true);

@@ -14,6 +14,7 @@ import {
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type SessionHistoryImportedPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type StandingRewind,
@@ -423,6 +424,12 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         const item = prompts.get(answer.promptId);
         if (item !== undefined) item.answer = answer;
         prompts.delete(answer.promptId);
+        break;
+      }
+      case "session.history-imported": {
+        // An imported session's history that could not be read is one line where it would have been (#579); an appended one is its events.
+        const { outcome, message } = event.payload as SessionHistoryImportedPayload;
+        if (outcome === "unreadable") push({ kind: "history-unreadable", sequence, message: message ?? "No reason was recorded." });
         break;
       }
       default:

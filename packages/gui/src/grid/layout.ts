@@ -1,3 +1,4 @@
+import type { NewSessionChips, NewSessionFocus } from "@agent-harness/client-runtime";
 import { PANES_MOST, type GridPane, type GridRow, type PaneLayout, type PaneSession } from "../presentation.js";
 
 /**
@@ -8,8 +9,9 @@ import { PANES_MOST, type GridPane, type GridRow, type PaneLayout, type PaneSess
  * spans the window rather than quartering it. A pane closed gives its space
  * to its neighbour, a row with it when it was the row's last, and the grid
  * keeps at least one pane. A session shows in one pane at a time: opening
- * one already shown focuses its pane. Each function takes the layout held
- * and answers the next, the same one when nothing changes.
+ * one already shown focuses its pane. A pane shows a session, the
+ * new-session surface (#420), or neither. Each function takes the layout
+ * held and answers the next, the same one when nothing changes.
  */
 
 /** What each way of adding a pane says while the grid holds eight. */
@@ -47,9 +49,65 @@ export const focusPane = (layout: PaneLayout, paneId: string): PaneLayout => (la
 export const showSession = (layout: PaneLayout, paneId: string, session: PaneSession): PaneLayout => {
   const showing = paneShowing(layout, session);
   if (showing !== undefined) return focusPane(layout, showing.id);
-  const target = holds(layout, paneId) ? paneId : layout.focused;
-  return { rows: layout.rows.map((row) => ({ ...row, panes: row.panes.map((pane) => (pane.id === target ? { ...pane, session } : pane)) })), focused: target };
+  return showIn(layout, paneId, () => ({ session }));
 };
+
+/** What a pane shows: a session, a new-session surface, or neither. */
+type PaneContents = Pick<GridPane, "session" | "newSession">;
+
+/** The pane `paneId` (the focused one, once the grid no longer holds it) showing what `contents` makes of its own, focused. */
+const showIn = (layout: PaneLayout, paneId: string, contents: (pane: GridPane) => Partial<PaneContents>): PaneLayout => {
+  const target = holds(layout, paneId) ? paneId : layout.focused;
+  const shown = (pane: GridPane): GridPane => {
+    const { session = null, newSession } = contents(pane);
+    return { id: pane.id, width: pane.width, session, ...(newSession !== undefined && { newSession }) };
+  };
+  return { rows: layout.rows.map((row) => ({ ...row, panes: row.panes.map((pane) => (pane.id === target ? shown(pane) : pane)) })), focused: target };
+};
+
+/**
+ * The environment a pane is on: its session's; for its new-session surface,
+ * the environment chosen on it, else the one it was opened for; null for a
+ * pane on none.
+ */
+export const paneEnvironment = ({ session, newSession }: GridPane): string | null => {
+  if (session !== null) return session.environmentId;
+  if (newSession === undefined) return null;
+  return newSession.chips.environmentId ?? ("environmentId" in newSession.focus ? newSession.focus.environmentId : null);
+};
+
+/**
+ * What a new-session surface's chips preset from (docs/specs/gui.md, "The
+ * window and the sidebar"; #420): the environment the New session control
+ * carries (a heading's own; `null`, the header's, the focused pane's), and
+ * the workspace of the pane `besideId` it lands beside while that pane shows
+ * a session on that environment: that session in focus, whose environment
+ * and workspace the picker presets. Beside a pane on another environment,
+ * or none, the environment alone, the picker presetting the workspace; with
+ * no environment, nothing, the picker's whole rule.
+ */
+export const newSessionFocus = (layout: PaneLayout, carried: string | null, besideId: string): NewSessionFocus => {
+  const environmentId = carried ?? paneEnvironment(focusedPane(layout));
+  const beside = panesOf(layout).find((pane) => pane.id === besideId)?.session;
+  if (beside != null && beside.environmentId === environmentId) return { kind: "session", ...beside };
+  return environmentId === null ? { kind: "none" } : { kind: "environment", environmentId };
+};
+
+/**
+ * Shows a new-session surface in the pane `paneId` (the focused one, once
+ * the grid no longer holds it), under the id `id`, preset beside that pane
+ * for the environment `carried` (`newSessionFocus`), and focuses it; the
+ * session it showed stays in the sidebar. A pane holding one already keeps
+ * it, with what was chosen on it: a heading's control (`carried`) sets its
+ * environment chip, the chips after it following, and the header's changes
+ * nothing.
+ */
+export const showNewSession = (layout: PaneLayout, paneId: string, carried: string | null, id: string): PaneLayout =>
+  showIn(layout, paneId, (pane) => {
+    if (pane.newSession === undefined) return { newSession: { id, focus: newSessionFocus(layout, carried, pane.id), chips: {} } };
+    const chips: NewSessionChips = carried === null ? pane.newSession.chips : { ...pane.newSession.chips, environmentId: carried };
+    return { newSession: { ...pane.newSession, chips } };
+  });
 
 /** An id no row or pane holds: `row-n` or `pane-n`, n past the highest the grid holds by `after` and one. */
 const freshId = (layout: PaneLayout, kind: "row" | "pane", after = 0): string => {
@@ -64,9 +122,22 @@ const freshId = (layout: PaneLayout, kind: "row" | "pane", after = 0): string =>
  * the two rows sharing its height. Undefined while the grid holds eight
  * panes, or holds no pane `paneId`.
  */
-export const addPane = (layout: PaneLayout, paneId: string, direction: SplitDirection, session: PaneSession | null = null): PaneLayout | undefined => {
+export const addPane = (layout: PaneLayout, paneId: string, direction: SplitDirection, session: PaneSession | null = null): PaneLayout | undefined =>
+  addBeside(layout, paneId, direction, { session });
+
+/**
+ * Adds a pane beside the pane `paneId` as `addPane` does, holding a
+ * new-session surface under the id `id`, preset beside that pane for the
+ * environment `carried` (`newSessionFocus`), and focuses it; no pane's
+ * session is replaced. Undefined while the grid holds eight panes, or holds
+ * no pane `paneId`.
+ */
+export const addNewSession = (layout: PaneLayout, paneId: string, direction: SplitDirection, carried: string | null, id: string): PaneLayout | undefined =>
+  addBeside(layout, paneId, direction, { session: null, newSession: { id, focus: newSessionFocus(layout, carried, paneId), chips: {} } });
+
+const addBeside = (layout: PaneLayout, paneId: string, direction: SplitDirection, contents: PaneContents): PaneLayout | undefined => {
   if (isFull(layout) || !holds(layout, paneId)) return undefined;
-  const added: GridPane = { id: freshId(layout, "pane"), session, width: 100 };
+  const added: GridPane = { id: freshId(layout, "pane"), width: 100, ...contents };
   const rows = layout.rows.flatMap((row): GridRow[] => {
     const at = row.panes.findIndex((pane) => pane.id === paneId);
     const beside = row.panes[at];
@@ -115,6 +186,16 @@ export const removePane = (layout: PaneLayout, paneId: string): PaneLayout => {
   const neighbour = layout.rows[n] as GridRow;
   const rows = layout.rows.flatMap((held, index) => (index === r ? [] : index === n ? [{ ...held, height: held.height + row.height }] : [held]));
   return { rows, focused: heir((neighbour.panes[0] as GridPane).id) };
+};
+
+/**
+ * The new-session surface `id` with what `change` makes of its chips; a
+ * layout holding no such surface is the same one.
+ */
+export const chooseChips = (layout: PaneLayout, id: string, change: (chips: NewSessionChips) => NewSessionChips): PaneLayout => {
+  if (!panesOf(layout).some((pane) => pane.newSession?.id === id)) return layout;
+  const chosen = (pane: GridPane): GridPane => (pane.newSession?.id === id ? { ...pane, newSession: { ...pane.newSession, chips: change(pane.newSession.chips) } } : pane);
+  return { ...layout, rows: layout.rows.map((row) => ({ ...row, panes: row.panes.map(chosen) })) };
 };
 
 /** Each part's share by its id: a row's panes' widths, or the rows' heights, as the dividers' layout. */

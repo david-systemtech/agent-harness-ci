@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   getSessionMessages as sdkGetSessionMessages,
+  importSessionToStore as sdkImportSessionToStore,
   query as sdkQuery,
   type CanUseTool,
   type HookCallback,
@@ -35,6 +36,7 @@ import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
 import { readStoredSession, resolveForkPoint, resolveRewindPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
+import { seedStoreFromDirectory } from "./imported-history.js";
 import { LOGIN_EXPIRED_CODE, LoginLapsed } from "./login-refresh.js";
 import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
@@ -624,6 +626,18 @@ export class ClaudeProcess implements TurnControl {
       // A cold run that continues a provider session through the store runs the CLI in the SDK's temporary copy of the
       // account's directory, whose credentials have no refresh token: the login is refreshed in the account's own first.
       if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") await this.#deps.freshLogin(input.account);
+      // A resume of a provider session the store holds nothing of (an imported session's first run, #579): the store takes it from
+      // the account's directory first, so the run resumes from the store as later runs do and the directory is only read.
+      if (this.#deps.sessionStore !== null && input.target.kind === "resume") {
+        await seedStoreFromDirectory({
+          queue: this.#deps.queue,
+          directory: this.#deps.configDirectory(input.account),
+          harnessSessionId: input.sessionId,
+          providerSessionId: input.target.providerSessionId,
+          store: this.#deps.sessionStore,
+          importSessionToStore: (sessionId, store) => sdkImportSessionToStore(sessionId, store),
+        });
+      }
       const resumePoint = await this.#resumePoint(input);
       // Asked once for this spawn (#307), and not for one that will not happen; the pool releases it as it lets the process go.
       const supplied = this.closed || turn.ended ? null : await input.processEnvironment.supply();

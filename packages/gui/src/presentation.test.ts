@@ -116,6 +116,32 @@ describe("the presentation", () => {
     }
   });
 
+  it("reads a pane's new-session surface back with its id, focus and the chips it can read, and a surface it cannot read as no surface", async () => {
+    const read = async (surface: unknown, session: unknown = null) => {
+      const documents = inMemoryDocuments();
+      await documents.set("presentation", { format: 1, paneLayout: { rows: [{ id: "row-1", height: 100, panes: [{ id: "pane-1", width: 100, session, newSession: surface }] }], focused: "pane-1" } });
+      return (await openPresentation(documents)).values.read().paneLayout.rows[0]?.panes[0];
+    };
+    const surface = {
+      id: "surface-1",
+      focus: { kind: "session", environmentId: "env-1", sessionId: "session-1" },
+      chips: { environmentId: "env-2", account: { environmentId: "env-2", accountId: "account-1" }, model: "model-1", workspace: { environmentId: "env-2", request: { kind: "scratch" } } },
+    };
+    expect(await read(surface)).toEqual({ id: "pane-1", width: 100, session: null, newSession: surface });
+    // A chip it cannot read is left unset; the rest of the surface stands.
+    expect(await read({ ...surface, focus: { kind: "none" }, chips: { environmentId: 4, model: "model-1", workspace: { environmentId: "env-2", request: { kind: "cave" } }, account: { environmentId: "env-2" } } })).toEqual({
+      id: "pane-1",
+      width: 100,
+      session: null,
+      newSession: { id: "surface-1", focus: { kind: "none" }, chips: { model: "model-1" } },
+    });
+    for (const unreadable of [{ ...surface, id: 3 }, { ...surface, focus: { kind: "group", key: "group:ops" } }, { ...surface, focus: { kind: "environment" } }, "surface"]) {
+      expect(await read(unreadable)).toEqual({ id: "pane-1", width: 100, session: null });
+    }
+    // A pane showing a session holds no surface.
+    expect(await read(surface, { environmentId: "env-1", sessionId: "session-1" })).toEqual({ id: "pane-1", width: 100, session: { environmentId: "env-1", sessionId: "session-1" } });
+  });
+
   it("holds whether to run an environment on this machine, preset on, read back only as on or off", async () => {
     const documents = inMemoryDocuments();
     const first = await openPresentation(documents);

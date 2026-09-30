@@ -178,6 +178,36 @@ is a Forgejo token with `read:repository`.
 On macOS, steps 1 to 5 run the same from a logged-in user's Terminal, with the
 versions under `~/Library/Application Support/agent-harness/versions`.
 
+## Windows (the install script)
+
+**Not run yet, and blocked as the headless Linux section is**: no release
+publishes the artefacts yet, and the sign-in proxy answers a release download
+401 (#476). `test/install-ps1-script.test.ts` runs `install.ps1` under
+PowerShell 7 on Linux against a fake `curl.exe` and `whoami.exe`; what only a
+real Windows proves is below. Record, for each step, whether it ran under
+Windows PowerShell 5.1 (the `powershell` every Windows has) and under
+PowerShell 7 (`pwsh`), since the script must run under both.
+
+`install.ps1` is `install.sh`'s twin: an asset of every release, run with
+`-Channel`, `-Version`, `-Name`, `-DataDir`, `-Port` and `-DryRun`. It
+downloads `agent-harness-win32-x64.zip` with `curl.exe`, checks it against its
+`.sha256`, unpacks it into `%LOCALAPPDATA%\agent-harness\versions\<version>`
+with .NET's zip reader (the sentinel last), and runs each verb as the version's
+own `node\node.exe packages\cli\dist\main.js`. It refuses an elevated shell,
+as `whoami /groups` shows its mandatory label. `<token>` is a Forgejo token
+with `read:repository`, set in the session first:
+`$env:AGENT_HARNESS_TOKEN = '<token>'`.
+
+1. From an ordinary (not elevated) PowerShell, `powershell -ExecutionPolicy Bypass -File install.ps1 -Channel stable -Name "Checklist Windows" -DryRun`. It names the release, the zip, its digest and the version's folder, lists the commands it would run, and changes nothing.
+2. The same without `-DryRun`. It prints "Verified the SHA-256", unpacks, installs the logon task and starts it (no console window opens), waits for ready, and ends with a pairing link on the tailnet name, a readable QR and a code, then the PowerShell line that puts `%LOCALAPPDATA%\agent-harness\bin` first on the user Path. Record how long the unpack took (the zip holds about 14,700 entries), and whether any path in it was too long for the unpack. `Get-CimInstance Win32_Process | Select-Object CommandLine` taken during the run shows the token on no command line.
+3. After running the Path line and signing out and back in, `agent-harness update status` shows the channel `stable`, so the token reached the environment. `$env:AGENT_HARNESS_TOKEN` still holds the token in the session that ran step 2.
+4. Run step 2's line again: it says the service is running, downloads nothing, leaves `versions` as it was, `service install` says it rewrote only its own files, and it ends with a new pairing.
+5. Again with `-Version <another published version>`: it asks for that version through `update apply`, and `agent-harness service status` shows the pending update.
+6. As a script block from the downloaded text, in a session that stays open: `& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Channel nightly`. It prints the usage, the window stays open, and `$LASTEXITCODE` is 2.
+7. From a PowerShell run as administrator: it refuses before any download, naming the elevated shell.
+8. With a name holding an `&` and no space (`-Name "R&D"`), the environment's name reads `R&D`: no argument passed through `cmd.exe`.
+9. `agent-harness service uninstall` leaves no task behind.
+
 ## Container (the image and `scripts/compose.yaml`)
 
 The repository's `Dockerfile` and the published compose file
@@ -249,10 +279,10 @@ request that changes the workflow, the build or the publisher, or list the
 section as not run.
 
 1. The label: `vm-ci-1` and `desk-ci-1` carry `ci-x64:docker://node:24-bookworm` beside `ci` (`runners/ci.yaml` and `runners/windows-wsl/config.yaml` in `david/ci`), and no arm64 runner carries it. Until one does, the `release` job waits in the queue and nothing is published.
-2. With David's go-ahead, and the Mac awake, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet); the three desktop jobs start after `image`, `desktop-macos` on the Mac and the other two on `ci-x64` runners, `desktop-windows` in the `electronuserland/builder` Wine image, and each passes its checks and logs `put <its build> in the package agent-harness-desktop 0.0.1-test.1`; `release` starts after all three, on a `ci-x64` runner. Its log gets the three desktops, then its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `compose.yaml`, `host-updater.sh`, the three desktops and `release.json`. Its publish log creates a draft prerelease, uploads 22 files and publishes it, and its last step logs `removed the package agent-harness-desktop 0.0.1-test.1`. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines. A 401 from the hand-over means `PACKAGES_TOKEN` cannot write the owner's packages.
-3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 22 files, each asset beside its `.sha256`, and its `body` is the notes: "The desktop builds are not signed", then how to open the macOS zip, the Windows setup and the Arch package. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and ten assets (the three artefacts, then the schema archive, `install.sh`, `compose.yaml`, `host-updater.sh`, and the three desktops with kind `desktop`, platform and format `darwin-arm64` `zip`, `win32-x64` `nsis` and `linux-x64` `pacman`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft, and `GET /api/v1/packages/david/generic/agent-harness-desktop/0.0.1-test.1` answers 404. Then, on the beta channel, an environment of an older version stages each desktop through `updates.desktop.stage` with that platform and format: the desktop checklist's "Restart to update (#355)" on each platform.
+2. With David's go-ahead, and the Mac awake, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet); the three desktop jobs start after `image`, `desktop-macos` on the Mac and the other two on `ci-x64` runners, `desktop-windows` in the `electronuserland/builder` Wine image, and each passes its checks and logs `put <its build> in the package agent-harness-desktop 0.0.1-test.1`; `release` starts after all three, on a `ci-x64` runner. Its log gets the three desktops, then its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, the three desktops and `release.json`. Its publish log creates a draft prerelease, uploads 24 files and publishes it, and its last step logs `removed the package agent-harness-desktop 0.0.1-test.1`. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines. A 401 from the hand-over means `PACKAGES_TOKEN` cannot write the owner's packages.
+3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 24 files, each asset beside its `.sha256`, and its `body` is the notes: "The desktop builds are not signed", then how to open the macOS zip, the Windows setup and the Arch package. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and eleven assets (the three artefacts, then the schema archive, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, and the three desktops with kind `desktop`, platform and format `darwin-arm64` `zip`, `win32-x64` `nsis` and `linux-x64` `pacman`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft, and `GET /api/v1/packages/david/generic/agent-harness-desktop/0.0.1-test.1` answers 404. Then, on the beta channel, an environment of an older version stages each desktop through `updates.desktop.stage` with that platform and format: the desktop checklist's "Restart to update (#355)" on each platform.
 4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image`, the desktop jobs and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
-5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 22 files and not the stray one.
+5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 24 files and not the stray one.
 6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag, and the `agent-harness-desktop` package's `0.0.1-test.1` if a failed run left it.
 
 ## Host-side updater (`scripts/host-updater.sh`)

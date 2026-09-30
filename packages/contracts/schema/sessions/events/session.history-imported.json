@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionHistoryImportedPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The id the appended history's events carry in their runId, which no run.started names: the history is the provider's record of what ran before the import, no harness run's."
+    },
+    "providerSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The provider session whose history it is: the imported session's origin."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "appended",
+        "unreadable"
+      ],
+      "description": "What the first open of an imported session did with its history: appended (the history is in the log, before this event) or unreadable (the account's directory no longer gave it; the session opens without it)."
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the history could not be read, for a person; null when it was appended."
+    }
+  },
+  "required": [
+    "runId",
+    "providerSessionId",
+    "outcome",
+    "message"
+  ],
+  "description": "session.history-imported: the first time a client opened an imported session, its history (the provider's transcript and its subagent transcripts, read from the account's directory) was appended before it, or could not be read; once per session. Later opens read the log."
+}

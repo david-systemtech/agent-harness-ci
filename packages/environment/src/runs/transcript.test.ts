@@ -415,6 +415,14 @@ describe("the transcript fold", () => {
       expect(folded.runs, cause).toEqual([expect.objectContaining({ runId, state: "ended", reason: "interrupted", cause })]);
     }
   });
+
+  it("folds an imported session's unreadable history into one line whose message is its reason, or says none was recorded, never the line's own prefix (#579)", () => {
+    sequence = 0;
+    const why = "No transcript of provider-session-1 is in /home/david/.claude any more.";
+    const imported = (message: string | null) => event("session.history-imported", { runId, providerSessionId: "provider-session-1", outcome: "unreadable", message });
+    expect(foldTranscript([imported(why)]).items).toEqual([{ kind: "history-unreadable", sequence: 1, message: why }]);
+    expect(foldTranscript([imported(null)]).items).toEqual([{ kind: "history-unreadable", sequence: 2, message: "No reason was recorded." }]);
+  });
 });
 
 describe("the read the fold takes", () => {

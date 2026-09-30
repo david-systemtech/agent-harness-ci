@@ -6,7 +6,7 @@ import { usePresentation } from "../window-context.js";
 import { DropZones } from "./drop-zones.js";
 import { InGridPane, usePaneGrid } from "./grid.js";
 import { panesOf, resizeRow, resizeRows, sharesOf } from "./layout.js";
-import { EmptyPane, SessionPane } from "./session-pane.js";
+import { EmptyPane, NewSessionPane, SessionPane } from "./session-pane.js";
 
 /**
  * The pane grid (docs/specs/gui.md, "The seven panes and the grid"; #407):
@@ -15,7 +15,8 @@ import { EmptyPane, SessionPane } from "./session-pane.js";
  * them down to a pixel floor. Where each divider is left is kept as a share
  * of the row or the grid. A press or the focus anywhere in a pane focuses
  * it; the focused pane is marked, and it alone answers the window's keys
- * (`KeysAnswered`).
+ * (`KeysAnswered`). A pane shows its session, the new-session surface
+ * (#420), or the word to choose a session.
  */
 
 /** The least a pane's width and a row's height may be, in pixels (chosen defaults): a composer and a few lines stay usable. */
@@ -100,7 +101,13 @@ const GridPaneView = ({ pane, focused, several }: { readonly pane: GridPane; rea
     <InGridPane id={pane.id}>
       <KeysAnswered answered={focused}>
         <div className="relative flex h-full min-w-0 flex-col bg-abyss" onPointerDown={() => grid.focus(pane.id)} onFocus={() => grid.focus(pane.id)}>
-          {pane.session === null ? <EmptyPane {...contents} /> : <SessionPane session={pane.session} {...contents} />}
+          {pane.session !== null ? (
+            <SessionPane session={pane.session} {...contents} />
+          ) : pane.newSession !== undefined ? (
+            <NewSessionPane surface={pane.newSession} {...contents} />
+          ) : (
+            <EmptyPane {...contents} />
+          )}
           <DropZones paneId={pane.id} />
         </div>
       </KeysAnswered>

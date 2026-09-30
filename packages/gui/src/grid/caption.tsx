@@ -87,6 +87,13 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
   );
 };
 
+/** The caption of a pane holding the new-session surface (#420). */
+export const NewSessionCaption = (bar: CaptionProps) => (
+  <CaptionBar {...bar}>
+    <span className="mr-auto px-1 font-medium text-ink">New session</span>
+  </CaptionBar>
+);
+
 /** The caption of a pane showing no session: drawn only while it can be closed. */
 export const EmptyCaption = (bar: CaptionProps) =>
   bar.close === undefined ? null : (
