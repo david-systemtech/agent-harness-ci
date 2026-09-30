@@ -2307,6 +2307,26 @@
       "title": "CarryOverSessionsInventory"
     },
     {
+      "path": "carry-over/memory-folder-name.json",
+      "title": "CarryOverMemoryFolderName"
+    },
+    {
+      "path": "carry-over/memory-folder.json",
+      "title": "CarryOverMemoryFolder"
+    },
+    {
+      "path": "carry-over/memory-inventory.json",
+      "title": "CarryOverMemoryInventory"
+    },
+    {
+      "path": "carry-over/skills-inventory.json",
+      "title": "CarryOverSkillsInventory"
+    },
+    {
+      "path": "carry-over/does-not-carry.json",
+      "title": "CarryOverDoesNotCarry"
+    },
+    {
       "path": "carry-over/inventory.json",
       "title": "CarryOverInventory"
     },
@@ -2315,12 +2335,28 @@
       "title": "CarryOverSessionsImported"
     },
     {
+      "path": "carry-over/memory-outcome.json",
+      "title": "CarryOverMemoryOutcome"
+    },
+    {
+      "path": "carry-over/memory-copy.json",
+      "title": "CarryOverMemoryCopy"
+    },
+    {
+      "path": "carry-over/memory-imported.json",
+      "title": "CarryOverMemoryImported"
+    },
+    {
       "path": "carry-over/failure.json",
       "title": "CarryOverFailure"
     },
     {
       "path": "carry-over/notices/carry-over.imported.json",
       "title": "CarryOverImportedPayload"
+    },
+    {
+      "path": "carry-over/notices/carry-over.memory-assigned.json",
+      "title": "CarryOverMemoryAssignedPayload"
     },
     {
       "path": "carry-over/report.json",
@@ -5379,6 +5415,22 @@
       "title": "carryOver.run error"
     },
     {
+      "path": "methods/carryOver.assignMemory/params.json",
+      "title": "carryOver.assignMemory params"
+    },
+    {
+      "path": "methods/carryOver.assignMemory/result.json",
+      "title": "carryOver.assignMemory result"
+    },
+    {
+      "path": "methods/carryOver.assignMemory/response.json",
+      "title": "carryOver.assignMemory response"
+    },
+    {
+      "path": "methods/carryOver.assignMemory/error.json",
+      "title": "carryOver.assignMemory error"
+    },
+    {
       "path": "methods/stateImport.detect/params.json",
       "title": "stateImport.detect params"
     },
@@ -7499,6 +7551,16 @@
       "result": "methods/carryOver.run/result.json",
       "response": "methods/carryOver.run/response.json",
       "error": "methods/carryOver.run/error.json"
+    },
+    {
+      "name": "carryOver.assignMemory",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/carryOver.assignMemory/params.json",
+      "result": "methods/carryOver.assignMemory/result.json",
+      "response": "methods/carryOver.assignMemory/response.json",
+      "error": "methods/carryOver.assignMemory/error.json"
     },
     {
       "name": "stateImport.detect",

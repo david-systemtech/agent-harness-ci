@@ -57,8 +57,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * (#500), which refreshes the cached `trust.get` and `trust.list`; nor
  * does `instructions.updated` (#505), which refreshes the cached
  * `instructions.list` and `instructions.preview`; nor
- * `carry-over.imported` (#578), which refreshes the cached
- * `carryOver.inventory`; nor `state-import.finished` (#581), which
+ * `carry-over.imported` (#578) or `carry-over.memory-assigned` (#580),
+ * which refresh the cached `carryOver.inventory`; nor
+ * `state-import.finished` (#581), which
  * refreshes the cached `stateImport.detect`.
  */
 
@@ -231,6 +232,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // An import of an adopted account's directory ended (#578): the request cache reads carryOver.inventory again,
         // and Carry over's card shows what it did.
         case "carry-over.imported":
+          return;
+        // A memory folder was assigned to a repository (#580): the request cache reads carryOver.inventory again, and Carry
+        // over's card shows it copied.
+        case "carry-over.memory-assigned":
           return;
         // A state import ended (#581): the request cache reads stateImport.detect again, and Carry over's card shows its report.
         case "state-import.finished":

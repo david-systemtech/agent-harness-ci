@@ -459,12 +459,21 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: false }, error: null });
   });
 
-  it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
+  it("fetches carryOver.inventory again when an import of the account's directory ends, a memory folder is assigned or the skill set changes, and no other query (#578, #580)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     wire.answer("carryOver.inventory", () => {
       reads++;
-      return { result: { accountId: "claude-max", sessions: { total: 3, archived: 1, missingDirectory: 1, new: reads > 1 ? 0 : 2 } } };
+      return {
+        result: {
+          accountId: "claude-max",
+          sessions: { total: 3, archived: 1, missingDirectory: 1, new: reads > 1 ? 0 : 2 },
+          memory: { folders: 2, repositories: 1, unmappable: reads > 2 ? [] : [{ folder: "-tmp-pad", path: "/home/david/.claude/projects/-tmp-pad/memory" }], new: 0 },
+          skills: { skills: 1, commands: 0, new: 0, offered: [], invalid: 0 },
+          notCarried: [],
+          doesNotCarry: { hooks: 0, mcpServers: 0, permissionRules: 0 },
+        },
+      };
     });
     runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
     const inventory = runtime.requests.cached(id, "carryOver.inventory", { accountId: "claude-max" });
@@ -477,9 +486,19 @@ describe("the request cache", () => {
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
     expect(inventory.read()).toMatchObject({ result: { sessions: { new: 0 } }, error: null });
-    environment?.event(noticeEvent(2, wire.environmentId, "skills.updated", {}));
+
+    const copy = { folder: "-tmp-pad", path: "/home/david/.claude/projects/-tmp-pad/memory", key: "https://git.example.com/david/pad", outcome: "copied", under: null, digest: `sha256:${"0".repeat(64)}` };
+    environment?.event(noticeEvent(2, wire.environmentId, "carry-over.memory-assigned", { accountId: "claude-max", repositoryIdentity: "https://git.example.com/david/pad", copy }));
     await flush();
-    expect([asked(), reads]).toEqual([1, 2]);
+    expect([asked(), reads]).toEqual([1, 3]);
+    expect(inventory.read()).toMatchObject({ result: { memory: { unmappable: [] } }, error: null });
+
+    environment?.event(noticeEvent(3, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
+    environment?.event(noticeEvent(4, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
   });
 
   it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection or the managed tools changing, and no other query (#505)", async () => {

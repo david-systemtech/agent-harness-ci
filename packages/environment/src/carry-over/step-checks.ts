@@ -9,10 +9,12 @@ import {
   type StateImportDetection,
 } from "@agent-harness/contracts";
 import type { AccountRef } from "../adapter/contract.js";
+import { holdsMemory } from "../adapters/claude/adopted-directory.js";
 import type { AdapterRegistry } from "../adapter/registry.js";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { StateChecker } from "../setup/check.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { holdsSkillOriginals } from "../skills/carry-over.js";
 import { listAccountSessions } from "./sessions.js";
 
 /**
@@ -20,8 +22,10 @@ import { listAccountSessions } from "./sessions.js";
  * ADR 0036; #581), answered from the adopted accounts' directories, their
  * adapters' session listings, the imports the log records and the state
  * import's detection. `carry-over.present` is the step's skip check: with
- * nothing to carry in any adopted directory and no source data folder or
- * terminal-client state folder, the step answers skipped. A directory that
+ * nothing to carry in any adopted directory (no session its adapter lists,
+ * no memory folder holding a file, no skill folder or command file, #580)
+ * and no source data folder or terminal-client state folder, the step
+ * answers skipped. A directory that
  * is not there holds nothing to carry; one that is there but cannot be read
  * is named by `carry-over.readable`. `carry-over.last-import` names each
  * adopted account with something to carry that was never imported, or whose
@@ -85,6 +89,10 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     return (await listAccountSessions(adapter, ref)).length > 0;
   };
 
+  /** Whether the account's directory holds something to carry: a memory folder with a file, a skill folder or command file, or a session its adapter lists. */
+  const holdsSomething = async (account: AccountRecord): Promise<boolean> =>
+    (await holdsMemory(account.directory.path)) || (await holdsSkillOriginals(account.directory.path)) || (await holdsSessions(account));
+
   /** Each account's last import, as the log records it: the latest `carry-over.imported` naming it. */
   const lastImports = (): ReadonlyMap<string, CarryOverImportedPayload> => {
     const rows = options.reader.all<{ payload: string }>(
@@ -104,7 +112,7 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
       const found = await look(account.directory.path);
       // A directory there but unreadable is something to check: carry-over.readable names it.
       if (found.kind === "unreadable") return true;
-      if (found.kind === "readable" && (await holdsSessions(account))) return true;
+      if (found.kind === "readable" && (await holdsSomething(account))) return true;
     }
     const { dataFolder, terminalFolder } = await options.detect();
     return (
@@ -133,7 +141,7 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
       if ((await look(account.directory.path)).kind !== "readable") continue;
       const last = imports.get(account.id);
       if (last === undefined) {
-        if (!(await holdsSessions(account))) continue;
+        if (!(await holdsSomething(account))) continue;
         const line = `Nothing has been imported yet from the directory of ${account.label}: Import again to import it.`;
         findings.push({ line, target: accountTarget("import-again", account) });
         continue;

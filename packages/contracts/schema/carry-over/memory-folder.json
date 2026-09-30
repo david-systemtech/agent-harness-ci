@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverMemoryFolder",
+  "type": "object",
+  "properties": {
+    "folder": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+      "description": "The project folder the memory lies in, by its name under projects/: what carryOver.assignMemory takes."
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "The memory folder itself, projects/<folder>/memory in the adopted directory."
+    }
+  },
+  "required": [
+    "folder",
+    "path"
+  ],
+  "description": "A memory folder of the adopted directory: its project folder's name and its path."
+}

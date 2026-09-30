@@ -3,7 +3,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 /**
  * What the desktop build (#423) builds: one file per platform, each the
  * format the desktop's `update` installs a release's build in (#355), built
- * on the platform it is for.
+ * on the platform it is for, the Windows setup on an x86_64 Linux too (#359).
  */
 
 /** The desktop build cannot go on: the message says why, and nothing it wrote is a build. */
@@ -25,23 +25,30 @@ export interface DesktopTarget {
   readonly format: "zip" | "nsis" | "pacman";
   /** The file's name: `agent-harness-desktop-darwin-arm64.zip`. */
   readonly name: string;
-  /** The label of the CI runner that builds it, or null where no runner has its OS: the Windows setup is built by hand. */
-  readonly runner: string | null;
+  /** The platforms it is built on, `<os>-<arch>`: its own first. */
+  readonly hosts: readonly string[];
+  /** The label of the CI runner that builds it. */
+  readonly runner: string;
 }
 
-const target = (os: DesktopTarget["os"], arch: DesktopTarget["arch"], format: DesktopTarget["format"], file: string, runner: string | null): DesktopTarget => {
+const target = (os: DesktopTarget["os"], arch: DesktopTarget["arch"], format: DesktopTarget["format"], file: string, runner: string, alsoOn: readonly string[] = []): DesktopTarget => {
   const platform = `${os}-${arch}`;
-  return { platform, os, arch, format, name: `${PRODUCT_NAME}-desktop-${platform}${file}`, runner };
+  return { platform, os, arch, format, name: `${PRODUCT_NAME}-desktop-${platform}${file}`, hosts: [platform, ...alsoOn], runner };
 };
 
 /**
  * Milestone 1's three builds. The zip is built on the MacBook's runner
- * (`macos`), which signs it ad hoc; the Arch package on an x86_64 ci runner
- * (`ci-x64`, the release job's), where electron-builder's fpm runs.
+ * (`macos`), which signs it ad hoc: electron-builder signs only on macOS, and
+ * Apple silicon runs no unsigned code. The Arch package is built on an x86_64
+ * ci runner (`ci-x64`, the release job's), where electron-builder's fpm runs.
+ * No runner has Windows, so the setup is built on `ci-x64` too, in an image
+ * with Wine: on Linux, electron-builder runs its own makensis and edits the
+ * app's executable itself, and runs the setup under Wine only to write its
+ * uninstaller. It builds on Windows as well, by hand.
  */
 export const DESKTOP_TARGETS: readonly DesktopTarget[] = [
   target("darwin", "arm64", "zip", ".zip", "macos"),
-  target("win32", "x64", "nsis", "-setup.exe", null),
+  target("win32", "x64", "nsis", "-setup.exe", "ci-x64", ["linux-x64"]),
   target("linux", "x64", "pacman", ".pacman", "ci-x64"),
 ];
 
@@ -53,7 +60,3 @@ export const desktopTarget = (platform: string): DesktopTarget => {
   }
   return found;
 };
-
-/** Where `target` is built, for a message: its runner, or by hand. */
-export const whereBuilt = (target: DesktopTarget): string =>
-  target.runner === null ? `a ${target.platform} machine, by hand (no CI runner has its OS)` : `CI's \`${target.runner}\` runner`;

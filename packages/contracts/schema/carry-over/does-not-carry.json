@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverDoesNotCarry",
+  "type": "object",
+  "properties": {
+    "hooks": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The hook commands the directory's settings.json declares, across its events and matchers."
+    },
+    "mcpServers": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The personal MCP servers the provider's global config declares: at user scope, and at local scope for each project."
+    },
+    "permissionRules": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The permission rules the directory's settings.json lists: allow, ask and deny together."
+    }
+  },
+  "required": [
+    "hooks",
+    "mcpServers",
+    "permissionRules"
+  ],
+  "description": "What does not carry, counted in the adopted directory: its hooks, its personal MCP servers and its permission rules. The terminal client keeps using them."
+}

@@ -27,6 +27,8 @@ const { onCleanup, tempDir } = useCleanups();
 const ACCOUNT = "claude-max";
 const IDENTITY = "https://git.systemtech.dev/david/agent-harness";
 const BEGAN = "2026-08-01T09:00:00.000Z";
+/** The memory part of a report on a directory that holds none. */
+const NO_MEMORY = { folders: [], unmappable: [] };
 const WRITTEN = "2026-08-03T17:30:00.000Z";
 
 /** An adopted provider directory as it stands on disk: a login, and a transcript in a project folder. */
@@ -119,7 +121,13 @@ describe("carryOver.run", () => {
     const answer = await run(client);
 
     expect(answer.receipt).toMatchObject({ status: "accepted" });
-    expect(answer.result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: { listed: 3, imported: 3, archived: 0, missingDirectory: 0, held: 0 }, failed: [] });
+    expect(answer.result).toEqual({
+      accountId: ACCOUNT,
+      dryRun: false,
+      sessions: { listed: 3, imported: 3, archived: 0, missingDirectory: 0, held: 0 },
+      memory: NO_MEMORY,
+      failed: [],
+    });
     const origin = (session: ProviderSessionInfo, createdAt = BEGAN) => ({ kind: "import", accountId: ACCOUNT, providerSessionId: session.providerSessionId, createdAt, lastActivityAt: WRITTEN });
     const created = (title: string, path: string, repositoryIdentity: string | null, session: ProviderSessionInfo, createdAt?: string) => ({
       actor: `client_session:${client.hello.clientSessionId}`,
@@ -245,9 +253,9 @@ describe("carryOver.run", () => {
     const dry = await run(client, { dryRun: true });
 
     const counts = { listed: 3, imported: 3, archived: 1, missingDirectory: 1, held: 0 };
-    expect(dry.result).toEqual({ accountId: ACCOUNT, dryRun: true, sessions: counts, failed: [] });
+    expect(dry.result).toEqual({ accountId: ACCOUNT, dryRun: true, sessions: counts, memory: NO_MEMORY, failed: [] });
     expect(t.env.log.head()).toBe(head);
-    expect((await run(client)).result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: counts, failed: [] });
+    expect((await run(client)).result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: counts, memory: NO_MEMORY, failed: [] });
     expect(imports(t)).toHaveLength(3);
   });
 
@@ -262,7 +270,7 @@ describe("carryOver.run", () => {
 
     await client.request("carryOver.run", { commandId, accountId: ACCOUNT, dryRun: false, skills: false });
 
-    const report = { accountId: ACCOUNT, sessions: { listed: 2, imported: 2, archived: 1, missingDirectory: 0, held: 0 }, failed: [] };
+    const report = { accountId: ACCOUNT, sessions: { listed: 2, imported: 2, archived: 1, missingDirectory: 0, held: 0 }, memory: NO_MEMORY, failed: [] };
     const frame = await watcher.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "carry-over.imported");
     expect(frame.event).toMatchObject({ streamKind: "environment", type: "carry-over.imported", payload: report, commandId, actor: { kind: "client_session", id: client.hello.clientSessionId } });
     // In the transaction of what it imported: the sessions' events come just before it.
@@ -281,9 +289,9 @@ describe("an import that fails part way", () => {
     const answer = await run(client);
 
     const failed = [{ providerSessionId: foreign.providerSessionId, message: "Its working directory C:relative\\work is not an absolute path on this environment." }];
-    expect(answer.result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: { listed: 2, imported: 1, archived: 0, missingDirectory: 0, held: 0 }, failed });
+    expect(answer.result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: { listed: 2, imported: 1, archived: 0, missingDirectory: 0, held: 0 }, memory: NO_MEMORY, failed });
     expect(t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "carry-over.imported").map((event) => event.payload)).toEqual([
-      { accountId: ACCOUNT, sessions: answer.result?.sessions, failed },
+      { accountId: ACCOUNT, sessions: answer.result?.sessions, memory: NO_MEMORY, failed },
     ]);
     expect(imports(t).map((event) => (event.payload as SessionCreatedPayload).origin?.providerSessionId)).toEqual([kept.providerSessionId]);
     // A re-run tries it again; what was imported stays as it is.
@@ -300,9 +308,9 @@ describe("an import that fails part way", () => {
 
     const failed = [{ providerSessionId: null, message: `Listing the sessions in ${directory} failed: EACCES: permission denied, scandir` }];
     const nothing = { listed: 0, imported: 0, archived: 0, missingDirectory: 0, held: 0 };
-    expect(answer.result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: nothing, failed });
+    expect(answer.result).toEqual({ accountId: ACCOUNT, dryRun: false, sessions: nothing, memory: NO_MEMORY, failed });
     expect(t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "carry-over.imported").map((event) => event.payload)).toEqual([
-      { accountId: ACCOUNT, sessions: nothing, failed },
+      { accountId: ACCOUNT, sessions: nothing, memory: NO_MEMORY, failed },
     ]);
     expect(await refusal(client.request("carryOver.inventory", { accountId: ACCOUNT }))).toEqual({ code: "internal", data: {} });
   });
@@ -334,10 +342,10 @@ describe("carryOver.inventory", () => {
     const { t } = await start(() => listing);
     const client = await t.client();
 
-    expect(await client.request("carryOver.inventory", { accountId: ACCOUNT })).toEqual({ accountId: ACCOUNT, sessions: { total: 4, archived: 2, missingDirectory: 1, new: 4 } });
+    expect(await client.request("carryOver.inventory", { accountId: ACCOUNT })).toMatchObject({ accountId: ACCOUNT, sessions: { total: 4, archived: 2, missingDirectory: 1, new: 4 } });
     await run(client);
     listing.push(listed({ summary: "Appeared since" }));
-    expect(await client.request("carryOver.inventory", { accountId: ACCOUNT })).toEqual({ accountId: ACCOUNT, sessions: { total: 5, archived: 2, missingDirectory: 1, new: 1 } });
+    expect(await client.request("carryOver.inventory", { accountId: ACCOUNT })).toMatchObject({ accountId: ACCOUNT, sessions: { total: 5, archived: 2, missingDirectory: 1, new: 1 } });
   });
 });
 
