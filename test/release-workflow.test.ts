@@ -1,6 +1,6 @@
 /**
  * The release workflow (`.forgejo/workflows/release.yml`, launcher-update
- * spec, "The release"; #358), read as text: its jobs' order and runners, and
+ * spec, "The release"; #358, #359), read as text: its jobs' order and runners, and
  * the build and publish steps' scripts run by `bash` against a fake `pnpm`
  * on PATH that records what it was asked, so the asset list is checked as
  * the runner's shell reads it. Nothing is built, pushed or published; the
@@ -15,6 +15,8 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
+/** The jobs that build the desktops a release publishes (#359); `packages/desktop/scripts/desktop-build/workflow.test.ts` checks what each builds. */
+const DESKTOP_JOBS = ["desktop-macos", "desktop-windows", "desktop-arch"];
 const run = promisify(execFile);
 const lines = readFileSync(join(root, ".forgejo", "workflows", "release.yml"), "utf8").split("\n");
 
@@ -77,10 +79,16 @@ describe("the release workflow", () => {
     expect(lines).toContain("  TAG: ${{ github.ref_name }}");
   });
 
-  it("builds the image and the release only after the check, the release with the image job's reference and digest", () => {
+  it("builds the image and the desktops only after the check, and the release after them all, each with the image job's reference and digest", () => {
     expect(job("image")).toContain("    needs: check");
+    for (const desktop of DESKTOP_JOBS) {
+      const lines = job(desktop);
+      expect(lines, desktop).toContain("    needs: [check, image]");
+      expect(lines, desktop).toContain("      IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}");
+      expect(lines, desktop).toContain("      IMAGE_DIGEST: ${{ needs.image.outputs.digest }}");
+    }
     const release = job("release");
-    expect(release).toContain("    needs: [check, image]");
+    expect(release).toContain(`    needs: [check, image, ${DESKTOP_JOBS.join(", ")}]`);
     expect(release).toContain("          IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}");
     expect(release).toContain("          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}");
   });
@@ -89,7 +97,7 @@ describe("the release workflow", () => {
     expect(job("release")).toContain("    runs-on: ci-x64");
   });
 
-  it("builds the three artefacts and the asset list's assets from this checkout: the schema export, install.sh, compose.yaml and host-updater.sh", async () => {
+  it("builds the three artefacts and the asset list's assets: the schema export, install.sh, compose.yaml and host-updater.sh from this checkout, and the desktop jobs' three builds, each with its platform and format", async () => {
     const args = await pnpmCalledBy(script(job("release"), "Build the server artefacts and the release's assets"), {
       IMAGE_REFERENCE: "git.example.test:5526/david/agent-harness:0.5.0",
       IMAGE_DIGEST: `sha256:${"0".repeat(64)}`,
@@ -114,17 +122,44 @@ describe("the release workflow", () => {
       "compose=scripts/compose.yaml",
       "--asset",
       "host-updater=scripts/host-updater.sh",
+      "--asset",
+      "desktop:darwin-arm64:zip=desktop/agent-harness-desktop-darwin-arm64.zip",
+      "--asset",
+      "desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe",
+      "--asset",
+      "desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman",
     ]);
     const paths = args.filter((_, i) => args[i - 1] === "--asset").map((asset) => asset.slice(asset.indexOf("=") + 1));
-    expect(paths.filter((path) => !existsSync(join(root, path)))).toEqual([]);
+    const [desktops, checkout] = [paths.filter((path) => path.startsWith("desktop/")), paths.filter((path) => !path.startsWith("desktop/"))];
+    expect(checkout.filter((path) => !existsSync(join(root, path)))).toEqual([]);
     expect(statSync(join(root, "packages", "contracts", "schema")).isDirectory()).toBe(true);
+    const got = script(job("release"), "The desktop jobs' builds").replace(/\\\n\s*/g, "");
+    expect(got).toBe(`bash .forgejo/scripts/desktop-builds.sh get desktop ${desktops.map((path) => path.slice("desktop/".length)).join(" ")}`);
+    expect(runs(job("release")).indexOf("|")).toBeGreaterThan(runs(job("release")).indexOf("pnpm install --frozen-lockfile"));
   });
 
-  it("publishes the build's folder as its last step, with the job's own token", async () => {
+  it("hands each desktop job's build to the release job through the package registry, with the packages token, and removes them once the release is published", () => {
+    for (const desktop of DESKTOP_JOBS) {
+      const lines = job(desktop);
+      expect(lines.slice(-4), desktop).toEqual([
+        "      - name: Hand the desktop to the release job",
+        "        env:",
+        "          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}",
+        expect.stringMatching(/^ {8}run: bash \.forgejo\/scripts\/desktop-builds\.sh put desktop\/agent-harness-desktop-[a-z0-9-]+\.(zip|exe|pacman)$/),
+      ]);
+    }
+    const release = job("release");
+    expect(release).toContain("          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}");
+    expect(runs(release).at(-1)).toBe("bash .forgejo/scripts/desktop-builds.sh remove");
+  });
+
+  it("publishes the build's folder after building it, with the job's own token, and does nothing after but remove the desktop jobs' builds", async () => {
     const release = job("release");
     const steps = runs(release);
-    expect(steps.at(-1)).toBe('pnpm --filter agent-harness publish-release --tag "$TAG" --from release-assets');
-    expect(await pnpmCalledBy(steps.at(-1) ?? "", {})).toEqual(["--filter", "agent-harness", "publish-release", "--tag", "v0.5.0", "--from", "release-assets"]);
-    expect(release.slice(-3)).toEqual(["        env:", "          RELEASE_TOKEN: ${{ github.token }}", '        run: pnpm --filter agent-harness publish-release --tag "$TAG" --from release-assets']);
+    const publish = 'pnpm --filter agent-harness publish-release --tag "$TAG" --from release-assets';
+    expect(steps.slice(-2)).toEqual([publish, "bash .forgejo/scripts/desktop-builds.sh remove"]);
+    expect(await pnpmCalledBy(publish, {})).toEqual(["--filter", "agent-harness", "publish-release", "--tag", "v0.5.0", "--from", "release-assets"]);
+    const at = release.indexOf(`        run: ${publish}`);
+    expect(release.slice(at - 2, at)).toEqual(["        env:", "          RELEASE_TOKEN: ${{ github.token }}"]);
   });
 });

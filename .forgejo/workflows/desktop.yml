@@ -1,20 +1,22 @@
 # The desktop build (#423; docs/specs/gui.md, "The desktop shell"): each
-# platform's desktop built by `build-desktop` on a runner of that platform's
-# OS, from that platform's server artefact of the same version, which the
-# job builds first with the release build (#356), then checked as the
-# platform's install reads it. Nothing is kept or published: the release
-# workflow builds the desktops a tag publishes (#359), and this proves the
-# build by hand before a tag needs it.
+# platform's desktop built by `build-desktop` on a runner that builds it,
+# from that platform's server artefact of the same version, which the job
+# builds first with the release build (#356), then checked as far as the
+# runner can read it. Nothing is kept or published: the release workflow's
+# desktop jobs build the desktops a tag publishes with these same steps
+# (#359; test/release-workflow.test.ts holds the two to that), and this
+# proves the build by hand before a tag needs it.
 #
-#   arch   linux-x64, the Arch package, on `ci-x64`, an x86_64 ci runner in
-#          node:24-bookworm (the release job's label; until #813 puts it on
-#          vm-ci-1 and desk-ci-1 the job waits in the queue)
-#   macos  darwin-arm64, the macOS zip, on `macos` (mba-macos-1, jobs run on
-#          David's MacBook itself), which signs it ad hoc; a job waits in the
-#          queue while the Mac sleeps
-#
-# No runner has Windows, so the Windows NSIS setup (win32-x64) is built by
-# hand with the same command: the desktop checklist's "Building a desktop".
+#   arch     linux-x64, the Arch package, on `ci-x64`, an x86_64 ci runner
+#            in node:24-bookworm (the release job's label; until #813 puts
+#            it on vm-ci-1 and desk-ci-1 the job waits in the queue)
+#   macos    darwin-arm64, the macOS zip, on `macos` (mba-macos-1, jobs run
+#            on David's MacBook itself), which signs it ad hoc; a job waits
+#            in the queue while the Mac sleeps
+#   windows  win32-x64, the Windows NSIS setup, on `ci-x64` in
+#            electron-builder's Wine image, since no runner has Windows: on
+#            Linux, electron-builder runs the setup under Wine to write its
+#            uninstaller
 #
 # By hand only (workflow_dispatch), never on a pull request or main: the Mac
 # sleeps, and each job downloads Node and Electron and packs about 250 MB.
@@ -31,6 +33,10 @@ concurrency:
 env:
   # A version no release has, which the release build and the desktop build take as one: 0.0.0-ci.<run number>.
   TAG: v0.0.0-ci.${{ github.run_number }}
+  # The release build writes a manifest naming the release's image, which a build of no release has none of: the
+  # manifest is thrown away, and these name no image that exists.
+  IMAGE_REFERENCE: ci.invalid/agent-harness:0.0.0-ci.${{ github.run_number }}
+  IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 jobs:
   arch:
@@ -54,12 +60,11 @@ jobs:
       - name: The tools the Arch package is packed with
         run: apt-get update && apt-get install -y --no-install-recommends libarchive-tools
 
-      # The release build writes a manifest naming the release's image, which a build of no release has none of.
       - name: The linux-x64 server artefact
         run: |
           set -euo pipefail
           pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 \
-            --image-reference "ci.invalid/agent-harness:${TAG#v}" --image-digest "sha256:$(printf '%064d' 0)"
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
 
       - name: The Arch package
         run: pnpm --filter @agent-harness/desktop build-desktop --platform linux-x64 --tag "$TAG" --server server/agent-harness-linux-x64.tar.gz --out desktop
@@ -91,12 +96,13 @@ jobs:
           set -euo pipefail
           rm -rf server desktop unzipped
           pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform darwin-arm64 \
-            --image-reference "ci.invalid/agent-harness:${TAG#v}" --image-digest "sha256:$(printf '%064d' 0)"
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
 
       - name: The macOS zip
         run: pnpm --filter @agent-harness/desktop build-desktop --platform darwin-arm64 --tag "$TAG" --server server/agent-harness-darwin-arm64.tar.gz --out desktop
 
-      - name: The zip holds one bundle, signed ad hoc, which claims the scheme and carries its server artefact
+      # No file in it is quarantined, so the bundle the desktop's update unpacks from it meets no Gatekeeper check.
+      - name: The zip holds one bundle, signed ad hoc and not quarantined, which claims the scheme and carries its server artefact
         run: |
           set -euo pipefail
           zip=desktop/agent-harness-desktop-darwin-arm64.zip
@@ -104,7 +110,43 @@ jobs:
           ditto -x -k "$zip" unzipped
           app=unzipped/agent-harness.app
           codesign --verify --deep --strict "$app"
+          test -z "$(xattr -r "$app" | grep com.apple.quarantine || true)"
           test -x "$app/Contents/MacOS/agent-harness"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Contents/Info.plist")" = agent-harness
           test -x "$app/Contents/Resources/server/node/bin/node"
           grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
+
+  windows:
+    runs-on: ci-x64
+    # electron-builder's own Wine image, pinned by its digest: Ubuntu 22.04 with winehq-stable and a Wine prefix made,
+    # Node 24, build-essential, Python 3 and bsdtar. The email app's Windows release builds in it too.
+    container:
+      image: electronuserland/builder:24-wine-05.26@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      # A store of its own: pnpm's side-effects cache would hand it node-pty as built against bookworm's C library.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-wine-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-wine-${{ github.repository }}-
+      - run: pnpm install --frozen-lockfile
+
+      # The release build checks the artefact of the platform it runs on, so it builds linux-x64's beside it.
+      - name: The win32-x64 server artefact
+        run: |
+          set -euo pipefail
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 --platform win32-x64 \
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
+
+      - name: The Windows setup
+        run: pnpm --filter @agent-harness/desktop build-desktop --platform win32-x64 --tag "$TAG" --server server/agent-harness-win32-x64.zip --out desktop
+
+      # What Linux can read of it: electron-builder fails the step above when Wine did not write the uninstaller.
+      - name: The setup is a Windows executable
+        run: test "$(head -c 2 desktop/agent-harness-desktop-win32-x64-setup.exe)" = MZ

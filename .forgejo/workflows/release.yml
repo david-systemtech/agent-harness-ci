@@ -1,5 +1,5 @@
 # The release workflow (launcher-update spec, "The release"): what a `v` tag
-# on this repository publishes, one complete release per tag. Three jobs:
+# on this repository publishes, one complete release per tag. Six jobs:
 #
 #   check    before anything is built or pushed: that the tag's release is not
 #            published already (a re-run over a published release stops
@@ -7,11 +7,21 @@
 #            the JSON Schema export, as ci.yml runs them
 #   image    #357's: the version's image, pushed, its reference and digest
 #            handed on
+#   desktop-macos, desktop-windows, desktop-arch
+#            #359's: each platform's desktop (#423) for the tag's version,
+#            built and checked with the desktop workflow's steps (desktop.yml,
+#            which says where each runs and why), from that platform's server
+#            artefact, which the job builds first with the release build at
+#            the tag's version; then handed to the release job through the
+#            generic package registry (.forgejo/scripts/desktop-builds.sh).
+#            The zip needs the Mac, so a tag's release waits while it sleeps.
 #   release  #356's build of the three server artefacts with that image's
 #            reference and digest, which also writes the release's other
-#            assets (the asset list below) and release.json, each with a
-#            .sha256 sidecar; then every file to a draft release, published
-#            last (scripts/release/publish.ts), so no reader sees a partial
+#            assets (the asset list below, the three desktops among them)
+#            and release.json, each with a .sha256 sidecar; then every file
+#            to a draft release whose notes say how to open an unsigned
+#            desktop the first time, published last
+#            (scripts/release/publish.ts), so no reader sees a partial
 #            release, flagged prerelease exactly when the version has a
 #            prerelease part. A failed step leaves a draft at most, which
 #            readers pass over; a re-run replaces it.
@@ -25,8 +35,10 @@
 # to main), and a rollback needs an exact reference. So the template's main
 # and commit tags are gone, and its pull request build is image.yml. The work
 # is .forgejo/scripts/image.sh, tested by test/image-script.test.ts; the
-# release job's, by packages/cli/scripts/release/*.test.ts. The first run of
-# a tag is the service-install checklist's Release section.
+# release job's, by packages/cli/scripts/release/*.test.ts; the desktop
+# jobs', by packages/desktop/scripts/desktop-build/*.test.ts and
+# test/desktop-builds-script.test.ts. The first run of a tag is the
+# service-install checklist's Release section.
 
 name: release
 
@@ -110,8 +122,150 @@ jobs:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: bash .forgejo/scripts/image.sh publish
 
-  release:
+  desktop-macos:
     needs: [check, image]
+    runs-on: macos
+    timeout-minutes: 60
+    env:
+      # The release build of the server artefact names the release's image, as the release job's does.
+      IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
+      IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The runner's own Node 24 (david/ci's runners/macos), whose corepack gives the pinned pnpm.
+      - run: corepack enable && corepack prepare --activate
+      - run: pnpm install --frozen-lockfile
+
+      # The Mac keeps its workspace between runs, so the folders a run writes are cleared first.
+      - name: The darwin-arm64 server artefact
+        run: |
+          set -euo pipefail
+          rm -rf server desktop unzipped
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform darwin-arm64 \
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
+
+      - name: The macOS zip
+        run: pnpm --filter @agent-harness/desktop build-desktop --platform darwin-arm64 --tag "$TAG" --server server/agent-harness-darwin-arm64.tar.gz --out desktop
+
+      # No file in it is quarantined, so the bundle the desktop's update unpacks from it meets no Gatekeeper check.
+      - name: The zip holds one bundle, signed ad hoc and not quarantined, which claims the scheme and carries its server artefact
+        run: |
+          set -euo pipefail
+          zip=desktop/agent-harness-desktop-darwin-arm64.zip
+          test "$(zipinfo -1 "$zip" | cut -d/ -f1 | sort -u)" = agent-harness.app
+          ditto -x -k "$zip" unzipped
+          app=unzipped/agent-harness.app
+          codesign --verify --deep --strict "$app"
+          test -z "$(xattr -r "$app" | grep com.apple.quarantine || true)"
+          test -x "$app/Contents/MacOS/agent-harness"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$app/Contents/Info.plist")" = agent-harness
+          test -x "$app/Contents/Resources/server/node/bin/node"
+          grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
+
+      - name: Hand the desktop to the release job
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-darwin-arm64.zip
+
+  desktop-windows:
+    needs: [check, image]
+    runs-on: ci-x64
+    # electron-builder's own Wine image, pinned by its digest: Ubuntu 22.04 with winehq-stable and a Wine prefix made,
+    # Node 24, build-essential, Python 3 and bsdtar. The email app's Windows release builds in it too.
+    container:
+      image: electronuserland/builder:24-wine-05.26@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64
+    timeout-minutes: 60
+    env:
+      # The release build of the server artefact names the release's image, as the release job's does.
+      IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
+      IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      # A store of its own: pnpm's side-effects cache would hand it node-pty as built against bookworm's C library.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-wine-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-wine-${{ github.repository }}-
+      - run: pnpm install --frozen-lockfile
+
+      # The release build checks the artefact of the platform it runs on, so it builds linux-x64's beside it.
+      - name: The win32-x64 server artefact
+        run: |
+          set -euo pipefail
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 --platform win32-x64 \
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
+
+      - name: The Windows setup
+        run: pnpm --filter @agent-harness/desktop build-desktop --platform win32-x64 --tag "$TAG" --server server/agent-harness-win32-x64.zip --out desktop
+
+      # What Linux can read of it: electron-builder fails the step above when Wine did not write the uninstaller.
+      - name: The setup is a Windows executable
+        run: test "$(head -c 2 desktop/agent-harness-desktop-win32-x64-setup.exe)" = MZ
+
+      - name: Hand the desktop to the release job
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-win32-x64-setup.exe
+
+  desktop-arch:
+    needs: [check, image]
+    runs-on: ci-x64
+    timeout-minutes: 60
+    env:
+      # The release build of the server artefact names the release's image, as the release job's does.
+      IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
+      IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+    steps:
+      # Pinned to a commit, not a tag, as ci.yml's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ github.repository }}-
+      - run: pnpm install --frozen-lockfile
+
+      # electron-builder's fpm writes the package's .MTREE with bsdtar, which node:24-bookworm lacks.
+      - name: The tools the Arch package is packed with
+        run: apt-get update && apt-get install -y --no-install-recommends libarchive-tools
+
+      - name: The linux-x64 server artefact
+        run: |
+          set -euo pipefail
+          pnpm --filter agent-harness build-artefacts --tag "$TAG" --out server --platform linux-x64 \
+            --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST"
+
+      - name: The Arch package
+        run: pnpm --filter @agent-harness/desktop build-desktop --platform linux-x64 --tag "$TAG" --server server/agent-harness-linux-x64.tar.gz --out desktop
+
+      - name: The package is agent-harness-desktop, claims the scheme and carries its server artefact
+        run: |
+          set -euo pipefail
+          mkdir unpacked
+          bsdtar -xf desktop/agent-harness-desktop-linux-x64.pacman -C unpacked
+          grep -qx "pkgname = agent-harness-desktop" unpacked/.PKGINFO
+          grep -q "^Exec=/opt/agent-harness/agent-harness-desktop %U$" unpacked/usr/share/applications/agent-harness-desktop.desktop
+          grep -q "^MimeType=.*x-scheme-handler/agent-harness;" unpacked/usr/share/applications/agent-harness-desktop.desktop
+          test -x unpacked/opt/agent-harness/agent-harness-desktop
+          test -x unpacked/opt/agent-harness/resources/server/node/bin/node
+          grep -q "\"version\": *\"${TAG#v}\"" unpacked/opt/agent-harness/resources/server/packages/cli/package.json
+
+      - name: Hand the desktop to the release job
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-linux-x64.pacman
+
+  release:
+    needs: [check, image, desktop-macos, desktop-windows, desktop-arch]
     # An x86_64 runner with node:24-bookworm: the build compiles node-pty for
     # the linux-x64 artefact and runs that artefact on the runner, so it
     # refuses any other platform (#356). The `ci` label is not one, since it
@@ -134,14 +288,23 @@ jobs:
           restore-keys: pnpm-store-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
 
+      - name: The desktop jobs' builds
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          bash .forgejo/scripts/desktop-builds.sh get desktop agent-harness-desktop-darwin-arm64.zip \
+            agent-harness-desktop-win32-x64-setup.exe agent-harness-desktop-linux-x64.pacman
+
       # The asset list: every asset of the release beside the server
       # artefacts and release.json, one `--asset <kind>=<path>` line each,
       # which the build writes into release-assets with its sidecar and lists
       # in release.json (kinds: the contracts' RELEASE_ASSET_KINDS). A file is
       # published under its own name, the compose file with this release's
       # image in place of its unreleased placeholder; a folder as
-      # agent-harness-<kind>.tar.gz. Adding an asset (install.ps1, a desktop
-      # build) is one more line here.
+      # agent-harness-<kind>.tar.gz. A desktop is listed with the platform
+      # and format its shell's update installs (`desktop:<platform>:<format>=`),
+      # which the environment stages it by. Adding an asset (install.ps1) is
+      # one more line here.
       - name: Build the server artefacts and the release's assets
         env:
           IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
@@ -152,9 +315,18 @@ jobs:
             --asset schema=packages/contracts/schema \
             --asset install-script=scripts/install.sh \
             --asset compose=scripts/compose.yaml \
-            --asset host-updater=scripts/host-updater.sh
+            --asset host-updater=scripts/host-updater.sh \
+            --asset desktop:darwin-arm64:zip=desktop/agent-harness-desktop-darwin-arm64.zip \
+            --asset desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe \
+            --asset desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman
 
       - name: Upload every asset to a draft release, then publish it
         env:
           RELEASE_TOKEN: ${{ github.token }}
         run: pnpm --filter agent-harness publish-release --tag "$TAG" --from release-assets
+
+      # Only once the release is out: until then a re-run of this job alone finds them again.
+      - name: Remove the desktop jobs' builds from the package registry
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: bash .forgejo/scripts/desktop-builds.sh remove
