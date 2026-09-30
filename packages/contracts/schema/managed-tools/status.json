@@ -9,5 +9,5 @@
     "not-installed",
     "method-unknown"
   ],
-  "description": "A managed tool's status: current; update-available (a newer version is known, a badge only); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told)."
+  "description": "A managed tool's status: current; update-available (its version is behind the latest known, a badge only: it raises no notice and fails no check); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told). Below the minimum is said before method-unknown, and both before update-available."
 }

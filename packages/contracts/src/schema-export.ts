@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { Action, ActionCondition, ActionContext } from "./actions.js";
+import {
+  CarryOverFailure,
+  CarryOverImportedPayload,
+  CarryOverInventory,
+  CarryOverReport,
+  CarryOverSessionsImported,
+  CarryOverSessionsInventory,
+} from "./carry-over.js";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
 import {
   ACCOUNT_EVENT_TYPES,
@@ -102,9 +110,11 @@ import {
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import {
+  DoctorToolName,
   MANAGED_TOOLS,
   ManagedTool,
   ManagedToolAction,
+  ManagedToolDetail,
   ManagedToolInstallMethod,
   ManagedToolName,
   ManagedToolRow,
@@ -112,6 +122,9 @@ import {
   ManagedToolVerification,
   ManagedToolVerifyOutcome,
   ManagedToolVersion,
+  ToolDoctorField,
+  ToolDoctorReport,
+  ToolDoctorWarning,
   ToolsUpdatedPayload,
   VerifiableToolName,
 } from "./managed-tools.js";
@@ -276,6 +289,7 @@ import {
   SESSION_EVENT_TYPES,
   SessionActivity,
   SessionId,
+  SessionOrigin,
   SessionListSnapshot,
   SessionSummary,
   SettledBy,
@@ -711,6 +725,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
     schema: ACCESS_EVENT_PAYLOADS[type],
   })),
   { path: "sessions/session-id.json", title: "SessionId", schema: SessionId },
+  { path: "sessions/session-origin.json", title: "SessionOrigin", schema: SessionOrigin },
   { path: "sessions/group-id.json", title: "GroupId", schema: GroupId },
   { path: "sessions/order-key.json", title: "OrderKey", schema: OrderKey },
   { path: "sessions/user-title.json", title: "UserTitle", schema: UserTitle },
@@ -896,6 +911,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "managed-tools/verifiable-name.json", title: "VerifiableToolName", schema: VerifiableToolName },
   { path: "managed-tools/verify-outcome.json", title: "ManagedToolVerifyOutcome", schema: ManagedToolVerifyOutcome },
   { path: "managed-tools/verification.json", title: "ManagedToolVerification", schema: ManagedToolVerification },
+  { path: "managed-tools/doctor-name.json", title: "DoctorToolName", schema: DoctorToolName },
+  { path: "managed-tools/doctor-field.json", title: "ToolDoctorField", schema: ToolDoctorField },
+  { path: "managed-tools/doctor-warning.json", title: "ToolDoctorWarning", schema: ToolDoctorWarning },
+  { path: "managed-tools/doctor-report.json", title: "ToolDoctorReport", schema: ToolDoctorReport },
+  { path: "managed-tools/detail.json", title: "ManagedToolDetail", schema: ManagedToolDetail },
   { path: "managed-tools/events/tools.updated.json", title: "ToolsUpdatedPayload", schema: ToolsUpdatedPayload },
   { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
@@ -1096,6 +1116,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
   { path: "notices/environment-notice.json", title: "EnvironmentNotice", schema: EnvironmentNotice },
+  { path: "carry-over/sessions-inventory.json", title: "CarryOverSessionsInventory", schema: CarryOverSessionsInventory },
+  { path: "carry-over/inventory.json", title: "CarryOverInventory", schema: CarryOverInventory },
+  { path: "carry-over/sessions-imported.json", title: "CarryOverSessionsImported", schema: CarryOverSessionsImported },
+  { path: "carry-over/failure.json", title: "CarryOverFailure", schema: CarryOverFailure },
+  { path: "carry-over/notices/carry-over.imported.json", title: "CarryOverImportedPayload", schema: CarryOverImportedPayload },
+  { path: "carry-over/report.json", title: "CarryOverReport", schema: CarryOverReport },
   { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
   { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },

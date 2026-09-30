@@ -122,12 +122,14 @@ export const containmentDenial = (containment: RunContainment, workspace: string
       return resolved === null || !roots.some((root) => within(root, resolved));
     });
     if (outside === undefined) return null;
-    const [workspaceRoot = workspace] = containment.writable;
-    return (
-      `Denied by containment (${containment.level}): this run may write only inside its workspace (${workspaceRoot}), ` +
-      `the session's scratch directory (${containment.scratchDirectory}) and its temporary directory (${containment.temporaryDirectory}), ` +
-      `and ${outside} is outside them. ${NOT_WIDENED}`
-    );
+    // The writable set is the workspace first, the session's two directories, then the repository's git directory when it lies outside the workspace (#322).
+    const [workspaceRoot = workspace, ...rest] = containment.writable;
+    const gitDirectory = rest.find((root) => root !== containment.scratchDirectory && root !== containment.temporaryDirectory);
+    const directories =
+      gitDirectory === undefined
+        ? `the session's scratch directory (${containment.scratchDirectory}) and its temporary directory (${containment.temporaryDirectory})`
+        : `the session's scratch directory (${containment.scratchDirectory}), its temporary directory (${containment.temporaryDirectory}) and the repository's git directory (${gitDirectory})`;
+    return `Denied by containment (${containment.level}): this run may write only inside its workspace (${workspaceRoot}), ${directories}, and ${outside} is outside them. ${NOT_WIDENED}`;
   }
   if ((access.kind === "fetch" || access.kind === "search") && !containment.network) {
     const what = access.kind === "fetch" ? `fetching ${access.urls.join(", ")}` : "a web search";

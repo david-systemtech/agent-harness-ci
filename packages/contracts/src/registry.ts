@@ -70,6 +70,7 @@ import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWith
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import { setupCheck } from "./methods/setup.js";
+import { carryOverInventory, carryOverRun } from "./methods/carry-over.js";
 import {
   accountsAdd,
   accountsAdopt,
@@ -163,7 +164,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
-import { toolsList, toolsVerify } from "./methods/tools.js";
+import { toolsDetail, toolsList, toolsVerify } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -286,6 +287,7 @@ export const methods = [
   keyManagersMove,
   keyManagersMoveCopyValue,
   toolsList,
+  toolsDetail,
   toolsVerify,
   settingsGet,
   settingsUpdate,
@@ -302,6 +304,8 @@ export const methods = [
   permissionsDenylistRestorePresets,
   permissionsDenylistTest,
   setupCheck,
+  carryOverInventory,
+  carryOverRun,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,

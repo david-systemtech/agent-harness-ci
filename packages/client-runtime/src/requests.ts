@@ -200,11 +200,13 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * `instructions.preview`; every key-manager event, a connection's and Move's, the
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
- * account holding a stored token is one; and a probe changing managed-tool
+ * account holding a stored token is one; a probe changing managed-tool
  * rows (`tools.updated`) the managed tools (#384) and the key-manager
- * connections, each carrying its CLI's row (#375); and an unpaired
- * extension opening its socket (`extension.seen`, #547) `browser.status`,
- * whose unpaired flag ticks the Browser card's Load sub-step; and a paired
+ * connections, each carrying its CLI's row (#375); an unpaired extension
+ * opening its socket (`extension.seen`, #547) `browser.status`, whose
+ * unpaired flag ticks the Browser card's Load sub-step; an import of
+ * an adopted account's directory ending (`carry-over.imported`, #578)
+ * Carry over's inventory, whose new sessions it imported; and a paired
  * Chrome's pairing, rename, unpairing, connection, disconnection or version
  * report (`chrome.updated`, #548) `browser.chromes.list`, and
  * `browser.status`, whose unpaired flag a pairing clears.
@@ -230,6 +232,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "tools.list": ["tools.updated"],
   "browser.status": ["extension.seen", "chrome.updated"],
   "browser.chromes.list": ["chrome.updated"],
+  "carryOver.inventory": ["carry-over.imported"],
 };
 
 export interface RequestCache {

@@ -1,8 +1,8 @@
 import type { SessionSummary } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EnvironmentView } from "../projections/environments.js";
-import type { MergedGroupHeading, SessionListView, SessionRow } from "../projections/session-list.js";
-import { activityOf, keepsFold, rowKey, sessionHeadings, type HeadingsInput, type SessionHeading } from "./headings.js";
+import type { ByRepositoryHeading, MergedGroupHeading, SessionListView, SessionRow } from "../projections/session-list.js";
+import { activityOf, keepsFold, rowKey, sessionHeadings, type FoldingHeading, type HeadingsInput, type SessionHeading } from "./headings.js";
 
 /**
  * The headings a session list is drawn under, which the terminal UI's rail
@@ -48,10 +48,10 @@ const row = (environmentId: string, fields: Partial<SessionSummary> = {}, extra:
   ...extra,
 });
 
-const listOf = (shelves: Partial<Pick<SessionListView, "pinned" | "active" | "snoozed" | "settled" | "archived" | "groups" | "environments">>): SessionListView => {
+const listOf = (shelves: Partial<Pick<SessionListView, "pinned" | "active" | "snoozed" | "settled" | "archived" | "groups" | "environments" | "repositories">>): SessionListView => {
   const empty = { pinned: [], active: [], snoozed: [], settled: [], archived: [] };
-  const all = { ...empty, groups: [], environments: [], ...shelves };
-  return { ...all, rows: [...all.pinned, ...all.active, ...all.snoozed, ...all.settled, ...all.archived], repositories: [] };
+  const all = { ...empty, groups: [], environments: [], repositories: [], ...shelves };
+  return { ...all, rows: [...all.pinned, ...all.active, ...all.snoozed, ...all.settled, ...all.archived] };
 };
 
 const group = (key: string, name: string, active: SessionRow[], awaitingReceipt = false): MergedGroupHeading => ({
@@ -61,6 +61,14 @@ const group = (key: string, name: string, active: SessionRow[], awaitingReceipt 
   shelves: { pinned: [], active, snoozed: [], settled: [], archived: [] },
   pending: false,
   awaitingReceipt,
+});
+
+/** A repository's heading of the list, its active sessions given. */
+const repository = (repositoryIdentity: string, label: string, active: SessionRow[]): ByRepositoryHeading => ({
+  kind: "repository",
+  repositoryIdentity,
+  label,
+  shelves: { pinned: [], active, snoozed: [], settled: [], archived: [] },
 });
 
 const input = (fields: Partial<HeadingsInput>): HeadingsInput => ({
@@ -240,9 +248,82 @@ describe("the filter", () => {
   });
 });
 
+describe("by repository", () => {
+  const SITE = "https://github.com/david/site";
+  const HARNESS = "https://git.systemtech.dev/david/agent-harness";
+
+  it("come pinned, one per repository across environments under the list's label, each environment's sessions with no identity last, then the shelves", () => {
+    const pinned = row("desk", { title: "Pinned", repositoryIdentity: SITE });
+    const onDesk = row("desk", { title: "Harness on the desk", repositoryIdentity: HARNESS }, { groupName: "Brandsolidate" });
+    const onLaptop = row("laptop", { title: "Harness on the laptop", repositoryIdentity: HARNESS });
+    const site = row("laptop", { title: "Site", repositoryIdentity: SITE });
+    const loose = row("desk", { title: "Loose", repositoryIdentity: null });
+    const archived = row("laptop", { title: "Old", repositoryIdentity: HARNESS });
+    const headings = sessionHeadings(
+      input({
+        by: "repositories",
+        environments: [view("desk"), view("laptop")],
+        list: listOf({
+          pinned: [pinned],
+          active: [onDesk, onLaptop, site, loose],
+          archived: [archived],
+          groups: [group("brandsolidate", "Brandsolidate", [onDesk])],
+          repositories: [repository(HARNESS, "david/agent-harness", [onDesk, onLaptop]), repository(SITE, "david/site", [site])],
+        }),
+        folded: { "shelf:archive": false },
+      }),
+    );
+    expect(read(headings)).toEqual([
+      "▾ Pinned",
+      "  Pinned",
+      "▾ david/agent-harness",
+      "  Harness on the desk",
+      "  Harness on the laptop",
+      "▾ david/site",
+      "  Site",
+      "desk",
+      "  Loose",
+      "laptop",
+      "▾ Archive",
+      "  Old",
+    ]);
+    const harness = headings[1] as FoldingHeading;
+    expect([harness.key, harness.repository, harness.group]).toEqual([`repository:${HARNESS}`, HARNESS, null]);
+    expect(headings.filter((heading) => heading.kind === "environment").map((heading) => [heading.key, heading.holds])).toEqual([
+      ["environment:desk", "unidentified"],
+      ["environment:laptop", "unidentified"],
+    ]);
+  });
+
+  it("leave out a repository with no active session, and fold one by its heading name", () => {
+    const archived = row("desk", { title: "Old", repositoryIdentity: SITE });
+    const onDesk = row("desk", { title: "Harness", repositoryIdentity: HARNESS });
+    const headings = sessionHeadings(
+      input({
+        by: "repositories",
+        list: listOf({
+          active: [onDesk],
+          archived: [archived],
+          repositories: [repository(HARNESS, "david/agent-harness", [onDesk]), repository(SITE, "david/site", [])],
+        }),
+        folded: { [`repository:${HARNESS}`]: true },
+      }),
+    );
+    expect(read(headings)).toEqual(["▸ david/agent-harness 1", "desk", "▸ Archive 1"]);
+  });
+});
+
 describe("the folds kept", () => {
   it("are every heading's but a merged group's the list no longer holds", () => {
     const keep = keepsFold(listOf({ groups: [group("brand", "Brand", [])] }));
     expect(["group:brand", "group:gone", "shelf:settled", "block:pinned"].filter(keep)).toEqual(["group:brand", "shelf:settled", "block:pinned"]);
+  });
+
+  it("are a repository's while the list holds a session of it, on any shelf", () => {
+    const keep = keepsFold(listOf({ repositories: [repository("https://github.com/david/site", "david/site", [])] }));
+    expect(["repository:https://github.com/david/site", "repository:https://github.com/david/gone", "environment:desk"].filter(keep)).toEqual([
+      "repository:https://github.com/david/site",
+      "environment:desk",
+    ]);
   });
 });

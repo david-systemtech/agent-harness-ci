@@ -14,6 +14,7 @@ const missing: ManagedToolRow = {
   path: null,
   realpath: null,
   version: null,
+  latest: null,
   minimum: GH_MINIMUM_VERSION,
   method: null,
   status: "not-installed",

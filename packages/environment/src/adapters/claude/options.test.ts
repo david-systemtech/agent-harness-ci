@@ -331,6 +331,26 @@ describe("the options a run is handed", () => {
       expect(at(level).sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"]);
     });
 
+    it.each(["workspace", "workspace-no-network"] as const)("lets a command at %s write in the repository's git directory when the writable set carries it (#322)", (level) => {
+      const worktree = "/data/worktrees/repo-3f9a2c1b";
+      const scratchDirectory = "/data/containment/session/scratch";
+      const temporaryDirectory = "/data/containment/session/tmp";
+      const options = buildRunOptions(
+        input({
+          workspace: { kind: "worktree", path: worktree, repository: "/work/repo", branch: "agent-harness/3f9a2c1b" },
+          containment: {
+            level,
+            mechanism: "bubblewrap",
+            scratchDirectory,
+            temporaryDirectory,
+            writable: [worktree, scratchDirectory, temporaryDirectory, "/work/repo/.git"],
+            network: level !== "workspace-no-network",
+          },
+        }),
+      );
+      expect(options.sandbox?.filesystem?.allowWrite).toEqual([worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"]);
+    });
+
     it("leaves the network open at workspace, local binding included, and names no domain", () => {
       const network = at("workspace").sandbox?.network;
       expect(network).toEqual({ allowLocalBinding: true });

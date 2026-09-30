@@ -137,6 +137,15 @@ const invalidGroups = [{ ...group, name: "" }, { ...group, name: "x".repeat(81) 
 
 const deleted = { ...freshSummary, deletedAt: later, purgeAt: "2026-10-29T09:00:00.000Z" };
 
+/** An imported session's origin (#578): the adopted account, the provider's session, and when that began and was last written. */
+const importOrigin = {
+  kind: "import",
+  accountId: "claude-max",
+  providerSessionId: "5c1b7a3e-8f2d-4b6a-9e0c-2d4f6a8b0c1e",
+  createdAt: "2026-08-01T09:00:00.000Z",
+  lastActivityAt: "2026-08-03T17:30:00.000Z",
+};
+
 /** Payloads for every published session and group event type: valid, then invalid. */
 const eventPayloads: Record<string, Fixtures> = {
   "session.created": {
@@ -145,8 +154,10 @@ const eventPayloads: Record<string, Fixtures> = {
       { title: "Fix it", tags: ["wip"], groupId, workspace, repositoryIdentity: null, account: "claude-max", model: "opus", mode: "plan" },
       { title: null, tags: [], groupId: null, workspace: worktree, repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", account: null, model: null, mode: null },
       { title: null, tags: [], groupId: null, workspace: scratch, repositoryIdentity: null, account: null, model: null, mode: null },
+      { title: "Fix the receipts", tags: [], groupId: null, workspace, repositoryIdentity: null, account: "claude-max", model: null, mode: null, origin: importOrigin },
     ],
     invalid: [
+      { title: null, tags: [], groupId: null, workspace, repositoryIdentity: null, account: "claude-max", model: null, mode: null, origin: { kind: "import" } },
       { title: null, tags: [], groupId: null, repositoryIdentity: null, account: null, model: null, mode: null },
       { title: "" },
       { title: null, tags: [], groupId: null, workspace, repositoryIdentity: null, account: null, model: null, mode: "default" },
@@ -237,6 +248,7 @@ const eventPayloads: Record<string, Fixtures> = {
 /** Every session and group schema the export writes, by path. */
 export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/session-id.json": { valid: [sessionId], invalid: ["s-1", "", 7, v1] },
+  "sessions/session-origin.json": { valid: [importOrigin], invalid: [{ ...importOrigin, kind: "fork" }, { ...importOrigin, providerSessionId: "" }, { ...importOrigin, createdAt: "earlier" }, { kind: "import" }] },
   "sessions/group-id.json": { valid: [groupId], invalid: ["g-1", "", v1] },
   "sessions/order-key.json": { valid: ["b", "an", "zzz"], invalid: ["", "a", "ba", "B", "b1"] },
   "sessions/user-title.json": {

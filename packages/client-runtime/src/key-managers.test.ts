@@ -207,6 +207,14 @@ describe("the key-manager status rows", () => {
     ]);
   });
 
+  it("raise none for a managed tool's row, a newer version known being a badge and one below its minimum its step's failure (#374, ADR 0026)", async () => {
+    const { runtime, env, environment } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    environment.event(noticeEvent(1, env, "tools.updated", toolsUpdatedPayload(toolRow({ latest: "2.7.0", status: "update-available" }))));
+    environment.event(noticeEvent(2, env, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.0.0", latest: "2.7.0", status: "below-minimum" }))));
+    await flush();
+    expect(shown(runtime)).toEqual([]);
+  });
+
   it("raise one for a connection added standing in a status that needs David, a copy awaiting its sign-in among them, and none for a sign-out, which a person asked for", async () => {
     const { runtime, env, environment } = await paired({ capabilities: KEY_MANAGER_FLAGS });
     const signedIn = keyManagerRecord();

@@ -73,6 +73,7 @@ posix("tools.list", () => {
         path: null,
         realpath: null,
         version: null,
+        latest: null,
         minimum: tool.minimum,
         method: null,
         status: "not-installed",

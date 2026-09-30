@@ -1,15 +1,15 @@
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   ENVIRONMENT_STREAM_KIND,
   MANAGED_TOOLS,
-  ToolsUpdatedPayload,
+  ManagedToolRow,
   compareToolVersions,
   managedTool,
   type ManagedTool,
   type ManagedToolAction,
   type ManagedToolInstallMethod,
   type ManagedToolName,
-  type ManagedToolRow,
   type ManagedToolStatus,
   type ResultOf,
 } from "@agent-harness/contracts";
@@ -18,6 +18,7 @@ import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { findOnPath, methodFromShape, versionIn, type FoundTool } from "./detection.js";
+import { LATEST_FILE, createLatestVersions, type ReleaseOrigins } from "./latest.js";
 import { readLoginPath } from "./login-path.js";
 import { systemPackageOwner, type PackageOwnerLookup } from "./package-owner.js";
 import { runCommand } from "./run.js";
@@ -37,6 +38,13 @@ import { runCommand } from "./run.js";
  * probe after a restart that finds what was there raises none, and neither
  * does a first start that finds no tool. The sign-in director's managed
  * tool and the forge's `gh` read their rows here.
+ *
+ * Each installed tool's row carries its latest version (#374), cached in the
+ * data directory and fetched on a client's refresh at most once a day per
+ * tool, from the source its install method matches, else the vendor's feed
+ * (`latest.ts`); `tools.list` never waits for it. A version behind the
+ * latest is `update-available`, a badge only, and a latest that changes a
+ * row appends `tools.updated` with it as a probe's change does.
  */
 
 /** Who the log says appended `tools.updated`. */
@@ -58,6 +66,10 @@ export interface ManagedToolsOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   readonly environmentId: string;
+  /** The data directory, where the tools' latest versions are cached (`LATEST_FILE`). */
+  readonly dataDir: string;
+  /** Where the latest versions are read, by kind of source. Preset: the real sources (`RELEASE_ORIGINS`); tests point each at a fake. */
+  readonly releaseOrigins?: Partial<ReleaseOrigins>;
   /** Reads the PATH each tool is resolved on. Preset: the login shell's (`readLoginPath`), else, when that fails, `hostEnv`'s. */
   readonly readPath?: () => Promise<string>;
   /** Asks which system package owns a file. Preset: `dpkg -S`, then `rpm -qf`, on Linux (`systemPackageOwner`). */
@@ -83,7 +95,11 @@ export interface ManagedTools {
    * command, its holder's variables laid over it).
    */
   commandEnvironment(): Promise<Record<string, string>>;
-  /** The rows, once any probe under way has ended; with `refresh`, a probe first unless one began in the last fifteen minutes. */
+  /**
+   * The rows, once any probe under way has ended; with `refresh`, a probe
+   * first unless one began in the last fifteen minutes, and then the latest
+   * versions due fetched, which the answer does not wait for.
+   */
   list(options?: { readonly refresh?: boolean | undefined }): Promise<ToolsListing>;
   /** One tool's row, once any probe under way has ended. */
   row(tool: ManagedToolName): Promise<ManagedToolRow>;
@@ -97,10 +113,23 @@ export interface ManagedTools {
   close(): void;
 }
 
-/** A row's status (ADR 0026): below its minimum (or not known to meet it) first, then an install method that could not be told. */
-const statusOf = (tool: ManagedTool, version: string | null, method: ManagedToolInstallMethod): ManagedToolStatus => {
+/** What a probe found of an installed tool: where, the version it reported, and how it was installed. */
+interface Detected {
+  readonly path: string;
+  readonly realpath: string;
+  readonly version: string | null;
+  readonly method: ManagedToolInstallMethod;
+}
+
+/**
+ * A row's status (ADR 0026): below its minimum (or not known to meet it)
+ * first, then an install method that could not be told, then a version
+ * behind the latest known, a badge only.
+ */
+const statusOf = (tool: ManagedTool, { version, method }: Detected, latest: string | null): ManagedToolStatus => {
   if (tool.minimum !== null && (version === null || compareToolVersions(version, tool.minimum) < 0)) return "below-minimum";
   if (method === "unknown") return "method-unknown";
+  if (version !== null && latest !== null && compareToolVersions(version, latest) < 0) return "update-available";
   return "current";
 };
 
@@ -112,6 +141,7 @@ const notInstalled = (tool: ManagedTool): ManagedToolRow => ({
   path: null,
   realpath: null,
   version: null,
+  latest: null,
   minimum: tool.minimum,
   method: null,
   status: "not-installed",
@@ -130,13 +160,19 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
   const readPath =
     options.readPath ?? (() => readLoginPath({ clock, env: base(), timeoutMs: LOOKUP_TIMEOUT_MS, signal, platform }));
   const packageOwner = options.packageOwner ?? systemPackageOwner({ clock, env: base, timeoutMs: LOOKUP_TIMEOUT_MS, signal, platform });
+  const latest = createLatestVersions({ clock, file: join(options.dataDir, LATEST_FILE), signal, ...(options.releaseOrigins !== undefined && { origins: options.releaseOrigins }) });
 
+  /** What the last probe that gave rows found of each tool; null for one not installed. */
+  let detected: ReadonlyMap<ManagedToolName, Detected | null> | null = null;
   let rows: readonly ManagedToolRow[] | null = null;
   let probedAt: Date | null = null;
   /** The PATH the last probe that gave rows resolved them on. */
   let probedPath = "";
   let lastBegun: number | null = null;
   let running: Promise<void> | null = null;
+  /** Whether the latest versions are being fetched, and whether a refresh asked for them again meanwhile. */
+  let fetching = false;
+  let fetchAgain = false;
   /** The rows the log last carried, by tool: what a probe's rows are compared with. Read from the log at the first probe. */
   let recorded: Map<ManagedToolName, ManagedToolRow> | null = null;
 
@@ -148,8 +184,12 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
       stream.id,
     );
     for (const event of events) {
-      const parsed = ToolsUpdatedPayload.safeParse(JSON.parse(event.payload));
-      if (parsed.success) for (const row of parsed.data.tools) found.set(row.tool, row);
+      const { tools } = JSON.parse(event.payload) as { readonly tools?: unknown };
+      for (const carried of Array.isArray(tools) ? tools : []) {
+        // A row carried before rows had a latest version (#374) knows none.
+        const parsed = ManagedToolRow.safeParse(typeof carried === "object" && carried !== null ? { latest: null, ...carried } : carried);
+        if (parsed.success) found.set(parsed.data.tool, parsed.data);
+      }
     }
     return found;
   };
@@ -185,12 +225,21 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
     return owner.kind === "none" ? "manual" : "unknown";
   };
 
-  const probeTool = async (tool: ManagedTool, pathValue: string, env: Readonly<Record<string, string>>): Promise<ManagedToolRow> => {
+  const probeTool = async (tool: ManagedTool, pathValue: string, env: Readonly<Record<string, string>>): Promise<Detected | null> => {
     const found = findOnPath(tool.name, pathValue, { platform, ownResources: options.ownResources });
-    if (found === null) return notInstalled(tool);
+    if (found === null) return null;
     const [version, method] = await Promise.all([versionOf(found, env), methodOf(tool.name, found)]);
-    return { ...notInstalled(tool), path: found.path, realpath: found.realpath, version, method, status: statusOf(tool, version, method), action: actionOf(method) };
+    return { path: found.path, realpath: found.realpath, version, method };
   };
+
+  /** A tool's row from what the probe found of it and the latest version known for how it was installed. */
+  const rowOf = (tool: ManagedTool, found: Detected | null): ManagedToolRow => {
+    if (found === null) return notInstalled(tool);
+    const known = latest.known(tool.name, found.method);
+    return { ...notInstalled(tool), ...found, latest: known, status: statusOf(tool, found, known), action: actionOf(found.method) };
+  };
+
+  const rowsOf = (found: ReadonlyMap<ManagedToolName, Detected | null>): ManagedToolRow[] => MANAGED_TOOLS.map((tool) => rowOf(tool, found.get(tool.name) ?? null));
 
   /**
    * Appends the rows that differ from what the log last carried, a tool it
@@ -220,12 +269,13 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
         const pathValue = await pathNow();
         if (signal.aborted) return;
         const env = { ...base(), PATH: pathValue };
-        const found = await Promise.all(MANAGED_TOOLS.map((tool) => probeTool(tool, pathValue, env)));
+        const found = new Map(await Promise.all(MANAGED_TOOLS.map(async (tool) => [tool.name, await probeTool(tool, pathValue, env)] as const)));
         if (signal.aborted) return;
-        rows = found;
+        detected = found;
+        rows = rowsOf(found);
         probedAt = begun;
         probedPath = pathValue;
-        notice(found);
+        notice(rows);
       } catch (error) {
         console.error("Probing the managed tools failed; the rows are as the last probe left them:", error);
       }
@@ -235,12 +285,45 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
     return running;
   };
 
+  /**
+   * Fetches the latest versions due of the tools the last probe found
+   * installed, or once the fetch under way has ended; the latest versions
+   * that changed rows append `tools.updated` with them once every fetch has
+   * answered, failed or run out of time.
+   */
+  const refreshLatest = (): void => {
+    if (detected === null || signal.aborted) return;
+    if (fetching) {
+      fetchAgain = true;
+      return;
+    }
+    fetching = true;
+    const installed = [...detected].flatMap(([tool, found]) => (found === null ? [] : [{ tool, method: found.method }]));
+    void latest
+      .refresh(installed)
+      .then((changed) => {
+        if (!changed || signal.aborted || detected === null) return;
+        rows = rowsOf(detected);
+        notice(rows);
+      })
+      .catch((error: unknown) => console.error("Fetching the managed tools' latest versions failed; the rows keep the ones last known:", error))
+      .finally(() => {
+        fetching = false;
+        if (fetchAgain) {
+          fetchAgain = false;
+          refreshLatest();
+        }
+      });
+  };
+
   const list = async (asked: { readonly refresh?: boolean | undefined } = {}): Promise<ToolsListing> => {
     // Never probed, or no probe gave rows yet; or a refresh fifteen minutes after the last probe began.
     const due = lastBegun === null || rows === null || (asked.refresh === true && clock.now().getTime() - lastBegun >= PROBE_INTERVAL_MS);
     if (due && !signal.aborted) void probe();
     if (running !== null) await running;
     if (rows === null || probedAt === null) throw new Error("The managed tools have not been probed: the environment is closing, or the probe failed.");
+    // A client opening Set up or About: the latest versions due are fetched behind the answer, and heard as tools.updated.
+    if (asked.refresh === true) refreshLatest();
     return { tools: [...rows], probedAt: probedAt.toISOString() };
   };
 

@@ -126,7 +126,9 @@ import { createKeyManagerReferences } from "../key-managers/references.js";
 import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
+import type { ReleaseOrigins } from "../managed-tools/latest.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
+import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
@@ -156,6 +158,7 @@ import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { trustMethods } from "../trust/methods.js";
+import { carryOverMethods } from "../carry-over/methods.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods } from "../setup/methods.js";
@@ -428,15 +431,18 @@ export interface EnvironmentOptions {
    * How the Managed tools registry (#373) probes: where it reads the login
    * shell's PATH, which the forge's `gh` and the sign-in director's managed
    * tool are found on too; how it asks which system package owns a tool;
-   * the environment its commands, and `gh`'s, start from. Preset: the
-   * user's login shell (the machine and user Path on Windows), `dpkg -S`
-   * then `rpm -qf` on Linux, this process's environment; tests put fake
-   * tools on a PATH of their own and script the package owner.
+   * the environment its commands, and `gh`'s, start from; where it reads
+   * each tool's latest version (#374). Preset: the user's login shell (the
+   * machine and user Path on Windows), `dpkg -S` then `rpm -qf` on Linux,
+   * this process's environment, the real release sources; tests put fake
+   * tools on a PATH of their own, script the package owner and fake the
+   * release sources on loopback.
    */
   readonly managedTools?: {
     readonly readPath?: () => Promise<string>;
     readonly packageOwner?: PackageOwnerLookup;
     readonly hostEnv?: HostEnvironment;
+    readonly releaseOrigins?: Partial<ReleaseOrigins>;
   };
   /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
@@ -802,6 +808,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       environmentId: loaded.id,
+      dataDir,
       ownResources: [HARNESS_DIRECTORY, ...(bundled === null ? [] : [dirname(bundled)])],
       ...options.managedTools,
     });
@@ -974,6 +981,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The managed tools' verify commands (#375): each a holder of the process environment, with a run token of its own.
   const toolVerifier = createToolVerifier({ tools: managedTools, processEnvironments, connections: () => keyManagerConnections.list(), scrub, clock });
   closers.push(() => toolVerifier.close());
+  // A tool's doctor (#374), run only when a client opens its detail, or Update is clicked (#376).
+  const toolDoctor = createToolDoctor({ tools: managedTools, scrub, clock });
+  closers.push(() => toolDoctor.close());
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
@@ -1348,7 +1358,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
-    ...managedToolsMethods(managedTools, toolVerifier),
+    ...managedToolsMethods(managedTools, toolDoctor, toolVerifier),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,
@@ -1380,6 +1390,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       store: trustStore,
       clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
     }),
+    // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
+    // at through the availability watcher and given the identity the environment's resolver finds there.
+    ...carryOverMethods({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path) }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,

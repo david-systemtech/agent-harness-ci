@@ -49,9 +49,13 @@ export interface FakeApp extends ElectronApp {
   readonly calls: Call[];
   /** Whether another instance holds the single-instance lock. */
   locked: boolean;
+  /** Whether the app runs packaged, as an install does, rather than as `electron .` from a checkout. */
+  isPackaged: boolean;
   emit(name: "second-instance" | "open-url" | "window-all-closed", ...args: unknown[]): void;
   /** Makes the app ready, when it was made with `ready: false`. */
   becomeReady(): void;
+  /** Settles once a `quit()` has gone through: its `will-quit` was not refused. */
+  readonly quitted: Promise<void>;
 }
 
 /** A navigation the test fired: whether a listener refused it. */
@@ -136,14 +140,19 @@ export interface FakeElectron extends DesktopElectron {
   window(): FakeWindow;
 }
 
-const fakeApp = (os: ShellPlatform, ready: boolean): FakeApp => {
+const fakeApp = (os: ShellPlatform, ready: boolean, version: string): FakeApp => {
   const calls: Call[] = [];
   const heard = listeners();
   let makeReady = () => {};
   const whenReady = ready ? Promise.resolve() : new Promise<void>((resolve) => (makeReady = resolve));
+  let quit = () => {};
+  const quitted = new Promise<void>((resolve) => (quit = resolve));
   return {
     calls,
     locked: false,
+    isPackaged: false,
+    quitted,
+    getVersion: () => version,
     requestSingleInstanceLock() {
       calls.push(["requestSingleInstanceLock"]);
       return !this.locked;
@@ -156,8 +165,15 @@ const fakeApp = (os: ShellPlatform, ready: boolean): FakeApp => {
       calls.push(["setPath", name, path]);
     },
     whenReady: () => whenReady,
+    // As Electron does once the windows are closed: `will-quit`, whose listener may refuse it.
     quit() {
       calls.push(["quit"]);
+      let refused = false;
+      heard.emit("will-quit", { preventDefault: () => (refused = true) });
+      if (!refused) quit();
+    },
+    relaunch() {
+      calls.push(["relaunch"]);
     },
     setBadgeCount(count) {
       calls.push(["setBadgeCount", count]);
@@ -369,12 +385,17 @@ const fakeSafeStorage = (os: ShellPlatform): FakeSafeStorage => {
   return storage;
 };
 
-/** Electron on `os`, ready at once unless `ready` is false (then `app.becomeReady()`), preferring dark unless `dark` is false. */
-export const fakeElectron = ({ os = "linux", ready = true, dark = true }: { os?: ShellPlatform; ready?: boolean; dark?: boolean } = {}): FakeElectron => {
+/**
+ * Electron on `os`, ready at once unless `ready` is false (then
+ * `app.becomeReady()`), preferring dark unless `dark` is false, the app at
+ * `version` (preset 0.5.0) and run from a checkout until the test sets
+ * `app.isPackaged`.
+ */
+export const fakeElectron = ({ os = "linux", ready = true, dark = true, version = "0.5.0" }: { os?: ShellPlatform; ready?: boolean; dark?: boolean; version?: string } = {}): FakeElectron => {
   const windows: FakeWindow[] = [];
   const opened: string[] = [];
   return {
-    app: fakeApp(os, ready),
+    app: fakeApp(os, ready, version),
     protocol: fakeProtocol(),
     ipcMain: fakeIpcMain(),
     dialog: fakeDialog(),

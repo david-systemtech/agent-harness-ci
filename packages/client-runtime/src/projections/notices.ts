@@ -53,7 +53,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * none: it refreshes the cached `skills.get`; nor does `trust.updated`
  * (#500), which refreshes the cached `trust.get` and `trust.list`; nor
  * does `instructions.updated` (#505), which refreshes the cached
- * `instructions.list` and `instructions.preview`.
+ * `instructions.list` and `instructions.preview`; nor
+ * `carry-over.imported` (#578), which refreshes the cached
+ * `carryOver.inventory`.
  */
 
 export interface EnvironmentNoticeContext {
@@ -211,6 +213,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // An unpaired extension seen (#547) raises none: the Browser card ticks its Load sub-step from browser.status.
         case "extension.seen":
+          return;
+        // An import of an adopted account's directory ended (#578): the request cache reads carryOver.inventory again,
+        // and Carry over's card shows what it did.
+        case "carry-over.imported":
           return;
         // A paired Chrome's change (#548) raises none: the request cache reads browser.chromes.list and browser.status again.
         case "chrome.updated":

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID as uuid } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -21,6 +21,7 @@ import { end, fakeAdapter, gate, say, toolCall, type FakeAdapter, type Gate, typ
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import { git } from "../../test/workspaces.js";
 import type { ToolAccess } from "../adapter/contract.js";
 import { toWireEnvelope } from "../wire/envelope.js";
 
@@ -94,15 +95,17 @@ const write = (...paths: string[]) => ({ tool: "Write", access: { kind: "write",
 const fetchUrl = (url: string) => ({ tool: "WebFetch", access: { kind: "fetch", urls: [url] } }) as const;
 const search = (query: string) => ({ tool: "WebSearch", access: { kind: "search", query } }) as const;
 
-/** An environment on `probe`, a session in a real workspace directory at `level` (set by the session), and a client. */
-const sessionAt = async (level: ContainmentLevel | null, options: TestEnvironmentOptions = {}) => {
+/** An environment on the bubblewrap probe, a session in the directory `workspacePath` at `level` (set by the session), and a client. */
+const sessionIn = async (workspacePath: string, level: ContainmentLevel | null, options: TestEnvironmentOptions = {}) => {
   const t = await start({ containment: bubblewrapProbe(), ...options });
   const client = await t.client();
-  const workspacePath = realpathSync(tempDir("agent-harness-workspace-"));
   const { id } = await create(client, { workspace: { kind: "directory", path: workspacePath } });
   if (level !== null) expect((await setLevel(client, id, level)).receipt).toMatchObject({ status: "accepted" });
   return { t, client, id, workspacePath, adapter: t.adapter as FakeAdapter };
 };
+
+/** An environment on `probe`, a session in a real workspace directory at `level` (set by the session), and a client. */
+const sessionAt = (level: ContainmentLevel | null, options: TestEnvironmentOptions = {}) => sessionIn(realpathSync(tempDir("agent-harness-workspace-")), level, options);
 
 /** Runs one script to its end in the session; resolves with the run id. */
 const runScript = async (t: TestEnvironment, client: WireClient, id: string, script: Script) => {
@@ -622,5 +625,137 @@ describe("the tool gate's containment", () => {
     const runId = await runScript(t, client, id, calling(write("/etc/hosts"), fetchUrl("https://example.com/")));
     expect(containmentOf(t, id, runId)).toMatchObject({ requested: null, effective: "off", mechanism: null, reason: expect.stringMatching(/preset default is workspace/) as unknown as string });
     expect((t.adapter as FakeAdapter).lastRun().gated.map((entry) => entry.decision.decision)).toEqual(["allow", "allow"]);
+  });
+});
+
+describe("the repository's git directory, which a contained run may write in beside its workspace (#322)", () => {
+  /** A repository with one commit on `main`, made by git in a temporary directory of its own; its real path. */
+  const repository = (): string => {
+    const checkout = realpathSync(tempDir("agent-harness-repository-"));
+    git(checkout, "init", "-q");
+    writeFileSync(join(checkout, "README.md"), "# Test\n");
+    git(checkout, "add", "README.md");
+    git(checkout, "commit", "-q", "-m", "First");
+    return checkout;
+  };
+
+  /** Where git may make a worktree: a path in a temporary directory of its own, not there yet. */
+  const worktreePath = (name: string): string => join(realpathSync(tempDir("agent-harness-worktrees-")), name);
+
+  /** What the fake provider was handed as its containment for one run in `workspacePath` at `level`. */
+  const handedIn = async (workspacePath: string, level: ContainmentLevel) => {
+    const { t, client, id, adapter } = await sessionIn(workspacePath, level);
+    await runScript(t, client, id, calling());
+    return adapter.lastRun().input.containment;
+  };
+
+  it.each(["workspace", "workspace-no-network"] as const)(
+    "at %s, holds a worktree's common git directory after the workspace, the scratch directory and the temporary directory, in RunContainment's own shape",
+    async (level) => {
+      const checkout = repository();
+      const worktree = worktreePath("feature");
+      git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+      const containment = await handedIn(worktree, level);
+      expect(containment).toEqual({
+        level,
+        mechanism: "bubblewrap",
+        scratchDirectory: containment.scratchDirectory,
+        temporaryDirectory: containment.temporaryDirectory,
+        writable: [worktree, containment.scratchDirectory, containment.temporaryDirectory, join(checkout, ".git")],
+        network: level === "workspace",
+      });
+    },
+  );
+
+  it("holds the bare repository for a worktree of a bare repository", async () => {
+    const bare = join(realpathSync(tempDir("agent-harness-bare-")), "app.git");
+    git(repository(), "clone", "-q", "--bare", ".", bare);
+    const worktree = worktreePath("feature");
+    git(bare, "worktree", "add", "-q", "-b", "feature", worktree);
+    const containment = await handedIn(worktree, "workspace");
+    expect(containment.writable).toEqual([worktree, containment.scratchDirectory, containment.temporaryDirectory, bare]);
+  });
+
+  it("holds the repository's git directory for a directory below its root, a worktree's included", async () => {
+    const checkout = repository();
+    const below = join(checkout, "packages", "app");
+    mkdirSync(below, { recursive: true });
+    const inCheckout = await handedIn(below, "workspace");
+    expect(inCheckout.writable).toEqual([below, inCheckout.scratchDirectory, inCheckout.temporaryDirectory, join(checkout, ".git")]);
+    const worktree = worktreePath("feature");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+    const belowWorktree = join(worktree, "packages", "app");
+    mkdirSync(belowWorktree, { recursive: true });
+    const inWorktree = await handedIn(belowWorktree, "workspace-no-network");
+    expect(inWorktree.writable).toEqual([belowWorktree, inWorktree.scratchDirectory, inWorktree.temporaryDirectory, join(checkout, ".git")]);
+  });
+
+  it("holds a submodule's own git directory, under its superproject's, for the submodule's checkout", async () => {
+    const superproject = repository();
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "add", "-q", repository(), "vendor/library");
+    const submodule = join(superproject, "vendor", "library");
+    const containment = await handedIn(submodule, "workspace");
+    expect(containment.writable).toEqual([submodule, containment.scratchDirectory, containment.temporaryDirectory, join(superproject, ".git", "modules", "vendor", "library")]);
+  });
+
+  it("holds the git directory a checkout made with --separate-git-dir names in its .git file, at the checkout's root too", async () => {
+    const separated = join(realpathSync(tempDir("agent-harness-separated-")), "app.git");
+    const checkout = join(realpathSync(tempDir("agent-harness-checkout-")), "app");
+    git(repository(), "clone", "-q", "--separate-git-dir", separated, ".", checkout);
+    const containment = await handedIn(checkout, "workspace");
+    expect(containment.writable).toEqual([checkout, containment.scratchDirectory, containment.temporaryDirectory, separated]);
+  });
+
+  it("adds nothing for a checkout root whose git directory is inside it, for a directory in no repository, or at off", async () => {
+    const checkout = repository();
+    const root = await handedIn(checkout, "workspace");
+    expect(root.writable).toEqual([checkout, root.scratchDirectory, root.temporaryDirectory]);
+    const loose = realpathSync(tempDir("agent-harness-workspace-"));
+    const nowhere = await handedIn(loose, "workspace");
+    expect(nowhere.writable).toEqual([loose, nowhere.scratchDirectory, nowhere.temporaryDirectory]);
+    const worktree = worktreePath("feature");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+    const off = await handedIn(worktree, "off");
+    expect(off).toMatchObject({ level: "off", mechanism: null });
+    expect(off.writable).toEqual([worktree, off.scratchDirectory, off.temporaryDirectory]);
+  });
+
+  it("is read again at each run start, from the files git keeps: nothing the repository's config names runs", async () => {
+    const base = realpathSync(tempDir("agent-harness-repository-"));
+    const workspacePath = join(base, "project");
+    mkdirSync(workspacePath);
+    const { t, client, id, adapter } = await sessionIn(workspacePath, "workspace");
+    await runScript(t, client, id, calling());
+    const before = adapter.lastRun().input.containment;
+    expect(before.writable).toEqual([workspacePath, before.scratchDirectory, before.temporaryDirectory]);
+    // A repository made around the workspace between runs, whose config names a program git would run on reading its index.
+    git(base, "init", "-q");
+    const ran = join(base, "fsmonitor-ran");
+    const monitor = join(base, "fsmonitor");
+    writeFileSync(monitor, `#!/bin/sh\ntouch '${ran}'\n`, { mode: 0o755 });
+    git(base, "config", "core.fsmonitor", monitor);
+    await runScript(t, client, id, calling());
+    const after = adapter.lastRun().input.containment;
+    expect(after.writable).toEqual([workspacePath, after.scratchDirectory, after.temporaryDirectory, join(base, ".git")]);
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  it("lets a file tool write in it while the gate still denies a write beside it, recorded as containment's and telling the model where it may write", async () => {
+    const checkout = repository();
+    const worktree = worktreePath("feature");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+    const gitDirectory = join(checkout, ".git");
+    const { t, client, id, adapter } = await sessionIn(worktree, "workspace");
+    const beside = join(checkout, "README.md");
+    const runId = await runScript(t, client, id, calling(write(join(gitDirectory, "worktrees", "feature", "COMMIT_EDITMSG"), join(gitDirectory, "objects", "pack", "new.pack")), write(beside)));
+    const [inside, outside] = adapter.lastRun().gated;
+    expect(inside?.decision).toEqual({ decision: "allow" });
+    expect(outside?.decision.decision).toBe("deny");
+    const message = outside?.decision.decision === "deny" ? outside.decision.message : "";
+    expect(message).toContain(beside);
+    expect(message).toContain(`the repository's git directory (${gitDirectory})`);
+    expect(decisionsOf(t, id, runId).map((event) => event.payload)).toEqual([
+      { runId, toolCallId: outside?.call.toolCallId, tool: "Write", summary: "Write call", decision: "denied", decidedBy: "containment", promptId: null, reason: message },
+    ]);
   });
 });
