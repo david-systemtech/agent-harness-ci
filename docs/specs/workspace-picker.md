@@ -264,3 +264,8 @@ From the build of the terminal UI's environment name and colour (#327), chosen d
 - **A change from another client** redraws the rail, the header, the status line, the `/environment` card, the look pickers and the new-session card's environment chip, which read the environment as the runtime lists it when drawn; the title of a new-session step already open keeps the name it opened with until the next step.
 
 Flagged for domain-modeling: the containment scratch directory every contained session has (permissions spec) is not a scratch workspace though both say scratch; "workspace root", "known directory" and "environment badge" are not glossary terms; the glossary's "canonical remote URL" should say the identity is a port-less `https` form, not a link. Raised for David: per-session read-only additional directories have no decision in any ADR and are not carried.
+
+From the build of the repository's git directory in containment's writable set (#322), chosen defaults for review:
+
+- **Which git directory**: the common git directory of the innermost repository holding the workspace, found from the workspace up through `.git`, `gitdir:` and `commondir` with no git run, as each run starts; added after the three directories `writable` had, and only when it lies outside the workspace. A submodule's workspace gets its git directory under the superproject's `.git/modules/`. The permissions spec's notes (#322) have the rest.
+- **The hooks and config** (the verify-first above): Claude's sandbox can deny them inside a writable git directory through `filesystem.denyWrite`; the carve-out for every repository workspace, file tools included, is #791.
