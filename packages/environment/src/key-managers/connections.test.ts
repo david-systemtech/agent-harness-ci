@@ -9,6 +9,7 @@ import { MANUAL_CLOCK_START, manualClock, type ManualClock } from "../../test/cl
 import { UNREACHABLE_OPENBAO, startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { rejection, saidBack, saidBackOnceHeld } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import {
   OTHER_SECRET_ID,
   PASSWORD,
@@ -425,7 +426,8 @@ describe("the startup sign-in", () => {
     let answer = (): void => undefined;
     bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "agent-read"], after: new Promise<void>((resolve) => (answer = resolve)) });
     bao.approle(ROLE_ID, OTHER_SECRET_ID, { policies: ["default"] });
-    const again = await start({ dataDir });
+    // With no Set up step, whose Key manager check would verify the connection as the environment starts, recording what it found (#383).
+    const again = await start({ dataDir, setupSteps: NO_SETUP_STEPS });
     const reader = await again.client();
     expect((await list(reader))[0]?.status.kind).toBe("signing-in");
 

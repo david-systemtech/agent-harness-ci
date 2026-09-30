@@ -7,6 +7,7 @@ import { startFakeOpenBao, type FakeLogin, type FakeOpenBao } from "../../test/f
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, signIn, signOut, token, verify } from "../../test/key-manager-connections.js";
 import { create } from "../../test/sessions.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
@@ -37,9 +38,14 @@ const eventually = (assertion: () => void): Promise<void> => vi.waitFor(assertio
 const MINTER = `path "auth/token/create" { capabilities = ["update"] }
 path "auth/token/create/runs" { capabilities = ["update"] }`;
 
-/** An environment beside a fake OpenBao on its clock, whose AppRole signs the test's role id and secret id in as `login` says, with default and minter. */
+/**
+ * An environment beside a fake OpenBao on its clock, whose AppRole signs the
+ * test's role id and secret id in as `login` says, with default and minter;
+ * with no Set up step, whose Key manager check would verify connections
+ * beside the renewals and logins counted here (#383).
+ */
 const withOpenBao = async (login: Omit<FakeLogin, "policies">, options: TestEnvironmentOptions = {}) => {
-  const t = await startTestEnvironment(options);
+  const t = await startTestEnvironment({ setupSteps: NO_SETUP_STEPS, ...options });
   onCleanup(() => t.close());
   const bao = await startFakeOpenBao({ now: () => t.clock.now() });
   onCleanup(() => bao.close());
@@ -167,6 +173,8 @@ describe("a login the environment made", () => {
     }
     await eventually(() => expect(bao.minted).toHaveLength(2));
     const second = bao.minted[1] ?? "";
+    // Held once its verification ends, which revokes the first, no run token holding it: its renewals are planned from then.
+    await eventually(() => expect(bao.live(first)).toBe(false));
 
     for (let round = 1; round <= 7; round += 1) {
       t.clock.advance(40 * MINUTE);
