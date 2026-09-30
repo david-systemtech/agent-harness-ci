@@ -19,6 +19,7 @@ import {
   type RunEndedPayload,
   type RunActorKind,
   type RunPolicy,
+  type RunSkillSet,
   type RunStartedPayload,
   type SessionTitleSetPayload,
   type Workspace,
@@ -101,6 +102,7 @@ import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
   noAutoAnswer,
+  noSkillSet,
   noToolServers,
   presetPolicy,
   undecidedTrust,
@@ -109,6 +111,8 @@ import {
   type InstructionScope,
   type PolicySeam,
   type PromptAutoAnswer,
+  type SkillSetScope,
+  type SkillSetSeam,
   type ToolGateRule,
   type ToolServerFactory,
   type TrustSeam,
@@ -120,8 +124,8 @@ import {
  * rest of the environment. It holds the adapter registry, reads each run's
  * account through the account store (#134), fills the run registry the lifecycle reads
  * for idle and drain (#112), and supplies each run with its seams (tool
- * servers, composed instructions, the policy resolver) and the permission
- * broker (#130). It starts a
+ * servers, composed instructions, the skill set, the policy resolver) and
+ * the permission broker (#130). It starts a
  * run through its adapter once the command that asked for it has committed,
  * consumes the run's event stream once, appending each event through the
  * run's scoped append and nothing else, and appends the run's one
@@ -208,6 +212,12 @@ export interface AdapterHostOptions {
    * `instructions.preview`'s. Preset: every repository undecided.
    */
   readonly trust?: TrustSeam;
+  /**
+   * The skill set each run is handed and each commands listing is made
+   * under (#495), resolved as the run launches, before its instructions are
+   * composed, and at each listing; preset: the empty set.
+   */
+  readonly skillSet?: SkillSetSeam;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
   /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
@@ -445,7 +455,11 @@ export interface AdapterHost {
   deliverAnswer(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
-  /** The slash commands for an account and workspace (`commands`). */
+  /**
+   * The slash commands for an account and workspace (`commands`), under the
+   * trust and the skill set a run there would have, which the adapter is
+   * handed on every call.
+   */
   commands(accountId: string, workspace: Workspace): Promise<readonly ProviderCommand[]>;
   /** The adapters' descriptors, one per provider (`providers.list`). */
   providers(): readonly AdapterDescriptor[];
@@ -592,6 +606,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const trustOf = options.trust ?? undecidedTrust;
+  const skillSetOf = options.skillSet ?? noSkillSet;
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -1387,6 +1402,26 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
 
   /**
+   * Resolves a live run's skill set (#495) as it launches, before its
+   * instructions are composed. Null when the run ended meanwhile, or when
+   * resolving failed, which ends it `error` here: either way no provider
+   * process is begun for it.
+   */
+  const skillSetFor = async (entry: LiveRun, scope: SkillSetScope): Promise<RunSkillSet | null> => {
+    try {
+      const resolved = await skillSetOf(scope);
+      return entry.ended ? null : resolved;
+    } catch (error) {
+      console.error(`Resolving the skill set of run ${entry.runId} failed; it ends without starting:`, error);
+      if (!entry.ended) {
+        const message = `The run's skill set could not be resolved: ${messageOf(error)}`;
+        finish(entry, { type: "end", reason: "error", error: { message, code: null } }, { by: "host", stop: null });
+      }
+      return null;
+    }
+  };
+
+  /**
    * Composes a live run's instructions and records them
    * (`run.instructions.composed`: the manifest and the text's digest, never
    * the text). Null when the run ended meanwhile (an interrupt, a stop, its
@@ -1462,7 +1497,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // One injection answer for the run: what its instructions tell it and what its process is given.
     const injection = processEnvironments.decide(holderOf(plan));
     const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection });
-    const start = (composed: ComposedInstructions): void =>
+    const skills: SkillSetScope = {
+      sessionId: plan.sessionId,
+      accountId: plan.account.id,
+      workspace: plan.workspace,
+      trust: scope.trust,
+      nativeRoots: plan.account.descriptor.nativeSkillRoots,
+    };
+    const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
         if (entry.containment.level !== "off") directories.make(plan.sessionId);
@@ -1489,6 +1531,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             containment: entry.containment,
             denylist: runDenylist(plan.policy.attended),
             processEnvironment: processEnvironmentOf(plan, injection),
+            skillSet,
             prompt,
           },
           contextFor(entry),
@@ -1497,11 +1540,18 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         for (const message of prompt) unstage(message.messageId);
         return run;
       });
-    void composeFor(entry, scope).then(
-      (composed) => {
-        if (composed !== null && !entry.ended) safely(() => start(composed), (error) => console.error(`Starting run ${entry.runId} failed:`, error));
+    // Its skill set, then its instructions, which will carry the set's fingerprint (#496); then its adapter.
+    const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
+      const skillSet = await skillSetFor(entry, skills);
+      if (skillSet === null) return null;
+      const composed = await composeFor(entry, scope);
+      return composed === null ? null : [composed, skillSet];
+    };
+    void prepared().then(
+      (ready) => {
+        if (ready !== null && !entry.ended) safely(() => start(...ready), (error) => console.error(`Starting run ${entry.runId} failed:`, error));
       },
-      (error: unknown) => console.error(`Ending run ${entry.runId}, whose instructions could not be composed, failed:`, error),
+      (error: unknown) => console.error(`Ending run ${entry.runId}, which could not be prepared, failed:`, error),
     );
   };
 
@@ -2166,7 +2216,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     async commands(accountId, workspace) {
       const held = heldAccount(accountId);
       const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands", "commands");
-      return list.call(held.adapter, held.ref, workspace);
+      // Under what a run in the workspace would have (#495): its trust, read with no repository identity as a new session's
+      // preview is, and the skill set resolved for the account and workspace, no session named.
+      const trust = trustOf({ workspace, repositoryIdentity: null });
+      const skillSet = await skillSetOf({ sessionId: null, accountId: held.ref.id, workspace, trust, nativeRoots: held.adapter.descriptor.nativeSkillRoots });
+      return list.call(held.adapter, held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
     },
     providers: () => adapters.list().map((adapter) => adapter.descriptor),
     processes: {

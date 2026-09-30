@@ -72,7 +72,7 @@ import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
+import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type SkillSetSeam, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
@@ -334,6 +334,8 @@ export interface EnvironmentOptions {
      * OrientationRenderer (#380), and no other layer filled.
      */
     readonly instructions?: InstructionComposer;
+    /** Resolves each run's skill set and each commands listing's (#495); preset: the empty set, until the materialiser (#496). */
+    readonly skillSet?: SkillSetSeam;
     /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129) and its containment probe (#133). */

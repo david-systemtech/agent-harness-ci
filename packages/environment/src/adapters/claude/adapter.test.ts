@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AccountIdentity } from "@agent-harness/contracts";
+import { EMPTY_RUN_SKILL_SET, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
@@ -109,8 +109,20 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
   },
   denylist: null,
   processEnvironment: EMPTY_PROCESS_ENVIRONMENT,
+  skillSet: EMPTY_RUN_SKILL_SET,
   prompt: [message("Go")],
   ...overrides,
+});
+
+/** A resolved skill set under `fingerprint`: its generation, a linked `tdd`, a trusted repository's native `release`, and its native `triage` switched off. */
+const skillSetOf = (fingerprint: string): RunSkillSet => ({
+  generation: `/data/skills/generations/${fingerprint}`,
+  fingerprint,
+  members: [
+    { name: "tdd", origin: null, invocation: "model+slash", native: false },
+    { name: "release", origin: null, invocation: "slash-only", native: true },
+  ],
+  hiddenNativeNames: ["triage"],
 });
 
 interface Context extends RunContext {
@@ -303,8 +315,9 @@ describe("a run", () => {
 
   it("hands query() the options table: store, trust, instructions, bundled binary, broker", async () => {
     const store = { append: async () => undefined, load: async () => null, listUnrenamedSummaries: async () => [] };
-    const adapter = adapterWith({ sessionStore: store, pluginDirectory: () => "/data/skills/work", autoMemoryRoot: "/data/auto-memory" });
-    adapter.createRun(runInput({ trusted: true, instructions: "Be brief.", repositoryIdentity: "git.example/david/repo", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
+    const adapter = adapterWith({ sessionStore: store, autoMemoryRoot: "/data/auto-memory" });
+    const skillSet = skillSetOf("3f9a");
+    adapter.createRun(runInput({ trusted: true, instructions: "Be brief.", repositoryIdentity: "git.example/david/repo", skillSet, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
     // A cold resume through the store has the CLI refresh the login on an unsampled query first (#229): the run's is the second.
     const options: Options = (await started(2)).options;
     expect(options).toMatchObject({
@@ -316,8 +329,8 @@ describe("a run", () => {
       strictMcpConfig: true,
       includePartialMessages: true,
       systemPrompt: { type: "preset", preset: "claude_code", append: "Be brief." },
-      plugins: [{ type: "local", path: "/data/skills/work" }],
-      settings: { autoMemoryDirectory: expect.stringMatching(/^\/data\/auto-memory\/git-example-david-repo-[0-9a-f]{12}$/) },
+      plugins: [{ type: "local", path: "/data/skills/generations/3f9a" }],
+      settings: { autoMemoryDirectory: expect.stringMatching(/^\/data\/auto-memory\/git-example-david-repo-[0-9a-f]{12}$/), skillOverrides: { triage: "off" } },
       sessionStore: store,
       resume: PROVIDER_SESSION,
       pathToClaudeCodeExecutable: "/sdk/claude-agent-sdk-linux-x64/claude",
@@ -1771,7 +1784,8 @@ describe("status, models and commands", () => {
   it("lists the commands for a workspace without starting a turn", async () => {
     fake.controls = { supportedCommands: async () => [{ name: "review", description: "Review the branch", argumentHint: "" }] };
     const adapter = adapterWith();
-    expect(await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" })).toEqual([{ name: "review", description: "Review the branch" }]);
+    const scope = { trusted: false, skillSet: EMPTY_RUN_SKILL_SET };
+    expect(await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, scope)).toEqual([{ name: "review", description: "Review the branch" }]);
     expect(fake.last().options.cwd).toBe("/work/repo");
     expect(fake.last().prompts).toEqual([]);
   });
@@ -2078,6 +2092,33 @@ describe("a run that joins a kept process", () => {
     expect(fresh.options).toMatchObject({ settingSources: ["project"], strictMcpConfig: true });
   });
 
+  it("serves a run whose skill set's fingerprint differs from the kept process's on a fresh process resuming from the store with the new generation, and attaches one whose fingerprint is the same (#495)", async () => {
+    const store = { append: async () => undefined, load: async () => null, listUnrenamedSummaries: async () => [] };
+    const adapter = adapterWith({ sessionStore: store });
+    const context = contextWith();
+    const input = runInput({ skillSet: skillSetOf("3f9a") });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    expect(query.options.plugins).toEqual([{ type: "local", path: "/data/skills/generations/3f9a" }]);
+    // The same fingerprint, resolved again for the next run: the kept process serves it.
+    const same = adapter.createRun(runInput({ skillSet: skillSetOf("3f9a"), target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [(await query.promptsPushed(2))[1]?.uuid as string]), sdk.result(PROVIDER_SESSION));
+    await drain(same);
+    same.release();
+    // A skill created since: a process spawned with the new generation, resuming the conversation through the store.
+    adapter.createRun(runInput({ skillSet: { ...skillSetOf("7c1e"), hiddenNativeNames: [] }, target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    // A cold resume through the store refreshes the login on an unsampled query first (#229): the run's is the next.
+    const fresh = await fake.made(3);
+    expect(query.closed).toBe(true);
+    expect(fresh.options).toMatchObject({ resume: PROVIDER_SESSION, sessionStore: store, plugins: [{ type: "local", path: "/data/skills/generations/7c1e" }] });
+    expect(fresh.options).not.toHaveProperty("settings");
+  });
+
   it("serves a run whose in-process tools differ from the kept process's on a fresh process, and attaches one whose tools are the same (#139)", async () => {
     const adapter = adapterWith();
     const context = contextWith();
@@ -2289,15 +2330,30 @@ describe("the environment the adapter was made with", () => {
 });
 
 describe("the unsampled queries", () => {
-  it("keep no transcript, load no plugins for a model listing, and load a trusted repository's commands with its project settings", async () => {
+  it("keep no transcript, load no plugins for a model listing, and list commands as a run would offer them: the generation as the plugin, a trusted repository's project settings, the hidden native names off", async () => {
     fake.controls = { supportedModels: async () => [], supportedCommands: async () => [] };
-    const adapter = adapterWith({ pluginDirectory: () => "/data/skills/work" });
+    const adapter = adapterWith({ autoMemoryRoot: "/data/auto-memory" });
     await adapter.models({ id: "work", directory: "/d" });
     expect(fake.last().options).toMatchObject({ persistSession: false, settingSources: [] });
     expect(fake.last().options).not.toHaveProperty("plugins");
-    await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, { trusted: true });
-    expect(fake.last().options).toMatchObject({ persistSession: false, settingSources: ["project"], plugins: [{ type: "local", path: "/data/skills/work" }] });
-    await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" });
+    await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, { trusted: true, skillSet: skillSetOf("3f9a") });
+    expect(fake.last().options).toMatchObject({
+      persistSession: false,
+      settingSources: ["project"],
+      plugins: [{ type: "local", path: "/data/skills/generations/3f9a" }],
+      settings: { skillOverrides: { triage: "off" } },
+    });
+    // A listing keeps no memory: the flag settings carry only what hides a skill.
+    expect(fake.last().options.settings).toEqual({ skillOverrides: { triage: "off" } });
+    await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, { trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
     expect(fake.last().options.settingSources).toEqual([]);
+    expect(fake.last().options).not.toHaveProperty("plugins");
+    expect(fake.last().options).not.toHaveProperty("settings");
+  });
+
+  it("answers a member's invocation: /agent-harness:<name> for one the generation links, /<name> for a native one", () => {
+    const adapter = adapterWith();
+    expect(adapter.invocationText({ name: "tdd", native: false })).toBe("/agent-harness:tdd");
+    expect(adapter.invocationText({ name: "release", native: true })).toBe("/release");
   });
 });
