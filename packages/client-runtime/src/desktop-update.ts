@@ -113,7 +113,7 @@ export interface DesktopUpdateFlow extends DesktopUpdate {
 }
 
 /** Whether `a` is a release version newer than `b`; a version that is none is never newer. */
-const newer = (a: string, b: string): boolean => ReleaseVersion.safeParse(a).success && ReleaseVersion.safeParse(b).success && compareReleaseVersions(a, b) > 0;
+export const newerVersion = (a: string, b: string): boolean => ReleaseVersion.safeParse(a).success && ReleaseVersion.safeParse(b).success && compareReleaseVersions(a, b) > 0;
 
 /** The page a release is downloaded from by hand, on the forge the local environment reads its releases from. */
 const releasePageOf = (source: ReleaseSource): string => `${source.origin}/${source.repository}/releases`;
@@ -190,12 +190,12 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
       const last = status.result.lastCheck;
       return last?.result === "failed" ? failed(version, "check", last.message, stagedNow()) : { state: "current", version };
     }
-    if (!newer(followed, version)) return { state: "current", version };
+    if (!newerVersion(followed, version)) return { state: "current", version };
     showCheck({ state: "staging", version, toVersion: followed });
     const stage = await host.stageCall(environmentId, "updates.desktop.stage", { platform: `${running.platform}-${running.arch}`, format: running.format });
     if (!stage.ok) return failed(version, "stage", `The local environment could not stage the desktop's ${followed} build: ${stage.error.message}`, stagedNow());
     const staged: ShellStagedBuild = { path: stage.result.path, version: stage.result.version, sha256: stage.result.sha256 };
-    if (!newer(staged.version, version)) return { state: "current", version };
+    if (!newerVersion(staged.version, version)) return { state: "current", version };
     showCheck({ state: "ready", version, staged });
     if (handedForQuit?.path === staged.path && handedForQuit.sha256 === staged.sha256) return { state: "ready", version, staged };
     const outcome = await apply(staged, "quit");
@@ -239,7 +239,7 @@ export const createDesktopUpdate = (host: DesktopUpdateHost): DesktopUpdateFlow 
     if (!status.ok) return { state: "failed", version: bundled.version, reason: status.error.code, message: status.error.message };
     const { version: environmentVersion, pending, failedVersions } = status.result;
     const pendingVersion = PENDING_STATES.has(pending.state) && "toVersion" in pending ? pending.toVersion : null;
-    if (!newer(bundled.version, environmentVersion) || (pendingVersion !== null && !newer(bundled.version, pendingVersion))) return { state: "none" };
+    if (!newerVersion(bundled.version, environmentVersion) || (pendingVersion !== null && !newerVersion(bundled.version, pendingVersion))) return { state: "none" };
     const settings = await host.call(environmentId, "settings.get", { keys: ["updates.autoUpdate", "updates.pinnedVersion"] });
     if (!settings.ok) return { state: "failed", version: bundled.version, reason: settings.error.code, message: settings.error.message };
     const { "updates.autoUpdate": autoUpdate, "updates.pinnedVersion": pinned } = settings.result.values;
