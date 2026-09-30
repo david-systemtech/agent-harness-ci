@@ -240,11 +240,108 @@ describe("the host's artefact", { timeout: BUILD_MS }, () => {
   });
 });
 
+/** This checkout's compose file, whose image line the release names its image in. */
+const COMPOSE_FILE = join(import.meta.dirname, "..", "..", "..", "..", "scripts", "compose.yaml");
+
+/**
+ * The release's other assets as the workflow names them (#358), made in a
+ * folder beside the build's output: two scripts, the compose file (this
+ * checkout's) and a schema export folder.
+ */
+const otherAssets = (): { kind: string; path: string }[] => {
+  const sources = join(build.out, "..", "sources");
+  mkdirSync(join(sources, "schema", "release"), { recursive: true });
+  writeFileSync(join(sources, "install.sh"), "#!/bin/sh\necho install\n");
+  writeFileSync(join(sources, "host-updater.sh"), "#!/bin/sh\necho update\n");
+  writeFileSync(join(sources, "schema", "index.json"), '{"title":"index"}\n');
+  writeFileSync(join(sources, "schema", "release", "manifest.json"), '{"title":"ReleaseManifest"}\n');
+  return [
+    { kind: "schema", path: join(sources, "schema") },
+    { kind: "install-script", path: join(sources, "install.sh") },
+    { kind: "compose", path: COMPOSE_FILE },
+    { kind: "host-updater", path: join(sources, "host-updater.sh") },
+  ];
+};
+
+describe("the release's other assets", { timeout: BUILD_MS }, () => {
+  it("are written beside the artefacts with a sidecar each, a folder packed as agent-harness-<kind>.tar.gz, and listed in release.json after them with their kind, no platform and the format their name says", async () => {
+    build = fixtureBuild();
+    await buildRelease(build.options({ platforms: ["linux-x64"], assets: otherAssets() }), build.seams);
+    const names = ["agent-harness-linux-x64.tar.gz", "agent-harness-schema.tar.gz", "install.sh", "compose.yaml", "host-updater.sh", "release.json"];
+    expect(readdirSync(build.out).sort()).toEqual(names.flatMap((name) => [name, `${name}.sha256`]).sort());
+    for (const name of names) {
+      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
+    }
+    const digest = (name: string) => text(join(build.out, `${name}.sha256`)).split(" ", 1)[0];
+    const size = (name: string) => statSync(join(build.out, name)).size;
+    const manifest = ReleaseManifest.parse(JSON.parse(text(join(build.out, "release.json"))));
+    expect(manifest.assets.slice(1)).toEqual([
+      { name: "agent-harness-schema.tar.gz", kind: "schema", platform: null, format: "tar.gz", size: size("agent-harness-schema.tar.gz"), sha256: digest("agent-harness-schema.tar.gz") },
+      { name: "install.sh", kind: "install-script", platform: null, format: null, size: size("install.sh"), sha256: digest("install.sh") },
+      { name: "compose.yaml", kind: "compose", platform: null, format: null, size: size("compose.yaml"), sha256: digest("compose.yaml") },
+      { name: "host-updater.sh", kind: "host-updater", platform: null, format: null, size: size("host-updater.sh"), sha256: digest("host-updater.sh") },
+    ]);
+    expect(text(join(build.out, "install.sh"))).toBe("#!/bin/sh\necho install\n");
+    expect(text(join(build.out, "host-updater.sh"))).toBe("#!/bin/sh\necho update\n");
+    const schema = unpack("agent-harness-schema.tar.gz");
+    expect(readdirSync(schema, { recursive: true, encoding: "utf8" }).sort()).toEqual(["schema", "schema/index.json", "schema/release", "schema/release/manifest.json"]);
+    expect(text(join(schema, "schema", "release", "manifest.json"))).toBe('{"title":"ReleaseManifest"}\n');
+  });
+
+  it("names the release's image in the compose file in place of the unreleased placeholder, changing no other line", async () => {
+    build = fixtureBuild();
+    await buildRelease(build.options({ platforms: ["linux-x64"], assets: otherAssets() }), build.seams);
+    const before = text(COMPOSE_FILE).split("\n");
+    const after = text(join(build.out, "compose.yaml")).split("\n");
+    expect(after).toHaveLength(before.length);
+    expect(before.flatMap((line, i) => (line === after[i] ? [] : [[line, after[i]]]))).toEqual([
+      ["    image: ${AGENT_HARNESS_IMAGE:-git.systemtech.dev:5526/david/agent-harness:unreleased}", "    image: ${AGENT_HARNESS_IMAGE:-git.example.test:5526/david/agent-harness:0.5.0}"],
+    ]);
+  });
+
+  it("are refused, before anything is built, when one is missing, not a kind, the artefacts' own kind, named as another asset is, or a compose file without the placeholder written once", async () => {
+    build = fixtureBuild();
+    const sources = join(build.out, "..", "sources");
+    mkdirSync(sources, { recursive: true });
+    const file = (name: string, content = "#!/bin/sh\n") => {
+      writeFileSync(join(sources, name), content);
+      return join(sources, name);
+    };
+    const refused: [{ kind: string; path: string }[], RegExp][] = [
+      [[{ kind: "install-script", path: join(sources, "absent.sh") }], /absent\.sh.*does not exist/],
+      [[{ kind: "Install Script", path: file("install.sh") }], /"Install Script" is not an asset kind/],
+      [[{ kind: "environment", path: file("install.sh") }], /the build's own artefacts/],
+      [[{ kind: "install-script", path: file("install.sh") }, { kind: "host-updater", path: file("install.sh") }], /two assets named install\.sh/],
+      [[{ kind: "install-script", path: file("release.json", "{}\n") }], /two assets named release\.json/],
+      [[{ kind: "install-script", path: file("agent-harness-linux-x64.tar.gz") }], /two assets named agent-harness-linux-x64\.tar\.gz/],
+      [[{ kind: "compose", path: file("compose.yaml", "services: {}\n") }], /compose\.yaml names the image git\.systemtech\.dev:5526\/david\/agent-harness:unreleased 0 times, not once/],
+      [[{ kind: "compose", path: file("twice.yaml", "a: git.systemtech.dev:5526/david/agent-harness:unreleased\nb: git.systemtech.dev:5526/david/agent-harness:unreleased\n") }], /2 times, not once/],
+    ];
+    for (const [assets, message] of refused) {
+      await expect(buildRelease(build.options({ platforms: ["linux-x64"], assets }), build.seams), String(message)).rejects.toThrow(message);
+    }
+    expect(build.compiled).toBe(0);
+    expect(existsSync(build.out) ? readdirSync(build.out) : []).toEqual([]);
+  });
+});
+
 describe("the build's command line", () => {
   it("takes the tag, the output folder, the image's reference and digest, and platforms to build, the folder read from where pnpm was run", () => {
     const args = ["--tag", "v0.5.0", "--out", "release", "--image-reference", FIXTURE_IMAGE.reference, "--image-digest", FIXTURE_IMAGE.digest];
     expect(buildOptionsOf(args, "/work/checkout")).toEqual({ tag: "v0.5.0", out: "/work/checkout/release", image: FIXTURE_IMAGE });
     expect(buildOptionsOf([...args, "--platform", "linux-x64", "--platform", "win32-x64"], "/work")).toMatchObject({ platforms: ["linux-x64", "win32-x64"] });
+  });
+
+  it("takes the release's other assets as --asset <kind>=<path>, each path read from where pnpm was run", () => {
+    const args = ["--tag", "v0.5.0", "--out", "release", "--image-reference", FIXTURE_IMAGE.reference, "--image-digest", FIXTURE_IMAGE.digest];
+    expect(buildOptionsOf([...args, "--asset", "install-script=scripts/install.sh", "--asset", "schema=/abs/schema"], "/work/checkout")).toMatchObject({
+      assets: [
+        { kind: "install-script", path: "/work/checkout/scripts/install.sh" },
+        { kind: "schema", path: "/abs/schema" },
+      ],
+    });
+    expect(() => buildOptionsOf([...args, "--asset", "scripts/install.sh"], "/work")).toThrow(/--asset takes <kind>=<path>, not "scripts\/install\.sh"/);
+    expect(() => buildOptionsOf([...args, "--asset", "install-script="], "/work")).toThrow(/--asset takes <kind>=<path>/);
   });
 
   it("refuses arguments missing one it needs, or one it does not know", () => {

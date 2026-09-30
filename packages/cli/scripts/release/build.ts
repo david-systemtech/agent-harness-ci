@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { RELEASE_MANIFEST_FILE, ReleaseImage, ReleaseManifest, type PreflightReport, type ReleaseAsset } from "@agent-harness/contracts";
 import { packTarGz, packZip, writeSidecar } from "./archive.js";
+import { checkOtherAssets, writeOtherAsset, type OtherAsset } from "./assets.js";
 import { fetchDownload, fetchNodeArchive, NODE_RUNTIME, nodeArchive, type Download, type NodeRuntime } from "./node-runtime.js";
 import { pnpmInstall } from "./pnpm.js";
 import { verifyArtefact } from "./verify.js";
@@ -14,8 +15,9 @@ import { artefactTargets, BuildError, hostPlatform, versionOfTag, type ArtefactT
 /**
  * The release build (launcher-update spec, "The release"; #356): one run
  * assembles every platform's server artefact under #113's names, writes a
- * `.sha256` sidecar beside each, and writes the release manifest,
- * `release.json`, from them and from the image it is given. The version is
+ * `.sha256` sidecar beside each, writes the release's other assets the
+ * workflow names beside them (#358), and writes the release manifest,
+ * `release.json`, from them all and from the image it is given. The version is
  * the tag's, stamped into every package. The artefact of the platform the
  * build runs on is unpacked and run there, with no Node on the path, and its
  * preflight report gives the manifest the release's identity.
@@ -31,6 +33,8 @@ export interface BuildOptions {
   readonly image: ReleaseImage;
   /** The platforms to build, preset every platform a release publishes. */
   readonly platforms?: readonly string[];
+  /** The release's other assets, listed in the manifest after the artefacts in this order; preset none. */
+  readonly assets?: readonly OtherAsset[];
 }
 
 /** What the build does that a test replaces; each has a preset, the real one. */
@@ -105,6 +109,8 @@ export const buildRelease = async (options: BuildOptions, seams: BuildSeams = {}
   const repoRoot = seams.repoRoot ?? REPO_ROOT;
   const log = seams.log ?? ((line: string) => console.log(line));
   if (existsSync(options.out) && readdirSync(options.out).length > 0) throw new BuildError(`${options.out} is not empty: the build writes a release's assets into an empty folder.`);
+  const others = options.assets ?? [];
+  checkOtherAssets(others, targets.map((target) => target.name));
   mkdirSync(options.out, { recursive: true });
   await (seams.compile ?? compileWorkspace)(repoRoot);
   const packages = runtimePackages(repoRoot);
@@ -124,6 +130,11 @@ export const buildRelease = async (options: BuildOptions, seams: BuildSeams = {}
       rmSync(root, { recursive: true, force: true });
       assets.push(assetOf(target, asset, await writeSidecar(asset)));
       log(`${target.platform}: wrote ${target.name}`);
+    }
+    for (const asset of others) {
+      const written = await writeOtherAsset(asset, options.out, image.data);
+      assets.push(written);
+      log(`wrote ${written.name}`);
     }
     log(`${host}: unpacking and running ${hostTarget.name}`);
     const report = await (seams.verify ?? verifyArtefact)(join(options.out, hostTarget.name), hostTarget, version);
