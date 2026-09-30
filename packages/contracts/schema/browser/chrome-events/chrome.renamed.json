@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromeRenamedPayload",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "The name a paired Chrome is kept under (Work, Personal): trimmed, at most 80 characters, no control or invisible characters; A browser when nothing was left."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "description": "chrome.renamed: the Chrome is kept under this name now."
+}

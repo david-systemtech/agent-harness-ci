@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import {
@@ -9,6 +10,7 @@ import {
   type BridgeFromEnvironment,
   type BridgeFromExtension,
   type ExtensionListenerStatus,
+  type PagePolicy,
 } from "@agent-harness/contracts";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { Clock, Timer } from "../serve/clock.js";
@@ -31,7 +33,12 @@ import { textOf } from "../wire/wire.js";
  * extension that holds no credential opens with `announce`, answered with
  * the environment's id and name, and the socket is kept: while one is open
  * an unpaired extension is connected, which ticks the Browser card's Load
- * sub-step. Pairing and the proof on the same sockets are #548's.
+ * sub-step. A `pair` on it that the desk takes answers `paired`, and the
+ * socket is the Chrome's from then on; one it refuses is answered `refused`
+ * and the socket kept for the next. A paired extension opens with `hello`,
+ * answered with a `challenge` carrying the environment's id and a nonce,
+ * and a proof the desk takes answers `ready` (#548). Each paired Chrome
+ * holds one proved socket at most: a newer one replaces it.
  */
 
 /** The ports the listener tries, the preferred first and then each next up to the last; a preferred port of 0 binds any free one. */
@@ -53,6 +60,29 @@ const REFUSED_CLOSE_CODE = 1008;
 const CLOSE_GRACE_MS = 1000;
 
 type Announce = Extract<BridgeFromExtension, { readonly type: "announce" }>;
+export type Hello = Extract<BridgeFromExtension, { readonly type: "hello" }>;
+
+/** What the desk made of a `pair`: the Chrome it paired, or the sentence the extension shows. */
+export type PairAnswer = { readonly ok: true; readonly chromeId: string; readonly secret: string } | { readonly ok: false; readonly reason: string };
+
+/**
+ * Where the listener takes what its sockets ask of the environment's paired
+ * Chromes (#548): a pairing, a proof, a Chrome that connected or went, and
+ * the page policy it sends. A failure of `pair` or `prove` is answered on the
+ * socket; `connected`, `disconnected` and `policy` never throw.
+ */
+export interface ChromeDesk {
+  /** A `pair` on a socket that announced `announce`; `open` says whether the socket is still there to hear the answer. */
+  pair(pair: { readonly code: string; readonly name: string }, announce: Announce, open: () => boolean): Promise<PairAnswer>;
+  /** The proof `mac` of the hello's Chrome on `nonce`: true, or the sentence the socket is refused with. */
+  prove(hello: Hello, nonce: string, mac: string): Promise<true | string>;
+  /** The hello's Chrome proved itself and holds this socket now; a failure to record it is logged. */
+  connected(hello: Hello): void;
+  /** A Chrome's proved socket closed, and no newer one replaced it; a failure to record it is logged. */
+  disconnected(chromeId: string): void;
+  /** The page policy last sent to the proved sockets, held rather than read. */
+  policy(): PagePolicy;
+}
 
 export interface ExtensionListenerOptions {
   readonly clock: Clock;
@@ -60,16 +90,34 @@ export interface ExtensionListenerOptions {
   readonly environment: { readonly id: string; readonly name: () => string };
   /** An extension that holds no credential announced itself, and its socket is kept. */
   readonly onAnnounce: (announce: Announce) => void;
+  readonly chromes: ChromeDesk;
 }
 
 export interface ExtensionListener {
   /** Binds loopback on the first free port of `ports`, and answers where it listens or why it does not. Once. */
   listen(ports: ExtensionListenerPorts): Promise<ExtensionListenerStatus>;
-  /** Whether an extension that announced itself holds its socket open. */
+  /** Whether an extension that announced itself, and has not paired, holds its socket open. */
   unpairedConnected(): boolean;
+  /** Whether the Chrome `chromeId` holds a proved socket now. */
+  isConnected(chromeId: string): boolean;
+  /** Refuses the Chrome's proved socket with `reason` and closes it, raising no disconnection: its pairing is gone. */
+  drop(chromeId: string, reason: string): void;
+  /** Sends `policy` to every proved socket. */
+  sendPolicy(policy: PagePolicy): void;
   /** Closes every socket (1001), cutting what has not closed after a second, then stops listening. */
   close(): Promise<void>;
 }
+
+/**
+ * Where a socket's conversation is: opened with nothing yet; announced (a
+ * pairing may be under way); challenged on a hello (its proof may be under
+ * way); or live, the proved or paired socket of a Chrome.
+ */
+type Conversation =
+  | { readonly state: "opened" }
+  | { readonly state: "announced"; readonly announce: Announce; readonly pairing: boolean }
+  | { readonly state: "challenged"; readonly hello: Hello; readonly nonce: string; readonly proving: boolean }
+  | { readonly state: "live"; readonly chromeId: string };
 
 const portsOf = ({ preferred, last }: ExtensionListenerPorts): number[] =>
   preferred === 0 ? [0] : Array.from({ length: Math.max(1, last - preferred + 1) }, (_, index) => preferred + index);
@@ -77,8 +125,10 @@ const portsOf = ({ preferred, last }: ExtensionListenerPorts): number[] =>
 export const createExtensionListener = (options: ExtensionListenerOptions): ExtensionListener => {
   const surface: HttpSurface = createHttpSurface();
   const server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, clientTracking: false });
-  const sockets = new Set<WebSocket>();
-  const announced = new Set<WebSocket>();
+  const conversations = new Map<WebSocket, Conversation>();
+  /** Each paired Chrome's proved socket. */
+  const live = new Map<string, WebSocket>();
+  const { chromes } = options;
 
   const send = (socket: WebSocket, message: BridgeFromEnvironment): void => {
     if (socket.readyState === socket.OPEN) socket.send(encodeBridgeMessage(message));
@@ -90,15 +140,59 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     socket.close(REFUSED_CLOSE_CODE);
   };
 
+  const isOpen = (socket: WebSocket): boolean => socket.readyState === socket.OPEN;
+
+  /** Makes `socket` the Chrome's one proved socket, closing the one it replaces, which raises no disconnection. */
+  const goLive = (socket: WebSocket, chromeId: string): void => {
+    const replaced = live.get(chromeId);
+    live.set(chromeId, socket);
+    conversations.set(socket, { state: "live", chromeId });
+    if (replaced !== undefined && replaced !== socket) replaced.close(1000);
+  };
+
+  const pair = async (socket: WebSocket, conversation: Extract<Conversation, { state: "announced" }>, message: { readonly code: string; readonly name: string }): Promise<void> => {
+    conversations.set(socket, { ...conversation, pairing: true });
+    let answer: PairAnswer;
+    try {
+      answer = await chromes.pair(message, conversation.announce, () => isOpen(socket));
+    } catch (error) {
+      answer = { ok: false, reason: `Pairing failed in the environment: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    if (!isOpen(socket)) return;
+    if (!answer.ok) {
+      conversations.set(socket, { ...conversation, pairing: false });
+      return send(socket, { type: "refused", reason: answer.reason });
+    }
+    goLive(socket, answer.chromeId);
+    send(socket, { type: "paired", chromeId: answer.chromeId, secret: answer.secret, policy: chromes.policy() });
+  };
+
+  const prove = async (socket: WebSocket, conversation: Extract<Conversation, { state: "challenged" }>, mac: string): Promise<void> => {
+    conversations.set(socket, { ...conversation, proving: true });
+    let proved: true | string;
+    try {
+      proved = await chromes.prove(conversation.hello, conversation.nonce, mac);
+    } catch (error) {
+      proved = `The proof could not be checked: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (!isOpen(socket)) return;
+    if (proved !== true) return refuse(socket, proved);
+    goLive(socket, conversation.hello.chromeId.toLowerCase());
+    chromes.connected(conversation.hello);
+    send(socket, { type: "ready", policy: chromes.policy() });
+  };
+
   const onMessage = (socket: WebSocket, data: RawData, isBinary: boolean): void => {
     const text = textOf(data, isBinary);
     if (text === undefined) return refuse(socket, "The bridge carries JSON text, one message a frame, never binary.");
     const decoded = decodeFromExtension(text);
     if (!decoded.ok) return refuse(socket, decoded.reason);
     const message = decoded.message;
+    const conversation = conversations.get(socket) ?? { state: "opened" };
     switch (message.type) {
       case "announce":
-        announced.add(socket);
+        if (conversation.state !== "opened" && conversation.state !== "announced") return refuse(socket, "This socket opened already; an announce opens a socket.");
+        if (conversation.state === "opened") conversations.set(socket, { state: "announced", announce: message, pairing: false });
         send(socket, { type: "announced", environmentId: options.environment.id, environmentName: options.environment.name() });
         options.onAnnounce(message);
         return;
@@ -110,15 +204,22 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
         socket.close(1000);
         return;
       case "pair":
-        // Pairing on the announced socket is #548's: until it is built no code is live, and the socket stays for the next.
-        if (announced.has(socket)) return send(socket, { type: "refused", reason: "This environment cannot pair a Chrome yet." });
-        return refuse(socket, "A pair comes on a socket that opened with announce.");
-      case "hello":
-        // The proof is #548's: until it is built this environment holds no paired Chrome, so none can prove itself.
-        return refuse(socket, "This environment holds no pairing for this Chrome. Pair it again from the extension's options page.");
+        if (conversation.state !== "announced") return refuse(socket, "A pair comes on a socket that opened with announce.");
+        if (conversation.pairing) return send(socket, { type: "refused", reason: "A pairing is under way on this socket; wait for its answer." });
+        return void pair(socket, conversation, message);
+      case "hello": {
+        if (conversation.state !== "opened") return refuse(socket, "This socket opened already; a hello opens a socket.");
+        const nonce = randomBytes(32).toString("hex");
+        conversations.set(socket, { state: "challenged", hello: message, nonce, proving: false });
+        return send(socket, { type: "challenge", environmentId: options.environment.id, nonce });
+      }
       case "proof":
+        if (conversation.state !== "challenged" || conversation.proving) return refuse(socket, "A proof answers the challenge to a hello, once.");
+        return void prove(socket, conversation, message.mac);
       case "result":
-        return refuse(socket, `A ${message.type} comes only on a socket whose Chrome has proved itself.`);
+        // A proved socket's calls are the extension driver's (#552): until it makes one, a result answers no call.
+        if (conversation.state === "live") return;
+        return refuse(socket, "A result comes only on a socket whose Chrome has proved itself.");
     }
   };
 
@@ -130,11 +231,15 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
       return refuseUpgrade(socket, 403, { error: "forbidden", message: "Only the extension may open a socket here." });
     }
     server.handleUpgrade(request, socket, head, (ws) => {
-      sockets.add(ws);
+      conversations.set(ws, { state: "opened" });
       ws.on("message", (data, isBinary) => onMessage(ws, data, isBinary));
       ws.on("close", () => {
-        sockets.delete(ws);
-        announced.delete(ws);
+        const conversation = conversations.get(ws);
+        conversations.delete(ws);
+        if (conversation?.state !== "live" || live.get(conversation.chromeId) !== ws) return;
+        live.delete(conversation.chromeId);
+        // A stop closes every socket: that is no Chrome going.
+        if (!closing) chromes.disconnected(conversation.chromeId);
       });
       ws.on("error", () => ws.terminate());
     });
@@ -164,10 +269,21 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
 
   return {
     listen: (ports) => (listened ??= bind(ports)),
-    unpairedConnected: () => announced.size > 0,
+    unpairedConnected: () => [...conversations.values()].some((conversation) => conversation.state === "announced"),
+    isConnected: (chromeId) => live.has(chromeId),
+    drop(chromeId, reason) {
+      const socket = live.get(chromeId);
+      if (socket === undefined) return;
+      live.delete(chromeId);
+      refuse(socket, reason);
+    },
+    sendPolicy(policy) {
+      for (const socket of live.values()) send(socket, { type: "policy", policy });
+    },
     async close() {
       closing = true;
-      const closed = [...sockets].map(
+      const sockets = [...conversations.keys()];
+      const closed = sockets.map(
         (socket) =>
           new Promise<void>((resolve) => {
             socket.once("close", () => resolve());
@@ -177,7 +293,7 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
       let grace: Timer | undefined;
       await Promise.race([Promise.all(closed), new Promise<void>((resolve) => (grace = options.clock.setTimeout(resolve, CLOSE_GRACE_MS)))]);
       grace?.cancel();
-      for (const socket of sockets) socket.terminate();
+      for (const socket of conversations.keys()) socket.terminate();
       await Promise.all(closed);
       await surface.close();
     },

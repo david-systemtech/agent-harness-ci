@@ -175,6 +175,7 @@ describe("a session's provider process", () => {
     const client = await t.client();
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
+    await t.adapter.reached(1);
 
     expect(await processOf(client, id)).toMatchObject({ state: "starting", runId, startedAt: at(0), stopsAt: null });
     expect(await status(client)).toEqual({ state: "busy", reason: "run-starting" });
@@ -509,6 +510,7 @@ describe("a parked process", () => {
       "session.created",
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       "session.title-generated",
       "run.instructions.composed",

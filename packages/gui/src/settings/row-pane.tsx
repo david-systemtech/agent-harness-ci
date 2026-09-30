@@ -1,19 +1,22 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
-import { FIRST_ROW, STEP_LABELS, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
+import { FIRST_ROW, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ComponentType, type ReactNode } from "react";
+import { AccountsPane } from "../accounts/accounts-pane.js";
+import { DefaultModelPane } from "../accounts/default-model-pane.js";
+import { UsagePane } from "../accounts/usage-pane.js";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
+import { PermissionsPane } from "../permissions/permissions-pane.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { YourMachines } from "../machines/your-machines.js";
-import { useChecklist } from "../setup/checklist-window.js";
 import { SetupPane } from "../setup/setup-pane.js";
 import { useCheckHomedSteps } from "../setup/use-setup.js";
-import { Button } from "../ui/index.js";
 import { useClientVersion, useObservable, useRuntime } from "../window-context.js";
 import { EnvironmentPicker } from "./environment-picker.js";
 import { GenericEditor, reachWords } from "./generic-editor.js";
 import { dimReason } from "./rail.js";
 import { usePickedEnvironment } from "./settings-window.js";
+import { StepLinks } from "./step-links.js";
 
 /** One environment's part of an `everywhere` row: its heading with its name, icon and colour, then what the row holds of it. */
 const EnvironmentGroup = ({ view, children }: { readonly view: EnvironmentView; readonly children: ReactNode }) => {
@@ -73,9 +76,7 @@ const RowKeys = ({ row }: { readonly row: SettingsRowId }) => {
  */
 const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);
-  const { open } = useChecklist();
   const dim = dimReason(entry);
-  const steps = rowSteps(row);
   return (
     <>
       <p className="text-sm text-ink-muted">{entry.hint}</p>
@@ -83,15 +84,7 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
         <p className="text-sm text-ink-faint">{dim}</p>
       ) : (
         <>
-          {steps.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {steps.map((step) => (
-                <Button key={step} onClick={() => open(step)}>
-                  Open the {STEP_LABELS[step]} step in Set up
-                </Button>
-              ))}
-            </div>
-          )}
+          <StepLinks steps={rowSteps(row)} />
           <RowKeys row={row} />
         </>
       )}
@@ -102,8 +95,12 @@ const UnbuiltRow = ({ row }: { readonly row: SettingsRowId }) => {
 /** The panes built, each keyed by the row it draws (docs/specs/gui.md: a pane is a GUI component keyed by row id); every other row is drawn unbuilt. */
 const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   [FIRST_ROW]: SetupPane,
+  "accounts.accounts": AccountsPane,
+  "accounts.default-model": DefaultModelPane,
+  "accounts.usage": UsagePane,
   "environments.machines": YourMachines,
   "access.key-managers": KeyManagersPane,
+  "access.permissions": PermissionsPane,
 };
 
 /**
@@ -111,9 +108,9 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
  * gives it (an `environment` row's picker, none for `everywhere` and
  * `client` rows), About with this client's version pinned above its picker
  * as the one line that belongs to no environment, then what the row holds:
- * its built pane (Set up's checklist, Your machines' cards, Key managers), the
- * unbuilt row's hint, links and keys on the others. Opening a step's home row
- * checks that step.
+ * its built pane (Set up's checklist, the three Accounts rows, Your
+ * machines' cards, Key managers, Permissions), the unbuilt row's hint, links and keys on
+ * the others. Opening a step's home row checks that step.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);

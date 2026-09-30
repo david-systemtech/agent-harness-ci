@@ -171,7 +171,7 @@ describe("setup.result-changed", () => {
 });
 
 /** The status a fresh test environment's snapshot carries. */
-const IDLE = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } as const;
+const IDLE = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } } as const;
 
 /** The environment's name, icon and colour the snapshot carries beside the results (#323): the look's own tests pin them. */
 const lookOf = (t: TestEnvironment) => ({ name: t.env.name, icon: expect.any(String) as unknown, colour: expect.any(String) as unknown });
@@ -213,7 +213,7 @@ describe("environment.subscribe's snapshot", () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
-    expect(results.map((result) => result.step)).toEqual(["account", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"]);
+    expect(results.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"]);
     expect((await snapshot(t, client)).setup).toEqual(results);
   });
 

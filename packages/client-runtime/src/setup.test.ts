@@ -91,10 +91,10 @@ describe("projections.setup from the snapshot and the notices", () => {
     await adding;
     await flush();
 
-    // Skippable as this build's registry says: Forges and Key manager; a step it lacks is not (#573).
+    // Skippable as this build's registry says: Carry over, Forges and Key manager; a step it lacks is not (#573).
     expect(setup.read().steps.map(({ id, label, home, skippable }) => [id, label, home, skippable])).toEqual([
       ["account", "Account", "accounts.accounts", false],
-      ["carry-over", "Carry over", "accounts.accounts", false],
+      ["carry-over", "Carry over", "accounts.accounts", true],
       ["your-machines", "Your machines", "environments.machines", false],
       ["forges", "Forges", "access.forges", true],
       ["key-manager", "Key manager", "access.key-managers", true],
@@ -546,34 +546,34 @@ describe("each result's age", () => {
   it("is counted on the environment's clock, and passes the step's cadence as that time passes, with no event", async () => {
     const { runtime, clock, env, environment, adding } = await paired({ skewMs: 10 * MINUTE });
     // Checked ten minutes ago as the environment tells the time, which runs ten minutes ahead of this client's.
-    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), skippedResult("forges")] });
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("your-machines"), skippedResult("forges")] });
     environment.synchronized(3);
     await adding;
     onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["account", 10 * MINUTE, false],
+      ["your-machines", 10 * MINUTE, false],
       ["forges", 10 * MINUTE, false],
     ]);
 
-    // Forges' cadence is fifteen minutes (its forge accounts' status); Account's the hour.
+    // Forges' cadence is fifteen minutes (its forge accounts' status); Your machines' the hour.
     clock.advance(5 * MINUTE + 1);
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["account", 15 * MINUTE + 1, false],
+      ["your-machines", 15 * MINUTE + 1, false],
       ["forges", 15 * MINUTE + 1, true],
     ]);
     // Past its cadence, the age keeps being counted, a minute at a time.
     clock.advance(MINUTE);
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["account", 16 * MINUTE + 1, false],
+      ["your-machines", 16 * MINUTE + 1, false],
       ["forges", 16 * MINUTE + 1, true],
     ]);
     clock.advance(44 * MINUTE);
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["account", 60 * MINUTE + 1, true],
+      ["your-machines", 60 * MINUTE + 1, true],
       ["forges", 60 * MINUTE + 1, true],
     ]);
   });

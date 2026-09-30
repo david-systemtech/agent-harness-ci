@@ -8,6 +8,20 @@ import {
   CarryOverSessionsImported,
   CarryOverSessionsInventory,
 } from "./carry-over.js";
+import {
+  StateImportCarried,
+  StateImportClientLocal,
+  StateImportDataFolder,
+  StateImportDetection,
+  StateImportFailure,
+  StateImportFinishedPayload,
+  StateImportHoldings,
+  StateImportLater,
+  StateImportNotCarried,
+  StateImportReEnter,
+  StateImportReport,
+  StateImportTerminalFolder,
+} from "./state-import.js";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
 import {
   ACCOUNT_EVENT_TYPES,
@@ -100,6 +114,7 @@ import {
   PairingId,
 } from "./primitives.js";
 import { BusyReason, DrainStarted, DrainTrigger, EnvironmentActivity, EnvironmentStatus } from "./lifecycle.js";
+import { BindAddress, BindLan, BindTailnet, EnvironmentBinding } from "./network.js";
 import {
   PairError,
   PairRequest,
@@ -241,6 +256,15 @@ import {
   HeadlessExecutable,
   HeadlessLimits,
 } from "./browser-settings.js";
+import {
+  CHROME_EVENT_TYPES,
+  ChromeChange,
+  ChromeEventType,
+  ChromeName,
+  ChromePairingCode,
+  ChromeUpdatedPayload,
+  PairedChrome,
+} from "./browser-chromes.js";
 import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
 import {
   Catalogue,
@@ -298,7 +322,7 @@ import {
   AbsolutePath,
   RequestedDirectory,
 } from "./sessions.js";
-import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection } from "./workspaces.js";
+import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection, WorkspaceKeptPayload, WorkspaceKeptReason } from "./workspaces.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
   AccountIdentity,
@@ -493,6 +517,9 @@ import {
   ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
+import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
+import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
+import { BrowserOnCreate } from "./methods/sessions.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
@@ -637,7 +664,7 @@ const pascal = (words: string): string =>
 /**
  * The session and group event types whose payloads are fixed, each with its
  * payload, the prompt types, the transcript vocabulary, the permission
- * types and the composed instructions among them; a type reserved by name
+ * types, the composed instructions and the browser's among them; a type reserved by name
  * for a workstream that has not fixed its payload yet would be left out.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
@@ -647,6 +674,7 @@ export const publishedEventPayloads = (): [string, z.ZodType][] =>
     ...TRANSCRIPT_EVENT_TYPES,
     ...PERMISSION_SESSION_EVENT_TYPES,
     ...INSTRUCTION_SESSION_EVENT_TYPES,
+    ...BROWSER_SESSION_EVENT_TYPES,
     ...GROUP_EVENT_TYPES,
   } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
@@ -694,6 +722,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
   { path: "lifecycle/environment-activity.json", title: "EnvironmentActivity", schema: EnvironmentActivity },
   { path: "lifecycle/environment-status.json", title: "EnvironmentStatus", schema: EnvironmentStatus },
+  { path: "network/bind-address.json", title: "BindAddress", schema: BindAddress },
+  { path: "network/environment-binding.json", title: "EnvironmentBinding", schema: EnvironmentBinding },
   { path: "bootstrap/kind.json", title: "BootstrapKind", schema: BootstrapKind },
   { path: "bootstrap/grant.json", title: "BootstrapGrant", schema: BootstrapGrant },
   { path: "bootstrap/request.json", title: "BootstrapRequest", schema: BootstrapRequest },
@@ -739,6 +769,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/repository-identified-reason.json", title: "RepositoryIdentifiedReason", schema: RepositoryIdentifiedReason },
   { path: "sessions/absolute-path.json", title: "AbsolutePath", schema: AbsolutePath },
   { path: "sessions/requested-directory.json", title: "RequestedDirectory", schema: RequestedDirectory },
+  { path: "sessions/browser.json", title: "SessionBrowser", schema: SessionBrowser },
+  { path: "sessions/browser-chooser.json", title: "BrowserChooser", schema: BrowserChooser },
+  { path: "sessions/browser-on-create.json", title: "BrowserOnCreate", schema: BrowserOnCreate },
+  { path: "sessions/browser-resolution-reason.json", title: "BrowserResolutionReason", schema: BrowserResolutionReason },
+  { path: "sessions/run-browser-resolution.json", title: "RunBrowserResolution", schema: RunBrowserResolution },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },
@@ -1104,6 +1139,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "workspaces/inspected-branch.json", title: "InspectedBranch", schema: InspectedBranch },
   { path: "workspaces/inspected-repository.json", title: "InspectedRepository", schema: InspectedRepository },
   { path: "workspaces/workspace-inspection.json", title: "WorkspaceInspection", schema: WorkspaceInspection },
+  { path: "workspaces/workspace-kept-reason.json", title: "WorkspaceKeptReason", schema: WorkspaceKeptReason },
+  { path: "workspaces/workspace-kept.json", title: "WorkspaceKeptPayload", schema: WorkspaceKeptPayload },
   { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
   { path: "actions/action-condition.json", title: "ActionCondition", schema: ActionCondition },
   { path: "actions/action.json", title: "Action", schema: Action },
@@ -1117,6 +1154,18 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "carry-over/failure.json", title: "CarryOverFailure", schema: CarryOverFailure },
   { path: "carry-over/notices/carry-over.imported.json", title: "CarryOverImportedPayload", schema: CarryOverImportedPayload },
   { path: "carry-over/report.json", title: "CarryOverReport", schema: CarryOverReport },
+  { path: "state-import/holdings.json", title: "StateImportHoldings", schema: StateImportHoldings },
+  { path: "state-import/data-folder.json", title: "StateImportDataFolder", schema: StateImportDataFolder },
+  { path: "state-import/terminal-folder.json", title: "StateImportTerminalFolder", schema: StateImportTerminalFolder },
+  { path: "state-import/detection.json", title: "StateImportDetection", schema: StateImportDetection },
+  { path: "state-import/carried.json", title: "StateImportCarried", schema: StateImportCarried },
+  { path: "state-import/re-enter.json", title: "StateImportReEnter", schema: StateImportReEnter },
+  { path: "state-import/later.json", title: "StateImportLater", schema: StateImportLater },
+  { path: "state-import/not-carried.json", title: "StateImportNotCarried", schema: StateImportNotCarried },
+  { path: "state-import/failure.json", title: "StateImportFailure", schema: StateImportFailure },
+  { path: "state-import/client-local.json", title: "StateImportClientLocal", schema: StateImportClientLocal },
+  { path: "state-import/notices/state-import.finished.json", title: "StateImportFinishedPayload", schema: StateImportFinishedPayload },
+  { path: "state-import/report.json", title: "StateImportReport", schema: StateImportReport },
   { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
   { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
@@ -1148,6 +1197,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
   { path: "settings/keys/credentials.injection.json", title: "CredentialInjection", schema: CredentialInjection },
   { path: "settings/keys/credentials.injectionByAccount.json", title: "CredentialInjectionByAccount", schema: CredentialInjectionByAccount },
+  { path: "settings/keys/network.bindTailnet.json", title: "BindTailnet", schema: BindTailnet },
+  { path: "settings/keys/network.bindLan.json", title: "BindLan", schema: BindLan },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
@@ -1288,6 +1339,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
+  { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
+  { path: "browser/chrome-name.json", title: "ChromeName", schema: ChromeName },
+  { path: "browser/paired-chrome.json", title: "PairedChrome", schema: PairedChrome },
+  { path: "browser/chrome-event-type.json", title: "ChromeEventType", schema: ChromeEventType },
+  ...Object.entries(CHROME_EVENT_TYPES).map(([type, entry]) => ({ path: `browser/chrome-events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
+  { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
+  { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,

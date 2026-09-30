@@ -18,11 +18,17 @@ const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateC
   checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, lastGood: undefined });
 
 const holding: StateCheckers = {
+  "account.present": () => true,
+  "account.signed-in": () => true,
+  "carry-over.present": () => true,
+  "carry-over.readable": () => true,
+  "carry-over.last-import": () => true,
   "your-machines.not-root": () => true,
   "your-machines.release-channel": () => true,
   "your-machines.updates": () => true,
   "your-machines.host-updater": () => true,
   "your-machines.named": () => true,
+  "your-machines.ready": () => true,
   "forges.present": () => true,
   "forges.identity": () => true,
   "forges.reads": () => true,
@@ -51,7 +57,7 @@ describe("a step's result", () => {
       actions: [],
       checkedAt: AT,
     });
-    expect(await check(stepOf("account"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
+    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
   });
 
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {

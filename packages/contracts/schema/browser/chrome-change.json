@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromeChange",
+  "type": "string",
+  "enum": [
+    "paired",
+    "renamed",
+    "unpaired",
+    "connected",
+    "disconnected",
+    "version"
+  ],
+  "description": "What changed: paired, renamed or unpaired; connected (a socket proved itself) or disconnected (its proved socket closed); version (a connection reported another extension version than the last recorded)."
+}

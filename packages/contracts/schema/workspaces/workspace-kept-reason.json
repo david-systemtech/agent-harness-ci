@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkspaceKeptReason",
+  "type": "string",
+  "enum": [
+    "uncommitted_changes",
+    "git_filters_refused",
+    "git_failed"
+  ],
+  "description": "Why a worktree stayed at its last session's purge: uncommitted_changes (a tracked file changed, or an untracked file git does not ignore, a nested repository included), git_filters_refused (its repository's own config names a clean, smudge or process filter, which checking it would run) or git_failed (git could not check or remove it)."
+}

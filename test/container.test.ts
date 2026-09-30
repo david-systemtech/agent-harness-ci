@@ -36,6 +36,15 @@ const finalStage = (): string[] => {
   return all.slice(last);
 };
 
+/** The Dockerfile's header, its comment lines before the first line that is not one, read as one line of prose. */
+const dockerfileHeader = (): string => {
+  const lines = dockerfile.split("\n");
+  return lines
+    .slice(0, lines.findIndex((line) => !line.startsWith("#")))
+    .map((line) => line.replace(/^#\s*/, ""))
+    .join(" ");
+};
+
 /** The compose file without its comments. */
 const composeLines = (): string[] =>
   compose
@@ -88,6 +97,14 @@ describe("the container image", () => {
     const volume = stage.findIndex((line) => line === 'VOLUME ["/data", "/work"]');
     expect(chown).toBeGreaterThanOrEqual(0);
     expect(volume).toBeGreaterThan(chown);
+  });
+
+  it("says, in its header, that a v tag's release publishes it by that exact version, for linux/amd64 only", () => {
+    const header = dockerfileHeader();
+    expect(header).not.toMatch(/no release publishes/i);
+    expect(header).toContain(".forgejo/workflows/release.yml");
+    expect(header).toContain("git.systemtech.dev:5526/david/agent-harness:<version>");
+    expect(header).toContain("linux/amd64");
   });
 
   it("starts the environment with serve on /data, as that user", () => {

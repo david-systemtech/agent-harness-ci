@@ -207,10 +207,12 @@ export const anyValidValue =
 /**
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
- * (#120); Your machines, for the update settings (#335), whose not-root line
- * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
- * rules and settings") and the transcript compaction window beside them
- * (#123), which sit on `environments.service`; Forges, whose forge
+ * (#120), whose accounts it checks (#574); Carry over, which writes no key
+ * and imports through its commands (#581); Your machines, for the update
+ * settings (#335), whose not-root line #141 adds, the auto-settle keys
+ * (session-state spec, "Auto-settle: rules and settings") and the transcript
+ * compaction window beside them (#123), which sit on `environments.service`,
+ * and the binding keys (#574); Forges, whose forge
  * accounts go through the forge account commands (#319); Key manager, for
  * the injection setting (#367), whose connections go through the
  * key-manager commands; Instructions, for the orientation switch, whose
@@ -224,9 +226,11 @@ export const anyValidValue =
 export const STEP_REGISTRY = [
   {
     // The Account step (ADR 0018), at home on accounts.accounts beside Carry over: the default account, model family
-    // and effort (#134) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its real
-    // health, every account signed in, reads the account store rather than a setting, and its fifteen-minute cadence
-    // comes with that check (#574). An account's change and the sign-in's re-run it.
+    // and effort (#134) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its health
+    // reads the account store's statuses (#134), never a setting: at least one account, with no action since the card's
+    // Sign in is the fix, and every account signed in, Sign in again naming each that is not (#574). Checked every
+    // fifteen minutes, as often as the store reads each account's status, since the orientation block reports it; never
+    // skipped. An account's change and the sign-in's re-run it.
     id: "account",
     home: "accounts.accounts",
     writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"],
@@ -236,12 +240,55 @@ export const STEP_REGISTRY = [
       { key: "accounts.defaultEffort", check: anyValidValue("accounts.defaultEffort") },
       { key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") },
     ],
-    stateChecks: [],
+    stateChecks: [
+      { id: "account.present", holds: "At least one account is on this environment.", actions: [] },
+      { id: "account.signed-in", holds: "Every account on this environment is signed in.", actions: ["sign-in-again"] },
+    ],
     links: [{ row: "accounts.default-model" }],
     skippable: false,
     budget: "local",
-    cadence: { minutes: 60 },
+    cadence: {
+      minutes: 15,
+      reason: "The orientation block reports each account's sign-in status (ADR 0011, ADR 0018), so the step is checked as often as the account store reads it.",
+    },
     triggers: ["account.updated", "signin.updated"],
+  },
+  {
+    // The Carry over step (ADR 0021, ADR 0036; setup spec, "2. Carry over"; #581), second, at home on accounts.accounts
+    // beside Account, linking the Skills and Memory banks rows, where what it copies lands. It writes no settings key:
+    // an adopted account's import goes through carryOver.run, its skills through skills.carryOver (#513), and the state
+    // import through stateImport.run (#94). Skippable: with nothing to carry in any adopted account's directory and no
+    // source data folder or terminal-client state folder, it answers skipped. Done after the click; it needs attention
+    // only when an adopted directory cannot be read or an account's last import failed part way, or before its first.
+    // A local read, hourly; an account's change and the end of either import re-run it.
+    id: "carry-over",
+    home: "accounts.accounts",
+    writes: [],
+    writesState: [
+      { method: "carryOver.run", parts: ["importedSessions", "carriedMemory"] },
+      { method: "skills.carryOver", parts: ["carriedSkills"] },
+      { method: "stateImport.run", parts: ["importedState"] },
+    ],
+    checks: [],
+    stateChecks: [
+      {
+        id: "carry-over.present",
+        holds: "An adopted account's directory holds something to carry, or a source data folder or terminal-client state folder is on this machine.",
+        actions: [],
+      },
+      { id: "carry-over.readable", holds: "Every adopted account's directory can be read.", actions: ["check-again"] },
+      {
+        id: "carry-over.last-import",
+        holds: "Every adopted account with something to carry has been imported, and its last import finished.",
+        actions: ["import-again"],
+      },
+    ],
+    links: [{ row: "knowledge.skills" }, { row: "knowledge.banks" }],
+    skippable: true,
+    skip: "carry-over.present",
+    budget: "local",
+    cadence: { minutes: 60 },
+    triggers: ["account.updated", "carry-over.imported", "state-import.finished"],
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:
@@ -255,7 +302,10 @@ export const STEP_REGISTRY = [
     // check of the release channel as it ends, which appends nothing and the environment names to its scheduler (#679).
     // The environment's name, icon and colour are state it writes through their three commands, whose notices re-run it
     // too, and its line says the environment is named (ADR 0025's "named"), which holds from the first start since each
-    // has its default (#323). The rest of its check (the discovery URL reachable and ready) is Set up's (#88).
+    // has its default (#323). It writes the two binding keys too, on its home row, which settings.update writes and the
+    // environment applies at its next start, done on any valid value; and its line says the environment is ready, not
+    // draining past its cap (ADR 0025), Check again when it is (#574). No tailnet address is a notice on its card, never
+    // a failure.
     id: "your-machines",
     home: "environments.machines",
     writes: [
@@ -267,6 +317,8 @@ export const STEP_REGISTRY = [
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
       "sessions.transcriptCompactAfterDays",
+      "network.bindTailnet",
+      "network.bindLan",
     ],
     writesState: [
       { method: "environment.rename", parts: ["name"] },
@@ -282,6 +334,8 @@ export const STEP_REGISTRY = [
       { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
       { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
       { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
+      { key: "network.bindTailnet", check: anyValidValue("network.bindTailnet") },
+      { key: "network.bindLan", check: anyValidValue("network.bindLan") },
     ],
     stateChecks: [
       { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
@@ -301,6 +355,7 @@ export const STEP_REGISTRY = [
         actions: ["check-again"],
       },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
+      { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
     ],
     links: [{ row: "environments.service" }],
     skippable: false,

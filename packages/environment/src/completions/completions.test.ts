@@ -1110,6 +1110,8 @@ describe("session continuity", () => {
     });
     const first = await stream(t, token, turn("Start"));
     const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    // Queued on the provider's run, once its adapter has it.
+    await t.adapter.reached(1);
     const queued = await stream(t, token, {
       model: "claude-max/opus",
       messages: [
@@ -1135,6 +1137,7 @@ describe("session continuity", () => {
     });
     const first = await stream(t, token, { ...turn("Start"), model: "claude-max/sonnet" });
     const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    await t.adapter.reached(1);
     // The live run reads the message in its own model, so the answer names that one, the usage chunk too.
     const other = await stream(t, token, {
       ...turn("and tidy up", { reasoning_effort: "high", stream_options: { include_usage: true } }),
@@ -1350,9 +1353,9 @@ describe("the request's instructions, parameters and fields", () => {
     const answer = await complete(t, token, {
       model: "claude-max/opus",
       messages: [{ role: "user", content: [{ type: "text", text: "What is this?" }, { type: "image_url", image_url: { url: "data:," } }] }],
-      "agent-harness": { ignoreUnsupported: true, browser: "on" },
+      "agent-harness": { ignoreUnsupported: true, laterField: "on" },
     });
-    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.browser", "messages.0.content.1"]);
+    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.laterField", "messages.0.content.1"]);
   });
 
   it("takes thinking, and reasoning_effort as its alias, as the run's effort, refusing one the model does not take", async () => {

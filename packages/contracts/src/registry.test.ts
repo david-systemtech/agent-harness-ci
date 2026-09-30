@@ -97,6 +97,8 @@ describe("the method registry", () => {
       "sessions.rewind": ["command", "runs:drive"],
       // Undoing one, beside it (ADR 0022, #218).
       "sessions.undoRewind": ["command", "runs:drive"],
+      // The session's browser chooses what its next run may drive (browser spec, "The browser as a session field"; #550).
+      "sessions.setBrowser": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -262,6 +264,7 @@ describe("the method registry", () => {
       "permissions.denylist.set",
       "permissions.denylist.restorePresets",
       "carryOver.run",
+      "stateImport.run",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -283,6 +286,8 @@ describe("the method registry", () => {
       "skills.own.remove",
       "trust.decide",
       "trust.revoke",
+      "browser.chromes.rename",
+      "browser.chromes.unpair",
     ]);
   });
 
@@ -382,6 +387,7 @@ describe("the method registry", () => {
       | "sessions.tag"
       | "sessions.untag"
       | "sessions.setDraft"
+      | "sessions.setBrowser"
       | "sessions.setGroup"
       | "sessions.settle"
       | "sessions.unsettle"
@@ -489,6 +495,8 @@ describe("the method registry", () => {
       | "setup.check"
       | "carryOver.inventory"
       | "carryOver.run"
+      | "stateImport.detect"
+      | "stateImport.run"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"
@@ -533,6 +541,10 @@ describe("the method registry", () => {
       | "trust.decide"
       | "trust.revoke"
       | "browser.status"
+      | "browser.pairing.code"
+      | "browser.chromes.list"
+      | "browser.chromes.rename"
+      | "browser.chromes.unpair"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

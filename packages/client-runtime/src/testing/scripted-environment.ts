@@ -15,22 +15,20 @@ import {
   registry,
   AccountCatalogue,
   AccountRecord,
+  AmbientProbe,
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
   ContainmentReport,
-  DENYLIST_SECTIONS,
-  denylistPresets,
-  type Denylist,
-  type DenylistSection,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
   UPDATE_SETTINGS_KEYS,
-  ReviewRun,
+  type ReviewRun,
   SignIn,
   compareModes,
   lowerMode,
   normaliseEnvironmentName,
   presetSettings,
+  type AccountChange,
   type AccountUsage,
   type ContainmentLevel,
   type EnvironmentColour,
@@ -74,6 +72,7 @@ import type { ManualClock } from "./in-memory-platform.js";
 import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
 import { KEY_MANAGER_COMMANDS, scriptedKeyManagers, type ScriptedKeyManagers, type ScriptedKeyManagersHandle } from "./scripted-key-managers.js";
 import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
+import { PERMISSION_COMMANDS, scriptedPermissions, type ScriptedPermissionsHandle } from "./scripted-permissions.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
 import { scriptedSetup, type ScriptedSetup, type ScriptedSetupHandle } from "./scripted-setup.js";
 
@@ -163,14 +162,22 @@ export interface ScriptedEnvironment {
   readonly containment?: Partial<ContainmentReport>;
   /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
   readonly settings?: Partial<SettingsValues>;
-  /** The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back, of the sections it names: preset none. */
+  /**
+   * The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back, of the sections it
+   * names: preset none. The denylist is otherwise the presets, which `permissions.denylist.set` changes (`scripted-permissions.ts`).
+   */
   readonly lostPresets?: readonly string[];
-  /** What `permissions.review.list` lists: preset nothing. */
+  /** What `permissions.review.list` lists until `permissions.review.seen` marks it seen: preset nothing. */
   readonly review?: readonly Partial<ReviewRun>[];
   /** What `accounts.handoff.recommend` answers, over no recommendation. */
   readonly recommendation?: Partial<HandoffRecommendation>;
   /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
+  /**
+   * What `accounts.probe` reads of the machine's own Claude directory, `/home/seth/.claude`, which `accounts.adopt`
+   * adopts while it is there and signed in: preset not there.
+   */
+  readonly ambient?: Partial<AmbientProbe>;
   /** The directories a new session is refused in, by the path as recorded (`~` read as the scripted home), each with its problem (`workspace_unusable`): preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
   /**
@@ -273,7 +280,7 @@ export interface LookChanges {
   readonly colour?: EnvironmentColour;
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle {
+export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedPermissionsHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -346,6 +353,13 @@ export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle,
   editFile(sessionId: string, runId: string, path: string, oldText: string, newText: string): string;
   /** The session's log as the environment holds it: every event appended since its snapshot, in order. */
   events(sessionId: string): readonly EventEnvelope[];
+  /** The accounts the environment holds now, as `accounts.list` answers them. */
+  accounts(): readonly AccountRecord[];
+  /**
+   * Changes an account as another client or the environment's own status read would: the fields given replace its
+   * own, or `null` removes it; an `account.updated` notice says what changed.
+   */
+  changeAccount(accountId: string, changes: Partial<AccountRecord> | null): void;
   /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
@@ -430,6 +444,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     accountId: null,
     model: null,
     mode: null,
+    browser: null,
     pullRequests: [],
     draft: null,
     ...partial,
@@ -1401,12 +1416,102 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ...account,
     });
   const accounts: AccountRecord[] = (spec.accounts ?? []).map(accountOf);
+  /** The accounts minted so far, so a new account's id is never one a removed account had. */
+  let accountsMinted = accounts.length;
   wire.answer("accounts.list", () =>
     spec.accountsError !== undefined ? { error: { code: "internal", message: spec.accountsError, data: {} } } : { result: { accounts: [...accounts] } },
   );
   wire.answer("models.list", () => ({
     result: { catalogues: (spec.models ?? []).map((catalogue) => checked(AccountCatalogue, { accountId: "account-1", live: false, models: [], ...catalogue })) },
   }));
+  // The account store's commands (claude-adapter spec, "The account store"): each change said with `account.updated`.
+  let ambient = checked(AmbientProbe, {
+    provider: "claude",
+    directory: "/home/seth/.claude",
+    present: false,
+    signedIn: false,
+    identity: null,
+    accountId: null,
+    detail: null,
+    checkedAt: clock.now().toISOString(),
+    ...spec.ambient,
+  });
+  const accountUpdated = (accountId: string, change: AccountChange) => notice("account.updated", { accountId, change, warning: null });
+  const accountRefusal = (reason: string, message: string, data: Record<string, unknown> = {}): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message, data: { reason, ...data } } } },
+  });
+  const accountNotHeld = (accountId: unknown): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "not_found", error: { code: "not_found", message: `No account ${String(accountId)} on this environment.`, data: { kind: "account" } } } },
+  });
+  /** The refusal of `label` for another account than `accountId` holding it, ignoring case. */
+  const labelTaken = (label: string, accountId?: string): FakeAnswer | undefined => {
+    const holder = accounts.find((a) => a.id !== accountId && a.label.toLowerCase() === label.toLowerCase());
+    return holder ? accountRefusal("label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id }) : undefined;
+  };
+  /** Removes `held`, releasing the machine's own directory if it held it, as the account store does. */
+  const removeAccount = (held: AccountRecord) => {
+    accounts.splice(accounts.indexOf(held), 1);
+    if (ambient.accountId === held.id) ambient = { ...ambient, accountId: null };
+    accountUpdated(held.id, "removed");
+  };
+  wire.answer("accounts.probe", () => ({ result: { ...ambient, checkedAt: clock.now().toISOString() } }));
+  wire.answer("accounts.refresh", () => ({ result: { accounts: [...accounts] } }));
+  wire.answer("accounts.adopt", (params) => {
+    const refused = rejection("accounts.adopt");
+    if (refused) return refused;
+    if (ambient.directory === null || !ambient.present || !ambient.signedIn) {
+      return accountRefusal("ambient_unavailable", `The machine's own Claude directory is not signed in (${ambient.directory ?? "none"}); sign in with Claude's own CLI, then call accounts.probe.`);
+    }
+    const holder = accounts.find((a) => a.id === ambient.accountId);
+    if (holder) return accountRefusal("already_added", `${ambient.directory} is already added as ${holder.label}.`, { accountId: holder.id });
+    const label = (params["label"] as string | undefined) ?? ambient.identity?.email ?? "";
+    const taken = labelTaken(label);
+    if (taken) return taken;
+    const account = accountOf({ id: `account-${++accountsMinted}`, label, directory: { kind: "adopted", path: ambient.directory }, identity: ambient.identity }, accounts.length);
+    accounts.push(account);
+    ambient = { ...ambient, accountId: account.id };
+    accountUpdated(account.id, "adopted");
+    return acceptedWith({ account });
+  });
+  wire.answer("accounts.relabel", (params) => {
+    const refused = rejection("accounts.relabel");
+    if (refused) return refused;
+    const at = accounts.findIndex((a) => a.id === params["accountId"]);
+    const held = accounts[at];
+    if (!held) return accountNotHeld(params["accountId"]);
+    const label = String(params["label"]);
+    if (held.label === label) return acceptedWith({ account: held });
+    const taken = labelTaken(label, held.id);
+    if (taken) return taken;
+    const account = { ...held, label };
+    accounts[at] = account;
+    accountUpdated(account.id, "relabelled");
+    return acceptedWith({ account });
+  });
+  wire.answer("accounts.remove", (params) => {
+    const refused = rejection("accounts.remove");
+    if (refused) return refused;
+    const held = accounts.find((a) => a.id === params["accountId"]);
+    if (!held) return accountNotHeld(params["accountId"]);
+    const deleteDirectory = params["deleteDirectory"] === true;
+    if (deleteDirectory && held.directory.kind === "adopted") {
+      return accountRefusal(
+        "adopted_directory",
+        `${held.label} is the machine's own provider directory, adopted in place; the environment never deletes it. Remove the account without deleting its directory.`,
+        { accountId: held.id },
+      );
+    }
+    removeAccount(held);
+    return acceptedWith({ accountId: held.id, directoryDeleted: deleteDirectory });
+  });
+  const changeAccount = (accountId: string, changes: Partial<AccountRecord> | null) => {
+    const at = accounts.findIndex((a) => a.id === accountId);
+    const held = accounts[at];
+    if (!held) throw new Error(`${spec.name} holds no account ${accountId}.`);
+    if (changes === null) return removeAccount(held);
+    accounts[at] = checked(AccountRecord, { ...held, ...changes });
+    accountUpdated(accountId, changes.label !== undefined ? "relabelled" : changes.identity !== undefined ? "identity-set" : "status-changed");
+  };
 
   // The sign-in director (ADR 0018): one sign-in at a time, moved by the handle as the provider's CLI would move it.
   let signIn: SignIn | null = null;
@@ -1442,7 +1547,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("accounts.add", (params) => {
     const refused = rejection("accounts.add");
     if (refused) return refused;
-    const account = accountOf({ id: `account-${accounts.length + 1}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${accounts.length + 1}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const id = ++accountsMinted;
+    const account = accountOf({ id: `account-${id}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start = spec.addSignIn ?? { started: true, message: null };
     if (start.started) startSignIn(account.id);
@@ -1511,25 +1617,16 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     changeSettings(params["values"] as Partial<SettingsValues>);
     return acceptedWith({ values });
   });
-  // The denylist: the presets, but those the script says it lost, which restorePresets puts back in their sections.
-  const presets = denylistPresets(`${SCRIPTED_HOME}/.agent-harness`);
-  const lost = new Set(spec.lostPresets ?? []);
-  const kept = (entry: { readonly id: string }) => !lost.has(entry.id);
-  const denylistNow = (): Denylist => ({
-    browserDomains: presets.browserDomains.filter(kept),
-    paths: presets.paths.filter(kept),
-    commandPatterns: presets.commandPatterns.filter(kept),
-    hosts: presets.hosts.filter(kept),
-  });
-  wire.answer("permissions.denylist.restorePresets", (params) => {
-    const refused = rejection("permissions.denylist.restorePresets");
-    if (refused) return refused;
-    const named = params["sections"] as readonly DenylistSection[] | undefined;
-    const restored = DENYLIST_SECTIONS.filter((section) => named === undefined || named.includes(section)).flatMap((section) =>
-      presets[section].filter((entry) => lost.has(entry.id)).map((entry) => ({ section, entry })),
-    );
-    for (const { entry } of restored) lost.delete(entry.id);
-    return acceptedWith({ restored, denylist: denylistNow() });
+  // The denylist and the Unattended review (`scripted-permissions.ts`).
+  const permissions = scriptedPermissions({
+    clock,
+    wire,
+    lostPresets: spec.lostPresets,
+    review: spec.review,
+    sessionId: () => sessions[0]?.id ?? "0199aa00-0000-4000-8000-000000000001",
+    head: () => sequence,
+    next: () => ++sequence,
+    refusal: (method) => rejection(method),
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
@@ -1575,13 +1672,33 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return acceptedWith({ updateId: uuidv4(), toVersion });
   });
 
+  /** The refusal of a level the probe says cannot be enforced (`containment_unavailable`); undefined for one it can. */
+  const unavailable = (level: ContainmentLevel): FakeAnswer | undefined => {
+    const availability = containment.levels.find((l) => l.level === level);
+    if (!availability || availability.available) return undefined;
+    return {
+      result: {
+        receipt: {
+          status: "rejected",
+          sequence: ++sequence,
+          changed: false,
+          reason: "containment_unavailable",
+          error: { code: "containment_unavailable", message: `${level} cannot be enforced here: ${availability.reason}`, data: { level, reason: availability.reason, cause: availability.cause } },
+        },
+      },
+    };
+  };
   wire.answer("permissions.settings.get", () => ({
-    result: { values: permissionValues(), containment, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
+    result: { values: permissionValues(), containment, isRoot: false, denylist: permissions.counts() },
   }));
   wire.answer("permissions.settings.set", (params) => {
     const refused = rejection("permissions.settings.set");
     if (refused) return refused;
     const asked = params["values"] as Partial<SettingsValues>;
+    // A containment default the probe cannot enforce is refused, checked only when it differs from the one stored (#133).
+    const level = asked["permissions.containment.default"];
+    const unenforceable = level === undefined || level === values["permissions.containment.default"] ? undefined : unavailable(level);
+    if (unenforceable) return unenforceable;
     let acknowledged: Partial<SettingsValues> = {};
     if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
       if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
@@ -1610,45 +1727,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (refused) return refused;
     const sessionId = String(params["sessionId"]);
     const level = params["level"] as ContainmentLevel;
-    const availability = containment.levels.find((l) => l.level === level);
-    if (availability && !availability.available) {
-      return {
-        result: {
-          receipt: {
-            status: "rejected",
-            sequence: ++sequence,
-            changed: false,
-            reason: "containment_unavailable",
-            error: { code: "containment_unavailable", message: `${level} cannot be enforced here: ${availability.reason}`, data: { level, reason: availability.reason, cause: availability.cause } },
-          },
-        },
-      };
-    }
+    const unenforceable = unavailable(level);
+    if (unenforceable) return unenforceable;
     const payload = { containment: { requested: level, effective: level, clamped: false } };
     emit(sessionId, "session.containment.set", payload);
     return acceptedWith({ sessionId, ...payload });
   });
-  wire.answer("permissions.review.list", () => ({
-    result: {
-      watermark: 0,
-      head: sequence,
-      runs: (spec.review ?? []).map((run, i) =>
-        checked(ReviewRun, {
-          sessionId: sessions[0]?.id ?? "0199aa00-0000-4000-8000-000000000001",
-          runId: `0199a900-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
-          ranAt: clock.now().toISOString(),
-          actor: { kind: "routine", name: "nightly" },
-          attended: false,
-          mode: { requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null },
-          containment: { requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null },
-          counts: { toolCalls: 0, autoApproved: 0, denied: 0, answeredByPerson: 0, expired: 0 },
-          denials: [],
-          ...run,
-        }),
-      ),
-    },
-  }));
-
   // The key-manager connections and Move (`scripted-key-managers.ts`).
   const keyManagers = scriptedKeyManagers({
     clock,
@@ -1763,7 +1847,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "sessions.fork",
     "sessions.rewind",
     "sessions.undoRewind",
+    "accounts.adopt",
     "accounts.add",
+    "accounts.relabel",
+    "accounts.remove",
     "accounts.signin.start",
     "accounts.signin.code",
     "accounts.signin.cancel",
@@ -1779,6 +1866,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "terminals.resize",
     "terminals.close",
     ...KEY_MANAGER_COMMANDS,
+    ...PERMISSION_COMMANDS,
     ...LIST_COMMANDS,
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
@@ -1883,6 +1971,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     },
     events: (sessionId) => [...(logs.get(sessionId)?.events ?? [])],
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
+    accounts: () => [...accounts],
+    changeAccount,
     setUsage,
     setUpdates,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
@@ -1897,6 +1987,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...prompts,
     setSetup: setup.setSetup,
     ...keyManagers,
+    denylist: permissions.denylist,
+    reviewWatermark: permissions.reviewWatermark,
+    holdDenylistWrites: permissions.holdDenylistWrites,
     holdSetupChecks: setup.holdSetupChecks,
     passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
@@ -1961,3 +2054,4 @@ export { SCRIPTED_HOME, type ScriptedList } from "./scripted-list.js";
 export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scripted-prompts.js";
 export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js";
 export { certificateOf, type ScriptedKeyManagers, type ScriptedMoveItem } from "./scripted-key-managers.js";
+export { type ScriptedPermissionsHandle } from "./scripted-permissions.js";

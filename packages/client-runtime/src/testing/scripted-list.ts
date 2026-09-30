@@ -223,6 +223,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
           accountId: params["account"] ?? null,
           model: params["model"] ?? null,
           mode: params["mode"] ?? null,
+          browser: (params["browser"] as { value?: unknown } | undefined)?.value ?? null,
           pullRequests: [],
           draft: null,
         });

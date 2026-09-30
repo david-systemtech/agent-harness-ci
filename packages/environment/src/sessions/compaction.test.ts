@@ -182,7 +182,7 @@ describe("replay of a compacted session", () => {
     const fresh = await catchUp(client, id, 0);
 
     expect(fresh.snapshot?.sequence).toBe(last);
-    expect(fresh.events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(fresh.events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
     expect(fresh.events.every((event) => event.sequence > last)).toBe(true);
     expect((await catchUp(client, id, last)).events).toEqual(fresh.events);
     // The snapshot at the head holds the fold and the new run: the same session the client builds from the two.

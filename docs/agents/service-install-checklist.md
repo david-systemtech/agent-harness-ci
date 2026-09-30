@@ -187,9 +187,10 @@ start owned by that user. `test/container.test.ts` reads both as text, and
 `packages/cli/src/update-snapshot.test.ts` runs the host-side updater's
 `update snapshot`, `restore` and `discard` on a temporary data directory;
 these steps prove them against a real Docker (or Podman) on a Linux host.
-No release publishes the image yet, so build it from a checkout and name it
+They prove a checkout's build, so build it from the checkout and name it
 with `AGENT_HARNESS_IMAGE` (the compose file's default is the release's
-image, which the release workflow writes in). Every `docker compose` below
+image, which the release workflow writes in; a release's own image is the
+Release image section below). Every `docker compose` below
 is `AGENT_HARNESS_IMAGE=agent-harness docker compose -f scripts/compose.yaml`.
 Record the result in the pull request that changes either file or those
 verbs, or list the section as not run.
@@ -203,6 +204,25 @@ verbs, or list the section as not run.
 7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
 8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
 9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.
+
+## Release image (`.forgejo/workflows/release.yml` and `image.yml`)
+
+The release workflow's image job (#357) builds the `Dockerfile` on the
+`build` runner on a `v` tag and pushes it as
+`git.systemtech.dev:5526/david/agent-harness:<version>`, that one tag, for
+linux/amd64 only, handing the pushed reference and digest on as the job's
+outputs; a pull request's build (`image.yml`) is thrown away.
+`test/image-script.test.ts` runs `.forgejo/scripts/image.sh` against a fake
+`docker` and reads both workflows as text; these steps prove the job on the
+runner and the registry. They publish an image, so the tag waits for David's
+go-ahead, and nothing here runs on the shared agent box. Record the result in
+the pull request that changes the script or either workflow, or list the
+section as not run.
+
+1. A pull request's `image` check passes: its log shows the build for `linux/amd64` and no `docker login` or push, and `GET /api/v1/packages/david?type=container` lists nothing new.
+2. With David's go-ahead, push a test tag with a prerelease part, `v0.0.1-test.1` (once #358 has added its jobs, this runs the whole release and leaves a prerelease, removed with the tag in step 4). The `release` workflow's `image` job runs on the `build` runner and its push log names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1` and nothing else; the job's outputs hold that `reference` and a `digest` of `sha256:` and 64 hexadecimal digits; `GET /api/v1/packages/david/container/agent-harness/0.0.1-test.1` answers 200, and the package lists no `latest`, `main` or commit tag.
+3. From a machine that is not the agent box, `docker login git.systemtech.dev:5526` as `david` with a token that has only the read:package scope, then `docker pull <reference>@<digest>` with the job's two outputs: it pulls, and `docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .RepoDigests 0}}' <reference>` prints `linux/amd64` and `git.systemtech.dev:5526/david/agent-harness@<digest>`. `docker buildx imagetools inspect <reference>` shows one image manifest, for linux/amd64, and no index or attestation.
+4. Delete the test version (`DELETE /api/v1/packages/david/container/agent-harness/0.0.1-test.1` with a write:package token), the tag, and any prerelease it made.
 
 ## Host-side updater (`scripts/host-updater.sh`)
 

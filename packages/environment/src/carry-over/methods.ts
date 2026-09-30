@@ -8,7 +8,6 @@ import {
   type SessionArchivedPayload,
 } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, ProviderSessionInfo } from "../adapter/contract.js";
-import { capability } from "../adapter/capabilities.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { AppendOptions, EventLog, JsonObject, Tx } from "../event-log/event-log.js";
 import type { MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
@@ -18,12 +17,12 @@ import type { Reader } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import {
-  eachSessionOnce,
   failureOf,
   findDirectories,
   heldProviderSessions,
   importedTitle,
   importsArchived,
+  listAccountSessions,
   type DirectoryFinding,
 } from "./sessions.js";
 
@@ -110,10 +109,7 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   };
 
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */
-  const listed = async ({ account, adapter }: Source): Promise<ProviderSessionInfo[]> => {
-    const list = capability(adapter.descriptor, "sessionListing", adapter.listSessions, "list an account directory's sessions", "listSessions");
-    return eachSessionOnce(await list.call(adapter, account));
-  };
+  const listed = ({ account, adapter }: Source): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
 
   const listingFailed = (account: AccountRef, error: unknown): string =>
     `Listing the sessions in ${account.directory ?? "the account's directory"} failed: ${error instanceof Error ? error.message : String(error)}`;

@@ -79,6 +79,7 @@ const summary = {
   accountId: null,
   model: null,
   mode: null,
+  browser: null,
   pullRequests: [],
   draft: null,
 };

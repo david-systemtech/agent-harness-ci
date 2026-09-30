@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChromeEventType",
+  "type": "string",
+  "enum": [
+    "chrome.paired",
+    "chrome.renamed",
+    "chrome.version-reported",
+    "chrome.unpaired"
+  ],
+  "description": "The event types of a chrome stream: chrome.paired, chrome.renamed, chrome.version-reported and chrome.unpaired."
+}

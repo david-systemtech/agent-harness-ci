@@ -1,0 +1,49 @@
+# The release workflow (launcher-update spec, "The release"): what a `v` tag
+# on this repository publishes. #357 built its image job; #358 adds the rest
+# (typecheck, lint and test first, the server artefacts, release.json and a
+# draft release published last), whose artefact job `needs: image` for the
+# image's reference and digest.
+#
+# The image job builds the Dockerfile on the shared `build` runners, as
+# david/ci's image template (templates/image.yml) does, and pushes it to this
+# Forgejo's registry as git.systemtech.dev:5526/david/agent-harness:<version>,
+# the tag's version without its v, for linux/amd64 only. It pushes that one
+# tag and no other: no latest, no main, no commit or channel tag. A moving tag
+# pulls whatever it points at by then (hermes:latest is rebuilt on every push
+# to main), and a rollback needs an exact reference. So the template's main
+# and commit tags are gone, and its pull request build is image.yml. The work
+# is .forgejo/scripts/image.sh, tested by test/image-script.test.ts.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# A tag's run is never cancelled half-way through its push: a second run of
+# the same tag queues behind it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: build
+    timeout-minutes: 30
+    # The pushed image's reference and digest, for release.json: a host pulls
+    # the image by both.
+    outputs:
+      reference: ${{ steps.publish.outputs.reference }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      # Pinned to a commit, not a tag, as ci.yml's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and push the version's image
+        id: publish
+        env:
+          # A user-level secret on `david`, write:package only. The job's own
+          # token cannot write packages: Forgejo answers 401 (david/ci,
+          # measured 2026-09-23).
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: bash .forgejo/scripts/image.sh publish

@@ -126,8 +126,12 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   updater, is tested by `test/host-updater-script.test.ts` against a fake
   `docker`, `curl` and `flock` and a held clock (a fake `date` and `sleep`);
   running it against a real Docker host is the checklist's Host-side updater
-  section. Never build or run an image on the shared agent box, nor run the
-  updater there.
+  section. The image's job, `.forgejo/scripts/image.sh` (a pull request's
+  build in `.forgejo/workflows/image.yml`, a `v` tag's push of the version's
+  image in `release.yml`), is tested by `test/image-script.test.ts` against a
+  fake `docker`; its run on the `build` runner and a pull from the registry
+  are the checklist's Release image section. Never build or run an image on
+  the shared agent box, nor run the updater there.
 - Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and

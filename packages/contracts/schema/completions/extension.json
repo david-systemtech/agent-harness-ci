@@ -162,6 +162,18 @@
         "null"
       ]
     },
+    "browser": {
+      "description": "The browser a session the turn makes (a fresh one, or a fork) has: headless, the environment's headless browser; none when absent, since a program brings its own tools. Any other value is refused 400. Reported ignored on a turn that makes no session.",
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "headless"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "after": {
       "description": "On a session whose run is live, the log sequence to attach from: the events of the run after it are sent first.",
       "anyOf": [

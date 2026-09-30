@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DISCOVERY_PATH, STAGING_DIRECTORY, type MessageSentPayload, type ParamsOf, type ReleaseImage, type ResponseOf } from "@agent-harness/contracts";
+import { DISCOVERY_PATH, DRAIN_CAP_MS, STAGING_DIRECTORY, type MessageSentPayload, type ParamsOf, type ReleaseImage, type ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { serverArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
@@ -259,6 +259,24 @@ describe("updates.begin", () => {
     const { client, updateId } = await pendingUpdate({ idle: true });
     await begin(client, updateId);
     expect((await begin(client, updateId)).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "in_progress" } } });
+  });
+
+  it("drained to its cap by a run that never ends, leaves the environment draining past its cap until the stop: the Your machines step needs attention then, with Check again, and not while the drain is within its cap", async () => {
+    const { t, client, updateId } = await pendingUpdate();
+    await apply(client, { when: "now" });
+    await begin(client, updateId);
+    const machines = async () => (await client.request("setup.check", { step: "your-machines" })).results[0];
+    expect(t.env.status().activity).toEqual({ state: "draining", drainingSince: at(0) });
+
+    t.clock.advance(DRAIN_CAP_MS);
+    expect((await machines())?.failing).not.toContain("your-machines.ready");
+
+    t.clock.advance(1);
+    const result = await machines();
+    expect(t.env.readiness()).toBe("draining");
+    // The host-side updater's own check fails beside it here: no updater has polled this container.
+    expect(result).toMatchObject({ state: "needs-attention", failing: ["your-machines.host-updater", "your-machines.ready"], actions: ["check-again"] });
+    expect(result?.reason).toContain("The environment has been draining since 2026-09-24 00:00 UTC, past its 30-minute cap: Check again once it has restarted.");
   });
 
   it("keeps the process running once its runs are done: no client hears bye, and the environment stays open, draining", async () => {

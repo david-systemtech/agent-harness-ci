@@ -227,7 +227,7 @@ describe("run.policy.resolved", () => {
     held.open();
     await untilEnded(t, id, runId);
     // The first message generates the session's title in the start's transaction (#122).
-    expect(seen.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "assistant.text"]);
+    expect(seen.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "session.title-generated", "run.instructions.composed", "assistant.text"]);
     expect(seen[1]).toMatchObject({ correlationId: runId, actor: { kind: "client_session", id: client.hello.clientSessionId } });
     policyOf(t, id, runId);
   });
@@ -296,6 +296,8 @@ describe("run.policy.resolved", () => {
     const client = await t.client();
     const { id } = await create(client, { mode: "plan" });
     const { runId: first } = await startRun(client, id);
+    // Held by the provider, which opens a turn for it: the send waits for the adapter to have the run.
+    await t.adapter.reached(1);
     await send(client, "runs.send", { sessionId: id, text: "Also this" });
     held.open();
     await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));

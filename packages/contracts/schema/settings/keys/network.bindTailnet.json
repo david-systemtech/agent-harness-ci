@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BindTailnet",
+  "type": "boolean",
+  "description": "Whether the environment binds its Tailscale address beside loopback from its next start, when one is found; preset on, so a machine with a tailnet address is reachable on it. With no address found it binds none either way."
+}

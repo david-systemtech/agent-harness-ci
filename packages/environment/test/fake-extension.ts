@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,8 +27,11 @@ import { CONNECT_MS, WAIT_MS } from "./wire-client.js";
  * its environment as the real extension does. It reads the port file from
  * the unpacked folder, dials that port on loopback with the extension's
  * Origin, speaks bridge protocol version 2, and answers each verb the
- * environment calls from a script. Pairing and the proof (#548) and the
- * verbs a paired Chrome answers (#552) extend it.
+ * environment calls from a script. It pairs with a code on an announced
+ * socket and proves a pairing on a later one (#548), and `fakeChrome` keeps
+ * what a pairing gave it across its sockets, as the extension's storage
+ * does, until a refusal takes it back. The verbs a paired Chrome answers
+ * (#552) extend it.
  */
 
 /** The built extension a test environment carries unless told otherwise: a manifest and a worker. */
@@ -71,6 +75,8 @@ export interface DialOptions {
   readonly host?: string;
   /** How the verbs the environment calls are answered; preset none, every verb refused. */
   readonly script?: ExtensionScript;
+  /** Hears every message the environment sends, as it arrives. */
+  readonly onMessage?: (message: BridgeFromEnvironment) => void;
 }
 
 /** The listener refused the upgrade: no socket was opened, and no message went either way. */
@@ -94,6 +100,26 @@ export interface AnnounceOptions {
   readonly name?: string;
 }
 
+/** What a pairing gives the extension to keep: its Chrome's id and secret, and the environment it paired with. */
+export interface FakeCredential {
+  readonly chromeId: string;
+  readonly secret: string;
+  readonly environmentId: string;
+}
+
+/** What the fake's hello says, each over its preset. */
+export interface HelloOptions {
+  /** Preset `BRIDGE_PROTOCOL_VERSION`. */
+  readonly protocolVersion?: number;
+  /** Preset the version name in the unpacked folder's manifest. */
+  readonly extensionVersion?: string;
+  /** Preset `Chrome`. */
+  readonly name?: string;
+}
+
+/** The proof of `secret` on `nonce`: HMAC-SHA256 of the nonce as sent, keyed by the secret's 32 bytes, in lowercase hex. */
+export const proofOf = (secret: string, nonce: string): string => createHmac("sha256", Buffer.from(secret, "hex")).update(nonce, "utf8").digest("hex");
+
 export interface FakeExtension {
   /** The port file the fake read before it dialled. */
   readonly portFile: PortFile;
@@ -111,6 +137,12 @@ export interface FakeExtension {
   next(predicate?: (message: BridgeFromEnvironment) => boolean): Promise<BridgeFromEnvironment>;
   /** Opens as an extension that holds no credential: sends `announce`, and answers the environment's reply, `announced` or `refused`. */
   announce(options?: AnnounceOptions): Promise<BridgeFromEnvironment>;
+  /** Sends `pair` with the code as typed and `name` (preset `Chrome`), and answers the environment's reply, `paired` or `refused`. */
+  pair(code: string, name?: string): Promise<BridgeFromEnvironment>;
+  /** Opens as a paired extension: sends `hello` for the credential's Chrome and environment, and answers the reply, `challenge` or `refused`. */
+  hello(credential: Pick<FakeCredential, "chromeId" | "environmentId">, options?: HelloOptions): Promise<BridgeFromEnvironment>;
+  /** Sends the proof of `secret` on `nonce`, and answers the reply, `ready` or `refused`. */
+  prove(secret: string, nonce: string): Promise<BridgeFromEnvironment>;
   /** Settles when the socket has closed, with its close code. */
   readonly closed: Promise<{ readonly code: number }>;
   isOpen(): boolean;
@@ -208,6 +240,7 @@ export const dialExtension = async (folder: string, options: DialOptions = {}): 
     }
     const message = decoded.message;
     received.push(message);
+    options.onMessage?.(message);
     if (message.type === "ping") send({ type: "pong" });
     if (message.type === "call") {
       calls.push(message);
@@ -256,11 +289,96 @@ export const dialExtension = async (folder: string, options: DialOptions = {}): 
       });
       return next((message) => message.type === "announced" || message.type === "refused");
     },
+    async pair(code, name = "Chrome") {
+      send({ type: "pair", code, name });
+      return next((message) => message.type === "paired" || message.type === "refused");
+    },
+    async hello(credential, hello = {}) {
+      send({
+        type: "hello",
+        protocolVersion: hello.protocolVersion ?? BRIDGE_PROTOCOL_VERSION,
+        extensionVersion: hello.extensionVersion ?? manifest.version_name ?? TEST_EXTENSION_VERSION,
+        environmentId: credential.environmentId,
+        chromeId: credential.chromeId,
+        name: hello.name ?? "Chrome",
+      });
+      return next((message) => message.type === "challenge" || message.type === "refused");
+    },
+    async prove(secret, nonce) {
+      send({ type: "proof", mac: proofOf(secret, nonce) });
+      return next((message) => message.type === "ready" || message.type === "refused");
+    },
     closed,
     isOpen: () => socket.readyState === WebSocket.OPEN,
     async close() {
       if (socket.readyState !== WebSocket.CLOSED) socket.close(1000);
       await withTimeout(closed, "the extension's socket to close");
+    },
+  };
+};
+
+/** A socket the fake Chrome opened, and what its opening was answered. */
+export interface FakeConnection {
+  readonly extension: FakeExtension;
+  /** `announced`, `paired`, `ready` or `refused`. */
+  readonly answer: BridgeFromEnvironment;
+}
+
+/**
+ * The fake extension in one Chrome profile across its sockets (#548): it
+ * keeps the credential a pairing gave it, as the extension's storage does,
+ * and each `connect` opens as the extension would, with `hello` and the
+ * proof while it holds one and with `announce` while it holds none. A
+ * refusal of a hello, a proof, or a socket that is live takes the
+ * credential back, so the extension returns to unpaired.
+ */
+export interface FakeChrome {
+  /** What it holds now. */
+  credential(): FakeCredential | null;
+  /** Dials, and opens: `hello` and the proof with a credential, answering `ready` or `refused`; `announce` without, answering `announced` or `refused`. */
+  connect(options?: HelloOptions): Promise<FakeConnection>;
+  /** Dials, announces, and pairs with `code` as `name`, answering `paired` (and keeping what it gave) or `refused`. */
+  pair(code: string, name?: string): Promise<FakeConnection>;
+}
+
+export const fakeChrome = (folder: string, options: Omit<DialOptions, "onMessage"> = {}): FakeChrome => {
+  let credential: FakeCredential | null = null;
+
+  /** Dials a socket whose refusals, once `holds` says it speaks for the credential, take the credential back. */
+  const dial = async (holds: () => boolean): Promise<FakeExtension> => {
+    let environmentId = "";
+    const extension = await dialExtension(folder, {
+      ...options,
+      onMessage: (message) => {
+        if (message.type === "paired") credential = { chromeId: message.chromeId, secret: message.secret, environmentId };
+        else if (message.type === "refused" && holds()) credential = null;
+      },
+    });
+    environmentId = extension.portFile.environmentId;
+    return extension;
+  };
+
+  return {
+    credential: () => credential,
+    async connect(hello) {
+      const held = credential;
+      if (held === null) {
+        const extension = await dial(() => false);
+        return { extension, answer: await extension.announce(hello) };
+      }
+      const extension = await dial(() => true);
+      const challenge = await extension.hello(held, hello);
+      if (challenge.type !== "challenge") return { extension, answer: challenge };
+      return { extension, answer: await extension.prove(held.secret, challenge.nonce) };
+    },
+    async pair(code, name) {
+      let paired = false;
+      const extension = await dial(() => paired);
+      const announced = await extension.announce();
+      if (announced.type !== "announced") return { extension, answer: announced };
+      const answer = await extension.pair(code, name);
+      paired = answer.type === "paired";
+      return { extension, answer };
     },
   };
 };

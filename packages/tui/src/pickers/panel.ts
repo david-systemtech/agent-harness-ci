@@ -1,12 +1,21 @@
 import {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,
+  NOTHING_TO_REVIEW,
+  NO_PLAN_READING,
+  NO_WINDOWS_READ,
   aboveCeilingWords,
   gaugeOf,
+  gaugeWho,
   identityWords,
   modelName,
   percent,
+  pooledWords,
   readingWords,
+  resetWords,
+  reviewCountsWords,
+  reviewDenialWords,
+  reviewRunWords,
   windowWords,
   type AccountsAnswer,
   type EnvironmentView,
@@ -209,46 +218,36 @@ export const usageLines = (
   const label = (environmentId: string, accountId: string) => accounts(environmentId)?.value?.find((a) => a.id === accountId)?.label ?? accountId;
   const lines: (readonly Span[])[] = [];
   for (const gauge of usage.gauges) {
-    const who = gauge.identity?.email ?? "an account never read";
-    const pooled = gauge.accounts.map((a) => `${label(a.environmentId, a.accountId)} on ${name(a.environmentId)}`).join(", ");
-    lines.push([{ text: who, bold: true }, { text: ` · ${pooled}`, dim: true }]);
-    if (gauge.windows.length === 0) lines.push([{ text: `  ${gauge.unavailableReason ?? "No plan windows read yet."}`, dim: true }]);
+    const pooled = gauge.accounts.map((a) => pooledWords(label(a.environmentId, a.accountId), name(a.environmentId))).join(", ");
+    lines.push([{ text: gaugeWho(gauge), bold: true }, { text: ` · ${pooled}`, dim: true }]);
+    if (gauge.windows.length === 0) lines.push([{ text: `  ${gauge.unavailableReason ?? NO_WINDOWS_READ}`, dim: true }]);
     const words = columnOf(gauge.windows.map((w) => windowWords(w.window)));
     for (const window of gauge.windows) {
       const tone = meterTone(window);
+      const reset = resetWords(window.resetsAt);
       lines.push([
         { text: `  ${pad(windowWords(window.window), words)}` },
         ...(window.utilisation !== null && cells > 0 ? [{ text: `${meterBar(window.utilisation, cells)} `, ...(tone !== undefined && { color: tone }) }] : []),
         { text: window.verdict === "rejected" ? `${percent(window.utilisation)} out` : percent(window.utilisation), ...(tone !== undefined && { color: tone }), bold: tone === "red" },
-        { text: window.resetsAt !== null ? `  resets ${clockTime(window.resetsAt)}` : "", dim: true },
+        { text: reset === undefined ? "" : `  ${reset}`, dim: true },
       ]);
     }
   }
   for (const answer of usage.environments) if (answer.error) lines.push([{ text: `${name(answer.environmentId)}: ${answer.error.message}`, color: "yellow" }]);
-  if (lines.length === 0) lines.push([{ text: "No account has a plan reading yet.", dim: true }]);
+  if (lines.length === 0) lines.push([{ text: NO_PLAN_READING, dim: true }]);
   return lines;
 };
 
 /** `/review`: each run, newest first: when, the session, who ran it, attended or not, its mode and containment; its calls counted; each denial. */
 export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) => string | undefined): readonly (readonly Span[])[] => {
-  if (answer.runs.length === 0) return [[{ text: "Nothing to review: no run since the review was last seen.", dim: true }]];
-  return answer.runs.flatMap((run): (readonly Span[])[] => {
-    const who = run.actor.name !== null ? `${run.actor.kind} ${run.actor.name}` : run.actor.kind;
-    const mode = run.mode.clamped ? `${run.mode.effective} (clamped from ${run.mode.requested ?? "the default"})` : run.mode.effective;
-    const { counts } = run;
-    return [
-      [
-        { text: `${clockTime(run.ranAt)} `, dim: true },
-        { text: titleOf(run.sessionId) ?? run.sessionId, bold: true },
-        { text: ` · ${who} · ${run.attended ? "attended" : "unattended"} · ${mode} · ${run.containment.effective}` },
-      ],
-      [
-        {
-          text: `      ${counts.toolCalls} call${counts.toolCalls === 1 ? "" : "s"}: ${counts.autoApproved} auto-approved, ${counts.denied} denied, ${counts.answeredByPerson} by a person, ${counts.expired} expired`,
-          dim: true,
-        },
-      ],
-      ...run.denials.map((denial): readonly Span[] => [{ text: `      denied ${denial.tool ?? "a prompt"}: ${denial.summary} (${denial.decidedBy}: ${denial.reason})`, color: "yellow" }]),
-    ];
-  });
+  if (answer.runs.length === 0) return [[{ text: NOTHING_TO_REVIEW, dim: true }]];
+  return answer.runs.flatMap((run): (readonly Span[])[] => [
+    [
+      { text: `${clockTime(run.ranAt)} `, dim: true },
+      { text: titleOf(run.sessionId) ?? run.sessionId, bold: true },
+      { text: ` · ${reviewRunWords(run)}` },
+    ],
+    [{ text: `      ${reviewCountsWords(run.counts)}`, dim: true }],
+    ...run.denials.map((denial): readonly Span[] => [{ text: `      ${reviewDenialWords(denial)}`, color: "yellow" }]),
+  ]);
 };
