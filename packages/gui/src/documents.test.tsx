@@ -90,6 +90,14 @@ describe("the Documents pane", () => {
     );
   });
 
+  it("opens on /documents typed at the composer, the command the terminal UI lists the same documents with", async () => {
+    const { app, env, session, runId } = await opened();
+    env.writeFile(session, runId, "NOTES.md", NOTES);
+    act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+    await app.user.keyboard("/documents{Enter}");
+    expect(await within(await waitFor(() => pane("Documents"))).findByRole("article", { name: "NOTES.md" })).toBeDefined();
+  });
+
   it("opens a document's source in the Files pane's file view", async () => {
     const { app, env, session, runId } = await opened();
     env.writeFile(session, runId, "site/index.html", PAGE);

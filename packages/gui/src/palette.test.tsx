@@ -138,6 +138,7 @@ describe("its entries", () => {
       "/containmentSet how contained this session's runs are",
       "/terminalOpen a terminal on the session's environment, in a pane",
       "/filesBrowse the workspace's files, and read one in the pager",
+      "/documentsThe pages, SVGs and markdown this session wrote, newest first",
       "/forkFork this session n prompts back; bare, at the end",
       // Nothing is said yet, so the rewind a bare /rewind is has nowhere to go: dim with the runtime's reason.
       "/rewindRewind n prompts, one by default; undo takes the rewind backNo message a run has read to rewind to.",
