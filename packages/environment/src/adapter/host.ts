@@ -1497,7 +1497,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // One injection answer for the run: what its instructions tell it and what its process is given.
     const injection = processEnvironments.decide(holderOf(plan));
     const scope = instructionScope({ ...plan, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection });
-    const skills: SkillSetScope = {
+    const skillScope: SkillSetScope = {
       sessionId: plan.sessionId,
       accountId: plan.account.id,
       workspace: plan.workspace,
@@ -1542,7 +1542,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       });
     // Its skill set, then its instructions, which will carry the set's fingerprint (#496); then its adapter.
     const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
-      const skillSet = await skillSetFor(entry, skills);
+      const skillSet = await skillSetFor(entry, skillScope);
       if (skillSet === null) return null;
       const composed = await composeFor(entry, scope);
       return composed === null ? null : [composed, skillSet];
