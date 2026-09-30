@@ -188,7 +188,9 @@ const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.accoun
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; and a probe changing managed-tool
  * rows (`tools.updated`) the managed tools (#384) and the key-manager
- * connections, each carrying its CLI's row (#375).
+ * connections, each carrying its CLI's row (#375); and an unpaired
+ * extension opening its socket (`extension.seen`, #547) `browser.status`,
+ * whose unpaired flag ticks the Browser card's Load sub-step.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -207,6 +209,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
+  "browser.status": ["extension.seen"],
 };
 
 export interface RequestCache {

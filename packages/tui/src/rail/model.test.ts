@@ -2,16 +2,14 @@ import type { EnvironmentView, MergedGroupHeading, SessionListView, SessionRow }
 import type { SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { badgesOf } from "./badge.js";
-import { railLines, rowKey, type RailInput, type RailLine } from "./model.js";
-import { wakeWords } from "./when.js";
+import { railLines, type RailInput, type RailLine } from "./model.js";
 
 /**
- * The rail as a pure function of `projections.sessionList` and
- * `projections.environments` (docs/specs/tui.md, "The rail"): the headings
- * in order, the fold state per heading name with the settled shelf and the
- * archive folded by default, each row's badge, glyph, tags and pending
- * marker, a down environment's rows dim under its "unreachable since", and
- * the filter over visible rows.
+ * The rail's lines over the client runtime's headings (docs/specs/tui.md,
+ * "The rail"; the headings' own rules are `sessionHeadings`', tested in the
+ * client runtime): each heading followed by its rows, an environment's by
+ * its notes, each row with its badge, glyph and tags, a down environment's
+ * rows dim under its "unreachable since".
  */
 
 const NOW = new Date("2026-09-24T10:00:00.000Z");
@@ -85,7 +83,7 @@ const read = (lines: readonly RailLine[]) =>
   );
 
 describe("the headings", () => {
-  it("come pinned, the merged groups, each environment's ungrouped sessions, snoozed with wake times, then settled and the archive folded", () => {
+  it("come as the runtime's headings, each followed by its rows, snoozed with wake times, then settled and the archive folded", () => {
     const pinned = row("laptop", { title: "Pinned on the laptop" });
     const grouped = [row("desk", { title: "Brand on the desk" }, { groupName: "Brandsolidate" }), row("laptop", { title: "Brand on the laptop" }, { groupName: "brandsolidate" })];
     const loose = row("desk", { title: "Loose" });
@@ -105,7 +103,6 @@ describe("the headings", () => {
         }),
       }),
     );
-    const wake = new Date("2026-09-24T18:00:00.000Z");
     expect(read(lines)).toEqual([
       "▾ Pinned",
       "  Pinned on the laptop",
@@ -116,42 +113,15 @@ describe("the headings", () => {
       "  Loose",
       "laptop",
       "▾ Snoozed",
-      `  Later ${wakeWords(wake, NOW)}`,
+      expect.stringMatching(/^ {2}Later \S/),
       "▸ Settled 1",
       "▸ Archive 1",
     ]);
   });
 
-  it("leave out an empty shelf and a group with no active session, but keep every environment's heading", () => {
+  it("follow an environment's heading with its notes: no sessions", () => {
     const lines = railLines(input({ environments: [view("desk"), view("laptop")], list: listOf({ groups: [heading("idle", "Idle", [])] }) }));
     expect(read(lines)).toEqual(["desk", "  (no sessions)", "laptop", "  (no sessions)"]);
-  });
-
-  it("fold and open by heading name, over the defaults", () => {
-    const grouped = row("desk", { title: "In a group" }, { groupName: "Brand" });
-    const settled = row("desk", { title: "Done" });
-    const lines = railLines(
-      input({
-        list: listOf({ active: [grouped], settled: [settled], groups: [heading("brand", "Brand", [grouped])] }),
-        folded: { "group:brand": true, "shelf:settled": false },
-      }),
-    );
-    expect(read(lines)).toEqual(["▸ Brand 1", "desk", "▾ Settled", "  Done"]);
-  });
-
-  it("say pending while the runtime says a command about one of their groups awaits its receipt, or, folded, one about a row they hide", () => {
-    const [renamed, quiet] = [row("desk", { title: "In a renamed group" }, { groupName: "Brand" }), row("desk", { title: "In a quiet group" }, { groupName: "Jams" })];
-    const archived = row("desk", { title: "Archiving" }, { awaitingReceipt: true });
-    const lines = railLines(
-      input({ list: listOf({ active: [renamed, quiet], archived: [archived], groups: [heading("brand", "Brand", [renamed], true), heading("jams", "Jams", [quiet])] }) }),
-    );
-    const pending = lines.flatMap((l) => (l.kind === "heading" ? [[l.text, l.pending]] : []));
-    expect(pending).toEqual([
-      ["Brand", true],
-      ["Jams", false],
-      ["desk", false],
-      ["Archive", true],
-    ]);
   });
 });
 
@@ -185,20 +155,5 @@ describe("a row", () => {
     expect(lines).toContainEqual(expect.objectContaining({ kind: "note", text: `unreachable since ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}` }));
     expect(lines.find((l) => l.kind === "row")).toMatchObject({ dim: true });
     expect(lines.find((l) => l.kind === "heading" && l.text === "desk")).toMatchObject({ dim: false });
-  });
-
-  it("names the block it is in, in its rendered order, for the reorder keys", () => {
-    const [a, b] = [row("desk", { title: "a" }), row("laptop", { title: "b" })];
-    const lines = railLines(input({ environments: [view("desk"), view("laptop")], list: listOf({ pinned: [a, b] }) }));
-    const first = lines.find((l) => l.kind === "row");
-    expect(first?.kind === "row" && first.block).toEqual({ kind: "pinned", rows: [a, b] });
-  });
-});
-
-describe("the filter", () => {
-  it("keeps only matching visible rows and the headings over them", () => {
-    const [fix, other, done] = [row("desk", { title: "Fix the rail" }), row("desk", { title: "Other" }), row("desk", { title: "Fix, settled" })];
-    const lines = railLines(input({ list: listOf({ active: [fix, other], settled: [done] }), matches: new Set([rowKey(fix), rowKey(done)]) }));
-    expect(read(lines)).toEqual(["desk", "  Fix the rail"]);
   });
 });

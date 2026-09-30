@@ -506,6 +506,7 @@ describe("the method registry", () => {
       | "trust.list"
       | "trust.decide"
       | "trust.revoke"
+      | "browser.status"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

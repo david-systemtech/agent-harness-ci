@@ -198,6 +198,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
         case "trust.updated":
           return;
+        // An unpaired extension seen (#547) raises none: the Browser card ticks its Load sub-step from browser.status.
+        case "extension.seen":
+          return;
       }
     },
     settled(environmentId, sessionId, promptId) {

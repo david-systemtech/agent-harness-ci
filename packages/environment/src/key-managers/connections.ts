@@ -99,6 +99,10 @@ import { createVerificationSchedule } from "./verifier.js";
  *   finds the login signed in asks the provider for one to suggest, within
  *   the budget again; the suggestion is kept in memory beside the record,
  *   as the verified-at times are, and answered on it until a base is set.
+ *   It is asked before anything the verification found is recorded (#689),
+ *   so a verification is seen whole, and only as it ends: a client reading
+ *   the records on its event reads the suggestion, and one that sees what it
+ *   recorded sees the next verification already scheduled from its end.
  */
 
 /** The environment's own sign-ins' actor. */
@@ -863,20 +867,21 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const verifiedAt = clock.now().toISOString();
       let taken = false;
       try {
+        // Asked before anything is recorded, so the verification is seen whole: a client reading the records on its event reads the suggestion too (#689). On the wall clock, never the environment's, which a test may hold still.
+        const suggested =
+          !closed && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null
+            ? await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs))
+            : undefined;
         // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
         taken = !closed && recordFound(connectionId, subject, checked);
         if (taken) verifiedTimes.set(connectionId, verifiedAt);
+        if (taken && suggested !== undefined) suggestions.set(connectionId, suggested);
       } finally {
         // A login the verification made is held once what it found is recorded; otherwise, a failed write included, it is let go.
         if (checked.outcome === "verified" && checked.fresh) {
           if (taken) logins.hold(connectionId, checked.login);
           else void letGo(connectionId, checked.login);
         }
-      }
-      if (taken && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null) {
-        // On the wall clock, never the environment's, which a test may hold still.
-        const suggested = await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs));
-        if (!closed) suggestions.set(connectionId, suggested);
       }
     } catch (error) {
       console.error(`Verifying the key-manager connection ${connectionId} failed:`, error);

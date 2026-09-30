@@ -93,8 +93,8 @@ interface Socket {
   readonly subscriptions: SocketSubscriptions;
 }
 
-/** A frame's text; undefined for a binary frame, which the wire never takes. */
-const textOf = (data: RawData, isBinary: boolean): string | undefined => {
+/** A frame's text; undefined for a binary frame, which the wire never takes (nor does the extension listener). */
+export const textOf = (data: RawData, isBinary: boolean): string | undefined => {
   if (isBinary) return undefined;
   if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
   return Buffer.from(data as ArrayBuffer).toString("utf8");
