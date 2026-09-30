@@ -1,0 +1,200 @@
+import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
+import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerReference } from "@agent-harness/contracts";
+import { useId, useMemo, useState } from "react";
+import { Button, Dialog, DialogContent, Input, Select } from "../ui/index.js";
+import { useClock, useFollowed, useRuntime, useShell } from "../window-context.js";
+import { Field } from "./add-connection.js";
+
+/** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
+interface Copied {
+  readonly value: string;
+  readonly reference: KeyManagerReference;
+}
+
+export interface MoveCardProps {
+  readonly environmentId: string;
+  /** The connections a Move may go into, as the cached list holds them. */
+  readonly connections: readonly KeyManagerConnectionRecord[];
+  readonly writable: boolean;
+}
+
+/** The connection a Move is preset to go into: the one runs receive the variables of, else the first. */
+const presetOf = (connections: readonly KeyManagerConnectionRecord[]): string | undefined => (connections.find((connection) => connection.injects) ?? connections[0])?.id;
+
+/**
+ * Move stored tokens (key-managers spec, "Move stored tokens"; ADR 0028;
+ * #425): the items `keyManagers.move.list` holds, each with its target on
+ * the connection the Move goes into; that connection's base path, preset to
+ * the one it suggests (said until one is set) and set with
+ * `keyManagers.connections.setBasePath`; Move per item, and Move all once a
+ * base path is set, each Move answering one line per item. A target holding
+ * another value offers Overwrite; one the login cannot write offers Copy
+ * value (`keyManagers.move.copyValue`), shown once for a person to paste,
+ * and then Verify the paste, a verify-only Move that finishes the swap.
+ */
+export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps) => {
+  const runtime = useRuntime();
+  const clock = useClock();
+  const heading = useId();
+  const hands = { runtime, clock };
+  const listed = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
+  const [chosen, choose] = useState<string | undefined>(undefined);
+  const connection = connections.find((each) => each.id === (chosen ?? presetOf(connections)));
+  const [typed, setTyped] = useState<string | undefined>(undefined);
+  const [lines, setLines] = useState<readonly MoveLine[]>([]);
+  const [line, setLine] = useState<string | undefined>(undefined);
+  const [followUps, setFollowUps] = useState<ReadonlyMap<string, MoveFollowUp>>(new Map());
+  const [copied, setCopied] = useState<Copied | undefined>(undefined);
+  if (connection === undefined) return null;
+
+  const items = listed?.result?.items ?? [];
+  const names = new Map(items.map((item) => [item.id, item.name]));
+  const basePath = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
+  const targetOf = (item: KeyManagerMoveItem) => item.targets.find((target) => target.connectionId === connection.id)?.reference;
+
+  const move = (which: "all" | readonly KeyManagerMoveItemRef[], options: MoveOptions = {}) => {
+    setLine(undefined);
+    void moveItems(hands, environmentId, connection, which, names, options).then((answer) => {
+      if (!answer.ok) return setLine(answer.line);
+      setLines(answer.lines);
+      setFollowUps((held) => new Map([...held, ...answer.lines.map((each) => [each.item.id, each.followUp] as const)]));
+    });
+  };
+  const copy = (item: KeyManagerMoveItemRef) =>
+    void copyValue(hands, environmentId, connection, item).then((answer) => {
+      if (!answer.ok) return setLine(answer.line);
+      setFollowUps((held) => new Map([...held, [item.id, "verify"]]));
+      setCopied({ value: answer.value, reference: answer.reference });
+    });
+  const followUp = (item: KeyManagerMoveItem) => {
+    const ref = { kind: item.kind, id: item.id };
+    switch (followUps.get(item.id)) {
+      case "overwrite":
+        return (
+          <Button disabled={!writable} onClick={() => move([ref], { overwrite: true })}>
+            Overwrite
+          </Button>
+        );
+      case "copy-value":
+        return (
+          <Button disabled={!writable} onClick={() => copy(ref)}>
+            Copy value
+          </Button>
+        );
+      case "verify":
+        return (
+          <Button disabled={!writable} onClick={() => move([ref], { verifyOnly: true })}>
+            Verify the paste
+          </Button>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
+      <h3 id={heading} className="text-base font-semibold text-ink">
+        Move stored tokens
+      </h3>
+      <p className="text-sm text-ink-muted">Each is written to the key manager, read back, swapped for a reference to it, and its stored copy deleted.</p>
+      {connections.length > 1 && (
+        <Field label="Move into">
+          <Select
+            value={connection.id}
+            onChange={(event) => {
+              choose(event.target.value);
+              setTyped(undefined);
+              setLines([]);
+              setFollowUps(new Map());
+            }}
+          >
+            {connections.map((each) => (
+              <option key={each.id} value={each.id}>
+                {each.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      <div className="flex items-end gap-2">
+        <Field label="Base path">
+          <Input value={basePath} disabled={!writable} onChange={(event) => setTyped(event.target.value)} />
+        </Field>
+        <Button
+          disabled={!writable || basePath.trim() === "" || basePath.trim() === connection.basePath}
+          onClick={() => void setBasePath(hands, environmentId, connection, basePath).then((set) => setLine(set.line))}
+        >
+          Set the base path
+        </Button>
+      </div>
+      {connection.basePath === null && connection.suggestedBasePath !== null && <p className="text-sm text-ink-muted">Suggested: {connection.suggestedBasePath}.</p>}
+      {items.length === 0 ? (
+        <p className="text-sm text-ink-muted">No stored token is left to move here.</p>
+      ) : (
+        <ul aria-label="Stored tokens" className="flex flex-col gap-2">
+          {items.map((item) => {
+            const target = targetOf(item);
+            return (
+              <li key={item.id} aria-label={item.name} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-ink">{item.name}</span>
+                <span className="text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
+                <span className="ml-auto flex gap-2">
+                  {followUp(item)}
+                  <Button disabled={!writable || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
+                    Move
+                  </Button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {connection.basePath !== null && items.length > 0 && (
+        <Button tone="primary" className="self-start" disabled={!writable} onClick={() => move("all")}>
+          Move all
+        </Button>
+      )}
+      {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
+      {lines.length > 0 && (
+        <ul aria-label="What the Move did" className="flex flex-col gap-1 text-sm text-ink">
+          {lines.map((each) => (
+            <li key={each.item.id}>{each.line}</li>
+          ))}
+        </ul>
+      )}
+      {copied !== undefined && <CopiedValueDialog environmentId={environmentId} label={connection.label} copied={copied} close={() => setCopied(undefined)} />}
+    </section>
+  );
+};
+
+/**
+ * The value Copy value answered, shown once (ADR 0028's Copy the value): its
+ * target, the value in a field to select, and Copy to the clipboard where
+ * the shell has one. Done lets it go; nothing else on the client holds it.
+ */
+const CopiedValueDialog = ({ environmentId, label, copied, close }: { readonly environmentId: string; readonly label: string; readonly copied: Copied; readonly close: () => void }) => {
+  const runtime = useRuntime();
+  const shell = useShell();
+  const clipboard = runtime.capability(environmentId, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
+  return (
+    <Dialog open onOpenChange={(open) => !open && close()}>
+      <DialogContent
+        title={`Paste this value into ${label}`}
+        description="It is shown this once: paste it at the place below in your key manager, then Verify the paste to finish the move."
+        className="max-w-lg"
+      >
+        <p className="text-sm text-ink">At {referenceLocator(copied.reference)}</p>
+        <Field label="The stored token">
+          <Input readOnly value={copied.value} className="font-mono" onFocus={(event) => event.target.select()} />
+        </Field>
+        <div className="flex justify-end gap-2">
+          {clipboard !== undefined && <Button onClick={() => void clipboard.writeText(copied.value)}>Copy to the clipboard</Button>}
+          <Button tone="primary" onClick={close}>
+            Done
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};

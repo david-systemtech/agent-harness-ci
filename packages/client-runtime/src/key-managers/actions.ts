@@ -3,7 +3,10 @@ import type {
   KeyManagerCertificate,
   KeyManagerConnectionRecord,
   KeyManagerCredential,
+  KeyManagerMoveItemRef,
+  KeyManagerMoveItemResult,
   KeyManagerProvider,
+  KeyManagerReference,
   ParamsOf,
 } from "@agent-harness/contracts";
 import { uuidv4, uuidv7 } from "../ids.js";
@@ -245,4 +248,93 @@ export const setPolicies = async ({ runtime, clock }: KeyManagerHands, environme
 export const setInjected = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.setInjected", { commandId: uuidv7(clock.now()), connectionId: connection.id }));
   return answer.ok ? { ok: true, connection: answer.result?.connection ?? null, line: `Runs receive the variables of ${connection.label} from their next start.` } : { ok: false, line: `Not changed: ${answer.line}` };
+};
+
+/** Sets where Move keeps the harness's secrets on the connection (`keyManagers.connections.setBasePath`). */
+export const setBasePath = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, basePath: string): Promise<KeyManagerOutcome> => {
+  const answer = await adminCall(() =>
+    runtime.requests.call(environmentId, "keyManagers.connections.setBasePath", { commandId: uuidv7(clock.now()), connectionId: connection.id, basePath: basePath.trim() }),
+  );
+  return answer.ok
+    ? { ok: true, connection: answer.result?.connection ?? null, line: `Move keeps the harness's secrets on ${connection.label} under ${basePath.trim()}.` }
+    : { ok: false, line: `The base path was not set: ${answer.line}` };
+};
+
+/**
+ * What an item's failed Move offers next (ADR 0028; #372): Overwrite a
+ * different value at its target, Copy value where the login cannot write
+ * it, Verify the paste again after a verify-only Move found nothing there
+ * or another value; null for nothing more than moving it again.
+ */
+export type MoveFollowUp = "overwrite" | "copy-value" | "verify" | null;
+
+/** One item's part of a Move: the item, what the Move said of it in one line, and what it offers next. */
+export interface MoveLine {
+  readonly item: KeyManagerMoveItemRef;
+  readonly line: string;
+  readonly followUp: MoveFollowUp;
+}
+
+const followUpOf = (result: KeyManagerMoveItemResult, verifyOnly: boolean): MoveFollowUp => {
+  if (result.outcome === "moved") return null;
+  if (result.error.code === "cannot_write") return "copy-value";
+  if (result.error.code === "conflict" && (result.error.data as { readonly reason?: unknown } | undefined)?.reason === "target_exists") return "overwrite";
+  return verifyOnly && result.step === "read-back" ? "verify" : null;
+};
+
+/** How a Move takes its items: replacing a different value at a target, or writing nothing and verifying what a person pasted. */
+export interface MoveOptions {
+  readonly overwrite?: boolean;
+  readonly verifyOnly?: boolean;
+}
+
+/**
+ * Moves stored tokens into the connection (`keyManagers.move`): the items
+ * named, or all; each answered in one line, named as people know it
+ * (`names`, by item id), with what it offers next. A refusal of the whole
+ * Move (no base path, not signed in) is one line.
+ */
+export const moveItems = async (
+  { runtime, clock }: KeyManagerHands,
+  environmentId: string,
+  connection: KeyManagerConnectionRecord,
+  items: "all" | readonly KeyManagerMoveItemRef[],
+  names: ReadonlyMap<string, string>,
+  options: MoveOptions = {},
+): Promise<{ readonly ok: true; readonly lines: readonly MoveLine[] } | { readonly ok: false; readonly line: string }> => {
+  const answer = await adminCall(() =>
+    runtime.requests.call(environmentId, "keyManagers.move", {
+      commandId: uuidv7(clock.now()),
+      connectionId: connection.id,
+      items: items === "all" ? "all" : [...items],
+      ...(options.overwrite === true && { overwrite: true }),
+      ...(options.verifyOnly === true && { verifyOnly: true }),
+    }),
+  );
+  if (!answer.ok) return { ok: false, line: `Nothing was moved: ${answer.line}` };
+  const results = answer.result?.items ?? [];
+  return {
+    ok: true,
+    lines: results.map((result) => ({
+      item: result.item,
+      line: `${names.get(result.item.id) ?? result.item.id}: ${result.outcome === "moved" ? result.message : result.error.message}`,
+      followUp: followUpOf(result, options.verifyOnly === true),
+    })),
+  };
+};
+
+/** An item's stored value, answered once for a person to paste at its target, or why it was not. */
+export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerReference } | { readonly ok: false; readonly line: string };
+
+/**
+ * Answers an item's stored value once (`keyManagers.move.copyValue`, sent
+ * directly, never queued), after a Move found the login cannot write its
+ * target: for a person to paste there, then verify. The value is held by
+ * whoever shows it, and nowhere else on the client.
+ */
+export const copyValue = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, item: KeyManagerMoveItemRef): Promise<CopiedValue> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.move.copyValue", { commandId: uuidv7(clock.now()), connectionId: connection.id, item }));
+  if (!answer.ok) return { ok: false, line: `The value was not copied: ${answer.line}` };
+  if (answer.result === undefined) return { ok: false, line: "The value was copied once already; move the item again to copy it again." };
+  return { ok: true, value: answer.result.value, reference: answer.result.reference };
 };

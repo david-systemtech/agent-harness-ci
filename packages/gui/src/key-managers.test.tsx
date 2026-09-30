@@ -349,3 +349,96 @@ describe("policies and injection", () => {
     expect(app.environment("desk").requests("keyManagers.connections.setInjected")).toHaveLength(1);
   });
 });
+
+/** The Move card. */
+const moveCard = () => within(pane()).findByRole("region", { name: "Move stored tokens" });
+
+/** A stored token's row on the Move card, by what people know it by. */
+const item = async (name: string) => within(await moveCard()).findByRole("listitem", { name });
+
+/** The lines the last Move said, one per item. */
+const moved = async () =>
+  within(await within(await moveCard()).findByRole("list", { name: "What the Move did" }))
+    .getAllByRole("listitem")
+    .map((line) => line.textContent);
+
+describe("the Move card", () => {
+  it("sets the base path the suggestion presets, then Move all answers one line per item, and a target holding another value offers overwrite", async () => {
+    const app = await opened({
+      keyManagers: {
+        connections: [{ label: "Home OpenBao", address: "https://bao.home.test", basePath: null, suggestedBasePath: "personal/harness" }],
+        items: [
+          { name: "https://github.com", slug: "github" },
+          { name: "https://git.home.test", slug: "forgejo" },
+        ],
+        values: { "personal/harness/forge-github": "another-value-for-tests" },
+      },
+    });
+    await openKeyManagers(app);
+    const move = await moveCard();
+    expect(within(move).getByText("Suggested: personal/harness.")).toBeDefined();
+    expect(within(await item("https://github.com")).getByText("Set a base path to see where it goes.")).toBeDefined();
+    expect(within(move).queryByRole("button", { name: "Move all" })).toBeNull();
+    const base = within(move).getByRole("textbox", { name: "Base path" }) as HTMLInputElement;
+    expect(base.value).toBe("personal/harness");
+    await app.user.click(within(move).getByRole("button", { name: "Set the base path" }));
+    const desk = app.environment("desk");
+    await waitFor(() => expect(within(pane()).queryByText("Suggested: personal/harness.")).toBeNull());
+    expect(desk.requests("keyManagers.connections.setBasePath")[0]?.params).toMatchObject({ basePath: "personal/harness" });
+    expect(await within(await item("https://github.com")).findByText("To personal/harness/forge-github (key token)")).toBeDefined();
+    expect(within(await item("https://git.home.test")).getByText("To personal/harness/forge-forgejo (key token)")).toBeDefined();
+
+    await app.user.click(within(await moveCard()).getByRole("button", { name: "Move all" }));
+    await waitFor(async () => expect(await moved()).toHaveLength(2));
+    expect(await moved()).toEqual([
+      "https://github.com: A different value is at OpenBao at personal/harness/forge-github (key token) already: nothing was written, and the forge account https://github.com keeps its stored token. Move it with overwrite to replace that value.",
+      "https://git.home.test: Moved to OpenBao at personal/harness/forge-forgejo (key token); the stored token was deleted.",
+    ]);
+    expect(desk.requests("keyManagers.move")[0]?.params).toMatchObject({ items: "all" });
+    await waitFor(async () => expect(within(await moveCard()).queryByRole("listitem", { name: "https://git.home.test" })).toBeNull());
+
+    await app.user.click(within(await item("https://github.com")).getByRole("button", { name: "Overwrite" }));
+    await waitFor(async () => expect(await moved()).toEqual(["https://github.com: Moved to OpenBao at personal/harness/forge-github (key token); the stored token was deleted."]));
+    expect(desk.requests("keyManagers.move")[1]?.params).toMatchObject({ items: [{ kind: "forge-account" }], overwrite: true });
+    expect(desk.keyManagerValue("personal/harness/forge-github")).toBe("stored-token-for-tests-github");
+    expect(await within(await moveCard()).findByText("No stored token is left to move here.")).toBeDefined();
+  });
+
+  it("offers Copy value, sent directly, where the login cannot write: the value shows once, and a verify-only Move says a missing or different paste, then finishes the swap", async () => {
+    const app = await opened({
+      keyManagers: {
+        writable: false,
+        connections: [{ label: "Home OpenBao", address: "https://bao.home.test", basePath: "personal/harness" }],
+        items: [{ name: "https://github.com", slug: "github" }],
+      },
+    });
+    await openKeyManagers(app);
+    await app.user.click(within(await item("https://github.com")).getByRole("button", { name: "Move" }));
+    await waitFor(async () => expect((await moved())[0]).toMatch(/^https:\/\/github\.com: The login of Home OpenBao may not write OpenBao at personal\/harness\/forge-github \(key token\)/));
+    const desk = app.environment("desk");
+
+    await app.user.click(within(await item("https://github.com")).getByRole("button", { name: "Copy value" }));
+    const copy = await dialog("Paste this value into Home OpenBao");
+    expect(within(copy).getByText("At personal/harness/forge-github (key token)")).toBeDefined();
+    expect((within(copy).getByRole("textbox", { name: "The stored token" }) as HTMLInputElement).value).toBe("stored-token-for-tests-github");
+    expect(desk.requests("keyManagers.move.copyValue")).toHaveLength(1);
+    await app.user.click(within(copy).getByRole("button", { name: "Done" }));
+    expect(screen.queryByDisplayValue("stored-token-for-tests-github")).toBeNull();
+    expect(JSON.stringify(app.platform.documents.entries())).not.toContain("stored-token-for-tests-github");
+    // Copied once: the value is not offered again.
+    expect(within(await item("https://github.com")).queryByRole("button", { name: "Copy value" })).toBeNull();
+
+    const verify = async () => app.user.click(within(await item("https://github.com")).getByRole("button", { name: "Verify the paste" }));
+    await verify();
+    await waitFor(async () => expect((await moved())[0]).toMatch(/Nothing is pasted at OpenBao at personal\/harness\/forge-github \(key token\) yet: paste the value there, then verify it again\./));
+    desk.pasteKeyManagerValue("personal/harness/forge-github", "a-wrong-paste-for-tests");
+    await verify();
+    await waitFor(async () => expect((await moved())[0]).toMatch(/holds another value than the stored token of the forge account https:\/\/github\.com/));
+    desk.pasteKeyManagerValue("personal/harness/forge-github", "stored-token-for-tests-github");
+    await verify();
+    await waitFor(async () =>
+      expect(await moved()).toEqual(["https://github.com: Verified the value pasted at OpenBao at personal/harness/forge-github (key token) and moved to it; the stored token was deleted."]),
+    );
+    expect(desk.requests("keyManagers.move").at(-1)?.params).toMatchObject({ verifyOnly: true });
+  });
+});
