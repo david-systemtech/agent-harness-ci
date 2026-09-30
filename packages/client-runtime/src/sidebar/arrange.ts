@@ -154,6 +154,14 @@ const pinAt = (row: SessionRow, pinned: readonly SessionRow[], at: number | null
   return { kind: "pin", row, key: own?.key ?? null, moves: moves.filter((move) => move !== own) };
 };
 
+/**
+ * `dragged` dropped under the repository `identity` (null: none): a
+ * repository is not a group, since a session's is its workspace's, so it
+ * stays where it is when it is of that repository, and is refused otherwise.
+ */
+const underRepository = (dragged: SessionRow, identity: string | null): Arrangement =>
+  dragged.summary.repositoryIdentity === identity ? { kind: "unchanged" } : { kind: "refused", why: "repository" };
+
 /** `dragged` dropped onto a heading, or a row of one taking the place `at` of its block. */
 const ontoHeading = (dragged: SessionRow, heading: SessionHeading, at: number | null): Arrangement => {
   const from = heading.block.rows.findIndex((row) => rowKey(row) === rowKey(dragged));
@@ -161,13 +169,10 @@ const ontoHeading = (dragged: SessionRow, heading: SessionHeading, at: number | 
   if (shelf !== null) return { kind: "refused", why: "shelf", shelf };
   if (from !== -1) return at === null ? { kind: "unchanged" } : reorder(heading.block, from, at);
   if (heading.kind === "pinned") return pinAt(dragged, heading.block.rows, at);
-  const { repositoryIdentity } = dragged.summary;
-  // A repository is not a group: a session's is its workspace's, and no drop puts it under another.
-  const underIt = (identity: string | null) => (repositoryIdentity === identity ? { kind: "unchanged" as const } : { kind: "refused" as const, why: "repository" as const });
-  if (heading.kind === "repository") return underIt(heading.repository);
+  if (heading.kind === "repository") return underRepository(dragged, heading.repository);
   if (heading.kind === "environment") {
     if (heading.environment.environmentId !== dragged.environmentId) return { kind: "refused", why: "environment", environmentId: dragged.environmentId };
-    if (heading.holds === "unidentified") return underIt(null);
+    if (heading.holds === "unidentified") return underRepository(dragged, null);
     return dragged.groupName === null ? { kind: "unchanged" } : { kind: "group", row: dragged, name: null };
   }
   const group = heading.kind === "group" ? heading.group : null;
