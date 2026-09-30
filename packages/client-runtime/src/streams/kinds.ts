@@ -362,6 +362,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // An unpaired extension seen (#547) changes no status: the request cache reads browser.status again.
       case "extension.seen":
         return data;
+      // A worktree kept at its last session's purge (#330) changes no status: the notices queue says it.
+      case "workspace.kept":
+        return data;
     }
   },
   encode: (data) => data,
