@@ -495,6 +495,39 @@ describe("the Move card", () => {
     expect((await base()).value).toBe("personal/harness");
   });
 
+  it("goes back to its preset when the connection chosen to move into is removed, and starts afresh when the base path changes", async () => {
+    const app = await opened({
+      keyManagers: {
+        connections: [
+          { label: "Home OpenBao", address: "https://bao.home.test", basePath: "personal/harness" },
+          { label: "Work OpenBao", address: "https://bao.work.test", basePath: null, injects: false, injectedVariables: [] },
+        ],
+        items: [{ name: "https://github.com", slug: "github" }],
+        values: { "personal/harness/forge-github": "another-value-for-tests" },
+      },
+    });
+    await openKeyManagers(app);
+    const desk = app.environment("desk");
+    const [home, work] = desk.keyManagerConnections();
+    await app.user.selectOptions(within(await moveCard()).getByRole("combobox", { name: "Move into" }), work?.id ?? "");
+    await app.user.click(within(await card("Work OpenBao")).getByRole("button", { name: "Remove" }));
+    await app.user.click(within(await dialog("Remove Work OpenBao?")).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(within(pane()).queryByRole("region", { name: "Work OpenBao" })).toBeNull());
+    // Home is the one left, and the card goes into it.
+    expect((within(await moveCard()).getByRole("textbox", { name: "Base path" }) as HTMLInputElement).value).toBe("personal/harness");
+
+    await app.user.click(within(await item("https://github.com")).getByRole("button", { name: "Move" }));
+    expect(await within(await item("https://github.com")).findByRole("button", { name: "Overwrite" })).toBeDefined();
+    const base = within(await moveCard()).getByRole("textbox", { name: "Base path" });
+    await app.user.clear(base);
+    await app.user.type(base, "team/harness");
+    await app.user.click(within(await moveCard()).getByRole("button", { name: "Set the base path" }));
+    await waitFor(() => expect(desk.keyManagerConnections().find((each) => each.id === home?.id)?.basePath).toBe("team/harness"));
+    // The Overwrite was offered for the old target: it goes with it.
+    await waitFor(async () => expect(within(await item("https://github.com")).queryByRole("button", { name: "Overwrite" })).toBeNull());
+    expect(within(await item("https://github.com")).getByText("To team/harness/forge-github (key token)")).toBeDefined();
+  });
+
   it("offers Copy value, sent directly, where the login cannot write: the value shows once, and a verify-only Move says a missing or different paste, then finishes the swap", async () => {
     const app = await opened({
       keyManagers: {

@@ -29,6 +29,8 @@ export const PolicyTicks = ({ environmentId, connection, writable, say }: Policy
   const clock = useClock();
   const [sent, setSent] = useState<readonly string[] | undefined>(undefined);
   const sending = useRef(0);
+  /** The last send made, by its number, and the ticks the environment answered it with (undefined while none, or refused). */
+  const latest = useRef<{ readonly send: number; answered: readonly string[] | undefined }>({ send: 0, answered: undefined });
   const recorded = connection.ticks ?? [];
   const shown = sent ?? recorded;
   // Once every send has settled and the record says what was sent, the record is shown again.
@@ -41,11 +43,14 @@ export const PolicyTicks = ({ environmentId, connection, writable, say }: Policy
     const next = ticksWith({ policies: connection.policies, ticks: shown }, policy, ticked);
     setSent(next);
     sending.current += 1;
+    const send = latest.current.send + 1;
+    latest.current = { send, answered: undefined };
     void setPolicies({ runtime, clock }, environmentId, connection, next).then((set) => {
       sending.current -= 1;
       if (!set.ok) say(set.line);
-      if (sending.current > 0) return;
-      setSent(set.ok ? (set.connection?.ticks ?? next) : undefined);
+      // Whatever order the answers come in, the last send's answer is what the environment holds once all have settled.
+      if (latest.current.send === send) latest.current.answered = set.ok ? (set.connection?.ticks ?? next) : undefined;
+      if (sending.current === 0) setSent(latest.current.answered === undefined ? undefined : [...latest.current.answered]);
     });
   };
   const ticks = new Set(shown);

@@ -35,7 +35,8 @@ const presetOf = (connections: readonly KeyManagerConnectionRecord[]): string | 
 export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps) => {
   const heading = useId();
   const [chosen, choose] = useState<string | undefined>(undefined);
-  const connection = connections.find((each) => each.id === (chosen ?? presetOf(connections)));
+  // A choice the list no longer holds (the connection was removed) falls back to the preset.
+  const connection = connections.find((each) => each.id === chosen) ?? connections.find((each) => each.id === presetOf(connections));
   if (connection === undefined) return null;
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
@@ -54,13 +55,13 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
           </Select>
         </Field>
       )}
-      {/* Keyed by the connection, so what was typed and answered for one never carries to another, whether chosen or preset. */}
-      <MoveInto key={connection.id} environmentId={environmentId} connection={connection} writable={writable} />
+      {/* Keyed by the connection and its base path, so what was typed and answered for one target never carries to another. */}
+      <MoveInto key={`${connection.id} ${connection.basePath ?? ""}`} environmentId={environmentId} connection={connection} writable={writable} />
     </section>
   );
 };
 
-/** The Move card's part for the connection it goes into: its base path, the items with their targets, the Move's lines and follow-ups. */
+/** The Move card's part for the connection it goes into, at its base path: the base path, the items with their targets, the Move's lines and follow-ups. */
 const MoveInto = ({ environmentId, connection, writable }: { readonly environmentId: string; readonly connection: KeyManagerConnectionRecord; readonly writable: boolean }) => {
   const runtime = useRuntime();
   const clock = useClock();
