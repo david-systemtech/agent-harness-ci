@@ -258,6 +258,7 @@ describe("the method registry", () => {
       "permissions.denylist.set",
       "permissions.denylist.restorePresets",
       "carryOver.run",
+      "stateImport.run",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -479,6 +480,8 @@ describe("the method registry", () => {
       | "setup.check"
       | "carryOver.inventory"
       | "carryOver.run"
+      | "stateImport.detect"
+      | "stateImport.run"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

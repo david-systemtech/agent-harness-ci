@@ -29,6 +29,7 @@ import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtu
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
 import { carryOverMethodFixtures, carryOverSchemaFixtures } from "./carry-over-fixtures.js";
+import { stateImportCarried, stateImportMethodFixtures, stateImportSchemaFixtures } from "./state-import-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 import { workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
@@ -552,6 +553,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...trustMethodFixtures,
   ...browserMethodFixtures,
   ...carryOverMethodFixtures,
+  ...stateImportMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -777,6 +779,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "instructions.updated",
       "extension.seen",
       "carry-over.imported",
+      "state-import.finished",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
@@ -823,6 +826,10 @@ export const schemaFixtures: Record<string, Fixtures> = {
         type: "carry-over.imported",
         payload: { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] },
       },
+      {
+        type: "state-import.finished",
+        payload: { carried: stateImportCarried, reEnter: [], later: [], notCarried: [{ label: "Browser pairings", count: 1, step: "browser" }], failed: [] },
+      },
       toolsUpdatedNotice.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       validEnvironmentStartedEvent,
@@ -853,6 +860,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
       { type: "setup.result-changed", payload: { step: "forges" } },
       { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
+      { type: "state-import.finished", payload: { carried: stateImportCarried, reEnter: [], later: [], notCarried: [] } },
       toolsUpdatedNotice.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       validEnvelope,
@@ -964,6 +972,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
   ...carryOverSchemaFixtures,
+  ...stateImportSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,
   ...usageSchemaFixtures,

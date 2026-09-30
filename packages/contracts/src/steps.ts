@@ -207,7 +207,8 @@ export const anyValidValue =
 /**
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
- * (#120); Your machines, for the update settings (#335), whose not-root line
+ * (#120); Carry over, which writes no key and imports through its commands
+ * (#581); Your machines, for the update settings (#335), whose not-root line
  * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
  * rules and settings") and the transcript compaction window beside them
  * (#123), which sit on `environments.service`; Forges, whose forge
@@ -242,6 +243,43 @@ export const STEP_REGISTRY = [
     budget: "local",
     cadence: { minutes: 60 },
     triggers: ["account.updated", "signin.updated"],
+  },
+  {
+    // The Carry over step (ADR 0021, ADR 0036; setup spec, "2. Carry over"; #581), second, at home on accounts.accounts
+    // beside Account, linking the Skills and Memory banks rows, where what it copies lands. It writes no settings key:
+    // an adopted account's import goes through carryOver.run, its skills through skills.carryOver (#513), and the state
+    // import through stateImport.run (#94). Skippable: with nothing to carry in any adopted account's directory and no
+    // source data folder or terminal-client state folder, it answers skipped. Done after the click; it needs attention
+    // only when an adopted directory cannot be read or an account's last import failed part way, or before its first.
+    // A local read, hourly; an account's change and the end of either import re-run it.
+    id: "carry-over",
+    home: "accounts.accounts",
+    writes: [],
+    writesState: [
+      { method: "carryOver.run", parts: ["importedSessions", "carriedMemory"] },
+      { method: "skills.carryOver", parts: ["carriedSkills"] },
+      { method: "stateImport.run", parts: ["importedState"] },
+    ],
+    checks: [],
+    stateChecks: [
+      {
+        id: "carry-over.present",
+        holds: "An adopted account's directory holds something to carry, or a source data folder or terminal-client state folder is on this machine.",
+        actions: [],
+      },
+      { id: "carry-over.readable", holds: "Every adopted account's directory can be read.", actions: ["check-again"] },
+      {
+        id: "carry-over.last-import",
+        holds: "Every adopted account with something to carry has been imported, and its last import finished.",
+        actions: ["import-again"],
+      },
+    ],
+    links: [{ row: "knowledge.skills" }, { row: "knowledge.banks" }],
+    skippable: true,
+    skip: "carry-over.present",
+    budget: "local",
+    cadence: { minutes: 60 },
+    triggers: ["account.updated", "carry-over.imported", "state-import.finished"],
   },
   {
     // The Your machines step (ADR 0025), at home on the Environments band's Your machines row (ADR 0027:

@@ -71,6 +71,7 @@ import { providersList, providersProcessesList, providersProcessesStop } from ".
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import { setupCheck } from "./methods/setup.js";
 import { carryOverInventory, carryOverRun } from "./methods/carry-over.js";
+import { stateImportDetect, stateImportRun } from "./methods/state-import.js";
 import {
   accountsAdd,
   accountsAdopt,
@@ -305,6 +306,8 @@ export const methods = [
   setupCheck,
   carryOverInventory,
   carryOverRun,
+  stateImportDetect,
+  stateImportRun,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,
@@ -361,7 +364,8 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * ticket that owes its handler. They are registered ahead of it so the
  * tickets that read their shapes need not queue behind it (the session
  * summary's field table, #114; the update vocabulary, #335; the routine
- * vocabulary, #519); a method leaves
+ * vocabulary, #519; the state import's run, whose contract the Carry over
+ * step names, #581); a method leaves
  * this list in the change that serves it, and the wire's test refuses a
  * registered method that is neither served nor owed here.
  */
@@ -377,6 +381,8 @@ export const OWED_HANDLERS = {
   "routines.endpoints.remove": "#522",
   "routines.endpoints.list": "#522",
   "routines.endpoints.test": "#522",
+  // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
+  "stateImport.run": "#94",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 

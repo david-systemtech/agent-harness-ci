@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportTerminalFolder",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The folder's absolute path on the environment's machine."
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "description": "A source terminal client's state folder found on the environment's machine, holding its prompt history, snippets or preferences."
+}

@@ -152,6 +152,7 @@ describe("keys and steps on rows", () => {
   it("homes each step as the GUI spec's table does, the Set up row home to the checklist, and keeps a step's links to other steps", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.home])).toEqual([
       ["account", "accounts.accounts"],
+      ["carry-over", "accounts.accounts"],
       ["your-machines", "environments.machines"],
       ["forges", "access.forges"],
       ["key-manager", "access.key-managers"],
