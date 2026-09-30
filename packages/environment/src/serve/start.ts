@@ -1184,6 +1184,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       hostUpdater: () => hostUpdater.holds(),
       forge,
       keyManagerConnections,
+      managedTools,
       clock,
       look: () => look.read(),
     }),
