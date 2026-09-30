@@ -29,6 +29,19 @@ const oneEnvironment = async () => {
 
 const runId = recorded("run.started")["runId"] as string;
 
+/** A routine's succeeded firing delivered to the clients (#525), with `fields` over it. */
+const delivered = (sequence: number, environmentId: string, fields: Record<string, unknown>) =>
+  noticeEvent(sequence, environmentId, "routine.delivered", {
+    routineId: randomUUID(),
+    name: "Upstream watch",
+    entryId: randomUUID(),
+    entryKind: "firing",
+    outcome: "succeeded",
+    summary: "Three new releases; digest filed.",
+    body: "Three new releases; digest filed.\nThe details follow.",
+    ...fields,
+  });
+
 describe("the notices from the environment's stream", () => {
   it("say it is draining, an account's warning and a prompt parked, each once, as news", async () => {
     const { runtime, desk, env } = await oneEnvironment();
@@ -96,6 +109,61 @@ describe("the notices from the environment's stream", () => {
     ]);
   });
 
+  it("say a routine's result delivered to the clients, marked a success or a failure, about the firing's session; a skip's about none (#525)", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const routineId = randomUUID();
+    desk.notices.event(delivered(1, env, { routineId, sessionId: desk.sessionId }));
+    desk.notices.event(
+      delivered(2, env, {
+        routineId,
+        entryKind: "skip",
+        sessionId: null,
+        outcome: "failed",
+        summary: "The firing could not start: The account claude-max does not offer the model opus.",
+        body: "The account claude-max does not offer the model opus.",
+      }),
+    );
+    await flush();
+    expect(runtime.projections.notices.read().map(({ environmentId, kind, message, action, about, outcome }) => ({ environmentId, kind, message, action, about, outcome }))).toEqual([
+      {
+        environmentId: env,
+        kind: "routine",
+        message: "Upstream watch on desk: Three new releases; digest filed.",
+        action: null,
+        about: { sessionId: desk.sessionId, runId: null, promptId: null },
+        outcome: "succeeded",
+      },
+      {
+        environmentId: env,
+        kind: "routine",
+        message: "Upstream watch on desk: The firing could not start: The account claude-max does not offer the model opus.",
+        action: null,
+        about: null,
+        outcome: "failed",
+      },
+    ]);
+  });
+
+  it("say a routine's result delivered while this client was away, replayed onto the cursor it held, as news (#525)", async () => {
+    const { runtime, desk, env, clock } = await oneEnvironment();
+    desk.notices.event(noticeEvent(1, env, "environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" }));
+    await flush();
+    desk.wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await desk.wire.server.accept();
+    (await subscription(desk.wire, "sessions.subscribe")).synchronized(1);
+    const resumed = await subscription(desk.wire, "environment.subscribe");
+    expect(resumed.params).toEqual({ afterSequence: 1 });
+    resumed.event(delivered(2, env, { sessionId: desk.sessionId }));
+    resumed.synchronized(2);
+    await flush();
+    expect(runtime.projections.notices.read().map(({ kind, message }) => ({ kind, message }))).toEqual([
+      { kind: "draining", message: "desk is draining: it takes no new runs until it restarts." },
+      { kind: "routine", message: "Upstream watch on desk: Three new releases; digest filed." },
+    ]);
+  });
+
   it("are not raised for what a replay onto an empty cache holds: that is history", async () => {
     const clock = manualClock();
     const wire = fakeWire({ clock, name: "desk" });
@@ -111,7 +179,8 @@ describe("the notices from the environment's stream", () => {
     environment.event(
       noticeEvent(2, wire.environmentId, "prompt.parked", { sessionId: randomUUID(), runId, promptId: "toolu_1", kind: "permission", title: "Invoices", summary: "Bash: ls" }),
     );
-    environment.synchronized(2);
+    environment.event(delivered(3, wire.environmentId, { sessionId: randomUUID() }));
+    environment.synchronized(3);
     await adding;
     await flush();
     expect(runtime.projections.notices.read()).toEqual([]);
