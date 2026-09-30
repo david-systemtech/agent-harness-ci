@@ -443,6 +443,37 @@ describe("the firing's run", () => {
     expect(review.runs).toEqual([expect.objectContaining({ sessionId, runId, actor: { kind: "routine", name: "Nightly receipts" }, attended: false })]);
   });
 
+  it("takes the default account, the default family's strongest model and the default effort when the routine names none", async () => {
+    const t = await start({ accounts: [{ id: "first", provider: "fake" }, { id: "second", provider: "fake" }] });
+    const client = await t.client();
+    await client.request("settings.update", {
+      commandId: randomUUID(),
+      values: { "accounts.defaultAccount": "second", "accounts.defaultModelFamily": "sonnet", "accounts.defaultEffort": "high" },
+    });
+    const { state } = await created(client, routine({ account: null, model: null, effort: null }));
+    const firingId = await ranNow(client, state.id);
+    const { sessionId, runId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string; runId: string };
+    expect(sessionEvents(t, sessionId)[0]?.payload).toMatchObject({ account: "second", model: null });
+    expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toEqual([expect.objectContaining({ runId, accountId: "second", model: "sonnet", effort: "high" })]);
+  });
+
+  it("carries the routine's own credential injection on its policy, allow or deny by the routine's id, and none for inherit", async () => {
+    const t = await start();
+    const client = await t.client();
+    const injectionOf = async (injection: "inherit" | "allow" | "deny") => {
+      const { state } = await created(client, routine({ name: `Injection ${injection}`, injection }));
+      const firingId = await ranNow(client, state.id);
+      const { sessionId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string };
+      await untilSettled(t, state.id, firingId);
+      return { routineId: state.id, policy: payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved")[0] };
+    };
+    const denied = await injectionOf("deny");
+    expect(denied.policy?.injection).toEqual({ answer: "deny", id: denied.routineId });
+    const allowed = await injectionOf("allow");
+    expect(allowed.policy?.injection).toEqual({ answer: "allow", id: allowed.routineId });
+    expect((await injectionOf("inherit")).policy).not.toHaveProperty("injection");
+  });
+
   it("is clamped to the ceiling the routine was saved under, and for run now to the caller's when that is lower; run.policy.resolved shows it with the routine's containment", async () => {
     const t = await start({ containment: bubblewrapProbe() });
     const desktop = await t.client();

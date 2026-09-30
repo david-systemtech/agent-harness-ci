@@ -52,7 +52,7 @@ import { liveFiringOfRoutine, liveRoutine } from "./routine-store.js";
  */
 
 /** The tag every firing's session carries, beside its routine's name. */
-export const ROUTINE_TAG = "routine";
+const ROUTINE_TAG = "routine";
 
 /** A firing to start. */
 export interface FiringStart {
