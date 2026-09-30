@@ -54,8 +54,9 @@ const fieldsOwn = (key: string): "character" | "editing" | undefined => {
   const modifiers = at < 0 ? [] : key.slice(0, at).split("+");
   const name = key.slice(at + 1);
   if (!modifiers.every((modifier) => modifier === "Shift")) return undefined;
-  if ([...name].length === 1 || name === "Space") return "character";
-  return EDITING_KEYS.has(name) ? "editing" : undefined;
+  // An arrow is one character too, so the editing keys are looked up first.
+  if (EDITING_KEYS.has(name)) return "editing";
+  return [...name].length === 1 || name === "Space" ? "character" : undefined;
 };
 
 /** Why a key a text field answers itself is refused, by what the field makes of it. */

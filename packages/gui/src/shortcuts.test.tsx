@@ -224,6 +224,13 @@ describe("a remap", () => {
     const allow = () => actionRow(pane, "A permission card", "Allow it once, send the answer, or approve the plan");
     await record(allow, "Ctrl+Enter", "{Enter}");
     expect(within(allow()).getByText("Not saved: Enter is a key text fields and controls answer themselves: hold Mod, Ctrl or Alt with it.")).toBeDefined();
+    // An arrow is a key a field moves with, not a character it types: the composer's `@` may not take one, and a list's move may not take a letter.
+    const mention = () => actionRow(pane, "Writing a message", "Name a file, and see the paths");
+    await record(mention, "@", "{ArrowRight}");
+    expect(within(mention()).getByText("Not saved: → is a key text fields and controls answer themselves: hold Mod, Ctrl or Alt with it.")).toBeDefined();
+    const move = () => actionRow(pane, "A list to choose from", "Move the cursor");
+    await record(move, "↓", "j");
+    expect(within(move()).getByText("Not saved: J types a character in a text field: hold Mod, Ctrl or Alt with it.")).toBeDefined();
 
     const interrupt = () => actionRow(pane, "Anywhere", "Interrupt; or follow the end again");
     await record(interrupt, "Esc", "{Control>}c{/Control}");
