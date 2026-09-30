@@ -5,6 +5,7 @@ import type {
   ShellClipboard,
   ShellDeepLinks,
   ShellDialogs,
+  ShellGh,
   ShellInstaller,
   ShellNetwork,
   ShellPreview,
@@ -19,7 +20,7 @@ import { channelOf, DEEP_LINK_CHANNEL, type Answered, type HttpAnswer, type Told
 /**
  * The shell as the desktop gives it to its renderer: the members every
  * surface needs, and the platform's own (`secrets`, `localGrant`, `service`,
- * `update`, `installer`). `notifications` and `webView` join as their
+ * `update`, `installer`, `gh`). `notifications` and `webView` join as their
  * tickets build them; there is no `tray` in milestone 1.
  */
 export interface DesktopShell extends Shell {
@@ -37,6 +38,7 @@ export interface DesktopShell extends Shell {
   readonly preview: ShellPreview;
   readonly update: ShellUpdate;
   readonly installer: ShellInstaller;
+  readonly gh: ShellGh;
 }
 
 /** `ipcRenderer`, as the preload uses it. */
@@ -112,5 +114,6 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
     preview: { grant: (content) => ask("preview.grant", content) },
     update: { current: () => ask("update.current"), apply: (staged, when) => ask("update.apply", staged, when) },
     installer: { bundledServer: () => ask("installer.bundledServer") },
+    gh: { token: (host) => ask("gh.token", host) },
   };
 };

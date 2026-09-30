@@ -6,6 +6,7 @@ import { isCanvasColour, type CanvasStore } from "./canvas.js";
 import type { Answered, Told } from "./channels.js";
 import type { DeepLinkInbox } from "./deep-links.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronWindow } from "./electron.js";
+import type { computerGh } from "./gh.js";
 import { environmentHttp } from "./http.js";
 import type { NetworkLockdown } from "./lockdown.js";
 import type { DesktopPlatform } from "./platform.js";
@@ -68,9 +69,10 @@ export interface MemberParts {
   readonly network: NetworkLockdown;
   readonly links: DeepLinkInbox;
   readonly preview: Previews;
+  readonly gh: ReturnType<typeof computerGh>;
 }
 
-export const shellMembers = ({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview }: MemberParts): Members => {
+export const shellMembers = ({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview, gh }: MemberParts): Members => {
   const { dialog, clipboard } = electron;
   const openFile = async (given: unknown): Promise<string[]> => {
     const chosen = options(given, "The open dialog's options");
@@ -147,5 +149,6 @@ export const shellMembers = ({ electron, secrets, localGrant, service, update, i
     "update.current": () => update.current(),
     "update.apply": (staged, when) => update.apply(stagedBuild(staged), applyWhen(when)),
     "installer.bundledServer": () => installer.bundledServer(),
+    "gh.token": (host) => gh.token(host),
   };
 };

@@ -306,3 +306,26 @@ fixed.
    -Q` names the old version, and the desktop keeps running.
 3. **Not a package.** Run an unpacked copy of the app outside pacman's files:
    `current()` answers the format null.
+
+## This computer's gh (#419)
+
+On every platform, with `gh` 2.40 or later installed through the platform's
+usual package manager (Homebrew on macOS, `winget` on Windows, the
+distribution's package on Linux), and the window connected to an environment
+offering `forge` with `admin`:
+
+1. **Signed in.** Run `gh auth login` for github.com in a terminal, then
+   start the desktop from the dock, Start menu or launcher (not from that
+   terminal). In Settings, Forges, Add a forge, type `https://github.com` and
+   press Use the gh signed in on this computer: the card appears with
+   "The gh token <user>@<host> handed over once: it will not follow gh's
+   rotations.", and `gh auth token` in the terminal prints the token the
+   environment verified with.
+2. **Not signed in.** Run `gh auth logout --hostname github.com`, remove the
+   forge account, and press it again: the dialog says gh is not signed in to
+   github.com, and nothing is added.
+3. **Not installed.** Uninstall `gh` (or rename it), and press it again: the
+   same line, and the desktop's log shows no error.
+4. **The token variables.** Start the desktop with `GH_TOKEN` set to
+   another token (`GH_TOKEN=token-for-tests open -a …` on macOS): the token
+   handed over is the one `gh` stores, not `GH_TOKEN`'s.
