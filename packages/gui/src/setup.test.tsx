@@ -415,6 +415,54 @@ describe("health dots", () => {
   });
 });
 
+describe("a result this window did not ask for", () => {
+  it("turns the rail's dot, the pane's row and the header's line as the environment publishes it, with no call and no pending", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: onlySteps(PASSING) }] });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+    const pane = await setupPane(app);
+    await waitFor(() => expect(railDots()).toContain("Permissions: done"));
+    expect(await within(pane).findByText("6 done, 0 need attention, 0 skipped")).toBeDefined();
+    const asked = desk.requests("setup.check").length;
+
+    // Another client's check, or the environment's own pass: its result arrives as a notice.
+    desk.setSetup({ permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] } });
+    act(() => app.clock.advance(SETUP_PENDING_MS));
+    desk.passSetup(["permissions"]);
+    await waitFor(() => expect(railDots()).toContain("Permissions: needs attention"));
+    expect(railDots()[0]).toBe("Set up: needs attention");
+    expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
+    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", "The denylist lost 2 presets."]);
+    expect(screen.getByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" })).toBeDefined();
+    expect(screen.queryByText("Checking…")).toBeNull();
+    expect(desk.requests("setup.check")).toHaveLength(asked);
+  });
+
+  it("shows no pending while it is awaited, and this window's Check now pending after half a second on its step alone", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: onlySteps(PASSING) }] });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+    const permissions = await cardOf(app, "Permissions");
+    expect(await within(permissions).findByText(/^The containment default can be enforced here\./)).toBeDefined();
+    const release = desk.holdSetupChecks();
+
+    await app.user.click(within(permissions).getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(desk.requests("setup.check").at(-1)?.params).toEqual({ step: "permissions" }));
+    act(() => app.clock.advance(SETUP_PENDING_MS - 1));
+    expect(within(permissions).queryByText("Checking…")).toBeNull();
+    act(() => app.clock.advance(1));
+    expect(await within(permissions).findByText("Checking…")).toBeDefined();
+    await app.user.click(within(steps()).getByRole("button", { name: "Appearance" }));
+    expect(within(within(checklist() as HTMLElement).getByRole("region", { name: "Appearance" })).getByText(/^Both ladders of the theme meet /)).toBeDefined();
+
+    await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
+    release();
+    const again = within(checklist() as HTMLElement).getByRole("region", { name: "Permissions" });
+    expect(await within(again).findByText(/^The containment default can be enforced here\./)).toBeDefined();
+    expect(within(again).queryByText("Checking…")).toBeNull();
+  });
+});
+
 describe("the header's Set up line", () => {
   it("shows while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
     const app = await twoEnvironments();

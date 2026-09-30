@@ -1817,6 +1817,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...prompts,
     setSetup: setup.setSetup,
     holdSetupChecks: setup.holdSetupChecks,
+    passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
     terminal(id) {
       const found = terminals.get(id.toLowerCase());
