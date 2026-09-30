@@ -61,12 +61,14 @@ export const stepLine = (step: SetupStepView): string => {
   return step.result.olderThanCadence ? `${step.result.reason} (${checkedAgoWords(step.result.ageMs)})` : step.result.reason;
 };
 
-/** The counts, as the Set up pane says them: `4 done, 1 needs attention, 1 skipped`, and the steps the environment gives no result for. */
-export const countsWords = (counts: SetupCounts, steps: number): string => {
-  const words = `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped`;
-  const unchecked = steps - counts.registered;
-  return unchecked === 0 ? `${words}.` : `${words}; ${unchecked} not checked yet.`;
-};
+/**
+ * The counts, as the Set up pane says them (the Set up specification's
+ * chosen wording, #573): `8 done, 1 needs attention, 2 skipped`, over the
+ * steps the environment registers; a step it does not register is counted
+ * nowhere, its name drawn dim instead.
+ */
+export const countsWords = (counts: SetupCounts): string =>
+  `${counts.done} done, ${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention, ${counts.skipped} skipped`;
 
 /**
  * The result that passed before one that could not check, beneath it,

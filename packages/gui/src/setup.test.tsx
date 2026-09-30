@@ -143,12 +143,19 @@ const paneSteps = (pane: HTMLElement) =>
       return [name, within(item).queryByRole("img")?.getAttribute("aria-label")?.replace(`${name}: `, "") ?? null, item.lastElementChild?.textContent];
     });
 
+/** The names a list of steps draws dim: the steps the environment does not register. */
+const dimSteps = (list: HTMLElement) =>
+  within(list)
+    .getAllByRole("button")
+    .filter((button) => button.className.split(" ").includes("text-ink-faint"))
+    .map((button) => button.textContent);
+
 describe("the Set up pane", () => {
   it("names the environment it checks with a picker, and lists each step with its dot and line, linking to its home row, and the counts", async () => {
     const app = await twoEnvironments();
     const pane = await setupPane(app);
     expect(pickedIn(pane)).toBe("desk");
-    expect(await within(pane).findByText("On desk: 4 done, 1 needs attention, 1 skipped; 5 not checked yet.")).toBeDefined();
+    expect(await within(pane).findByText("4 done, 1 needs attention, 1 skipped")).toBeDefined();
     expect(paneSteps(pane)).toEqual([
       ["Account", "done", "Every setting it writes holds a valid value."],
       ["Carry over", null, "Not checked yet."],
@@ -163,11 +170,15 @@ describe("the Set up pane", () => {
       ["Appearance", "done", expect.stringMatching(/^Both ladders of the theme meet /)],
     ]);
 
+    // The steps desk gives no result for are ones it does not register: their names dim, with no dot, and uncounted.
+    const unregistered = ["Carry over", "Key manager", "Memory bank", "Skills", "Instructions"];
+    expect(dimSteps(within(pane).getByRole("list", { name: "Steps" }))).toEqual(unregistered);
+
     // Another environment picked: checked as it opens there, since its stream alone would never ask.
     const laptop = app.environment("laptop");
     const asked = laptop.requests("setup.check").length;
     await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
-    expect(await within(pane).findByText("On laptop: 5 done, 1 needs attention, 0 skipped; 5 not checked yet.")).toBeDefined();
+    expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
     expect(laptop.requests("setup.check").length).toBe(asked + 1);
 
     await app.user.click(within(within(pane).getByRole("list", { name: "Steps" })).getByRole("button", { name: "Appearance" }));
@@ -177,6 +188,13 @@ describe("the Set up pane", () => {
     await app.user.click(within(settings()).getByRole("button", { name: "Set up" }));
     await app.user.click(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Set up another machine" }));
     expect(within(settings()).getByRole("region", { name: "Your machines" })).toBeDefined();
+
+    // The full checklist's rail draws them the same.
+    await app.user.click(within(settings()).getByRole("button", { name: "Set up" }));
+    await app.user.selectOptions(within(settings()).getByRole("combobox", { name: "Environment" }), "desk");
+    await app.user.click(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
+    expect(dimSteps(steps())).toEqual(unregistered);
+    for (const step of unregistered) expect(within(steps()).queryByRole("img", { name: new RegExp(`^${step}:`) })).toBeNull();
   });
 
   it("runs setup.check as it opens, even where the stream carries the results, and Re-run checks every step and then opens the first needing attention", async () => {
@@ -401,7 +419,7 @@ describe("an environment the checklist cannot reach", () => {
 
     const pane = await setupPane(app);
     expect(await within(pane).findByText("desk is not running: its results are from before it stopped.")).toBeDefined();
-    expect(within(pane).getByText(/^On desk: 6 done, 0 need attention, 0 skipped/)).toBeDefined();
+    expect(within(pane).getByText("6 done, 0 need attention, 0 skipped")).toBeDefined();
     await app.user.click(within(pane).getByRole("button", { name: "Start" }));
     await waitFor(() => expect(within(pane).queryByText(/is not running/)).toBeNull());
     expect(app.shell.calls.filter(([member]) => member === "service.start")).toHaveLength(1);
