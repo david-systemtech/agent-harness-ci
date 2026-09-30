@@ -479,9 +479,10 @@ export interface EnvironmentHandle {
    * routine, a bot, the completions surface), as `runs.start` does for a
    * client session: its policy resolved for that actor (#129; attended or
    * not, the unattended default), recorded, then launched once it has
-   * committed. The seam the routines (#92) and the completions surface
-   * (#139) start their runs through, and the tests of unattended runs
-   * (#131). Throws the refusal `runs.start` would answer.
+   * committed, in a transaction of its own (`runs/actor-start.ts`, whose
+   * in-transaction form a routine's firing starts its run through, #523).
+   * The seam the tests of unattended runs (#131) start their runs through.
+   * Throws the refusal `runs.start` would answer.
    */
   startRun(request: ActorRunRequest): { readonly runId: string; readonly messageId: string };
   /** How many WebSocket sockets are open on the wire. */
