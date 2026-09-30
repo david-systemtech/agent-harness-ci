@@ -1523,6 +1523,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const injection = processEnvironments.decide(holderOf(plan));
     // Its trust, read once as it launches: its skill set, its instructions and its `trusted` all take it.
     const trust = trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
+    // Its tool servers, built as it launches rather than once it has composed: a message queued while it resolves its skill
+    // set and composes (#493, #496) is judged against the tools it is served (a completions caller's own, #139).
+    const servers = toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools });
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1544,7 +1547,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             ceiling: plan.policy.mode.ceiling,
             instructions: handed.filter((part): part is string => part !== null && part.trim() !== "").join("\n\n"),
             target: plan.target,
-            toolServers: toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools }),
+            toolServers: servers,
             // Read once as it launched, as its instructions were composed: a decision since reaches the session's next run.
             trusted: trust.decision === "trusted",
             containment: entry.containment,
