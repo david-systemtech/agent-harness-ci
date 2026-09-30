@@ -12,7 +12,7 @@ import {
 } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ByeError, type WireClient } from "../../test/wire-client.js";
 import { PING_INTERVAL_MS } from "../wire/wire.js";
 import { SWEEP_INTERVAL_MS, TUI_REVOKE_AFTER_MS } from "./client-sessions.js";
@@ -28,6 +28,9 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   onCleanup(() => t.close());
   return t;
 };
+
+/** An environment on a data directory of the test's own, which `restartAfter` can close across days and start again on. */
+const startRestartable = () => start({ dataDir: join(tempDir(), "data") });
 
 const refusal = async (promise: Promise<unknown>): Promise<ContractError> => {
   const error = await promise.then(
@@ -120,9 +123,10 @@ describe("access.sessions.list", () => {
   });
 
   it("lists every client session, revoked and expired ones too; live leaves those out", async () => {
-    const t = await start();
-    const expired = await t.pair({ label: "expired" });
-    t.clock.advance(30 * DAY);
+    const first = await startRestartable();
+    const expired = await first.pair({ label: "expired" });
+    // Closed across the days, so none of its timers run through them (#783).
+    const t = await restartAfter(first, 30 * DAY, start);
     const { client } = await admin(t);
     const revoked = await t.pair({ label: "revoked" });
     await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: revoked.clientSessionId });
@@ -224,10 +228,10 @@ describe("access.sessions.revoke", () => {
 
 describe("access.sessions.refresh", () => {
   it("renews the caller's own client session for 30 days from now, with a fresh token", async () => {
-    const t = await start();
-    const bot = await t.pair({ scopes: ["read"], ceiling: Ceiling.parse("plan") });
-    // Connected after the days pass, so no socket is pinged through them.
-    t.clock.advance(20 * DAY);
+    const first = await startRestartable();
+    const bot = await first.pair({ scopes: ["read"], ceiling: Ceiling.parse("plan") });
+    // Closed across the days, so none of its timers run through them (#783).
+    const t = await restartAfter(first, 20 * DAY, start);
     const client = await t.client({ token: bot.token, clientKind: "program" });
     const renewed = await client.apply("access.sessions.refresh", { commandId: randomUUID() });
     expect(renewed).toEqual({
@@ -241,24 +245,25 @@ describe("access.sessions.refresh", () => {
   });
 
   it("keeps the previous token valid until the renewed expiry, since expiry is the client session's", async () => {
-    const t = await start();
-    const bot = await t.pair({ scopes: ["read"] });
-    t.clock.advance(20 * DAY);
-    const client = await t.client({ token: bot.token, clientKind: "program" });
+    const first = await startRestartable();
+    const bot = await first.pair({ scopes: ["read"] });
+    // Closed across each stretch of days, so none of its timers run through them (#783).
+    const renewing = await restartAfter(first, 20 * DAY, start);
+    const client = await renewing.client({ token: bot.token, clientKind: "program" });
     const renewed = await client.apply("access.sessions.refresh", { commandId: randomUUID() });
-    await client.close();
-    t.clock.advance(15 * DAY);
-    expect(await outcome(t, bot.token)).toBe("hello");
-    expect(await outcome(t, renewed.token)).toBe("hello");
-    t.clock.advance(15 * DAY);
-    expect(await outcome(t, renewed.token)).toBe("bye: expired");
-    expect(await outcome(t, bot.token)).toBe("bye: expired");
+    const pastOldExpiry = await restartAfter(renewing, 15 * DAY, start);
+    expect(await outcome(pastOldExpiry, bot.token)).toBe("hello");
+    expect(await outcome(pastOldExpiry, renewed.token)).toBe("hello");
+    const pastRenewedExpiry = await restartAfter(pastOldExpiry, 15 * DAY, start);
+    expect(await outcome(pastRenewedExpiry, renewed.token)).toBe("bye: expired");
+    expect(await outcome(pastRenewedExpiry, bot.token)).toBe("bye: expired");
   });
 
   it("keeps an open socket past the old expiry", async () => {
-    const t = await start();
-    const bot = await t.pair({ scopes: ["read"] });
-    t.clock.advance(30 * DAY - MINUTE);
+    const first = await startRestartable();
+    const bot = await first.pair({ scopes: ["read"] });
+    // Closed across the days, so none of its timers run through them (#783); started again for the minutes the socket stays open.
+    const t = await restartAfter(first, 30 * DAY - MINUTE, start);
     const client = await t.client({ token: bot.token, clientKind: "program" });
     await client.request("access.sessions.refresh", { commandId: randomUUID() });
     t.clock.advance(2 * MINUTE + PING_INTERVAL_MS);
