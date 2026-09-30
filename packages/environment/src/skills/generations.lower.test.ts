@@ -18,10 +18,12 @@ import { GENERATIONS_DIRECTORY, GENERATION_SWEEP_INTERVAL_MS, createGenerations,
 
 /**
  * Whether a file symlink is refused as Windows refuses one without the
- * privilege, and how many unlinks go through before the next is refused as
- * a file another process holds open is (null: none is); the rest go through.
+ * privilege, whether the next hard link is refused as a file that is gone
+ * for an instant is, and how many unlinks go through before the next is
+ * refused as a file another process holds open is (null: none is); the
+ * rest go through.
  */
-const refusals = vi.hoisted(() => ({ fileSymlinks: false, unlinksBeforeBusy: null as number | null }));
+const refusals = vi.hoisted(() => ({ fileSymlinks: false, nextHardLink: false, unlinksBeforeBusy: null as number | null }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -31,6 +33,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       refusals.fileSymlinks && type === "file"
         ? Promise.reject(Object.assign(new Error(`EPERM: operation not permitted, symlink '${target}' -> '${path}'`), { code: "EPERM" }))
         : actual.symlink(target, path, type),
+    link: (target: string, path: string) => {
+      if (!refusals.nextHardLink) return actual.link(target, path);
+      refusals.nextHardLink = false;
+      return Promise.reject(Object.assign(new Error(`ENOENT: no such file or directory, link '${target}' -> '${path}'`), { code: "ENOENT" }));
+    },
     unlink: (path: string) => {
       if (refusals.unlinksBeforeBusy === null) return actual.unlink(path);
       if (refusals.unlinksBeforeBusy > 0) {
@@ -264,6 +271,24 @@ describe("on Windows", () => {
     renameSync(`${review.target}.new`, review.target);
     const again = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "scope");
     expect(again.generation).toBe(generation);
+    expect(readFileSync(linked, "utf8")).toContain("Review it twice.");
+  });
+
+  it("links a command file again where its renewal was cut short, so the set's next resolution is not refused for the link it lacks", async () => {
+    const { generations, review } = fixture({ platform: "win32" });
+    refusals.fileSymlinks = true;
+    onCleanup(() => void (refusals.fileSymlinks = false));
+    const set = { members: [review], hiddenNativeNames: [] };
+    const { generation } = await generations.materialise(set, "scope");
+    write(`${review.target}.new`, "---\ndescription: Review the branch.\n---\nReview it twice.\n");
+    renameSync(`${review.target}.new`, review.target);
+    // The old hard link goes, and the new one is refused: the file was gone for an instant as an editor saved it.
+    refusals.nextHardLink = true;
+    await expect(generations.materialise(set, "scope")).rejects.toThrow("ENOENT");
+    const again = await generations.materialise(set, "scope");
+    expect(again.generation).toBe(generation);
+    const linked = join(generation as string, "skills", "review", "SKILL.md");
+    expect(lstatSync(linked).ino).toBe(lstatSync(review.target).ino);
     expect(readFileSync(linked, "utf8")).toContain("Review it twice.");
   });
 });

@@ -216,16 +216,23 @@ export const createGenerations = (options: GenerationsOptions): Generations => {
    * A command file a hard link stands for, as a Windows machine without
    * the privilege for symbolic links has it, linked again when an editor
    * has replaced the file since, so the edit reaches the next run as a
-   * symbolic link's would.
+   * symbolic link's would; and linked again where a renewal before was cut
+   * short between removing the old link and making the new one.
    */
   const renewHardLinks = async (generation: string, members: readonly PlacedMember[]): Promise<void> => {
     for (const member of members) {
       if (member.kind !== "command") continue;
       const path = join(generation, SKILLS, member.name, SKILL_FILE);
-      const [linked, target] = await Promise.all([lstat(path, { bigint: true }), stat(member.target, { bigint: true })]);
-      if (linked.isSymbolicLink() || (linked.ino === target.ino && linked.dev === target.dev)) continue;
-      await unlink(path);
-      await link(member.target, path);
+      const [linked, target] = await Promise.all([
+        lstat(path, { bigint: true }).catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+          throw error;
+        }),
+        stat(member.target, { bigint: true }),
+      ]);
+      if (linked !== null && (linked.isSymbolicLink() || (linked.ino === target.ino && linked.dev === target.dev))) continue;
+      if (linked !== null) await unlink(path);
+      await linkFile(member.target, path);
     }
   };
 
