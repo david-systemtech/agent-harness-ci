@@ -89,7 +89,11 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  /** The accounts whose import is under way: from its prepare's start to its end. */
+  /**
+   * The accounts whose import is under way: while it lists and looks, its
+   * prepare. Its transaction follows at once and checks again what is held,
+   * so a run prepared after that finds what this one recorded held.
+   */
   const importing = new Set<string>();
 
   /** The adopted account `accountId` names with its adapter, or the refusal: not held, or not adopted. */

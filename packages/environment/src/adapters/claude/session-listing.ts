@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
@@ -90,17 +90,27 @@ const readOpening = async (path: string): Promise<Opening> => {
   return { workingDirectory, firstPrompt };
 };
 
-/** Where each session's transcript lies under `projects/`, by session id: every project folder's `<id>.jsonl`. */
+/**
+ * Where each session's transcript lies under `projects/`, by session id:
+ * every project folder's `<id>.jsonl`, and of a session in two folders the
+ * one last written, the copy the SDK lists.
+ */
 const transcriptPaths = async (directory: string): Promise<ReadonlyMap<string, string>> => {
   const projects = join(directory, "projects");
-  const paths = new Map<string, string>();
+  const paths = new Map<string, { readonly path: string; readonly written: number }>();
   const folders = await readdir(projects, { withFileTypes: true }).catch(() => []);
   for (const folder of folders) {
     if (!folder.isDirectory()) continue;
     const files = await readdir(join(projects, folder.name)).catch(() => []);
-    for (const file of files) if (file.endsWith(".jsonl")) paths.set(file.slice(0, -".jsonl".length), join(projects, folder.name, file));
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const path = join(projects, folder.name, file);
+      const written = await stat(path).then((found) => found.mtimeMs, () => -1);
+      const id = file.slice(0, -".jsonl".length);
+      if (written > (paths.get(id)?.written ?? -Infinity)) paths.set(id, { path, written });
+    }
   }
-  return paths;
+  return new Map([...paths].map(([id, { path }]) => [id, path]));
 };
 
 /** An SDK instant, milliseconds since the epoch, as ISO 8601. */

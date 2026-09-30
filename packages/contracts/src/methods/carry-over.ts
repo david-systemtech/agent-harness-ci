@@ -35,9 +35,10 @@ export const carryOverInventory = defineMethod({
  * Imports every session the adopted account's adapter lists that this
  * environment does not hold, by provider session id (one a harness run has
  * continued included): each is `session.created` with origin `import`,
- * then `session.archived` at its last-modified time when it is tagged
- * archived or its first prompt is the provider scheduler's, then, when its
- * working directory is gone, `session.workspace-status-changed` (missing).
+ * then, right after it when its working directory is gone,
+ * `session.workspace-status-changed` (missing), then `session.archived` at
+ * its last-modified time when it is tagged archived or its first prompt is
+ * the provider scheduler's.
  * A session it cannot import is named in the report and the rest are kept;
  * then `carry-over.imported` with the counts and what failed, on the
  * environment stream as the caller, which is also the notice of that name.

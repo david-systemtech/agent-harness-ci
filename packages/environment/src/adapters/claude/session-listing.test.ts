@@ -122,4 +122,27 @@ describe("the Claude adapter's session listing", () => {
     expect(snapshotOf(directory)).toEqual(before);
     expect(adapter.descriptor.sessionListing).toBe(true);
   });
+
+  it("reads the first lines of the copy it lists when a session lies in two project folders: the one last written, whichever folder holds it (#750 review)", async () => {
+    for (const [older, newer] of [
+      ["-a-project", "-z-project"],
+      ["-z-project", "-a-project"],
+    ] as const) {
+      const directory = join(tempDir(), ".claude");
+      const id = randomUUID();
+      // A firing whose opening the SDK passes over, copied into two folders: its first prompt is read from a first line.
+      const firing = (name: string) => (sessionId: string) =>
+        [user(sessionId, "/work/nightly", `<scheduled-task name="${name}">\nRun it`), line({ type: "ai-title", aiTitle: "Nightly", sessionId })].join("");
+      transcript(directory, older, firing("before-the-move"), id);
+      utimesSync(join(directory, "projects", older, `${id}.jsonl`), new Date("2026-08-01T00:00:00.000Z"), new Date("2026-08-01T00:00:00.000Z"));
+      transcript(directory, newer, firing("after-the-move"), id);
+      const adapter = createClaudeAdapter({ executablePath: null, hostEnv: { PATH: "/usr/bin", HOME: tempDir() }, diagnostic: () => undefined });
+
+      const listed = await adapter.listSessions({ id: "claude-max", directory });
+
+      expect(listed.map((session) => [session.providerSessionId, session.firstPrompt, session.lastModified])).toEqual([
+        [id, '<scheduled-task name="after-the-move"> Run it', WRITTEN.toISOString()],
+      ]);
+    }
+  });
 });
