@@ -1,4 +1,5 @@
 import {
+  EMPTY_RUN_SKILL_SET,
   presetPermissionSettings,
   type AutoDecider,
   type ContainmentLevel,
@@ -8,8 +9,10 @@ import {
   type JsonObject,
   type Mode,
   type ModeAvailability,
+  type NativeSkillRoot,
   type PromptKind,
   type RunActorKind,
+  type RunSkillSet,
   type TrustState,
   type Workspace,
 } from "@agent-harness/contracts";
@@ -23,9 +26,9 @@ import type { ToolDecider } from "@agent-harness/contracts";
 /**
  * The host's seams other workstreams fill (claude-adapter spec, "The adapter
  * contract", the paragraph on what the host supplies): the tool-server
- * factory, the instruction composer, the broker's automatic answers and the
- * policy resolver. Each has a preset that keeps a run going without its
- * workstream (the composer's is `instructions/composer.ts`).
+ * factory, the instruction composer, the skill set, the broker's automatic
+ * answers and the policy resolver. Each has a preset that keeps a run going
+ * without its workstream (the composer's is `instructions/composer.ts`).
  */
 
 /**
@@ -82,6 +85,31 @@ export interface RunTrust {
 export type TrustSeam = (place: RepositoryPlace) => RunTrust;
 
 export const undecidedTrust: TrustSeam = (place) => ({ key: repositoryKey(place), decision: "undecided" });
+
+/**
+ * What a skill set is resolved for (skills spec, "Materialisation and the
+ * Claude mapping"): the run's session (null for a commands listing, which
+ * has none), its account and workspace, its trust, and the roots the
+ * account's adapter loads itself under trust, whose members are native.
+ */
+export interface SkillSetScope {
+  readonly sessionId: string | null;
+  readonly accountId: string;
+  readonly workspace: Workspace;
+  readonly trust: RunTrust;
+  readonly nativeRoots: readonly NativeSkillRoot[];
+}
+
+/**
+ * Resolves the skill set a run is handed and a commands listing is made
+ * under (ADR 0009), at each run's start, before its instructions are
+ * composed, and at each listing: the materialiser's (#496), from the
+ * account, the trust, the choices and the layers. Preset: the empty set,
+ * with no fingerprint.
+ */
+export type SkillSetSeam = (scope: SkillSetScope) => Promise<RunSkillSet>;
+
+export const noSkillSet: SkillSetSeam = async () => EMPTY_RUN_SKILL_SET;
 
 /**
  * What a run's standing instructions are composed for (skills spec, "The

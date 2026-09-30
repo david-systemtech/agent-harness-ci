@@ -3,7 +3,18 @@ import { AccountId } from "./accounts.js";
 import { Actor } from "./envelope.js";
 import { Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
-import { SkillInvocation, SkillMemberProblem, SkillMemberWarning, SkillName, SkillSourceFolder, SkillSourceUrl, SkillWhileActiveKey } from "./skill-rules.js";
+import { PRODUCT_NAME } from "./product.js";
+import {
+  SKILL_REPOSITORY_ROOTS,
+  SkillInvocation,
+  SkillMemberProblem,
+  SkillMemberWarning,
+  SkillName,
+  SkillSourceFolder,
+  SkillSourceUrl,
+  SkillWhileActiveKey,
+} from "./skill-rules.js";
+import { AbsolutePath } from "./sessions.js";
 
 /**
  * The shapes the skills workstream shares (skills spec, "The skill set" and
@@ -127,9 +138,6 @@ export const SkillOrigin = z
       "Where a member comes from, which the readiness overlay is keyed by (repository identity and folder path): the repository it was read from, or what a provenance manifest beside a copy names.",
   });
 export type SkillOrigin = z.infer<typeof SkillOrigin>;
-
-/** The roots of a trusted repository whose skills join the set, in the order they win a name. */
-export const SKILL_REPOSITORY_ROOTS = [".claude/skills", ".agents/skills"] as const;
 
 /**
  * The layer a member lies in (skills spec, "The skill set"): a source's
@@ -287,3 +295,65 @@ export const SkillsUpdatedPayload = z.object({}).meta({
     "skills.updated: the skill set changed, by a command that committed or a read that found the own directory changed; a client reads skills.get again.",
 });
 export type SkillsUpdatedPayload = z.infer<typeof SkillsUpdatedPayload>;
+
+// A run's skill set ------------------------------------------------------------------
+
+/**
+ * The plugin a generation is (skills spec, "Materialisation and the Claude
+ * mapping"): its manifest names it after the product (the placeholder, ADR
+ * 0017), and a provider that namespaces a plugin's skills invokes a linked
+ * member under it (Claude: `/agent-harness:<name>`).
+ */
+export const SKILL_PLUGIN_NAME = PRODUCT_NAME;
+
+/** A skill set's fingerprint: what a generation is keyed by, and what a kept provider process is spawned under. */
+export const SkillSetFingerprint = z.string().min(1).meta({
+  description:
+    "A skill set's fingerprint: it covers the members' names, folders, origins and snapshot commits and the hidden native names, so two sets with one fingerprint hold the same; a provider process spawned under another is not reused.",
+});
+export type SkillSetFingerprint = z.infer<typeof SkillSetFingerprint>;
+
+/**
+ * A member of a run's skill set as its adapter is handed it (skills spec,
+ * "Contract changes"): its name, origin, invocation and whether it is
+ * native, lying in a root the adapter loads itself under trust and so left
+ * out of the generation.
+ */
+export const RunSkillSetMember = z
+  .object({
+    name: SkillName,
+    origin: SkillOrigin.nullable().meta({ description: "Where it comes from; null for a member of the own directory with no provenance manifest, or of a repository with no identity." }),
+    invocation: SkillInvocation,
+    native: z.boolean().meta({
+      description: "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation.",
+    }),
+  })
+  .meta({ description: "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, and whether the provider loads it itself." });
+export type RunSkillSetMember = z.infer<typeof RunSkillSetMember>;
+
+/**
+ * A run's skill set, resolved at its start and at each commands listing
+ * (skills spec, "Materialisation and the Claude mapping"; ADR 0009): the
+ * generation the adapter maps (Claude: its one local plugin), the set's
+ * fingerprint, every member in the set, and the native names it hides,
+ * each a native member switched off, which the adapter hides its own way
+ * (Claude: `skillOverrides` `off`). Never on the wire: it crosses the
+ * adapter contract.
+ */
+export const RunSkillSet = z
+  .object({
+    generation: AbsolutePath.nullable().meta({
+      description: "The generation's directory: a plugin holding a link to every member that is not native. Null when there is nothing to link.",
+    }),
+    fingerprint: SkillSetFingerprint.nullable().meta({ description: "The set's fingerprint; null while none is resolved for the run." }),
+    members: z.array(RunSkillSetMember).meta({ description: "Every member in the set, native ones included; a shadowed, disabled or invalid member is not one." }),
+    hiddenNativeNames: z.array(SkillName).meta({ description: "The names of the native members switched off, which the adapter hides from its provider." }),
+  })
+  .meta({
+    description:
+      "A run's skill set as its adapter is handed it: the generation to map, the fingerprint, every member with its name, origin, invocation and whether it is native, and the native names to hide.",
+  });
+export type RunSkillSet = z.infer<typeof RunSkillSet>;
+
+/** The skill set a run is handed while nothing resolves one: no generation, no fingerprint, no member and nothing hidden. */
+export const EMPTY_RUN_SKILL_SET: RunSkillSet = { generation: null, fingerprint: null, members: [], hiddenNativeNames: [] };

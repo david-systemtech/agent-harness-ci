@@ -262,6 +262,25 @@ export const SkillSourceFolder = z
     pattern: "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
   });
 
+// A repository's roots ----------------------------------------------------------------------
+
+/** The roots of a trusted repository whose skills join the set, in the order they win a name. */
+export const SKILL_REPOSITORY_ROOTS = [".claude/skills", ".agents/skills"] as const;
+
+/**
+ * The roots of a trusted repository a provider may load skills or commands
+ * from itself (skills spec, "Materialisation and the Claude mapping"): the
+ * two skill roots, and the repository's own commands in `.claude/commands`.
+ * An adapter's descriptor names those it loads (`nativeSkillRoots`); a
+ * member lying in one is native, left out of the generation.
+ */
+export const NATIVE_SKILL_ROOTS = [...SKILL_REPOSITORY_ROOTS, ".claude/commands"] as const;
+export const NativeSkillRoot = z.enum(NATIVE_SKILL_ROOTS).meta({
+  description:
+    "A root of a trusted repository a provider may load itself: .claude/skills or .agents/skills (its skills), or .claude/commands (its own commands). Found in the workspace directory and each parent up to the repository's root.",
+});
+export type NativeSkillRoot = z.infer<typeof NativeSkillRoot>;
+
 // Reading a member ------------------------------------------------------------------------
 
 /** How a member is invoked (ADR 0009). */

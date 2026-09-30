@@ -53,7 +53,7 @@ import { worktreeCheckout } from "./workspace.js";
  * (`turn.ts`) is one run. The process serves turns one at a time, as the CLI
  * does, and outlives them: the next run of the conversation attaches to it
  * when it can (same account, same trust, same tool servers, same process
- * environment key, the provider session the run resumes), and a turn the
+ * environment key, same skill set, the provider session the run resumes), and a turn the
  * provider opens on its own, a settled background task answered or a
  * queued message read, is a new turn handed to the host's adoption hook.
  *
@@ -87,7 +87,6 @@ export interface ProcessDeps {
   readonly configDirectory: (account: RunInput["account"]) => string;
   readonly executablePath: () => string | null;
   readonly sessionStore: ClaudeSessionStore | null;
-  readonly pluginDirectory: (input: RunInput) => string | null;
   readonly autoMemoryDirectory: (input: RunInput) => string | null;
   readonly queue: ConfigDirQueue;
   /**
@@ -299,6 +298,8 @@ interface SpawnKey {
   readonly confinement: string;
   /** The key of the process environment the spawn was supplied from (#307): a run with another key needs a spawn of its own. */
   readonly environment: string;
+  /** The fingerprint of the skill set the spawn loaded (#495): its generation and hidden names are fixed when the CLI starts. */
+  readonly skills: string | null;
 }
 
 /** A run's containment and projected denylist as one comparable value: the parts the options read, in a fixed order. */
@@ -451,6 +452,7 @@ export class ClaudeProcess implements TurnControl {
       instructions: input.instructions,
       confinement: confinementOf(input),
       environment: input.processEnvironment.key,
+      skills: input.skillSet.fingerprint,
     };
   }
 
@@ -479,6 +481,8 @@ export class ClaudeProcess implements TurnControl {
     if (key.confinement !== this.#spawn.confinement) return false;
     // And the variables the harness's services put into it (#307): another key is a fresh process's.
     if (key.environment !== this.#spawn.environment) return false;
+    // And its skills (#495): another fingerprint is a fresh process's, resuming from the store as changed instructions do.
+    if (key.skills !== this.#spawn.skills) return false;
     // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }
@@ -630,7 +634,6 @@ export class ClaudeProcess implements TurnControl {
         supplied: supplied?.variables ?? {},
         configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
-        pluginDirectory: this.#deps.pluginDirectory(input),
         autoMemoryDirectory: this.#deps.autoMemoryDirectory(input),
         checkoutRoot: worktreeCheckout(input.workspace.path),
         sessionStore: this.#deps.sessionStore,

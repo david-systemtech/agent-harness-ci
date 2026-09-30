@@ -259,6 +259,19 @@ describe("trust.list", () => {
   });
 });
 
+describe("a commands listing's trust (#495)", () => {
+  it("is the store's decision on the workspace's key, read with no repository identity: the adapter is handed it with the skill set", async () => {
+    const t = await start({ adapter: { commands: [] } });
+    const client = await t.client();
+    const remoteless = repository();
+    const id = await session(client, { kind: "directory", path: remoteless });
+    await client.request("commands.list", { workspace: { kind: "directory", path: remoteless } });
+    await decide(client, { sessionId: id, decision: "trusted" });
+    await client.request("commands.list", { workspace: { kind: "directory", path: remoteless } });
+    expect(t.adapter.commandListings.map((listing) => listing.scope.trusted)).toEqual([false, true]);
+  });
+});
+
 describe("a run's trust", () => {
   it("is the store's decision: an undecided repository runs untrusted and at once, a trusted one trusted, a declined one untrusted", async () => {
     const t = await start();

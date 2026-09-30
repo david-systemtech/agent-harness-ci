@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ModeAvailability } from "./permissions-modes.js";
 import { Timestamp } from "./primitives.js";
+import { NativeSkillRoot } from "./skill-rules.js";
 
 /**
  * The adapter contract's transport-neutral half (claude-adapter spec, "The
@@ -102,8 +103,9 @@ const flag = (description: string) => z.boolean().meta({ description });
  * What an adapter can do, static for its life (claude-adapter spec, "The
  * adapter contract"; ADR 0022 for the queue): a flag per optional power, its
  * instruction channel, whether it loads a trusted repository's own
- * instructions itself (#500), and the modes it maps. A client degrades
- * absent-with-reason on a flag that is false (ADR 0004).
+ * instructions itself (#500) and which of the repository's skill roots
+ * (#495), and the modes it maps. A client degrades absent-with-reason on a
+ * flag that is false (ADR 0004).
  */
 export const AdapterCapabilities = z
   .object({
@@ -137,6 +139,10 @@ export const AdapterCapabilities = z
     nativeProjectInstructions: flag(
       "The provider loads a trusted repository's own instruction files itself (Claude: CLAUDE.md through its project settings); without it the composer hands it the repository's AGENTS.md, else CLAUDE.md, in the project layer.",
     ),
+    nativeSkillRoots: z.array(NativeSkillRoot).meta({
+      description:
+        "The roots of a trusted repository the provider loads skills or commands from itself (Claude: .claude/skills and .claude/commands, through its project settings): a member there is native, left out of the generation and hidden, when switched off, the provider's own way.",
+    }),
     modes: z.array(ModeAvailability).meta({
       description:
         "The modes the adapter maps onto its provider (ADR 0006), each available or not with the reason; a run asking for an unavailable or unlisted mode gets the next lower available one.",
@@ -144,7 +150,7 @@ export const AdapterCapabilities = z
   })
   .meta({
     description:
-      "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel, whether it loads a trusted repository's own instructions itself, and its modes.",
+      "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel, whether it loads a trusted repository's own instructions itself and which of its skill roots, and its modes.",
   });
 export type AdapterCapabilities = z.infer<typeof AdapterCapabilities>;
 

@@ -1,6 +1,8 @@
-import type { SetupView } from "@agent-harness/client-runtime";
+import { homeEnvironment, homedChecks, type SetupView } from "@agent-harness/client-runtime";
+import { settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useEffect, useMemo } from "react";
-import { useFollowed, useRuntime } from "../window-context.js";
+import { usePickedEnvironment } from "../settings/settings-window.js";
+import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 
 /** The checklist of the environment `environmentId` (`projections.setup`), followed while the component is mounted; undefined without one. */
 export const useSetupView = (environmentId: string | undefined): SetupView | undefined => {
@@ -18,4 +20,24 @@ export const useCheckOnOpen = (environmentId: string | undefined): void => {
   useEffect(() => {
     if (environmentId !== undefined) void runtime.setup.check(environmentId);
   }, [runtime, environmentId]);
+};
+
+/**
+ * Checks the steps a row of Settings is home to as its pane opens (ADR
+ * 0031: a client calls `setup.check` when a step's pane opens), each alone,
+ * on the environments the pane shows: an `environment` row's picked one, an
+ * `everywhere` row's every one, a `client` row's home environment; again as
+ * it is pointed at another. The results held show meanwhile.
+ */
+export const useCheckHomedSteps = (row: SettingsRowId): void => {
+  const runtime = useRuntime();
+  const picked = usePickedEnvironment();
+  const environments = useObservable(runtime.projections.environments);
+  const { scope } = settingsRow(row);
+  const shown = scope === "everywhere" ? environments : scope === "environment" ? [picked] : [homeEnvironment(environments)];
+  // The environments' ids, joined: the list is a new array whenever any environment's state changes.
+  const ids = shown.flatMap((view) => (view === undefined ? [] : [view.environmentId])).join(" ");
+  useEffect(() => {
+    for (const environmentId of ids === "" ? [] : ids.split(" ")) for (const step of homedChecks(row)) void runtime.setup.check(environmentId, step);
+  }, [runtime, row, ids]);
 };

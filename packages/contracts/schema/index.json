@@ -1347,6 +1347,22 @@
       "title": "SkillsUpdatedPayload"
     },
     {
+      "path": "skills/native-root.json",
+      "title": "NativeSkillRoot"
+    },
+    {
+      "path": "skills/set-fingerprint.json",
+      "title": "SkillSetFingerprint"
+    },
+    {
+      "path": "skills/run-skill-set-member.json",
+      "title": "RunSkillSetMember"
+    },
+    {
+      "path": "skills/run-skill-set.json",
+      "title": "RunSkillSet"
+    },
+    {
       "path": "skills/source-id.json",
       "title": "SkillSourceId"
     },

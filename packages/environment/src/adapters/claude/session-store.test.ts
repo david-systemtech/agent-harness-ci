@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { EMPTY_RUN_SKILL_SET } from "@agent-harness/contracts";
 import { listSessions, type Options, type SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../../test/cleanups.js";
@@ -99,6 +100,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
   },
   denylist: null,
   processEnvironment: EMPTY_PROCESS_ENVIRONMENT,
+  skillSet: EMPTY_RUN_SKILL_SET,
   prompt: [{ messageId: randomUUID(), text: "Go", attachments: [] }],
   ...overrides,
 });

@@ -2,6 +2,7 @@ import { countsWords, stepLine } from "@agent-harness/client-runtime";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { usePickedEnvironment, useSettings } from "../settings/settings-window.js";
+import { classes } from "../ui/classes.js";
 import { Button } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { useChecklist } from "./checklist-window.js";
@@ -41,9 +42,7 @@ export const SetupPane = () => {
   return (
     <>
       <ReachLine view={view} environment={picked} />
-      <p className="text-sm text-ink">
-        On {nameOf(picked)}: {countsWords(view.counts, view.steps.length)}
-      </p>
+      <p className="text-sm text-ink">{countsWords(view.counts)}</p>
       <div className="flex flex-wrap gap-2">
         <Button tone="primary" onClick={() => void rerun()}>
           Re-run
@@ -58,7 +57,7 @@ export const SetupPane = () => {
             <span className="flex w-4 shrink-0 justify-center self-center">
               <HealthDot state={step.result?.state ?? null} of={step.label} />
             </span>
-            <Button className="w-36 shrink-0 justify-start" onClick={() => openRow(step.home, environmentId)}>
+            <Button className={classes("w-36 shrink-0 justify-start", !step.registered && "text-ink-faint")} onClick={() => openRow(step.home, environmentId)}>
               {step.label}
             </Button>
             <span className="text-sm text-ink-muted">{stepLine(step)}</span>

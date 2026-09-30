@@ -92,27 +92,33 @@ const byPerson = (actor: string | null): boolean => actor !== null && parseActor
  * wherever it points), or is empty because a person emptied it. A section
  * missing some of its presets, or empty with no person having emptied it
  * (never seeded, or emptied by the environment), does not hold, and
- * `permissions.denylist.restorePresets` (Restore) puts them back. Hosts has
- * no presets, so it always holds.
+ * `permissions.denylist.restorePresets` (Restore) puts them back: each such
+ * section is a target of Restore, so a client restores those sections alone
+ * and leaves one a person emptied as it is (#573). Hosts has no presets, so
+ * it always holds.
  */
 export const denylistHoldsPresets = (state: DenylistState, presets: Denylist): StateCheckAnswer => {
-  const problems: string[] = [];
+  const problems: { readonly section: DenylistSection; readonly line: string }[] = [];
   for (const section of DENYLIST_SECTIONS) {
     const expected = presets[section];
     if (expected.length === 0) continue;
     const entries = state.denylist[section];
     const name = `The ${SECTION_NAMES[section]} section of the denylist`;
     if (entries.length === 0) {
-      if (!byPerson(state.changedBy[section])) problems.push(`${name} holds none of its presets, and no person emptied it; Restore puts them back.`);
+      if (!byPerson(state.changedBy[section])) problems.push({ section, line: `${name} holds none of its presets, and no person emptied it; Restore puts them back.` });
       continue;
     }
     const held = new Set(entries.map((entry) => entry.id));
     const missing = expected.filter((entry) => !held.has(entry.id)).map((entry) => entry.pattern);
     if (missing.length === 0) continue;
     const named = missing.slice(0, NAMED).join(", ") + (missing.length > NAMED ? ` and ${missing.length - NAMED} more` : "");
-    problems.push(`${name} is missing ${missing.length} of its presets (${named}); Restore puts them back.`);
+    problems.push({ section, line: `${name} is missing ${missing.length} of its presets (${named}); Restore puts them back.` });
   }
-  return problems.length === 0 ? true : { reason: problems.join(" ") };
+  if (problems.length === 0) return true;
+  return {
+    reason: problems.map((problem) => problem.line).join(" "),
+    targets: problems.map(({ section }): SetupTarget => ({ action: "restore", kind: "denylist-section", id: section, label: SECTION_NAMES[section] })),
+  };
 };
 
 /**

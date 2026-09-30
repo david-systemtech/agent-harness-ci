@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ContractError, type AttachmentInput, type Mode, type PromptAnsweredPayload, type PromptOpenedPayload } from "@agent-harness/contracts";
+import { ContractError, EMPTY_RUN_SKILL_SET, type AttachmentInput, type Mode, type PromptAnsweredPayload, type PromptOpenedPayload, type RunSkillSet } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { storeAccounts } from "../../test/accounts.js";
@@ -206,6 +206,76 @@ describe("a run's event stream", () => {
     await untilEnded(t, startRun(t));
     await untilEnded(t, startRun(t));
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
+  });
+});
+
+describe("the run's skill set (#495)", () => {
+  /** A set under `fingerprint`: its generation, a linked `tdd`, a trusted repository's native `release`, and its native `triage` switched off. */
+  const setOf = (fingerprint: string): RunSkillSet => ({
+    generation: `/data/skills/generations/${fingerprint}`,
+    fingerprint,
+    members: [
+      { name: "tdd", origin: null, invocation: "model+slash", native: false },
+      { name: "release", origin: null, invocation: "slash-only", native: true },
+    ],
+    hiddenNativeNames: ["triage"],
+  });
+  const workspace = { kind: "directory", path: "/work" } as const;
+
+  it("hands every run the set the seam resolves for its session, account, workspace and trust and its adapter's native roots, and the empty set while nothing resolves one", async () => {
+    const skillSet = vi.fn(async () => setOf("3f9a"));
+    const trusted = { key: { kind: "directory", value: "/work" }, decision: "trusted" } as const;
+    const t = await setup(fakeAdapter({ capabilities: { nativeSkillRoots: [".agents/skills"] } }), { skillSet, trust: () => trusted });
+    const runId = startRun(t);
+    await untilEnded(t, runId);
+    expect(t.adapter.lastRun().input).toMatchObject({ skillSet: setOf("3f9a"), trusted: true });
+    expect(skillSet).toHaveBeenCalledWith({ sessionId: t.sessionId, accountId: "acct", workspace, trust: trusted, nativeRoots: [".agents/skills"] });
+
+    const bare = await setup();
+    await untilEnded(bare, startRun(bare));
+    expect(bare.adapter.lastRun().input.skillSet).toEqual(EMPTY_RUN_SKILL_SET);
+  });
+
+  it("reaches the session's next run with a changed fingerprint on a fresh process, and serves an unchanged one on the kept process", async () => {
+    const fingerprints = ["3f9a", "3f9a", "7c1e"];
+    const t = await setup(fakeAdapter(), { skillSet: async () => setOf(fingerprints.shift() ?? "none") });
+    for (let run = 0; run < 3; run += 1) await untilEnded(t, startRun(t));
+    expect(t.adapter.runs.map((run) => run.input.skillSet.fingerprint)).toEqual(["3f9a", "3f9a", "7c1e"]);
+    expect(t.adapter.processesOf(t.sessionId).map((process) => [process.fingerprint, process.runs])).toEqual([
+      ["3f9a", 2],
+      ["7c1e", 1],
+    ]);
+  });
+
+  it("ends a run whose set cannot be resolved error, before its instructions are composed and with no provider process begun", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const t = await setup(fakeAdapter(), { skillSet: async () => Promise.reject(new Error("the own directory is gone")) });
+    const runId = startRun(t);
+    await untilEnded(t, runId);
+    expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "error", error: { message: "The run's skill set could not be resolved: the own directory is gone" } });
+    expect(eventsOf(t).map((event) => event.type)).not.toContain("run.instructions.composed");
+    expect(t.adapter.runs).toEqual([]);
+    errors.mockRestore();
+  });
+
+  it("lists commands under the trust and the set it resolves for the account and workspace, and the fake answers from what it is handed", async () => {
+    const skillSet = vi.fn(async () => setOf("3f9a"));
+    const t = await setup(fakeAdapter({ commands: [{ name: "compact", description: "Compact the conversation." }] }), {
+      skillSet,
+      trust: (place) => ({ key: { kind: "directory", value: place.workspace.path }, decision: "trusted" }),
+    });
+    expect(await t.host.commands("acct", workspace)).toEqual([
+      { name: "compact", description: "Compact the conversation." },
+      { name: "agent-harness:tdd", description: "The skill set's tdd." },
+      { name: "release", description: "The skill set's release." },
+    ]);
+    expect(t.adapter.commandListings).toEqual([{ account: expect.objectContaining({ id: "acct" }), workspace: "/work", scope: { trusted: true, skillSet: setOf("3f9a") } }]);
+    // A listing has no session: the set is resolved for the account and workspace alone.
+    expect(skillSet).toHaveBeenCalledWith({ sessionId: null, accountId: "acct", workspace, trust: { key: { kind: "directory", value: "/work" }, decision: "trusted" }, nativeRoots: [".claude/skills", ".claude/commands"] });
+
+    const bare = await setup(fakeAdapter({ commands: [] }));
+    await bare.host.commands("acct", workspace);
+    expect(bare.adapter.commandListings.at(-1)?.scope).toEqual({ trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
   });
 });
 

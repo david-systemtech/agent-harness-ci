@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
-import { SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
+import { SKILL_PLUGIN_NAME, SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
 import { autoMemoryName } from "../../workspace/auto-memory.js";
@@ -73,6 +73,8 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
   // A trusted repository's CLAUDE.md and rules load through the `project` settings source (#500): the composer adds nothing for them.
   nativeProjectInstructions: true,
+  // So do its `.claude/skills` and its own commands (#495): a member there is native, left out of the generation.
+  nativeSkillRoots: [".claude/skills", ".claude/commands"],
   // Every mode is the SDK permission mode of its name (permissions spec, the Claude mapping), available to every account.
   modes: CLAUDE_MODES.map((mode) => ({ mode, available: true, reason: null })),
 };
@@ -99,8 +101,6 @@ export interface ClaudeAdapterOptions {
    * none, and without it the adapter declares neither titles nor subagent transcripts.
    */
   readonly sessionStore?: ClaudeSessionStore;
-  /** The account's skill-set plugin directory (ticket 89); preset: none. */
-  readonly pluginDirectory?: (account: AccountRef) => string | null;
   /** The directory the per-repository auto-memory directories live under (ADR 0018); preset: none, the CLI's own. */
   readonly autoMemoryRoot?: string;
   /** Runs the bundled binary's status command; preset: a real spawn. */
@@ -248,7 +248,6 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     configDirectory,
     executablePath,
     sessionStore: options.sessionStore ?? null,
-    pluginDirectory: (input) => options.pluginDirectory?.(input.account) ?? null,
     autoMemoryDirectory: (input) => (options.autoMemoryRoot === undefined ? null : autoMemoryDirectory(options.autoMemoryRoot, input)),
     queue,
     // Named by its label where the host gave one; an empty or blank label is no name.
@@ -304,12 +303,14 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
       return started.open(input, carried);
     },
     usage: (account) => usage.read(account),
+    // A linked member is the generation plugin's skill, which the CLI namespaces by the plugin's name; a native one is the project's own.
+    invocationText: (member) => (member.native ? `/${member.name}` : `/${SKILL_PLUGIN_NAME}:${member.name}`),
     // An account directory's sessions, every project of it, for Carry over (#578): read, and never written.
     listSessions: (account) => listDirectorySessions({ queue, directory: configDirectory(account), listSessions: () => sdkListSessions() }),
     async commands(account, workspace, scope): Promise<readonly ProviderCommand[]> {
       try {
-        // What a run here would offer: the account's plugins, and a trusted repository's own commands.
-        const asked = { ...control(account, workspace.path), pluginDirectory: options.pluginDirectory?.(account) ?? null, trusted: scope?.trusted === true };
+        // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.
+        const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted };
         const commands = await withControlQuery(asked, (query) => query.supportedCommands());
         return commands.filter((command) => command.name !== "").map((command) => ({ name: command.name, description: command.description }));
       } catch (error) {

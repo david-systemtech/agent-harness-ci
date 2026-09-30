@@ -9,6 +9,7 @@ import { MANUAL_CLOCK_START, manualClock, type ManualClock } from "../../test/cl
 import { UNREACHABLE_OPENBAO, startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { rejection, saidBack, saidBackOnceHeld } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
 import {
   OTHER_SECRET_ID,
   PASSWORD,
@@ -43,8 +44,9 @@ import { fileVault, VAULT_FILE } from "../serve/vault.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** An environment with no Set up step, whose Key manager check would verify connections as each restart here starts, beside the records, events and requests asserted (#383). */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment(options);
+  const t = await startTestEnvironment({ setupSteps: NO_SETUP_STEPS, ...options });
   onCleanup(() => t.close());
   return t;
 };
