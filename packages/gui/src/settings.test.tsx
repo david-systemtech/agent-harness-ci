@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
-import { BYPASS_SENTENCE, SETTINGS, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
+import { BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -181,14 +181,11 @@ describe("a row's scope", () => {
     for (const label of ["Theme", "Keyboard shortcuts"]) expect(pickedIn(await openRow(app, label)), label).toBeNull();
 
     const about = await openRow(app, "About");
-    const version = within(about).getByText("This client: 0.0.0-test");
+    const version = within(about).getByText("This client: 0.0.0-fake");
     const picker = within(about).getByRole("combobox", { name: "Environment" });
     expect(version.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
-
-/** What the update step's switch holds before anything is set. */
-const presetAutoUpdate = SETTINGS["updates.autoUpdate"].preset;
 
 /** A key's field in a pane, by the key's name. */
 const field = (region: HTMLElement, key: string) => within(region).getByRole("group", { name: key });
@@ -295,10 +292,14 @@ describe("a row whose feature is not built", () => {
     expect(desk.requests("permissions.settings.set")[0]?.params).toMatchObject({ acknowledgeBypass: true });
     expect(within(field(permissions, "permissions.unattended.bypassAcknowledgedAt")).getByText("The environment records it itself; nothing sets it.")).toBeDefined();
 
+    // The idle window, one of the update keys the update controls leave to the generic editor (#424).
     const machines = await openRow(app, "Your machines");
     const desks = within(machines).getByRole("region", { name: "desk" });
-    await app.user.click(await within(field(desks, "updates.autoUpdate")).findByRole("switch"));
-    await waitFor(() => expect(desk.settings()["updates.autoUpdate"]).toBe(!presetAutoUpdate));
+    const idle = await within(field(desks, "updates.idleWindowMinutes")).findByRole("textbox");
+    await app.user.clear(idle);
+    await app.user.type(idle, "15");
+    await app.user.click(within(field(desks, "updates.idleWindowMinutes")).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(desk.settings()["updates.idleWindowMinutes"]).toBe(15));
     expect(desk.requests("updates.settings.set")).toHaveLength(1);
   });
 

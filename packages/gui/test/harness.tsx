@@ -13,6 +13,7 @@ import {
   type InMemoryNetwork,
   type ManualClock,
 } from "@agent-harness/client-runtime/testing";
+import { FAKE_HARNESS_VERSION } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
@@ -61,6 +62,8 @@ export interface RenderOptions {
   readonly protocolVersion?: number;
   /** The step cards the full checklist draws, by step id: preset this build's. */
   readonly stepCards?: StepCards;
+  /** This client's version: preset the one every scripted environment runs, so no environment is older than it. */
+  readonly version?: string;
 }
 
 /** The desktop platform the window runs on, with what the test holds of it. */
@@ -102,14 +105,15 @@ interface Mount {
   readonly documents: InMemoryDocumentStore;
   readonly protocolVersion: number | undefined;
   readonly stepCards: StepCards | undefined;
+  readonly version: string;
 }
 
-const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, stepCards }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
+const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, stepCards, version }: Mount, pair: readonly string[]): Promise<RenderedApp> => {
   const reported: unknown[] = [];
   const network = inMemoryNetwork();
   const desktop = await desktopPlatform({
     shell,
-    version: "0.0.0-test",
+    version,
     documents,
     clock,
     network,
@@ -151,7 +155,7 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, s
       view.unmount();
       await presentation.close();
       await runtime.close();
-      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion, stepCards }, []);
+      return mount({ world, clock, shell, macOS, documents: platform.documents, protocolVersion, stepCards, version }, []);
     },
   };
 };
@@ -176,5 +180,8 @@ export const renderApp = async (script: Script, options: RenderOptions = {}): Pr
     for (const [key, value] of Object.entries(presentation) as [PresentationKey, never][]) left.set(key, value);
     await left.close();
   }
-  return mount({ world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion, stepCards: options.stepCards }, paired);
+  return mount(
+    { world, clock, shell, macOS: options.macOS ?? false, documents, protocolVersion: options.protocolVersion, stepCards: options.stepCards, version: options.version ?? FAKE_HARNESS_VERSION },
+    paired,
+  );
 };
