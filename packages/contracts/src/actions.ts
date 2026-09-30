@@ -371,6 +371,7 @@ const TASKS_PANE = notInGui("The GUI shows delegated work in the Tasks pane, wit
 const CARD_CONTROLS = notInGui("The GUI's card answers with its buttons and fields, reached with the pointer or the window's Tab.");
 const NO_PAGER = notInGui("The GUI has no pager: the transcript is whole, with its scroll bar.");
 const FIND_BAR = notInGui("The GUI has no pager: the transcript's find bar (Mod+F) searches it.");
+const SELECTED_TEXT = notInGui("The GUI has no pager: a file's or a document's text is selected and copied in its pane.");
 const PARKED_ASKS = notInGui("The GUI answers parked asks in the Parked asks view, with the pointer.");
 const CONFIRM_DIALOG = notInGui("The GUI asks yes or no in a dialog, with a button for each.");
 const NO_SNIPPETS = notInGui("Typed as text in the GUI: snippets and their slots are the terminal UI's own.");
@@ -569,6 +570,7 @@ export const ACTION_GROUPS = [
     key("pager.search", ["/"], "Search the whole conversation", FIND_BAR),
     key("pager.match", ["n", "N"], "The next match, the one before", FIND_BAR),
     key("pager.editor", ["v"], "Open the conversation in your editor", NO_PAGER),
+    key("pager.copy", ["y"], "Copy the file or document the page reads, whole", SELECTED_TEXT),
     key("pager.close", ["q", "Esc"], "Close it", NO_PAGER),
   ]),
   group("A terminal pane", "terminal", [
@@ -628,6 +630,7 @@ export const ACTION_GROUPS = [
     command("search", "/search <text>", "Search the sessions on every environment"),
     command("terminal", "/terminal", "Open a terminal on the session's environment, in a pane"),
     command("files", "/files [path]", "Browse the workspace's files, and read one in the pager"),
+    command("documents", "/documents", "The pages, SVGs and markdown this session wrote, newest first"),
     command("notices", "/notices", "Every notice this terminal has shown"),
     command("reload", "/reload", "Read the keybindings file again", {
       guiAbsent: "The GUI reads no keybindings file: its keys are remapped in the Keyboard shortcuts pane.",
