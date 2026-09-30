@@ -4743,7 +4743,7 @@
         "type",
         "payload"
       ],
-      "description": "A probe of the managed tools changed rows: those rows as they are now."
+      "description": "A probe of the managed tools, or a latest version fetched, changed rows: those rows as they are now."
     },
     {
       "type": "object",

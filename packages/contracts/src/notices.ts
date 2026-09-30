@@ -191,7 +191,7 @@ const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE
   "skills.updated": ", skills.updated (the skill set changed; a client reads skills.get again)",
   "trust.updated": ", trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again)",
   "instructions.updated": ", instructions.updated (an owned instruction changed; a client reads instructions.list and instructions.preview again)",
-  "tools.updated": ", the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list)",
+  "tools.updated": ", the Managed tools registry's tools.updated (a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list)",
   "extension.seen": ", extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load)",
   "carry-over.imported": ", and Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
 };
@@ -391,7 +391,11 @@ const InstructionsUpdated = describedNotice(
   InstructionsUpdatedPayload,
   "An owned instruction changed, in the transaction of its instructions event: a client reads instructions.list and instructions.preview again.",
 );
-const ToolsUpdated = describedNotice("tools.updated", ToolsUpdatedPayload, "A probe of the managed tools changed rows: those rows as they are now.");
+const ToolsUpdated = describedNotice(
+  "tools.updated",
+  ToolsUpdatedPayload,
+  "A probe of the managed tools, or a latest version fetched, changed rows: those rows as they are now.",
+);
 const ExtensionSeen = describedNotice(
   "extension.seen",
   ExtensionSeenPayload,
