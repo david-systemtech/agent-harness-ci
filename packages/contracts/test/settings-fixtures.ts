@@ -67,6 +67,7 @@ const presets = {
   ...browserPresets,
   ...credentialPresets,
   ...networkPresets,
+  "instructions.orientation": true,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -83,6 +84,7 @@ const changed = {
   "credentials.injectionByAccount": { "claude-max": "allow" },
   "network.bindTailnet": false,
   "network.bindLan": "192.168.1.20",
+  "instructions.orientation": false,
 };
 
 const idleSpans: Fixtures = {
@@ -132,6 +134,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
       "credentials.injectionByAccount",
       "network.bindTailnet",
       "network.bindLan",
+      "instructions.orientation",
     ],
     invalid: ["theme", "updates.theme", "appearance.mode", "credentials.injectionByRoutine", ""],
   },
@@ -141,6 +144,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
   "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
   "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
+  "settings/keys/instructions.orientation.json": { valid: [true, false], invalid: [null, "on", 1] },
   "settings/keys/credentials.injection.json": { valid: ["allow", "deny"], invalid: ["inherit", "Allow", null, true] },
   "settings/keys/credentials.injectionByAccount.json": {
     valid: [{}, { "claude-max": "deny", [commandId]: "allow" }],

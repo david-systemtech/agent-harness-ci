@@ -124,6 +124,10 @@ _Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser
 A pseudo-terminal an environment owns, running the user's login shell in a session's workspace, which outlives every client connected to it and closes with its session; its output is kept only in its scrollback, never in the event log.
 _Avoid_: shell (the program inside it), console, the terminal UI (a client) or the user's terminal emulator (where a client runs)
 
+**Tool terminal**:
+A terminal the Managed tools registry owns rather than a session, running one install or update command through the user's login shell where a person can watch it and answer its prompts; no session lists it, counts it or closes it, so the Terminal entry's "closes with its session" does not cover it: it closes thirty minutes after its command exits, or when the environment stops. Any client session with the terminal scope may watch it; only one holding `admin` may type at it, resize it or close it.
+_Avoid_: install terminal, installer (the command it runs), admin terminal
+
 **Scrollback**:
 The bounded tail of a terminal's output the environment keeps, 5,000 lines or 8 MiB, from which a client reconnecting is sent what it missed.
 _Avoid_: history, buffer, log (the event log holds none of it)
@@ -173,7 +177,7 @@ A permission prompt or question a run is waiting on with nobody having answered 
 _Avoid_: pending approval, ask (already a UI word for permission prompts; fine for the "Parked asks" view name)
 
 **Idle**:
-The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground, and no run started or ended within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
+The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
 _Avoid_: quiet, inactive, free
 
 **Drain**:
@@ -316,6 +320,10 @@ _Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue 
 A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
 _Avoid_: mirror, skills repo, marketplace
 
+**Catalogue**:
+The suggestions list for skills and instructions that ships with the harness, versioned with the build: skills entries, each a repository folder a person may tick to track as a skill source, with its licence, members and any always-on hint; and suggested instructions in the groups Setup, Coding, Working with me and Custom, each versioned with every earlier text, which a person ticks to own a copy of. Whether an entry is tracked is derived from the environment's sources, never stored, and nothing in it is ticked or always-on until a person acts. An account's list of models is its model catalogue, never this.
+_Avoid_: marketplace, registry, library, suggestions JSON
+
 **Own directory**:
 The environment's own folder of skills under its data directory, holding `skills/` and `commands/`, which a person writes by hand or through `skills.own.create`; read at each run's start and when a client asks, never watched.
 _Avoid_: local skills, user skills, personal plugin
@@ -331,6 +339,10 @@ _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
 **Standing instructions**:
 Text appended to every run through the provider's instruction channel, composed once on the run's environment, whoever started the run, from layers in a fixed order, general to specific: the user layer (the orientation block, then owned instructions), the team bank's, the project's, the session's, a bot's persona, then always-on skills; the run's own text follows. Each composition has a manifest beside its text, which the log keeps in place of the text: per layer what it put in (ids, versions and characters), the always-on skills with their origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why.
 _Avoid_: prompt library, house rules, system prompt (the whole thing the provider builds)
+
+**Owned instruction**:
+A standing instruction David holds on one environment: a title and a Markdown body, the accounts it reaches (all, which includes accounts added later, or those named), whether it is on, and its place in the list; a copy of a catalogue entry remembers that entry and its version, and one written here has no origin. Runs of the accounts it reaches are handed it after the orientation block, under `# Standing instructions`, its title as a heading. The read-only Orientation row that opens the list is not one.
+_Avoid_: prompt, custom instruction, rule, note
 
 **Trust gate**:
 The one-time, per-repository decision that lets a repository's own skills, instructions and hooks load into runs on this environment.

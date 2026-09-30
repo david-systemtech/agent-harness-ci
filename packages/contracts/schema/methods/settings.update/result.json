@@ -593,6 +593,10 @@
             }
           ],
           "description": "The LAN address the environment binds beside loopback from its next start, or null for none (off, the preset). It must be an address the machine holds, one environment.status lists as a LAN address it could bind; a start asked for one it does not hold fails, saying so. Anyone on that network could try to reach the environment; it still needs a paired client."
+        },
+        "instructions.orientation": {
+          "type": "boolean",
+          "description": "Whether every run is handed the orientation block, first in its standing instructions; off, the block is left out of the next run's text."
         }
       },
       "required": [
@@ -626,7 +630,8 @@
         "credentials.injection",
         "credentials.injectionByAccount",
         "network.bindTailnet",
-        "network.bindLan"
+        "network.bindLan",
+        "instructions.orientation"
       ],
       "additionalProperties": false,
       "description": "Every setting's value, by key; a key never set holds its preset."

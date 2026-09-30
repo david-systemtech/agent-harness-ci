@@ -5,11 +5,10 @@ import { readJsonFile, writeFileAtomic } from "./files.js";
 /**
  * Where an environment keeps its secrets: the client-session signing key now,
  * key-manager credentials and forge tokens later. On a headless machine it is
- * `fileVault`, a file in the data directory only the OS user can read. On a
- * desktop the secrets belong in the OS keychain; that implementation comes
- * with the desktop shell (milestone 1 phase B, the GUI workstream) and is out
- * of scope here, which is why the interface is asynchronous, as keychain APIs
- * are.
+ * `fileVault`, a file in the data directory only the OS user can read. On
+ * macOS and Windows, under the user's launch agent or logon task, it is the
+ * OS keychain (`keychain.ts`, #364), which is why the interface is
+ * asynchronous, as keychain APIs are.
  */
 export interface Vault {
   get(key: string): Promise<string | undefined>;

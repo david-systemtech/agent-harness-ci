@@ -224,7 +224,25 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "key-manager", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"]);
+  });
+
+  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions through their six commands, never skipped, with its state check and triggers left to #514 and #588", () => {
+    const instructions = stepOf("instructions");
+    expect((STEP_ORDER as readonly string[]).indexOf("instructions")).toBe(7);
+    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [], links: [], skippable: false, budget: "local", triggers: [] });
+    expect(instructions).not.toHaveProperty("skip");
+    expect(instructions.writesState?.map((write) => write.method)).toEqual([
+      "instructions.create",
+      "instructions.edit",
+      "instructions.setScope",
+      "instructions.setEnabled",
+      "instructions.move",
+      "instructions.remove",
+    ]);
+    const [check] = instructions.checks;
+    expect(check?.key).toBe("instructions.orientation");
+    expect([check?.check(true), check?.check(false), check?.check("on")]).toEqual([true, true, "instructions.orientation does not hold a valid value."]);
   });
 
   it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
@@ -521,12 +539,13 @@ describe("the step registry", () => {
     expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
   });
 
-  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, each an hourly cadence but Account, Forges and Key manager, checked every fifteen minutes because the orientation block reports each account's sign-in status and each forge account's and each connection's status", () => {
+  it("gives Account, Instructions, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, each an hourly cadence but Account, Forges and Key manager, checked every fifteen minutes because the orientation block reports each account's sign-in status and each forge account's and each connection's status", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence.minutes])).toEqual([
       ["account", "local", 15],
       ["your-machines", "network", 60],
       ["forges", "network", 15],
       ["key-manager", "network", 15],
+      ["instructions", "local", 60],
       ["browser", "local", 60],
       ["permissions", "local", 60],
       ["appearance", "local", 60],
@@ -552,12 +571,13 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Key manager on every key-manager.* event and tools.updated, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Key manager on every key-manager.* event and tools.updated, Instructions on nothing until #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
       ["forges", ["forge.account.*"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
+      ["instructions", []],
       ["browser", []],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],

@@ -1,6 +1,6 @@
 import { ttlWords, type EnvironmentView, type ParkedAsk } from "@agent-harness/client-runtime";
 import type { PromptKind } from "@agent-harness/contracts";
-import { badgesOf, type Badge } from "../rail/badge.js";
+import { UNLISTED_BADGE, badgesOf, type Badge } from "../rail/badge.js";
 
 /**
  * The parked-asks card as rows (docs/specs/tui.md, "Cards: permissions,
@@ -27,7 +27,7 @@ export const askKey = (ask: Pick<ParkedAsk, "environmentId" | "sessionId" | "pro
 
 /** An environment's badge, the rail's (`rail/badge.ts`), so it has the same two letters here; one not listed wears none of another's. */
 export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge =>
-  badgesOf(views).get(environmentId) ?? { icon: "●", abbreviation: "??", colour: "gray" };
+  badgesOf(views).get(environmentId) ?? UNLISTED_BADGE;
 
 /** Whether `y` and `n` answer the row in place: a yes-or-no prompt. */
 export const decidable = (kind: PromptKind): boolean => kind === "permission" || kind === "denylist";

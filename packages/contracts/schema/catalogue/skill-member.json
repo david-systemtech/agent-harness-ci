@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueSkillMember",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The member's name by the member-naming rule, as the environment's reader names it.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the member does, in a sentence written for the card."
+    },
+    "invocation": {
+      "type": "string",
+      "enum": [
+        "model+slash",
+        "slash-only"
+      ],
+      "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "invocation"
+  ],
+  "description": "A member of a skills entry's folder as its card lists it: its name, a sentence on what it does, and its invocation."
+}

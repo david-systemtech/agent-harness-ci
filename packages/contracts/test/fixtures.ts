@@ -9,6 +9,7 @@
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
+import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
@@ -774,6 +775,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "instructions.updated",
       "extension.seen",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
@@ -816,6 +818,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
       { type: "trust.updated", payload: {} },
+      { type: "instructions.updated", payload: {} },
       toolsUpdatedNotice.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       validEnvironmentStartedEvent,
@@ -954,6 +957,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...managedToolSchemaFixtures,
   ...networkSchemaFixtures,
   ...skillSchemaFixtures,
+  ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,

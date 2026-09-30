@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsEditedPayload",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
+    },
+    "title": {
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,118}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+      "description": "An owned instruction's title: 1 to 120 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed. A run reads it as the instruction's heading."
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 20000,
+      "description": "An owned instruction's body: Markdown, at most 20000 characters, which a run reads under its title."
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "body"
+  ],
+  "description": "instructions.edited: an owned instruction's title and body are now these."
+}

@@ -13,8 +13,9 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * leaves `updatedAt` where it was. It looks in a pass over every session
  * not deleted after each start and hourly, one session at a time; when
  * `runs.start`, `runs.send`, `runs.readNow` or `terminals.open` is about to
- * decide (`check`, before their transaction), and before the resolved
- * identity pass asks git in a workspace (`check`, #699); and it takes what
+ * decide (`check`, before their transaction), before the resolved
+ * identity pass asks git in a workspace (`check`, #699), and before the
+ * update settle marks each run an update cut (`check`, #691); and it takes what
  * the `files.*` methods and `diffs.workingTree` found (`found`). While a
  * session is marked, its runs cannot start, take a message or read now
  * (`runs/run-decider.ts`), and no terminal opens on it
@@ -34,9 +35,9 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * leaving the rest of the pool to everything else: such a look finds
  * nothing, and the mark stays as it was. A call that never returns (a hard
  * mount that never comes back) holds that gate for the life of the
- * process: until one returns, the pass, the run commands and
- * `terminals.open` mark no other session, which they decide on by the mark
- * as it stands, as before the watcher, and the resolved identity pass
+ * process: until one returns, the pass, the run commands, `terminals.open`
+ * and the update settle mark no other session, which they decide on by the
+ * mark as it stands, as before the watcher, and the resolved identity pass
  * passes over every other; the file and diff methods' own findings still
  * mark it. The log says so once each time the gate starts holding.
  */

@@ -32,7 +32,7 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391), the browser keys (#541), the injection keys (#367) and the binding keys, preset to the tailnet on and the LAN off (#574)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129), the update keys (#335), the theme (#391), the browser keys (#541), the injection keys (#367), the binding keys, preset to the tailnet on and the LAN off (#574), and the orientation switch, preset on (#505)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
@@ -48,6 +48,7 @@ describe("the settings keys", () => {
       ...CREDENTIAL_SETTINGS_KEYS,
       "network.bindTailnet",
       "network.bindLan",
+      "instructions.orientation",
     ]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
@@ -78,6 +79,7 @@ describe("the settings keys", () => {
       "credentials.injectionByAccount": {},
       "network.bindTailnet": true,
       "network.bindLan": null,
+      "instructions.orientation": true,
     });
     for (const key of SETTINGS_KEYS) expect(SETTINGS[key].schema.safeParse(SETTINGS[key].preset).success, key).toBe(true);
   });
@@ -96,6 +98,7 @@ describe("the settings keys", () => {
       ...CREDENTIAL_SETTINGS_KEYS,
       "network.bindTailnet",
       "network.bindLan",
+      "instructions.orientation",
     ]);
     for (const key of PERMISSION_SETTINGS_KEYS) {
       expect(SETTINGS[key].writtenBy, key).toBe("permissions.settings.set");
