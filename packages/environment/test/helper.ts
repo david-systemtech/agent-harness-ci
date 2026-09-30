@@ -35,6 +35,7 @@ import type { SignInDirectorFactory } from "../src/accounts/signin-seam.js";
 import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
 import { refusingSpawn } from "./signin.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
+import { loopbackDialer, noResolver } from "./web-server.js";
 import {
   ByeError,
   WAIT_MS,
@@ -158,6 +159,13 @@ export interface TestEnvironmentOptions {
   readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
   /** The steps `setup.check` runs (`test/setup-steps.ts` scripts them); preset: the step registry with the environment's own answers. */
   readonly setupSteps?: EnvironmentOptions["setupSteps"];
+  /**
+   * How `web_read` resolves and connects, and what a test observes of its
+   * workers, each part over the helper's preset: a resolver that resolves
+   * no name and a dialer that reaches loopback alone (`test/web-server.ts`),
+   * so no test reaches the real DNS or network.
+   */
+  readonly webRead?: EnvironmentOptions["webRead"];
 }
 
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
@@ -340,6 +348,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
+    webRead: { resolve: noResolver, dial: loopbackDialer, ...options.webRead },
   };
   let env: EnvironmentHandle;
   try {

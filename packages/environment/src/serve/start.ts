@@ -16,6 +16,7 @@ import {
   SESSION_STREAM_KIND,
   STEP_REGISTRY,
   WIRE_PATH,
+  describeDenylistMatch,
   formatHostPort,
   pairingLink,
   parkedPromptTtlMs,
@@ -34,6 +35,11 @@ import {
   type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
+import { systemResolver, type Resolver } from "../browser/address-rules.js";
+import type { ExtractionHooks } from "../browser/extraction.js";
+import { browserToolServer } from "../browser/tool-server.js";
+import { systemDialer, type Dialer } from "../browser/web-fetch.js";
+import { createWebReader } from "../browser/web-read.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import {
@@ -77,7 +83,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { coveredDirectories, denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -436,6 +442,18 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
+  /**
+   * How `web_read` reaches the web (#546): the resolver each hop's name is
+   * resolved through, how a connection to an address the address rules
+   * checked is opened, and what a test observes of the extraction workers.
+   * Preset: the system's resolver, a TCP connection to the checked address,
+   * no hooks; tests resolve and dial to their loopback server.
+   */
+  readonly webRead?: {
+    readonly resolve?: Resolver;
+    readonly dial?: Dialer;
+    readonly hooks?: ExtractionHooks;
+  };
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -869,6 +887,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // close ends every run (and so lets go of what each left parked).
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
+  // The browser tool server on every run (#546): web_read, reading the internal hosts and the denylist as they are at each
+  // call, so the one server serves every run and a kept provider process the next. A redirect's address meets the
+  // denylist's hosts section here, as the gate met the address the call named.
+  const browserTools = browserToolServer(
+    createWebReader({
+      clock,
+      harnessVersion,
+      rules: () => ({
+        internalHosts: readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["browser.internalHosts"],
+        resolve: options.webRead?.resolve ?? systemResolver,
+      }),
+      denylisted: (url) => {
+        const [match] = readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches;
+        return match === undefined ? null : describeDenylistMatch(match);
+      },
+      dial: options.webRead?.dial ?? systemDialer,
+      ...(options.webRead?.hooks !== undefined && { hooks: options.webRead.hooks }),
+    }),
+  );
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
@@ -1005,8 +1042,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trust: (place) => trustStore.of(place),
       ...hostSeams,
       instructions,
-      // The seam's servers, then the caller's own tools as the `client` server (#139).
-      toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
+      // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
+      toolServers: (scope) => [browserTools, ...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
