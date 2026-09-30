@@ -100,6 +100,7 @@ import {
   PairingId,
 } from "./primitives.js";
 import { BusyReason, DrainStarted, DrainTrigger, EnvironmentActivity, EnvironmentStatus } from "./lifecycle.js";
+import { BindAddress, BindLan, BindTailnet, EnvironmentBinding } from "./network.js";
 import {
   PairError,
   PairRequest,
@@ -307,7 +308,7 @@ import {
   AbsolutePath,
   RequestedDirectory,
 } from "./sessions.js";
-import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection } from "./workspaces.js";
+import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection, WorkspaceKeptPayload, WorkspaceKeptReason } from "./workspaces.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
   AccountIdentity,
@@ -701,6 +702,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
   { path: "lifecycle/environment-activity.json", title: "EnvironmentActivity", schema: EnvironmentActivity },
   { path: "lifecycle/environment-status.json", title: "EnvironmentStatus", schema: EnvironmentStatus },
+  { path: "network/bind-address.json", title: "BindAddress", schema: BindAddress },
+  { path: "network/environment-binding.json", title: "EnvironmentBinding", schema: EnvironmentBinding },
   { path: "bootstrap/kind.json", title: "BootstrapKind", schema: BootstrapKind },
   { path: "bootstrap/grant.json", title: "BootstrapGrant", schema: BootstrapGrant },
   { path: "bootstrap/request.json", title: "BootstrapRequest", schema: BootstrapRequest },
@@ -1109,6 +1112,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "workspaces/inspected-branch.json", title: "InspectedBranch", schema: InspectedBranch },
   { path: "workspaces/inspected-repository.json", title: "InspectedRepository", schema: InspectedRepository },
   { path: "workspaces/workspace-inspection.json", title: "WorkspaceInspection", schema: WorkspaceInspection },
+  { path: "workspaces/workspace-kept-reason.json", title: "WorkspaceKeptReason", schema: WorkspaceKeptReason },
+  { path: "workspaces/workspace-kept.json", title: "WorkspaceKeptPayload", schema: WorkspaceKeptPayload },
   { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
   { path: "actions/action-condition.json", title: "ActionCondition", schema: ActionCondition },
   { path: "actions/action.json", title: "Action", schema: Action },
@@ -1153,6 +1158,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/browser.internalHosts.json", title: "BrowserInternalHosts", schema: BrowserInternalHosts },
   { path: "settings/keys/credentials.injection.json", title: "CredentialInjection", schema: CredentialInjection },
   { path: "settings/keys/credentials.injectionByAccount.json", title: "CredentialInjectionByAccount", schema: CredentialInjectionByAccount },
+  { path: "settings/keys/network.bindTailnet.json", title: "BindTailnet", schema: BindTailnet },
+  { path: "settings/keys/network.bindLan.json", title: "BindLan", schema: BindLan },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },

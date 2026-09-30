@@ -6,7 +6,7 @@ import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
 import { StepResults } from "../setup.js";
 
-/** Readiness, idle or busy with the reason or draining, and whether updates are managed outside. */
+/** Readiness, idle or busy with the reason or draining, whether updates are managed outside, and what the environment binds and could bind. */
 export const environmentStatus = defineMethod({
   name: "environment.status",
   scope: "read",

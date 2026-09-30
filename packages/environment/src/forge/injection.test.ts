@@ -381,6 +381,17 @@ describe("containment", () => {
     await vi.waitFor(() => expect(ended(t, sessionId)).toHaveLength(1));
   };
 
+  /** What the denylist's data-directory preset leaves out in `dataDir`: where runs work, the key-manager CLIs' configuration, and the skills a run reads (#496). */
+  const exemptIn = (dataDir: string): string[] => [
+    join(dataDir, "containment"),
+    join(dataDir, "scratch"),
+    join(dataDir, "worktrees"),
+    join(dataDir, "key-manager-cli"),
+    join(dataDir, "skills", "own"),
+    join(dataDir, "skills", "snapshots"),
+    join(dataDir, "skills", "generations"),
+  ];
+
   it("adds the helper's directory to an unattended run's exempt directories where the denylist's paths cover the helper, the data directory's preset among them", async () => {
     const forge = await fakeForge();
     const dataDir = join(tempDir(), "data");
@@ -392,7 +403,7 @@ describe("containment", () => {
 
     const projected = t.adapter.lastRun().input.denylist;
     expect(projected?.paths).toContain(dataDir);
-    expect(projected?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees"), join(dataDir, "key-manager-cli"), join(dataDir, "bin")]);
+    expect(projected?.exempt).toEqual([...exemptIn(dataDir), join(dataDir, "bin")]);
   });
 
   it("leaves the exempt directories as they are for a helper no denied path covers", async () => {
@@ -403,6 +414,6 @@ describe("containment", () => {
     await routineRun(t, session.id);
 
     const dataDir = t.env.dataDir;
-    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual([join(dataDir, "containment"), join(dataDir, "scratch"), join(dataDir, "worktrees"), join(dataDir, "key-manager-cli")]);
+    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual(exemptIn(dataDir));
   });
 });

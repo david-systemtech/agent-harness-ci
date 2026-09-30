@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, forgeEvents, gitHost, pasted, remove, saidBack, update, verify, type RouteAnswer } from "../../test/forge.js";
-import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_INTERFACES, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS } from "../../test/wire-client.js";
 
 /**
@@ -246,7 +246,7 @@ describe("the credential route", () => {
     .find((entry) => entry !== undefined && !entry.internal && entry.family === "IPv4")?.address;
 
   it.skipIf(lan === undefined)("answers on loopback sockets only, whatever the Host header says", async () => {
-    const { t, forge } = await withForge({ bindLan: true, lanAddress: lan as string });
+    const { t, forge } = await withForge({ interfaces: { ...NO_INTERFACES, lanAddresses: () => [lan as string] }, bindLan: true, lanAddress: lan as string });
     const client = await t.client();
     const account = await added(client, { url: forge.origin, kind: "forgejo" });
     const secret = t.env.forge.secrets.mint([account.id], "a test's git");

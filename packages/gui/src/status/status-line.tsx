@@ -10,7 +10,6 @@ import {
   readingsOf,
   statusOf,
   type Clock,
-  type Pressure,
   type Reading,
   type StatusFacts,
 } from "@agent-harness/client-runtime";
@@ -18,12 +17,12 @@ import { useEffect, useMemo, useReducer } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { EnvironmentBadge } from "../connections/environment-badge.js";
-import { classes } from "../ui/classes.js";
 import { Button } from "../ui/index.js";
 import { useClock, useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { WindowReading } from "./window-reading.js";
 
 export interface StatusLineProps {
   readonly environmentId: string;
@@ -122,10 +121,6 @@ const useSecondTicks = (clock: Clock, elapsed: number | undefined): void => {
   }, [clock, second]);
 };
 
-/** A window's bar and percent by its pressure: out and high in the danger colour, raised in the warning's, low in success's. */
-const BAR_TONES: Readonly<Record<Pressure, string>> = { out: "bg-signal", high: "bg-signal", raised: "bg-amber", low: "bg-sage" };
-const VALUE_TONES: Readonly<Record<Pressure, string>> = { out: "font-semibold text-signal", high: "font-semibold text-signal", raised: "text-amber", low: "text-ink-muted" };
-
 /**
  * The plan gauge: each window of the session's account identity, pooled
  * across environments, as its short name, a bar lit for any use and full
@@ -138,24 +133,11 @@ const Gauge = ({ readings }: { readonly readings: readonly Reading[] }) =>
       {readings.map((reading) => (
         <span key={reading.window} className="flex items-center gap-1">
           {`${reading.label} `}
-          {reading.utilisation !== null && (
-            <span aria-hidden="true" className="h-1.5 w-10 overflow-hidden rounded-full bg-wash-strong">
-              <span className={classes("block h-full", reading.pressure === undefined ? "bg-ink-faint" : BAR_TONES[reading.pressure])} style={{ width: `${barWidth(reading.utilisation)}%` }} />
-            </span>
-          )}
-          <span className={reading.pressure === undefined ? "text-ink-faint" : VALUE_TONES[reading.pressure]}>{reading.value}</span>
+          <WindowReading reading={reading} />
         </span>
       ))}
     </span>
   );
-
-/** How much of a bar a window lights, in percent: some for any use, and all only when the window is full. */
-const barWidth = (utilisation: number): number => {
-  const percent = utilisation * 100;
-  if (percent <= 0) return 0;
-  if (percent >= 100) return 100;
-  return Math.min(Math.max(percent, 8), 92);
-};
 
 const ACTIVITY_TONES: Readonly<Record<StatusFacts["activity"]["kind"], string>> = { waiting: "text-amber", starting: "text-ink", working: "text-ink", idle: "text-ink-faint" };
 

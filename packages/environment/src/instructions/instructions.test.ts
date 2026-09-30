@@ -174,7 +174,7 @@ describe("a run's launch", () => {
 });
 
 describe("the instruction scope", () => {
-  it("carries the session, account and workspace, the trust key undecided, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
+  it("carries the session, account and workspace, the trust key undecided, the skill set the run is handed, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
     const orientation = testOrientation();
     const identity = "https://git.example/david/receipts";
     const t = await start(orientation, {}, { workspaceResolver: scriptedResolver(() => ({ workspace, repositoryIdentity: identity })) });
@@ -193,6 +193,8 @@ describe("the instruction scope", () => {
         accountId: "claude-max",
         workspace,
         trust: { key: { kind: "identity", value: identity }, decision: "undecided" },
+        // The own directory holds nothing: the set resolved is empty, with nothing to link, and has its fingerprint.
+        skillSet: { generation: null, fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/), members: [], hiddenNativeNames: [] },
         origin: "client",
         containment: "off",
         injection: { answer: "allow", level: { kind: "environment" } },
@@ -241,7 +243,7 @@ describe("the composition", () => {
           { layer: "session", characters: 17, parts: [{ id: "session-note", version: "2", characters: 17 }] },
         ],
         alwaysOn: [],
-        skillSetFingerprint: null,
+        skillSetFingerprint: t.adapter.lastRun().input.skillSet.fingerprint,
         unreadRegistries: ["forges"],
         leftOut: [],
       },
@@ -316,7 +318,7 @@ describe("the composition", () => {
       channel: "none",
       layers: [],
       alwaysOn: [],
-      skillSetFingerprint: null,
+      skillSetFingerprint: t.adapter.lastRun().input.skillSet.fingerprint,
       unreadRegistries: ["forges"],
       leftOut: [{ layer: "user", id: "orientation", reason: "channel-none" }],
     };

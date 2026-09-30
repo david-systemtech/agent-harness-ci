@@ -3,8 +3,8 @@ import { join, relative } from "node:path";
 import { isInside } from "./paths.js";
 
 /**
- * The worktrees git lists for a repository, as the worktree maker (#326)
- * and `workspaces.inspect` (#331) read them: `git worktree list --porcelain
+ * The worktrees git lists for a repository, as the worktree maker (#326),
+ * `workspaces.inspect` (#331) and the reaper (#330) read them: `git worktree list --porcelain
  * -z`, and where each lies as the environment records it when it is one of
  * the environment's own, under its worktrees root.
  */
@@ -19,20 +19,23 @@ export interface ListedWorktree {
   readonly bare: boolean;
   /** The branch checked out, as a full ref; null when detached, or bare. */
   readonly branch: string | null;
+  /** Whether it is locked, so `git worktree prune` and a non-forcing remove leave it alone. */
+  readonly locked: boolean;
 }
 
 /** The worktrees in a `--porcelain -z` listing: fields ended by a NUL, each worktree's ended by an empty one. */
 export const listedWorktrees = (listing: string): ListedWorktree[] => {
   const worktrees: ListedWorktree[] = [];
-  let current: { path: string; bare: boolean; branch: string | null } | null = null;
+  let current: { path: string; bare: boolean; branch: string | null; locked: boolean } | null = null;
   for (const field of listing.split("\0")) {
     const space = field.indexOf(" ");
     const [key, value] = space === -1 ? [field, ""] : [field.slice(0, space), field.slice(space + 1)];
     if (key === "worktree") {
-      current = { path: value, bare: false, branch: null };
+      current = { path: value, bare: false, branch: null, locked: false };
       worktrees.push(current);
     } else if (current !== null && key === "bare") current.bare = true;
     else if (current !== null && key === "branch") current.branch = value;
+    else if (current !== null && key === "locked") current.locked = true;
   }
   return worktrees;
 };

@@ -19,6 +19,7 @@ import {
   type Registry,
 } from "@agent-harness/contracts";
 import type { z } from "zod";
+import type { Adapter } from "../src/adapter/contract.js";
 import type { Address } from "../src/serve/http.js";
 import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
@@ -62,8 +63,8 @@ export interface TestEnvironmentOptions {
   readonly clock?: ManualClock;
   /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
   readonly adapter?: FakeAdapter;
-  /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names; preset none. */
-  readonly otherAdapters?: readonly FakeAdapter[];
+  /** Adapters beside `adapter`, each for a provider of its own, whose accounts `accounts` names (another fake, or the Claude adapter over a scripted SDK); preset none. */
+  readonly otherAdapters?: readonly Adapter[];
   /**
    * The accounts carried over from configuration into the account store on
    * the first start (#119's path, kept for this). Preset: one, `claude-max`,
@@ -98,7 +99,7 @@ export interface TestEnvironmentOptions {
   readonly timeZone?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
-  /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
+  /** Preset: a machine with no Tailscale address, no tailnet name and no LAN address (`NO_INTERFACES`), so a test never binds a real interface. */
   readonly interfaces?: InterfaceDetector;
   readonly bindTailnet?: boolean;
   readonly bindLan?: boolean;
@@ -210,8 +211,8 @@ export const TEST_BUNDLED_CLAUDE = "/nonexistent/agent-harness-sdk/claude";
 /** The bundled Claude Code's version a test environment reads unless told otherwise. */
 export const TEST_CLAUDE_CODE_VERSION = "2.1.0-test";
 
-/** A machine with no Tailscale address and no tailnet name. */
-export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
+/** A machine with no Tailscale address, no tailnet name and no LAN address. */
+export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined, lanAddresses: () => [] };
 
 /** What a pairing is minted with, and the client session its exchange asks for. */
 export interface PairOptions {
