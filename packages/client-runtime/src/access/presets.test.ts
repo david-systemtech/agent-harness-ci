@@ -37,6 +37,14 @@ describe("the presets offered", () => {
     expect(offered.preset.id).toBe("custom");
   });
 
+  it("say what each grants: my own client every scope up to bypassPermissions, a program its three up to the ceiling picked, custom what is ticked and picked", () => {
+    expect(offeredPresets("bypassPermissions", "laptop").presets.map(({ words }) => words)).toEqual([
+      "Grants every scope, up to bypassPermissions.",
+      "Grants read, sessions:write and runs:drive, up to the ceiling picked, preset acceptEdits.",
+      "Grants the scopes ticked, up to the ceiling picked.",
+    ]);
+  });
+
   it("dim none while this client's own ceiling there is not known", () => {
     expect(offeredPresets(null, "laptop").presets.every(({ dim }) => dim === null)).toBe(true);
   });

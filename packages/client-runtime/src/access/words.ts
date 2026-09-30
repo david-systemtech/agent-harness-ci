@@ -41,12 +41,14 @@ export const clientSessionWords = (session: ClientSessionSummary, now: Date): st
 /** Why this client cannot change its own ceiling, in the environment's words: another client session with `admin` can. */
 export const OWN_CEILING = "A client session cannot change its own ceiling; another admin session can.";
 
-/** What a pairing code grants: `Grants read, sessions:write and runs:drive, up to acceptEdits.` */
-export const grantWords = (scopes: readonly Scope[], ceiling: Ceiling): string => {
+/** Scopes as a sentence lists them: `every scope`, `read`, `read, sessions:write and runs:drive`. */
+export const scopesListed = (scopes: readonly Scope[]): string => {
   const held = SCOPES.filter((scope) => scopes.includes(scope));
-  const listed = held.length === SCOPES.length ? "every scope" : held.length === 1 ? held.join("") : `${held.slice(0, -1).join(", ")} and ${held.at(-1) ?? ""}`;
-  return `Grants ${listed}, up to ${ceiling}.`;
+  return held.length === SCOPES.length ? "every scope" : held.length === 1 ? held.join("") : `${held.slice(0, -1).join(", ")} and ${held.at(-1) ?? ""}`;
 };
+
+/** What a pairing code grants: `Grants read, sessions:write and runs:drive, up to acceptEdits.` */
+export const grantWords = (scopes: readonly Scope[], ceiling: Ceiling): string => `Grants ${scopesListed(scopes)}, up to ${ceiling}.`;
 
 /** When an access event happened, where the client is: its clock time today, else its day too. */
 export const accessEventTimeWords = (event: Pick<EventEnvelope, "occurredAt">, now: Date): string => whenWords(event.occurredAt, now);

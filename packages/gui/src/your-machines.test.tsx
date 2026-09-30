@@ -38,11 +38,12 @@ const openMachines = async (app: RenderedApp) => {
   return within(settings).getByRole("region", { name: "Your machines" });
 };
 
-/** The cards of the pane, each by its heading. */
+/** The environments' cards of the pane, each by its heading: Add a machine, the card after them, is none of them. */
 const cardNames = (pane: HTMLElement) =>
   within(pane)
     .getAllByRole("heading", { level: 3 })
-    .map((heading) => heading.textContent);
+    .map((heading) => heading.textContent)
+    .filter((name) => name !== "Add a machine");
 
 /** One environment's card, by its name. */
 const card = (pane: HTMLElement, name: string) => within(pane).getByRole("region", { name });

@@ -1,4 +1,5 @@
 import { PAIRING_PRESETS, compareModes, pairingPreset, type Ceiling, type PairingPreset } from "@agent-harness/contracts";
+import { grantWords, scopesListed } from "./words.js";
 
 /**
  * The pairing presets as a client offers them when it mints a code on an
@@ -9,9 +10,10 @@ import { PAIRING_PRESETS, compareModes, pairingPreset, type Ceiling, type Pairin
  * above it is refused before it is sent.
  */
 
-/** A preset as offered: dim, with why, or null. */
+/** A preset as offered: what it grants in words, and why it is dim, or null. */
 export interface OfferedPreset {
   readonly preset: PairingPreset;
+  readonly words: string;
   readonly dim: string | null;
 }
 
@@ -29,9 +31,21 @@ export interface OfferedPresets {
 export const ceilingAboveOwn = (ceiling: Ceiling, own: Ceiling | null, environment: string): string | null =>
   own !== null && compareModes(ceiling, own) > 0 ? `Above this client's own ceiling on ${environment}, ${own}: a pairing code grants at most its minter's.` : null;
 
+/** What a code of `preset` grants, in words, before a person changes what it lets them. */
+const presetWords = (preset: PairingPreset): string => {
+  switch (preset.chooses) {
+    case "nothing":
+      return grantWords(preset.scopes, preset.ceiling);
+    case "ceiling":
+      return `Grants ${scopesListed(preset.scopes)}, up to the ceiling picked, preset ${preset.ceiling}.`;
+    case "scopes-and-ceiling":
+      return "Grants the scopes ticked, up to the ceiling picked.";
+  }
+};
+
 /** The presets offered on `environment`, where this client's own session holds `own`. */
 export const offeredPresets = (own: Ceiling | null, environment: string): OfferedPresets => {
-  const presets = PAIRING_PRESETS.map((preset) => ({ preset, dim: ceilingAboveOwn(preset.ceiling, own, environment) }));
+  const presets = PAIRING_PRESETS.map((preset) => ({ preset, words: presetWords(preset), dim: ceilingAboveOwn(preset.ceiling, own, environment) }));
   // Custom's ceiling is plan, which no ceiling is below, so it is never dim.
   const first = presets.find(({ dim }) => dim === null)?.preset;
   return { presets, preset: first ?? pairingPreset("custom") };
