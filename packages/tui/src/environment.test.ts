@@ -247,3 +247,141 @@ describe("/environment", () => {
     expect(app.environment("laptop").requests("access.sessions.list")).toHaveLength(0);
   });
 });
+
+/**
+ * The environment's name, icon and colour from the terminal UI (#327;
+ * workspace-picker spec, "Name, icon and colour"): `/environment rename`,
+ * `icon` and `colour`, each a direct `admin` request through the runtime to
+ * the header's environment or the one chosen on the card.
+ */
+describe("/environment rename, icon and colour", () => {
+  const withSessions = (extra: Record<string, unknown> = {}) =>
+    launch({
+      script: {
+        environments: [
+          { name: "desk", reach: "local", sessions: [{ title: "Fix the rail" }], ...extra },
+          { name: "laptop", reach: "paired", sessions: [{ title: "Train tidy" }] },
+        ],
+      },
+    });
+
+  it("renames the header's environment with environment.rename and says the new name, which the rail, the header and the status line then draw", async () => {
+    const app = await withSessions();
+    await app.waitFor("● desk ready");
+    await app.waitFor("DE · Fix the rail");
+    await run(app, "/environment rename Tower  box");
+    await app.waitFor("desk is now called Tower box.");
+    expect(app.environment("desk").requests("environment.rename")).toMatchObject([{ params: { name: "Tower  box" } }]);
+    expect(app.environment("laptop").requests("environment.rename")).toHaveLength(0);
+    await app.waitFor("TB · Fix the rail");
+    expect(rowWith(app.frame(), "agent-harness")).toContain("● Tower box ready");
+    expect(app.frame()).toContain("TB Tower box · no session open");
+  });
+
+  it("says a name already held, and the refusal's reason when the environment rejects it", async () => {
+    const app = await withSessions({ receipts: { "environment.rename": { rejected: "invalid_params", message: "That name is taken by a machine you use." } } });
+    await app.waitFor("● desk ready");
+    await run(app, "/environment rename tower");
+    await app.waitFor("Renaming desk was rejected: That name is taken by a machine you use.");
+    expect(rowWith(app.frame(), "agent-harness")).toContain("● desk ready");
+
+    const other = await withSessions();
+    await other.waitFor("● desk ready");
+    await run(other, "/environment rename desk");
+    await other.waitFor("desk is already called desk.");
+  });
+
+  it("refuses a name the environment would not take before sending it", async () => {
+    const app = await withSessions();
+    await app.waitFor("● desk ready");
+    await run(app, `/environment rename ${"x".repeat(41)}`);
+    await app.waitFor("A name is 1 to 40 characters, with no control characters; nothing was sent.");
+    expect(app.environment("desk").requests("environment.rename")).toHaveLength(0);
+  });
+
+  it("renames the environment chosen on the card, the name typed into its picker", async () => {
+    const app = await withSessions();
+    await app.waitFor("● desk ready");
+    await openActions(app, 1);
+    for (const action of ["Rename", "Icon", "Colour"]) expect(app.frame()).toContain(action);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Rename laptop");
+    await app.type("Train box");
+    await app.waitFor("Rename to Train box");
+    await app.press(KEY.enter);
+    await app.waitFor("laptop is now called Train box.");
+    expect(app.environment("laptop").requests("environment.rename")).toMatchObject([{ params: { name: "Train box" } }]);
+    expect(app.environment("desk").requests("environment.rename")).toHaveLength(0);
+    await app.waitFor("TB · Train tidy");
+  });
+
+  it("sets the icon and the colour typed, and offers the ten icons and the twelve colours bare", async () => {
+    const app = await withSessions();
+    await app.waitFor("● desk ready");
+    await run(app, "/environment icon server");
+    await app.waitFor("desk's icon is now server.");
+    expect(app.environment("desk").requests("environment.setIcon")).toMatchObject([{ params: { icon: "server" } }]);
+
+    await run(app, "/environment colour teal");
+    await app.waitFor("desk's colour is now teal.");
+    expect(app.environment("desk").requests("environment.setColour")).toMatchObject([{ params: { colour: "teal" } }]);
+
+    await run(app, "/environment icon");
+    await app.waitFor("Icon for desk");
+    for (const icon of ["laptop", "desktop", "server", "nas", "cloud", "container", "board", "home", "office", "lab"]) expect(app.frame()).toMatch(new RegExp(`│ (› | {2})${icon}\\b`));
+    expect(rowWith(app.frame(), "› server")).toContain("now");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("desk's icon is now nas.");
+    expect(app.environment("desk").requests("environment.setIcon")).toMatchObject([{ params: { icon: "server" } }, { params: { icon: "nas" } }]);
+
+    await run(app, "/environment colour");
+    await app.waitFor("Colour for desk");
+    for (const colour of ["red", "orange", "amber", "yellow", "lime", "green", "teal", "cyan", "blue", "indigo", "violet", "pink"]) expect(app.frame()).toContain(colour);
+    expect(rowWith(app.frame(), "› teal")).toContain("now");
+    await app.press(KEY.esc);
+    expect(app.environment("desk").requests("environment.setColour")).toHaveLength(1);
+  });
+
+  it("says which icons and colours there are for one it does not know, sending nothing", async () => {
+    const app = await withSessions();
+    await app.waitFor("● desk ready");
+    await run(app, "/environment colour magenta");
+    await app.waitFor("There is no colour magenta: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet or pink.");
+    await run(app, "/environment icon toaster");
+    await app.waitFor("There is no icon toaster: laptop, desktop, server, nas, cloud, container, board, home, office or lab.");
+    await run(app, "/environment paint it");
+    await app.waitFor("Usage: /environment, /environment rename <name>, /environment icon [icon] or /environment colour [colour].");
+    expect(app.environment("desk").requests().filter((r) => r.method.startsWith("environment.set"))).toHaveLength(0);
+  });
+
+  it("answers the three with the capability's line without admin, sending nothing and opening no picker", async () => {
+    const app = await withSessions({ scopes: SCOPES.filter((s) => s !== "admin") });
+    await app.waitFor("● desk ready");
+    const refusal = "This client was paired with desk without the admin scope.";
+    await run(app, "/environment rename Tower");
+    await app.waitFor(`Cannot rename desk: ${refusal}`);
+    await run(app, "/environment icon");
+    await app.waitFor(`Cannot set the icon of desk: ${refusal}`);
+    expect(app.frame()).not.toContain("Icon for desk");
+    await run(app, "/environment colour teal");
+    await app.waitFor(`Cannot set the colour of desk: ${refusal}`);
+    const desk = app.environment("desk");
+    expect([...desk.requests("environment.rename"), ...desk.requests("environment.setIcon"), ...desk.requests("environment.setColour")]).toHaveLength(0);
+  });
+
+  it("redraws the rail, the status line and the open card for a rename another client makes, without a notice", async () => {
+    const app = await withSessions();
+    await app.waitFor("● desk ready");
+    await app.waitFor("DE · Fix the rail");
+    await run(app, "/environment");
+    await app.waitFor("Environments");
+    const notices = app.runtime().projections.notices.read().length;
+    app.environment("desk").setLook({ name: "tower" });
+    await app.waitFor(/› tower\s+local\s+ready/);
+    await app.waitFor("TO · Fix the rail");
+    expect(app.frame()).toContain("TO tower · no session open");
+    expect(rowWith(app.frame(), "agent-harness")).toContain("● tower ready");
+    expect(app.runtime().projections.notices.read()).toHaveLength(notices);
+    expect(app.frame()).not.toContain("renamed");
+  });
+});

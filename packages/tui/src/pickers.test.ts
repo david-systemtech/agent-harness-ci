@@ -579,7 +579,7 @@ describe("/settings", () => {
     await command(app, "/resume");
     await app.type("Deploy");
     await app.press(KEY.enter);
-    await app.waitFor("● laptop");
+    await app.waitFor("LA laptop");
     await command(app, "/settings environments.service");
     await app.waitFor("Settings on laptop");
     await app.waitFor(/sessions\.autoSettleOnMerge\s+off/);
