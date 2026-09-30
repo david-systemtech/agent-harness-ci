@@ -1,11 +1,14 @@
 import {
   ROUTINE_STREAM_KIND,
   type Ceiling,
+  type DeliveryTarget,
   type FiringEntry,
   type FiringOutcome,
   type LiveFiring,
   type RoutineCreatedPayload,
   type RoutineDefinition,
+  type RoutineDelivery,
+  type RoutineDeliveryAttemptedPayload,
   type RoutineDisabledPayload,
   type RoutineEditedPayload,
   type RoutineEnabledPayload,
@@ -40,8 +43,13 @@ import type { Reader } from "../sessions/session-tables.js";
  * consecutive failed firings and failing skips, reset by `succeeded`,
  * `silent` and `no-change`, and left as it was by `cancelled`, `missed` and
  * `overlap`. The baseline and `handledThrough` are the tickets' that keep
- * them (#526, #527), and a firing's deliveries #525's; until then they are
- * null and none.
+ * them (#526, #527); until then they are null.
+ *
+ * Each entry keeps the targets it delivers to (#525): a firing the ones its
+ * `routine.firing-started` recorded, so an edit during it changes nothing
+ * for it; a skip its routine's at its record, none once the routine is
+ * deleted. Each `routine.delivery-attempted` joins its target's delivery on
+ * the entry, which the history lists in the targets' order.
  */
 
 export const ROUTINES_PROJECTOR = "routines";
@@ -69,6 +77,7 @@ export const ROUTINES_TABLES = {
     routine_id TEXT NOT NULL,
     position INTEGER NOT NULL,
     run_id TEXT,
+    targets TEXT NOT NULL,
     entry TEXT NOT NULL
   ) STRICT;
   CREATE INDEX routine_entries_by_routine ON routine_entries (routine_id, position);
@@ -177,7 +186,15 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
     durationMs: null,
     baselineAdvanced: null,
   };
-  db.run("INSERT INTO routine_entries (id, routine_id, position, run_id, entry) VALUES (?, ?, ?, ?, ?)", firingId, event.streamId, event.sequence, runId, json(entry));
+  db.run(
+    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, entry) VALUES (?, ?, ?, ?, ?, ?)",
+    firingId,
+    event.streamId,
+    event.sequence,
+    runId,
+    json(targets),
+    json(entry),
+  );
   db.run("UPDATE routines SET live_firing = ? WHERE id = ?", firingId, event.streamId);
 };
 
@@ -191,11 +208,48 @@ const firingEnded = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFir
   settle(db, event.streamId, { kind: "firing", entryId: firingId, outcome, reason, at: event.occurredAt }, outcome);
 };
 
+/** A skip delivers to its routine's targets at its record: none once the routine is deleted. */
 const skipped = (db: ProjectionDb, event: EventEnvelope, payload: RoutineSkippedPayload): void => {
   const { skipId, trigger, count, preCheck, dueAt, reason, cannotStart, detail } = payload;
   const entry: SkipEntry = { kind: "skip", id: skipId, trigger, count, preCheck, deliveries: [], dueAt, at: event.occurredAt, reason, cannotStart, detail };
-  db.run("INSERT INTO routine_entries (id, routine_id, position, run_id, entry) VALUES (?, ?, ?, NULL, ?)", skipId, event.streamId, event.sequence, json(entry));
+  const routine = db.get<{ definition: string }>("SELECT definition FROM routines WHERE id = ? AND deleted_at IS NULL", event.streamId);
+  const delivery = routine === undefined ? [] : (JSON.parse(routine.definition) as RoutineDefinition).delivery;
+  db.run(
+    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, entry) VALUES (?, ?, ?, NULL, ?, ?)",
+    skipId,
+    event.streamId,
+    event.sequence,
+    json(delivery),
+    json(entry),
+  );
   settle(db, event.streamId, { kind: "skip", entryId: skipId, reason, at: event.occurredAt }, reason);
+};
+
+/** Whether two targets are the same: a delivery is to a target, however often the routine names it. */
+export const sameTarget = (a: DeliveryTarget, b: DeliveryTarget): boolean =>
+  a.kind === b.kind && a.on === b.on && (a.kind !== "webhook" || (b.kind === "webhook" && a.target === b.target));
+
+/** Where a delivery stands once an attempt came to `result`. */
+const DELIVERY_RESULT: Readonly<Record<RoutineDeliveryAttemptedPayload["result"], RoutineDelivery["result"]>> = {
+  delivered: "delivered",
+  retrying: "pending",
+  failed: "failed",
+};
+
+/** An attempt joins its target's delivery on the entry, which stands as the attempt came to; the deliveries stay in the targets' order. */
+const deliveryAttempted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineDeliveryAttemptedPayload): void => {
+  const row = db.get<{ targets: string; entry: string }>("SELECT targets, entry FROM routine_entries WHERE id = ? AND routine_id = ?", payload.entryId, event.streamId);
+  if (row === undefined) return;
+  const entry = JSON.parse(row.entry) as RoutineEntry;
+  const { target, attempt, result, status, error, retryAt } = payload;
+  const made = { attempt, at: event.occurredAt, result, status, error, retryAt };
+  const held = entry.deliveries.find((delivery) => sameTarget(delivery.target, target));
+  const others = entry.deliveries.filter((delivery) => delivery !== held);
+  const delivery: RoutineDelivery = { target, result: DELIVERY_RESULT[result], attempts: [...(held?.attempts ?? []), made] };
+  const targets = JSON.parse(row.targets) as DeliveryTarget[];
+  const place = (of: RoutineDelivery): number => targets.findIndex((named) => sameTarget(named, of.target));
+  const deliveries = [...others, delivery].sort((a, b) => place(a) - place(b));
+  db.run("UPDATE routine_entries SET entry = ? WHERE id = ?", json({ ...entry, deliveries }), payload.entryId);
 };
 
 export const routinesProjector: Projector = {
@@ -220,6 +274,8 @@ export const routinesProjector: Projector = {
         return firingEnded(db, event, event.payload as RoutineFiringEndedPayload);
       case "routine.skipped":
         return skipped(db, event, event.payload as RoutineSkippedPayload);
+      case "routine.delivery-attempted":
+        return deliveryAttempted(db, event, event.payload as RoutineDeliveryAttemptedPayload);
     }
   },
 };
@@ -333,3 +389,26 @@ export const routineEntries = (reader: Reader, routineId: string, before: number
       limit,
     )
     .map((row) => JSON.parse(row.entry) as RoutineEntry);
+
+/** An ended entry as its delivery reads it: the entry, the targets it delivers to, and its routine's name now. */
+export interface DeliverableEntry {
+  /** The routine's name as the environment holds it now, deleted since or not. */
+  readonly name: string;
+  readonly entry: RoutineEntry;
+  readonly targets: readonly DeliveryTarget[];
+}
+
+/** The routine's entry `entryId` with its targets and the routine's name; null when it has no such entry. */
+export const deliverableEntry = (reader: Reader, routineId: string, entryId: string): DeliverableEntry | null => {
+  const [row] = reader.all<{ definition: string; targets: string; entry: string }>(
+    "SELECT r.definition, e.targets, e.entry FROM routine_entries e JOIN routines r ON r.id = e.routine_id WHERE e.id = ? AND e.routine_id = ?",
+    entryId,
+    routineId,
+  );
+  if (row === undefined) return null;
+  return {
+    name: (JSON.parse(row.definition) as RoutineDefinition).name,
+    entry: JSON.parse(row.entry) as RoutineEntry,
+    targets: JSON.parse(row.targets) as DeliveryTarget[],
+  };
+};

@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { basename } from "node:path";
 import type { Clock } from "../serve/clock.js";
-import { loginShell, type ShellCommand } from "../terminals/shell.js";
+import { loginShell, throughShell, type ShellCommand } from "../terminals/shell.js";
 import { runCommand } from "./run.js";
 
 /**
@@ -29,9 +28,6 @@ export interface LoginPathOptions {
   readonly shell?: ShellCommand;
 }
 
-/** Shells whose `-l` must be their only flag, so they are asked without it. */
-const LOGIN_FLAG_ALONE = new Set(["csh", "tcsh"]);
-
 /**
  * Machine then user, as Windows composes a new process's Path; each expanded
  * by the registry's read. Written as UTF-8, which the runner decodes: Windows
@@ -54,8 +50,8 @@ export const readLoginPath = async (options: LoginPathOptions): Promise<string> 
   }
   const shell = options.shell ?? loginShell(platform);
   const marker = `path-${randomBytes(8).toString("hex")}`;
-  const flags = LOGIN_FLAG_ALONE.has(basename(shell.file)) ? [] : shell.args;
-  const answer = await runCommand(shell.file, [...flags, "-c", `echo ${marker}; printenv PATH; echo ${marker}`], run);
+  const asked = throughShell(shell, `echo ${marker}; printenv PATH; echo ${marker}`);
+  const answer = await runCommand(asked.file, asked.args, run);
   if (answer.outcome !== "exited") throw new Error(`The login shell ${shell.file} did not give its PATH: ${answer.outcome === "missing" ? "it is not installed" : answer.why}.`);
   const path = new RegExp(`${marker}\\r?\\n([^\\r\\n]*)\\r?\\n${marker}`).exec(answer.stdout)?.[1];
   if (path === undefined || path === "") throw new Error(`The login shell ${shell.file} did not give its PATH: it exited with code ${answer.code ?? "none"}.`);

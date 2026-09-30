@@ -292,7 +292,7 @@ describe("a terminal's feed", () => {
     expect(fromStart.snapshot).toEqual({
       sequence: 3,
       payload: {
-        terminal: { id: ID, sessionId: SESSION, openedAt: NOW.toISOString(), cols: 80, rows: 24, exitCode: null, signal: null },
+        terminal: { id: ID, owner: "session", sessionId: SESSION, openedAt: NOW.toISOString(), cols: 80, rows: 24, exitCode: null, signal: null },
         scrollback: "$ ls\r\na b\r\n$ ",
         firstSequence: 1,
         lastSequence: 3,
