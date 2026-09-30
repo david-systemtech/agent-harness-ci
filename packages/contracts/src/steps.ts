@@ -213,7 +213,9 @@ export const anyValidValue =
  * (#123), which sit on `environments.service`; Forges, whose forge
  * accounts go through the forge account commands (#319); Key manager, for
  * the injection setting (#367), whose connections go through the
- * key-manager commands; Browser, for the browser keys (#541); Permissions
+ * key-manager commands; Instructions, for the orientation switch, whose
+ * owned instructions go through their commands (#505); Browser, for the
+ * browser keys (#541); Permissions
  * (#129's keys, #141's entry); and Appearance, for the theme (ADR 0023,
  * #391), whose contrast it checks. The other steps arrive as their features are built,
  * each with its budget class, cadence, triggers and skip check as the Set
@@ -397,6 +399,30 @@ export const STEP_REGISTRY = [
       reason: "The orientation block reports each key-manager connection's status (ADR 0011, ADR 0028), so the step is checked as often as a connection is verified.",
     },
     triggers: ["key-manager.*", "tools.updated"],
+  },
+  {
+    // The Instructions step (skills spec, "Set up"; ADR 0030; #505), at home on the Knowledge band's Instructions row
+    // (ADR 0027): the orientation switch, which settings.update writes and which passes on any valid value, as a
+    // preference's does, and the owned instructions through their commands. Never skipped. Its state check (the block
+    // rendered with no failed registry read) is #514's, and its triggers #588's.
+    id: "instructions",
+    home: "knowledge.instructions",
+    writes: ["instructions.orientation"],
+    writesState: [
+      { method: "instructions.create", parts: ["ownedInstructions"] },
+      { method: "instructions.edit", parts: ["ownedInstructions"] },
+      { method: "instructions.setScope", parts: ["ownedInstructions"] },
+      { method: "instructions.setEnabled", parts: ["ownedInstructions"] },
+      { method: "instructions.move", parts: ["ownedInstructions"] },
+      { method: "instructions.remove", parts: ["ownedInstructions"] },
+    ],
+    checks: [{ key: "instructions.orientation", check: anyValidValue("instructions.orientation") }],
+    stateChecks: [],
+    links: [],
+    skippable: false,
+    budget: "local",
+    cadence: { minutes: 60 },
+    triggers: [],
   },
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's

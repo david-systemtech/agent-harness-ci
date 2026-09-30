@@ -7,7 +7,13 @@ import { composedManifest } from "../test/instruction-fixtures.js";
 import {
   EVENT_TYPES,
   INSTRUCTION_LAYERS,
+  INSTRUCTIONS_STREAM_KIND,
   InstructionManifest,
+  MAX_INSTRUCTION_BODY,
+  MAX_INSTRUCTION_TITLE,
+  OwnedInstruction,
+  SETTINGS,
+  STEP_REGISTRY,
   RunInstructionsComposedPayload,
   exportedSchemas,
   isListEvent,
@@ -46,8 +52,7 @@ describe("the layers", () => {
 
 describe("instructions.preview", () => {
   it("is a query at read, registered and indexed with its documents", () => {
-    const [method] = methods.filter((m) => m.name.startsWith("instructions."));
-    expect(method).toMatchObject({ name: "instructions.preview", kind: "query", scope: "read" });
+    expect(registry["instructions.preview"]).toMatchObject({ name: "instructions.preview", kind: "query", scope: "read" });
     const index = exported("index.json") as { methods: { name: string; scope: string; params: string; result: string }[] };
     expect(index.methods).toContainEqual(expect.objectContaining({ name: "instructions.preview", scope: "read", params: methodPath("instructions.preview", "params") }));
   });
@@ -89,5 +94,69 @@ describe("run.instructions.composed", () => {
     const written = JSON.parse(JSON.stringify(RunInstructionsComposedPayload.parse(payload))) as unknown;
     expect(validate(written), ajv.errorsText(validate.errors)).toBe(true);
     expect(RunInstructionsComposedPayload.parse(written)).toEqual(payload);
+  });
+});
+
+describe("owned instructions (#505)", () => {
+  const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const record = { id, title: "Coding style", body: "Prefer small modules.", origin: null, scope: "all", enabled: true, position: "n" };
+
+  it("are a record of id, title, body, origin, scope, enabled and position, held to their bounds", () => {
+    expect(Object.keys(OwnedInstruction.shape)).toEqual(["id", "title", "body", "origin", "scope", "enabled", "position"]);
+    expect([MAX_INSTRUCTION_TITLE, MAX_INSTRUCTION_BODY]).toEqual([120, 20000]);
+    expect(OwnedInstruction.safeParse(record).success).toBe(true);
+    expect(OwnedInstruction.safeParse({ ...record, scope: ["claude-max", "claude-work"], origin: { catalogueId: "coding.small-modules", version: 2 } }).success).toBe(true);
+    for (const broken of [
+      { ...record, title: "" },
+      { ...record, title: "   " },
+      { ...record, title: "t".repeat(121) },
+      { ...record, body: "b".repeat(20001) },
+      { ...record, scope: [] },
+      { ...record, scope: "some" },
+      { ...record, position: "na" },
+      { ...record, id: "not-a-uuid" },
+    ]) {
+      expect(OwnedInstruction.safeParse(broken).success, JSON.stringify(broken).slice(0, 80)).toBe(false);
+    }
+    expect(OwnedInstruction.safeParse({ ...record, title: "t".repeat(120), body: "b".repeat(20000) }).success).toBe(true);
+  });
+
+  it("are one stream per environment whose six events change nothing listed", () => {
+    expect(INSTRUCTIONS_STREAM_KIND).toBe("instructions");
+    const types = Object.keys(EVENT_TYPES.instructions);
+    expect(types).toEqual(["instructions.created", "instructions.edited", "instructions.scope-set", "instructions.enabled-set", "instructions.moved", "instructions.removed"]);
+    for (const type of types) expect(isListEvent("instructions", type), type).toBe(false);
+  });
+
+  it("are driven by six commands at admin and listed by a query at read", () => {
+    const owned = methods.filter((m) => m.name.startsWith("instructions.")).map((m) => [m.name, m.kind, m.scope]);
+    expect(owned).toEqual([
+      ["instructions.preview", "query", "read"],
+      ["instructions.list", "query", "read"],
+      ["instructions.create", "command", "admin"],
+      ["instructions.edit", "command", "admin"],
+      ["instructions.setScope", "command", "admin"],
+      ["instructions.setEnabled", "command", "admin"],
+      ["instructions.move", "command", "admin"],
+      ["instructions.remove", "command", "admin"],
+    ]);
+  });
+
+  it("list the Orientation row first, which no command can name, then the owned instructions, every row with the environment's accounts", () => {
+    const accounts = [
+      { accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null },
+      { accountId: "local", label: "Local", channel: { kind: "none", maxCharacters: null }, reason: "Local has no instruction channel: its runs are handed no standing instructions." },
+    ];
+    const orientation = { enabled: true, text: "# Orientation", unreadRegistries: [], accounts };
+    const { result } = registry["instructions.list"];
+    expect(Object.keys(result.shape)).toEqual(["orientation", "instructions"]);
+    expect(result.safeParse({ orientation, instructions: [{ ...record, accounts }] }).success).toBe(true);
+    expect(result.safeParse({ orientation: { ...orientation, id }, instructions: [] }).success).toBe(false);
+    expect(result.safeParse({ orientation: { ...record, accounts }, instructions: [] }).success).toBe(false);
+  });
+
+  it("put instructions.orientation, preset on, on the Instructions step's registry entry", () => {
+    expect(SETTINGS["instructions.orientation"]).toMatchObject({ preset: true, step: { id: "instructions", row: "knowledge.instructions" } });
+    expect(STEP_REGISTRY.find((step) => step.id === "instructions")).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], skippable: false });
   });
 });

@@ -1875,6 +1875,74 @@
       "title": "InstructionPreviewPart"
     },
     {
+      "path": "instructions/instruction-id.json",
+      "title": "InstructionId"
+    },
+    {
+      "path": "instructions/title.json",
+      "title": "InstructionTitle"
+    },
+    {
+      "path": "instructions/body.json",
+      "title": "InstructionBody"
+    },
+    {
+      "path": "instructions/origin.json",
+      "title": "InstructionOrigin"
+    },
+    {
+      "path": "instructions/reach.json",
+      "title": "InstructionReach"
+    },
+    {
+      "path": "instructions/owned-instruction.json",
+      "title": "OwnedInstruction"
+    },
+    {
+      "path": "instructions/event-type.json",
+      "title": "InstructionsEventType"
+    },
+    {
+      "path": "instructions/events/instructions.created.json",
+      "title": "InstructionsCreatedPayload"
+    },
+    {
+      "path": "instructions/events/instructions.edited.json",
+      "title": "InstructionsEditedPayload"
+    },
+    {
+      "path": "instructions/events/instructions.scope-set.json",
+      "title": "InstructionsScopeSetPayload"
+    },
+    {
+      "path": "instructions/events/instructions.enabled-set.json",
+      "title": "InstructionsEnabledSetPayload"
+    },
+    {
+      "path": "instructions/events/instructions.moved.json",
+      "title": "InstructionsMovedPayload"
+    },
+    {
+      "path": "instructions/events/instructions.removed.json",
+      "title": "InstructionsRemovedPayload"
+    },
+    {
+      "path": "instructions/instructions-updated.json",
+      "title": "InstructionsUpdatedPayload"
+    },
+    {
+      "path": "instructions/account.json",
+      "title": "InstructionAccount"
+    },
+    {
+      "path": "instructions/orientation-row.json",
+      "title": "OrientationRow"
+    },
+    {
+      "path": "instructions/owned-instruction-row.json",
+      "title": "OwnedInstructionRow"
+    },
+    {
       "path": "terminals/terminal-id.json",
       "title": "TerminalId"
     },
@@ -1993,6 +2061,10 @@
     {
       "path": "settings/keys/sessions.autoSettleOnMerge.json",
       "title": "AutoSettleOnMerge"
+    },
+    {
+      "path": "settings/keys/instructions.orientation.json",
+      "title": "OrientationOn"
     },
     {
       "path": "settings/keys/sessions.transcriptCompactAfterDays.json",
@@ -4019,6 +4091,114 @@
       "title": "instructions.preview error"
     },
     {
+      "path": "methods/instructions.list/params.json",
+      "title": "instructions.list params"
+    },
+    {
+      "path": "methods/instructions.list/result.json",
+      "title": "instructions.list result"
+    },
+    {
+      "path": "methods/instructions.list/error.json",
+      "title": "instructions.list error"
+    },
+    {
+      "path": "methods/instructions.create/params.json",
+      "title": "instructions.create params"
+    },
+    {
+      "path": "methods/instructions.create/result.json",
+      "title": "instructions.create result"
+    },
+    {
+      "path": "methods/instructions.create/response.json",
+      "title": "instructions.create response"
+    },
+    {
+      "path": "methods/instructions.create/error.json",
+      "title": "instructions.create error"
+    },
+    {
+      "path": "methods/instructions.edit/params.json",
+      "title": "instructions.edit params"
+    },
+    {
+      "path": "methods/instructions.edit/result.json",
+      "title": "instructions.edit result"
+    },
+    {
+      "path": "methods/instructions.edit/response.json",
+      "title": "instructions.edit response"
+    },
+    {
+      "path": "methods/instructions.edit/error.json",
+      "title": "instructions.edit error"
+    },
+    {
+      "path": "methods/instructions.setScope/params.json",
+      "title": "instructions.setScope params"
+    },
+    {
+      "path": "methods/instructions.setScope/result.json",
+      "title": "instructions.setScope result"
+    },
+    {
+      "path": "methods/instructions.setScope/response.json",
+      "title": "instructions.setScope response"
+    },
+    {
+      "path": "methods/instructions.setScope/error.json",
+      "title": "instructions.setScope error"
+    },
+    {
+      "path": "methods/instructions.setEnabled/params.json",
+      "title": "instructions.setEnabled params"
+    },
+    {
+      "path": "methods/instructions.setEnabled/result.json",
+      "title": "instructions.setEnabled result"
+    },
+    {
+      "path": "methods/instructions.setEnabled/response.json",
+      "title": "instructions.setEnabled response"
+    },
+    {
+      "path": "methods/instructions.setEnabled/error.json",
+      "title": "instructions.setEnabled error"
+    },
+    {
+      "path": "methods/instructions.move/params.json",
+      "title": "instructions.move params"
+    },
+    {
+      "path": "methods/instructions.move/result.json",
+      "title": "instructions.move result"
+    },
+    {
+      "path": "methods/instructions.move/response.json",
+      "title": "instructions.move response"
+    },
+    {
+      "path": "methods/instructions.move/error.json",
+      "title": "instructions.move error"
+    },
+    {
+      "path": "methods/instructions.remove/params.json",
+      "title": "instructions.remove params"
+    },
+    {
+      "path": "methods/instructions.remove/result.json",
+      "title": "instructions.remove result"
+    },
+    {
+      "path": "methods/instructions.remove/response.json",
+      "title": "instructions.remove response"
+    },
+    {
+      "path": "methods/instructions.remove/error.json",
+      "title": "instructions.remove error"
+    },
+    {
       "path": "methods/forge.accounts.list/params.json",
       "title": "forge.accounts.list params"
     },
@@ -6013,6 +6193,75 @@
       "params": "methods/instructions.preview/params.json",
       "result": "methods/instructions.preview/result.json",
       "error": "methods/instructions.preview/error.json"
+    },
+    {
+      "name": "instructions.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/instructions.list/params.json",
+      "result": "methods/instructions.list/result.json",
+      "error": "methods/instructions.list/error.json"
+    },
+    {
+      "name": "instructions.create",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.create/params.json",
+      "result": "methods/instructions.create/result.json",
+      "response": "methods/instructions.create/response.json",
+      "error": "methods/instructions.create/error.json"
+    },
+    {
+      "name": "instructions.edit",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.edit/params.json",
+      "result": "methods/instructions.edit/result.json",
+      "response": "methods/instructions.edit/response.json",
+      "error": "methods/instructions.edit/error.json"
+    },
+    {
+      "name": "instructions.setScope",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.setScope/params.json",
+      "result": "methods/instructions.setScope/result.json",
+      "response": "methods/instructions.setScope/response.json",
+      "error": "methods/instructions.setScope/error.json"
+    },
+    {
+      "name": "instructions.setEnabled",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.setEnabled/params.json",
+      "result": "methods/instructions.setEnabled/result.json",
+      "response": "methods/instructions.setEnabled/response.json",
+      "error": "methods/instructions.setEnabled/error.json"
+    },
+    {
+      "name": "instructions.move",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.move/params.json",
+      "result": "methods/instructions.move/result.json",
+      "response": "methods/instructions.move/response.json",
+      "error": "methods/instructions.move/error.json"
+    },
+    {
+      "name": "instructions.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/instructions.remove/params.json",
+      "result": "methods/instructions.remove/result.json",
+      "response": "methods/instructions.remove/response.json",
+      "error": "methods/instructions.remove/error.json"
     },
     {
       "name": "forge.accounts.list",
