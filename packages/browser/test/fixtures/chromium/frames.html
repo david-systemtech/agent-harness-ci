@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkout</title></head>
+<body>
+  <h1>Checkout</h1>
+  <p>Your basket holds two items.</p>
+  <!-- Same site as this page: a frame in its own process. -->
+  <iframe src="/reviews.html" title="Reviews" width="400" height="120"></iframe>
+  <!-- Another site: under site isolation a child target of its own. -->
+  <iframe src="http://pay.other.test:{{PORT}}/embed.html" title="Payment" width="400" height="120"></iframe>
+</body>
+</html>
