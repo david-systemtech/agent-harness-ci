@@ -1646,8 +1646,7 @@ const index = (entries: readonly ExportedSchema[], tables: readonly PublishedCas
 const serialise = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /** Every file of the export, by path under `schema/`: one per schema, one per case table, one per data table, and `index.json`. */
-export const jsonSchemaFiles = (): Map<string, string> => {
-  const entries = exportedSchemas();
+export const jsonSchemaFiles = (entries: readonly ExportedSchema[] = exportedSchemas()): Map<string, string> => {
   const tables = publishedCaseTables();
   const data = publishedData();
   const files = new Map<string, string>();
