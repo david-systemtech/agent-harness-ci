@@ -54,7 +54,7 @@ const start = async () => {
     diagnostic: () => undefined,
     runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
   });
-  const t = await startTestEnvironment({ adapters: [claude], accounts: [{ id: "work", provider: "claude", directory: tempDir("agent-harness-claude-") }] });
+  const t = await startTestEnvironment({ otherAdapters: [claude], accounts: [{ id: "work", provider: "claude", directory: tempDir("agent-harness-claude-") }] });
   onCleanup(() => t.close());
   const client = await t.client();
   const { id } = await create(client, { account: "work", workspace: { kind: "directory", path: tempDir("agent-harness-workspace-") } });

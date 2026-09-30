@@ -13,9 +13,13 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * leaves `updatedAt` where it was. It looks in a pass over every session
  * not deleted after each start and hourly, one session at a time; when
  * `runs.start`, `runs.send`, `runs.readNow` or `terminals.open` is about to
- * decide (`check`, before their transaction), and before the resolved
- * identity pass asks git in a workspace (`check`, #699); and it takes what
- * the `files.*` methods and `diffs.workingTree` found (`found`). While a
+ * decide (`check`, before their transaction), before the resolved
+ * identity pass asks git in a workspace (`check`, #699), and before the
+ * update settle marks each run an update cut (`check`, #691); and it takes what
+ * the `files.*` methods and `diffs.workingTree` found (`found`). The Carry
+ * over import looks through it too, at a transcript's working directory
+ * before the session exists (`look`, #578), and marks the session it then
+ * records with a gone directory (`markMissing`). While a
  * session is marked, its runs cannot start, take a message or read now
  * (`runs/run-decider.ts`), and no terminal opens on it
  * (`terminals/service.ts`); `sessions.setWorkspace` gives it a new
@@ -34,9 +38,9 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * leaving the rest of the pool to everything else: such a look finds
  * nothing, and the mark stays as it was. A call that never returns (a hard
  * mount that never comes back) holds that gate for the life of the
- * process: until one returns, the pass, the run commands and
- * `terminals.open` mark no other session, which they decide on by the mark
- * as it stands, as before the watcher, and the resolved identity pass
+ * process: until one returns, the pass, the run commands, `terminals.open`
+ * and the update settle mark no other session, which they decide on by the
+ * mark as it stands, as before the watcher, and the resolved identity pass
  * passes over every other; the file and diff methods' own findings still
  * mark it. The log says so once each time the gate starts holding.
  */
@@ -98,6 +102,12 @@ export interface AvailabilityWatcher {
    * marked is left as it is.
    */
   markMissing(tx: Tx, sessionId: string): void;
+  /**
+   * Looks at the directory `path` within the time bound and the gate, as a
+   * session's look does, and marks nothing: the Carry over import's look at
+   * a transcript's working directory before its session exists (#578).
+   */
+  look(path: string): Promise<Finding>;
   /** Runs a pass now, in the background, then hourly on the clock. */
   start(): RunningWatcher;
 }
@@ -243,6 +253,7 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
   return {
     check,
     found: (sessionId, path, status) => record(sessionId, path, status),
+    look,
     markMissing(tx, sessionId) {
       const row = sessionRow(sessionId);
       if (row === undefined || row.deleted_at !== null) throw new Error(`No session ${sessionId} is on this environment to mark missing.`);

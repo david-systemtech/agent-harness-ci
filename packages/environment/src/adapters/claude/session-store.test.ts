@@ -394,15 +394,16 @@ describe("a subagent's transcript", () => {
 });
 
 describe("the descriptor", () => {
-  it("declares titles, subagent transcripts, fork and transcript delete with a store, and only the delete without one", () => {
+  it("declares titles, subagent transcripts, fork and transcript delete with a store, and only the delete without one; the session listing, which reads the account's directory, either way (#578)", () => {
     expect(adapterWith().descriptor).toBe(CLAUDE_DESCRIPTOR);
-    expect(CLAUDE_DESCRIPTOR).toMatchObject({ titleRead: true, titleWrite: true, subagentTranscripts: true, transcriptDelete: true, sessionListing: false });
+    expect(CLAUDE_DESCRIPTOR).toMatchObject({ titleRead: true, titleWrite: true, subagentTranscripts: true, transcriptDelete: true, sessionListing: true });
     expect(createClaudeAdapter({ clock: manualClock(), executablePath: null }).descriptor).toMatchObject({
       fork: false,
       titleRead: false,
       titleWrite: false,
       subagentTranscripts: false,
       transcriptDelete: true,
+      sessionListing: true,
     });
   });
 });

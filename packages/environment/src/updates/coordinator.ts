@@ -30,6 +30,7 @@ import type { LauncherChannel } from "../serve/launcher.js";
 import type { DrainCause } from "../serve/lifecycle.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PrepareContext } from "../serve/methods.js";
 import type { RunRegistry } from "../serve/run-registry.js";
+import type { AvailabilityWatcher } from "../workspace/availability.js";
 import type { ChannelBlock, ChannelContext, ChannelReading, ChannelSettings, ReleaseChannelReader, StageableRelease } from "./channel.js";
 import type { StagingFailure } from "./checks.js";
 import { settleInterruptedRuns } from "./interrupted-runs.js";
@@ -122,6 +123,8 @@ export interface UpdateCoordinatorOptions {
   readonly runs: Pick<RunRegistry, "onChange">;
   /** Where the continuation of a run an update cut starts, as the settle marks it. */
   readonly host: Pick<AdapterHost, "startFacts" | "launch">;
+  /** What looks at the workspace of each run an update cut before the settle marks it, within its bound (#691). */
+  readonly availability: Pick<AvailabilityWatcher, "check">;
   /** The environment's activity now: idle, busy with why, or draining. */
   readonly activity: () => EnvironmentActivity;
   /** The deferral cap in milliseconds, read each time it is needed: the environment's `updates.deferralCapHours`. */
@@ -147,9 +150,11 @@ export interface UpdateCoordinator {
    * began last gets its outcome, when it has none yet, from the version this
    * start runs and the outcome record, which is deleted after
    * (`outcomes.ts`); then each run it cut that has no mark yet gets one, and
-   * a continuation where it can go on (`interrupted-runs.ts`).
+   * a continuation where it can go on (`interrupted-runs.ts`), each run's
+   * workspace looked at first through the availability watcher, within its
+   * bound (#691). Settles once every run is settled; never rejects for a run.
    */
-  settle(): void;
+  settle(): Promise<void>;
   readonly handlers: Required<Pick<MethodHandlers, "updates.apply" | "updates.cancel" | "updates.begin">>;
   /** What a check reads the channel with beside the settings: the running launcher's protocol, as its `versions?` answers, and the failed versions. */
   channelContext(): Promise<ChannelContext>;
@@ -701,9 +706,16 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
 
     outcomes: () => readUpdateHistory(log).outcomes,
 
-    settle() {
+    async settle() {
       settleLatestUpdate({ log, stream, dataDir: options.dataDir, harnessVersion, actor: UPDATES_ACTOR });
-      settleInterruptedRuns({ log, host: options.host, environmentName: options.environmentName, harnessVersion, actor: UPDATES_ACTOR });
+      await settleInterruptedRuns({
+        log,
+        host: options.host,
+        availability: options.availability,
+        environmentName: options.environmentName,
+        harnessVersion,
+        actor: UPDATES_ACTOR,
+      });
     },
 
     handlers: {

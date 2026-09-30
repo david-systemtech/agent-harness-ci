@@ -356,6 +356,12 @@ export interface AdapterHost {
    */
   previewInstructions(target: InstructionTarget): Promise<ComposedInstructions>;
   /**
+   * The scope `previewInstructions` composes for `target`, refused as it is,
+   * with the skill set a run would have resolved (#496): what the
+   * Orientation row renders the block for (#505).
+   */
+  previewScope(target: InstructionTarget): Promise<InstructionScope>;
+  /**
    * Stages on disk the attachments of a message about to be queued, inside
    * the command that queues it and before it answers, so its receipt means
    * the bytes are safe. Throws `internal` when they cannot be staged: the
@@ -2056,6 +2062,45 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return answer;
   };
 
+  /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
+  const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
+    let run: {
+      readonly sessionId: string | null;
+      readonly accountId: string | null;
+      readonly workspace: Workspace;
+      readonly repositoryIdentity: string | null;
+      readonly containment: ContainmentLevel | null;
+    };
+    if ("sessionId" in target) {
+      const sessionId = target.sessionId.toLowerCase();
+      const session = readSessionFacts(log, reader, sessionId);
+      if (session === null || session.deleted) {
+        throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
+      }
+      run = {
+        sessionId,
+        accountId: session.account ?? accounts.defaultId(),
+        workspace: session.workspace,
+        repositoryIdentity: session.repositoryIdentity,
+        containment: session.containment,
+      };
+    } else {
+      // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
+      run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
+    }
+    const { accountId } = run;
+    const facts = accountId === null ? null : accounts.facts(accountId);
+    if (facts === null) {
+      const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
+      throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
+    }
+    // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
+    const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
+    const trust = trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity });
+    const skillSet = await skillSetOf(skillSetScope({ ...run, account: facts, trust }));
+    return instructionScope({ ...run, account: facts, trust, skillSet, origin: "client", containment: containmentNow(run.containment), injection });
+  };
+
   return {
     adapters,
     runs: registry,
@@ -2071,42 +2116,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    previewScope,
     async previewInstructions(target) {
-      let run: {
-        readonly sessionId: string | null;
-        readonly accountId: string | null;
-        readonly workspace: Workspace;
-        readonly repositoryIdentity: string | null;
-        readonly containment: ContainmentLevel | null;
-      };
-      if ("sessionId" in target) {
-        const sessionId = target.sessionId.toLowerCase();
-        const session = readSessionFacts(log, reader, sessionId);
-        if (session === null || session.deleted) {
-          throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
-        }
-        run = {
-          sessionId,
-          accountId: session.account ?? accounts.defaultId(),
-          workspace: session.workspace,
-          repositoryIdentity: session.repositoryIdentity,
-          containment: session.containment,
-        };
-      } else {
-        // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
-        run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
-      }
-      const { accountId } = run;
-      const facts = accountId === null ? null : accounts.facts(accountId);
-      if (facts === null) {
-        const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
-        throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
-      }
-      // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
-      const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
-      const trust = trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity });
-      const skillSet = await skillSetOf(skillSetScope({ ...run, account: facts, trust }));
-      return instructions(instructionScope({ ...run, account: facts, trust, skillSet, origin: "client", containment: containmentNow(run.containment), injection }));
+      return instructions(await previewScope(target));
     },
     continueSession(sessionId) {
       if (closing || changingMode.has(sessionId)) return;

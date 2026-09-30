@@ -1,16 +1,29 @@
-import type { EnvironmentView, Runtime } from "@agent-harness/client-runtime";
-import type { ResultOf } from "@agent-harness/contracts";
+import type { EnvironmentView, RequestAnswer, Runtime } from "@agent-harness/client-runtime";
+import {
+  ENVIRONMENT_COLOURS,
+  ENVIRONMENT_ICONS,
+  ENVIRONMENT_NAME_MAX,
+  EnvironmentColour,
+  EnvironmentIcon,
+  EnvironmentName,
+  type ResultOf,
+} from "@agent-harness/contracts";
+import { terminalColourOf } from "../rail/badge.js";
+import { pickerOf, type Picker, type PickerRow } from "../rail/picker.js";
 import { messageOf, nameOf } from "../view.js";
 
 /**
  * `/environment` (docs/specs/tui.md, "First launch"): the saved
  * connections with phase, version and "unreachable since", and per
  * connection enable or disable, remove, set primary, and its client
- * sessions (`access.sessions.list`, `access.sessions.revoke`). Every action
- * is a runtime call or an `access.*` request; nothing is kept here.
+ * sessions (`access.sessions.list`, `access.sessions.revoke`); and the
+ * environment's name, icon and colour (#327), which `/environment rename`,
+ * `icon` and `colour` set too. Every action is a runtime call, an `access.*`
+ * request or a look command sent as a direct request; nothing is kept here.
  */
 
-export type EnvironmentAction = "enable" | "disable" | "remove" | "primary" | "sessions";
+/** The last three set the environment's look: its name, icon or colour (`LookField`). */
+export type EnvironmentAction = "enable" | "disable" | "remove" | "primary" | "sessions" | LookField;
 
 /** The actions a connection offers, in the menu's order. */
 export const actionsFor = (view: EnvironmentView): readonly EnvironmentAction[] => [
@@ -18,6 +31,9 @@ export const actionsFor = (view: EnvironmentView): readonly EnvironmentAction[] 
   "remove",
   ...(view.primary ? [] : (["primary"] as const)),
   "sessions",
+  "name",
+  "icon",
+  "colour",
 ];
 
 export const actionWords: Readonly<Record<EnvironmentAction, string>> = {
@@ -26,6 +42,9 @@ export const actionWords: Readonly<Record<EnvironmentAction, string>> = {
   remove: "Remove",
   primary: "Set primary",
   sessions: "Client sessions",
+  name: "Rename",
+  icon: "Icon",
+  colour: "Colour",
 };
 
 /** Enables, disables or makes a connection the primary one; answers the line to show. */
@@ -75,4 +94,138 @@ export const revokeClientSession = async (runtime: Runtime, view: EnvironmentVie
   if (!answer.ok) return `Cannot revoke ${row.label} on ${nameOf(view)}: ${answer.error.message}`;
   const { receipt } = answer.result;
   return receipt.status === "accepted" ? `Revoked ${row.label} on ${nameOf(view)}.` : `Revoking ${row.label} on ${nameOf(view)} was rejected: ${receipt.error.message}`;
+};
+
+/**
+ * What `/environment` sets of the environment's look (workspace-picker spec,
+ * "Name, icon and colour"; #327): its name, icon or colour, each through its
+ * own `admin` command (`environment.rename`, `setIcon`, `setColour`), sent as
+ * a direct request through the runtime (`requests.call`), never queued.
+ */
+export type LookField = "name" | "icon" | "colour";
+
+/** A value checked for its field: what the command sends. */
+export type LookChange =
+  | { readonly field: "name"; readonly value: EnvironmentName }
+  | { readonly field: "icon"; readonly value: EnvironmentIcon }
+  | { readonly field: "colour"; readonly value: EnvironmentColour };
+
+const LOOK_METHODS = { name: "environment.rename", icon: "environment.setIcon", colour: "environment.setColour" } as const;
+
+/** What a line says it could not do, and what was rejected. */
+const LOOK_WORDS: Readonly<Record<LookField, { readonly cannot: (name: string) => string; readonly rejected: (name: string) => string }>> = {
+  name: { cannot: (name) => `rename ${name}`, rejected: (name) => `Renaming ${name}` },
+  icon: { cannot: (name) => `set the icon of ${name}`, rejected: (name) => `Setting the icon of ${name}` },
+  colour: { cannot: (name) => `set the colour of ${name}`, rejected: (name) => `Setting the colour of ${name}` },
+};
+
+/** What a name `environment.rename` takes is, in words. */
+const NAME_RULE = `1 to ${ENVIRONMENT_NAME_MAX} characters, with no control characters`;
+
+/** "a, b or c". */
+const listed = (words: readonly string[]): string => `${words.slice(0, -1).join(", ")} or ${words.at(-1) ?? ""}`;
+
+/** The capability's line when the connection cannot send the field's command (no `admin`, not ready); undefined when it can. */
+export const lookRefusal = (runtime: Runtime, view: EnvironmentView, field: LookField): string | undefined => {
+  const capability = runtime.capability(view.environmentId, LOOK_METHODS[field]);
+  return capability.status === "absent" ? `Cannot ${LOOK_WORDS[field].cannot(nameOf(view))}: ${capability.message}` : undefined;
+};
+
+/** The value typed for `field` as its command takes it, or the line saying why it is none. */
+export const lookChange = (field: LookField, typed: string): { readonly ok: true; readonly change: LookChange } | { readonly ok: false; readonly line: string } => {
+  switch (field) {
+    case "name": {
+      const name = EnvironmentName.safeParse(typed);
+      return name.success
+        ? { ok: true, change: { field, value: name.data } }
+        : { ok: false, line: `A name is ${NAME_RULE}; nothing was sent.` };
+    }
+    case "icon": {
+      const icon = EnvironmentIcon.safeParse(typed.toLowerCase());
+      return icon.success ? { ok: true, change: { field, value: icon.data } } : { ok: false, line: `There is no icon ${typed}: ${listed(ENVIRONMENT_ICONS)}.` };
+    }
+    case "colour": {
+      const colour = EnvironmentColour.safeParse(typed.toLowerCase());
+      return colour.success ? { ok: true, change: { field, value: colour.data } } : { ok: false, line: `There is no colour ${typed}: ${listed(ENVIRONMENT_COLOURS)}.` };
+    }
+  }
+};
+
+const sendLook = (runtime: Runtime, environmentId: string, change: LookChange, commandId: string): Promise<RequestAnswer<(typeof LOOK_METHODS)[LookField]>> => {
+  switch (change.field) {
+    case "name":
+      return runtime.requests.call(environmentId, "environment.rename", { commandId, name: change.value });
+    case "icon":
+      return runtime.requests.call(environmentId, "environment.setIcon", { commandId, icon: change.value });
+    case "colour":
+      return runtime.requests.call(environmentId, "environment.setColour", { commandId, colour: change.value });
+  }
+};
+
+/** Sends the change to the environment; answers the line to show: the new value, one already held, or the refusal's reason. */
+export const setLook = async (runtime: Runtime, view: EnvironmentView, change: LookChange, commandId: string): Promise<string> => {
+  const name = nameOf(view);
+  const answer = await sendLook(runtime, view.environmentId, change, commandId);
+  if (!answer.ok) return `Cannot ${LOOK_WORDS[change.field].cannot(name)}: ${answer.error.message}`;
+  const { receipt, result } = answer.result;
+  if (receipt.status === "rejected") return `${LOOK_WORDS[change.field].rejected(name)} was rejected: ${receipt.error.message}`;
+  const now = receipt.changed ? "now" : "already";
+  switch (change.field) {
+    case "name":
+      return `${name} is ${now} called ${result?.name ?? change.value}.`;
+    case "icon":
+      return `${name}'s icon is ${now} ${result?.icon ?? change.value}.`;
+    case "colour":
+      return `${name}'s colour is ${now} ${result?.colour ?? change.value}.`;
+  }
+};
+
+/** What a look picker needs of the screen. */
+export interface LookActs {
+  readonly runtime: Runtime;
+  say(line: string): void;
+  newCommandId(): string;
+}
+
+/**
+ * The picker a bare `/environment rename`, `icon` or `colour` opens, or the
+ * card's Rename, Icon or Colour: a name typed, the ten icons, or the twelve
+ * colours, each drawn in its own. It reads the environment as the runtime
+ * lists it now, so a change another client makes is drawn while it is open.
+ */
+export const lookPicker = (acts: LookActs, view: EnvironmentView, field: LookField): Picker => {
+  const now = () => acts.runtime.projections.environments.read().find((v) => v.environmentId === view.environmentId) ?? view;
+  const send = (change: LookChange) => void setLook(acts.runtime, now(), change, acts.newCommandId()).then(acts.say);
+  switch (field) {
+    case "name":
+      return pickerOf({
+        title: () => `Rename ${nameOf(now())}`,
+        typed: true,
+        placeholder: `type its new name, up to ${ENVIRONMENT_NAME_MAX} characters`,
+        note: (query) => (query.trim() === "" ? "Enter renames it once a name is typed." : undefined),
+        rows: (query) => {
+          const typed = query.trim();
+          if (typed === "") return [];
+          const checked = lookChange("name", typed);
+          return [checked.ok ? { key: "rename", text: `Rename to ${checked.change.value}`, choose: () => send(checked.change) } : { key: "rename", text: typed, absent: NAME_RULE }];
+        },
+      });
+    case "icon": {
+      const rows = () => ENVIRONMENT_ICONS.map((icon): PickerRow => ({ key: icon, text: icon, ...(now().icon === icon && { detail: "now" }), choose: () => send({ field, value: icon }) }));
+      return {
+        ...pickerOf({ title: () => `Icon for ${nameOf(now())}`, typed: false, rows, note: () => "The terminal UI draws none; the window and other clients do." }),
+        cursor: Math.max(0, ENVIRONMENT_ICONS.findIndex((icon) => icon === view.icon)),
+      };
+    }
+    case "colour": {
+      const rows = () =>
+        ENVIRONMENT_COLOURS.map(
+          (colour): PickerRow => ({ key: colour, text: colour, colour: terminalColourOf(colour), ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
+        );
+      return {
+        ...pickerOf({ title: () => `Colour for ${nameOf(now())}`, typed: false, rows }),
+        cursor: Math.max(0, ENVIRONMENT_COLOURS.findIndex((colour) => colour === view.colour)),
+      };
+    }
+  }
 };

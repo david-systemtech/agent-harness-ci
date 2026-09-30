@@ -48,7 +48,7 @@ export const EnvironmentsCard = (props: { readonly views: readonly EnvironmentVi
   </Box>
 );
 
-/** A connection's actions: enable or disable, remove, set primary, client sessions. */
+/** A connection's actions: enable or disable, remove, set primary, client sessions, rename, icon and colour. */
 export const EnvironmentMenu = (props: {
   readonly view: EnvironmentView;
   readonly actions: readonly EnvironmentAction[];

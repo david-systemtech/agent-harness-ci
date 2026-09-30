@@ -87,7 +87,7 @@ describe.sequential("the rail through the real spine", () => {
     await typeKeys(workspace);
     await shows(`${workspace} typed`);
     await press(KEY.enter);
-    await shows("› ●SR · New session");
+    await shows("› SR · New session");
 
     const runtime = host.current.read();
     const [local] = runtime.connections.list.read();
@@ -113,7 +113,7 @@ describe.sequential("the rail through the real spine", () => {
     await press(KEY.esc, KEY.esc);
     await until(() => !frame().includes("New session on smoke-rail:"), frame);
     await press(KEY.down);
-    await shows("› ●SR · New session");
+    await shows("› SR · New session");
 
     await press("p");
     await shows("Pinned “New session”.");

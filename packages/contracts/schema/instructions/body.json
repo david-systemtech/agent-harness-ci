@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionBody",
+  "type": "string",
+  "maxLength": 20000,
+  "description": "An owned instruction's body: Markdown, at most 20000 characters, which a run reads under its title."
+}
