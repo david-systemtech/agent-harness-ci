@@ -19,7 +19,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { bubblewrapProbe } from "../../test/containment.js";
 import { ask, end, fakeAdapter, gate, say, signedInAs, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { created, history, listed, ranNow, routineCommand, routineEvents, runNow, untilSettled, untilStarted, written } from "../../test/routines.js";
+import { created, history, listed, ranNow, routineCommand, routineEvents, routineUpdates, runNow, untilEvent, untilSettled, untilStarted, written } from "../../test/routines.js";
 import { deleteSession, get, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { git, makeDirectory, scriptedResolver } from "../../test/workspaces.js";
@@ -392,6 +392,10 @@ describe("the firing's transaction", () => {
 const paired = async (t: TestEnvironment, ceiling: Mode, label = "a phone"): Promise<WireClient> =>
   t.client({ token: (await t.pair({ kind: "web", label, ceiling, scopes: ["read", "sessions:write", "runs:drive"] })).token, clientKind: "web" });
 
+/** The run's `run.ended`, once it is on the log. */
+const untilRunEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
+  untilEvent(t, { kind: "session", id: sessionId }, (event) => event.type === "run.ended" && event.payload["runId"] === runId);
+
 /** The payloads of the session's events of `type`. */
 const payloadsOf = <P>(t: TestEnvironment, sessionId: string, type: string): P[] =>
   sessionEvents(t, sessionId)
@@ -566,5 +570,113 @@ describe("a firing's end", () => {
     const third = await start({ dataDir, clock: first.clock });
     expect((await history(await third.client(), cut.routineId))[0]).toMatchObject({ id: cut.firingId, outcome: "failed", reason: "restart" });
     expect((await listed(await third.client(), cut.routineId))?.state).toMatchObject({ liveFiring: null, failureStreak: 1 });
+  });
+});
+
+describe("a firing and its routine's changes", () => {
+  it("ends cancelled when its routine is deleted, in the delete's transaction, and its run goes on as the session's", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine());
+    const held = heldGate();
+    t.adapter.nextScripts.push(heldRun(held, "Finished anyway."));
+    const firingId = await ranNow(client, state.id);
+    const { sessionId, runId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string; runId: string };
+    t.clock.advance(30_000);
+
+    await routineCommand(client, "routines.delete", { routineId: state.id });
+    const [ended, deleted] = t.env.log.readStream({ kind: "routine", id: state.id }).slice(-2);
+    expect(ended).toMatchObject({
+      type: "routine.firing-ended",
+      actor: `routine:${state.id}`,
+      payload: { firingId, outcome: "cancelled", reason: null, text: "Working", usage: null, durationMs: 30_000, baselineAdvanced: false },
+    });
+    expect(deleted).toMatchObject({ type: "routine.deleted", actor: `client_session:${client.hello.clientSessionId}`, commandId: ended?.commandId });
+
+    held.open();
+    expect((await untilRunEnded(t, sessionId, runId)).payload).toMatchObject({ reason: "completed" });
+    expect(t.env.log.readStream({ kind: "routine", id: state.id }).filter((event) => event.type === "routine.firing-ended")).toHaveLength(1);
+    expect((await get(client, sessionId)).title).toBe("Upstream watch 2026-09-24 08:00");
+  });
+
+  it("finishes under the definition it started with when its routine is edited or disabled meanwhile", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ delivery: [{ kind: "client-notice", on: "failure" }] }));
+    const held = heldGate();
+    t.adapter.nextScripts.push(heldRun(held));
+    const firingId = await ranNow(client, state.id);
+    const { runId, sessionId } = (await untilStarted(t, state.id, firingId)).payload as { runId: string; sessionId: string };
+
+    await routineCommand(client, "routines.update", { routineId: state.id, fields: { name: "Renamed", mode: "plan", delivery: [] } });
+    await routineCommand(client, "routines.disable", { routineId: state.id });
+    held.open();
+    expect((await untilSettled(t, state.id, firingId)).payload).toMatchObject({ outcome: "succeeded", text: "Done." });
+    expect((await history(client, state.id))[0]).toMatchObject({ id: firingId, runId, targets: [{ kind: "client-notice", on: "failure" }], outcome: "succeeded" });
+    expect(payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved")[0]).toMatchObject({ actorName: "Upstream watch" });
+  });
+
+  it("is not a person's: their message into its session starts an attended run of their own, whose end ends nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine());
+    const firingId = await ranNow(client, state.id);
+    const { sessionId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string };
+    const ended = await untilSettled(t, state.id, firingId);
+
+    const { runId } = await client.apply("runs.start", { commandId: randomUUID(), sessionId, text: "What did you find?" });
+    await untilRunEnded(t, sessionId, runId);
+    expect(payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved").find((policy) => policy.runId === runId)).toMatchObject({ actorKind: "client", attended: true });
+    expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started").find((started) => started.runId === runId)).toMatchObject({ origin: "client" });
+    const records = t.env.log.readStream({ kind: "routine", id: state.id });
+    expect(records.at(-1)?.eventId).toBe(ended.eventId);
+    expect(await history(client, state.id)).toHaveLength(1);
+  });
+});
+
+describe("routines.history", () => {
+  it("answers firings and skips newest first, 50 at a time unless asked for up to 500, before an entry when named", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ model: "a-model-nobody-offers" }));
+    const ids: string[] = [];
+    for (let n = 0; n < 52; n += 1) {
+      const entryId = await ranNow(client, state.id);
+      await untilSettled(t, state.id, entryId);
+      ids.push(entryId);
+    }
+    await routineCommand(client, "routines.update", { routineId: state.id, fields: { model: null } });
+    const firingId = await ranNow(client, state.id);
+    await untilSettled(t, state.id, firingId);
+    const newestFirst = [firingId, ...ids.reverse()];
+
+    const page = await history(client, state.id);
+    expect(page.map((entry) => entry.id)).toEqual(newestFirst.slice(0, 50));
+    expect(page[0]).toMatchObject({ kind: "firing", outcome: "succeeded" });
+    expect(page[1]).toMatchObject({ kind: "skip", cannotStart: "model_unavailable" });
+    expect((await history(client, state.id, { before: page.at(-1)?.id as string })).map((entry) => entry.id)).toEqual(newestFirst.slice(50));
+    expect((await history(client, state.id, { limit: 500 })).map((entry) => entry.id)).toEqual(newestFirst);
+    expect((await history(client, state.id, { before: firingId, limit: 2 })).map((entry) => entry.id)).toEqual(newestFirst.slice(1, 3));
+
+    expect((await refusal(history(client, state.id, { limit: 501 }))).code).toBe("invalid_params");
+    const stranger = randomUUID();
+    expect(await refusal(history(client, state.id, { before: stranger }))).toEqual({ code: "not_found", data: { kind: "entry", routineId: state.id, entryId: stranger } });
+  });
+
+  it("raises routine.updated for each new record: the firing's start and end, and a skip", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine());
+    const head = t.env.log.head();
+    const firingId = await ranNow(client, state.id);
+    await untilSettled(t, state.id, firingId);
+    await routineCommand(client, "routines.update", { routineId: state.id, fields: { model: "a-model-nobody-offers" } });
+    const skipId = await ranNow(client, state.id);
+    await untilSettled(t, state.id, skipId);
+
+    const updates = await routineUpdates(await t.client(), head);
+    expect(updates.map((event) => event.payload)).toEqual((["firing-started", "firing-ended", "edited", "skipped"] as const).map((change) => ({ routineId: state.id, change })));
+    const records = t.env.log.readStream({ kind: "routine", id: state.id }, head);
+    expect(updates.map((event) => event.causationId)).toEqual(records.map((event) => event.eventId));
   });
 });

@@ -103,15 +103,15 @@ export const history = async (client: WireClient, routineId: string, page: { bef
   (await client.request("routines.history", { routineId, ...page })).entries;
 
 /**
- * Resolves with the first event on the routine's stream that `match`
- * accepts, once it is on the log: heard as it commits, or read when it is
- * there already. It waits on the event itself, never on a time budget.
+ * Resolves with the first event on the stream that `match` accepts, once it
+ * is on the log: heard as it commits, or read when it is there already. It
+ * waits on the event itself, never on a time budget.
  */
-export const untilRoutineEvent = (t: TestEnvironment, routineId: string, match: (event: LogEvent) => boolean): Promise<LogEvent> =>
+export const untilEvent = (t: TestEnvironment, stream: { readonly kind: string; readonly id: string }, match: (event: LogEvent) => boolean): Promise<LogEvent> =>
   new Promise((resolve) => {
     let done = false;
     const settle = (): void => {
-      const found = done ? undefined : t.env.log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }).find(match);
+      const found = done ? undefined : t.env.log.readStream(stream).find(match);
       if (found === undefined) return;
       done = true;
       stop();
@@ -120,6 +120,10 @@ export const untilRoutineEvent = (t: TestEnvironment, routineId: string, match: 
     const stop = t.env.log.subscribe(settle);
     settle();
   });
+
+/** The first event on the routine's stream that `match` accepts, once it is on the log. */
+export const untilRoutineEvent = (t: TestEnvironment, routineId: string, match: (event: LogEvent) => boolean): Promise<LogEvent> =>
+  untilEvent(t, { kind: ROUTINE_STREAM_KIND, id: routineId }, match);
 
 /** The entry's record once it has one: its `routine.firing-ended`, or its `routine.skipped`. */
 export const untilSettled = (t: TestEnvironment, routineId: string, entryId: string): Promise<LogEvent> =>
