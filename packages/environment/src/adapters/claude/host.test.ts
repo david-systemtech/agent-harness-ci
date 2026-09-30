@@ -178,6 +178,7 @@ describe("a Claude run through the adapter host", () => {
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       "run.instructions.composed",
       "session.provider-linked",
@@ -187,8 +188,8 @@ describe("a Claude run through the adapter host", () => {
       "run.ended",
     ]);
     for (const event of events) expect(event.correlationId, event.type).toBe(runId);
-    expect(events[3]?.actor).toBe("system:adapter-host");
-    expect(events.slice(4).map((event) => event.actor)).toEqual(Array(5).fill("adapter:claude"));
+    expect(events[4]?.actor).toBe("system:adapter-host");
+    expect(events.slice(5).map((event) => event.actor)).toEqual(Array(5).fill("adapter:claude"));
     expect(events.at(-1)?.payload).toMatchObject({ reason: "completed", resultText: "Done.", turnCount: 1, usage: [expect.objectContaining({ model: "claude-fable-5", costUsd: 0.01 })] });
     // Released, the process is kept for the next run until the pool's idle stop.
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -307,6 +308,7 @@ describe("a Claude run through the adapter host", () => {
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       "run.instructions.composed",
       "session.provider-linked",
@@ -315,14 +317,15 @@ describe("a Claude run through the adapter host", () => {
       "run.ended",
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.delivered",
       "session.provider-linked",
       "assistant.text",
       "run.ended",
     ]);
-    const adopted = events[8];
+    const adopted = events[9];
     expect(adopted?.payload).toMatchObject({ origin: "provider", promptMessageId: null, queuedMessageIds: [queued] });
-    expect(events[10]?.payload).toEqual({ runId: adopted?.payload["runId"], messageId: queued, delivery: "prompt" });
+    expect(events[12]?.payload).toEqual({ runId: adopted?.payload["runId"], messageId: queued, delivery: "prompt" });
     expect(events.filter((event) => event.type === "run.ended").map((event) => event.payload["reason"])).toEqual(["completed", "completed"]);
     expect(fake.queries).toHaveLength(t.controlQueries + 1);
   });

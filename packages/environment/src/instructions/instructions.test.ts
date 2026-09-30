@@ -117,11 +117,11 @@ describe("a run's launch", () => {
     // It is the session's live run: a second start is refused.
     const second = await command(client, "runs.start", { sessionId: id, text: "Another" });
     expect(second.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "run_active", runId } } });
-    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "message.sent"]);
+    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent"]);
 
     stall.open();
     await untilEnded(t, id, runId);
-    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
+    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
     expect(composedOf(t, id, runId)).toMatchObject({ actor: "system:adapter-host", correlationId: runId });
     expect(t.adapter.lastRun().input.instructions).toBe("You are on SYSTEM-SERVER, a Linux machine.");
   });
@@ -141,7 +141,7 @@ describe("a run's launch", () => {
     await untilEnded(t, id, runId);
     expect(endOf(t, id, runId)?.payload).toMatchObject({ reason: "interrupted", cause: "user", error: null });
     // What it was launched with is the environment's again, heard just before its end.
-    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
+    expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "message.requeued", "run.ended"]);
 
     // The composition it no longer waits for answers: nothing is recorded, and no provider is asked for the run.
     orientation.state.stall = null;
