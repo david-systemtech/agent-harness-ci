@@ -57,10 +57,11 @@ import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import { composeInstructions } from "../instructions/composer.js";
+import { composeInstructions, type OrientationSeam } from "../instructions/composer.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { environmentSection } from "../instructions/environment-section.js";
 import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
+import { createInstructionStore, instructionsProjector, ownedInstructionsLayer } from "../instructions/store.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector, listAccountStandings } from "../accounts/account-store.js";
 import { accountsSection } from "../accounts/orientation.js";
@@ -372,6 +373,12 @@ export interface EnvironmentOptions {
    * Preset: none.
    */
   readonly orientationSections?: readonly OrientationSection[];
+  /**
+   * The orientation block in place of the OrientationRenderer's (#505): what
+   * the composer's user layer opens with and the Orientation row renders.
+   * Tests give their own. Preset: the renderer's.
+   */
+  readonly orientation?: OrientationSeam;
   /**
    * What this environment can enforce (#133), probed once as the adapter
    * host starts: its capability flags, the containment default's preset and
@@ -715,6 +722,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       routinesProjector,
       lookProjector,
       trustProjector,
+      instructionsProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -926,7 +934,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
-  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
+  // The owned instructions (#505), after the block in the user layer while instructions.orientation is on.
+  const orientationSeam = options.orientation ?? orientation.seam;
+  const orientationOn = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["instructions.orientation"];
+  const instructionStore = createInstructionStore(log);
+  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore) });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
@@ -1290,7 +1302,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...setupMethods(setup),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
-    ...instructionMethods({ host }),
+    ...instructionMethods({
+      host,
+      log,
+      environmentId: record.id,
+      store: instructionStore,
+      accounts: () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null })),
+      orientationOn,
+      // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
+      orientation: async () => {
+        const accountId = accounts.defaultId();
+        return accountId === null ? null : orientationSeam(host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
+      },
+    }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolVerifier),
