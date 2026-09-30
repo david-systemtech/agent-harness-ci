@@ -59,7 +59,19 @@ import { useAttention } from "./attention/use-attention.js";
 import { useAnswers } from "./cards/answers.js";
 import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
-import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
+import {
+  applyAction,
+  actionsFor,
+  listClientSessions,
+  lookChange,
+  lookPicker,
+  lookRefusal,
+  removeEnvironment,
+  revokeClientSession,
+  setLook,
+  type ClientSessionRow,
+  type LookField,
+} from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
 import { startLocalEnvironment } from "./commands/service.js";
@@ -808,6 +820,8 @@ export const App = (props: AppProps) => {
   // The accounts, models, permissions, settings and Set up commands (#147): their cards are the screen's, their memory of a
   // session's next runs (a model and effort, a containment level, an account handed off onto) is theirs.
   const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
+  /** The environment the header and the status line are about: the open session's, else the current one. */
+  const headerView = sessionView ?? current;
   const pickers = usePickers({
     runtime,
     request,
@@ -829,7 +843,8 @@ export const App = (props: AppProps) => {
     runtime,
     clock,
     request,
-    environment: sessionView ?? current,
+    environment: headerView,
+    badge: headerView && badges.get(headerView.environmentId),
     opened,
     projection,
     runState: session.runState,
@@ -1171,6 +1186,9 @@ export const App = (props: AppProps) => {
       case "environment":
         update({ card: { kind: "environments", cursor: 0 } });
         return true;
+      case "environment-look":
+        changeLook(headerView, command.field, command.value);
+        return true;
       case "help":
         update({ card: { kind: "help", top: 0, under: screen.card.kind === "help" ? screen.card.under : screen.card } });
         return true;
@@ -1327,6 +1345,22 @@ export const App = (props: AppProps) => {
     if (shownGone) setScreen((s) => (s.card.kind === "menu" || s.card.kind === "client-sessions" ? { ...s, card: { kind: "environments", cursor: 0 } } : s));
   }, [shownGone]);
 
+  /**
+   * `/environment rename|icon|colour` and the card's Rename, Icon and Colour
+   * (#327): refused with the capability's line when the connection cannot
+   * send it (no `admin`), a value typed checked and sent, and bare, its
+   * picker opened.
+   */
+  const changeLook = (environment: EnvironmentView | undefined, field: LookField, typed: string | null) => {
+    if (!environment) return say("There is no environment to change: /pair one first.");
+    const refusal = lookRefusal(runtime, environment, field);
+    if (refusal !== undefined) return say(refusal);
+    if (typed === null) return update({ card: { kind: "picker", picker: lookPicker({ runtime, say, newCommandId: props.newCommandId }, environment, field) } });
+    const checked = lookChange(field, typed);
+    if (!checked.ok) return say(checked.line);
+    void setLook(runtime, environment, checked.change, props.newCommandId()).then(say);
+  };
+
   const listings = useRef(0);
   const openClientSessions = (environment: EnvironmentView) => {
     const listing = ++listings.current;
@@ -1383,6 +1417,7 @@ export const App = (props: AppProps) => {
       const actions = actionsFor(environment);
       const action = actions[clampCursor(card.cursor, actions.length)];
       if (action === "sessions") return openClientSessions(environment);
+      if (action === "name" || action === "icon" || action === "colour") return changeLook(environment, action, null);
       if (action === "remove") {
         return update({
           question: {
@@ -2135,14 +2170,17 @@ export const App = (props: AppProps) => {
   // until its stream has it.
   const openSummary = projection?.summary ?? openRow?.summary;
   const openBadge = opened ? badges.get(opened.environmentId) : undefined;
+  // The header draws its environment's name in its colour.
+  const headerColour = headerView ? badges.get(headerView.environmentId)?.colour : undefined;
   const popup = composer.popup;
   const searchScope = composer.state.search ? (scopes[composer.state.search.scope]?.name ?? "everywhere") : undefined;
 
   return (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Header
-        current={(opened && viewOf(opened.environmentId)) || current}
+        current={headerView}
         {...(openBadge && { badge: openBadge })}
+        {...(headerColour !== undefined && { colour: headerColour })}
         startingService={startingService}
         workspace={openSummary ? `${openSummary.title} · ${workspaceLabel(openSummary.workspace)}` : props.flags.workspace}
       />

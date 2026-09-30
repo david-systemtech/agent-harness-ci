@@ -2,11 +2,13 @@ import { forkAsked, rewindAsked, type PairingInput } from "@agent-harness/client
 import { actionById, isCommandId } from "@agent-harness/contracts";
 import { PICKER_COMMANDS, TAKES_ARGUMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
 import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
+import type { LookField } from "./environment.js";
 
 /**
  * The slash commands this build answers (docs/specs/tui.md, "First launch",
  * "The composer" and "Shortcuts"): `/pair <link>`, `/pair <address> <code>`,
- * `/pair create`, `/environment`, `/help`, `/reload`; `/resume`, `/new`,
+ * `/pair create`, `/environment` (with `rename <name>`, `icon [icon]` and
+ * `colour [colour]`, #327), `/help`, `/reload`; `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
  * `/timeline` and `/quit`; the accounts, models, permissions, settings and
  * Set up commands (`pickers/commands.ts`, #147); with the cards, `/asks`
@@ -53,6 +55,8 @@ export type Command =
   | { readonly kind: "pair"; readonly input: PairingInput }
   | { readonly kind: "pair-create" }
   | { readonly kind: "environment" }
+  /** `/environment rename <name>`, `icon [icon]` or `colour [colour]`: what was typed after it, null when bare. */
+  | { readonly kind: "environment-look"; readonly field: LookField; readonly value: string | null }
   | { readonly kind: "help" }
   | { readonly kind: "reload" }
   | { readonly kind: "rail"; readonly command: RailCommand }
@@ -87,6 +91,15 @@ export type Command =
   | { readonly kind: "text"; readonly text: string };
 
 export const PAIR_USAGE = "Usage: /pair <link>, /pair <address> <code>, or /pair create.";
+
+export const ENVIRONMENT_USAGE = "Usage: /environment, /environment rename <name>, /environment icon [icon] or /environment colour [colour].";
+
+/** The words after `/environment` that set a field of its look. */
+const LOOK_FIELDS: ReadonlyMap<string, LookField> = new Map([
+  ["rename", "name"],
+  ["icon", "icon"],
+  ["colour", "colour"],
+]);
 
 /** The hidden aliases: the name typed, and the command it names. */
 const ALIASES: Readonly<Record<string, string>> = { profile: "account", environments: "environment" };
@@ -127,8 +140,15 @@ export const parseCommand = (typed: string): Command => {
       if (rest.length === 3 && second?.length === 5 && third?.length === 5) return { kind: "pair", input: { address: first, code: `${second}${third}` } };
       return { kind: "usage", line: PAIR_USAGE };
     }
-    case "environment":
-      return bare(rest, { kind: "environment" }, "/environment");
+    case "environment": {
+      const [sub] = rest;
+      if (sub === undefined) return { kind: "environment" };
+      const field = LOOK_FIELDS.get(sub.toLowerCase());
+      // A name keeps the spaces typed inside it; an icon or a colour is one word.
+      const value = tail.slice(sub.length).trim();
+      if (field === undefined || (field !== "name" && rest.length > 2)) return { kind: "usage", line: ENVIRONMENT_USAGE };
+      return { kind: "environment-look", field, value: value === "" ? null : value };
+    }
     case "help":
       return bare(rest, { kind: "help" }, "/help");
     case "reload":

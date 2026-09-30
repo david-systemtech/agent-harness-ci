@@ -72,6 +72,36 @@ the shim, written `agent-harness` below, once its folder is on the PATH.
 11. `agent-harness service uninstall`. `schtasks /Query /TN agent-harness` finds nothing, nothing answers on port 7433, `service-task.xml`, `launcher-entry.cmd` and `bin\agent-harness.cmd` do not exist, and the data directory keeps `versions`, `service-state.json`, `launcher-version` and the environment's files.
 12. On an account whose user name has a non-ASCII character, install twice and force the second install's rerun to fail (end the task between the CLI's checks): the put-back decodes `schtasks /Query /XML` by dropping NULs, which damages non-ASCII characters, so record whether the previous task came back intact.
 
+## The keychain (#364)
+
+On macOS and Windows the environment the service runs keeps its vault in the
+OS keychain, through the `@napi-rs/keyring` prebuild, under the service
+`agent-harness <environment id>`, and lists its entries' keys (never a value)
+in `keychain.json` in the data directory. A `serve` run by hand, a Linux
+machine, and an install whose binding is missing or fails keep `vault.json`.
+Each start logs one line to the service log saying which vault it holds and
+why: `The vault is the OS keychain, service "…": …` or `The vault is the file
+…: …`. The first start the keychain answers at moves `vault.json`'s entries
+into it, each written, read back and only then removed from the file. The
+automated tests script the binding (`packages/environment/test/keychain.ts`);
+these steps prove it against the real keychain. Record what each step showed,
+per platform, in the pull request that changes the vault.
+
+### macOS
+
+1. Install the service on a data directory an earlier `serve` ran on, so `vault.json` holds at least `client-session-signing-key`, and start it. The service log's vault line says `N entries moved into it from the file`; `vault.json` holds `{}`; `keychain.json` lists the keys and no value; `security find-generic-password -s "agent-harness <environment id>" -a client-session-signing-key` (without `-w`, which would print the value) finds the entry. A client paired before still connects, so the signing key moved whole.
+2. **An entry the service wrote is read back after a restart.** Add a forge account with a test token, then restart the service (`launchctl kickstart -k gui/$(id -u)/agent-harness`). The new vault line says the file held nothing to move; the forge account is still connected, its token read back from the keychain; no Keychain prompt appeared.
+3. **Verify first: the screen locked.** Lock the screen, then from another machine over SSH `kill -9` the `main.js serve` child, which the launcher restarts. Record whether the new child's vault line names the keychain and the paired client reconnects, or whether it fell back to the file (`failed its first call`, and the keychain's words, such as `User interaction is not allowed`); record whether the login keychain locks itself after inactivity or at sleep on this Mac.
+4. **After an update.** Record whether the first start of a newer version, whose Node is another binary under `versions/<version>`, reads the entries without a Keychain prompt: macOS ties an entry's access to the program that created it.
+5. **Not under the service.** `agent-harness serve --data-dir <a new folder>` from a terminal logs that no launcher started it and keeps `vault.json`.
+
+### Windows
+
+1. Install the service on a data directory an earlier `serve` ran on and start it, as in macOS step 1. `cmdkey /list` shows a generic credential per entry whose target names `agent-harness <environment id>` (record the target's form); `vault.json` holds `{}` and `keychain.json` the keys and no value. A client paired before still connects.
+2. **An entry the service wrote is read back after a restart.** Add a forge account with a test token, sign out and back in: the logon task starts the service, its vault line says the file held nothing to move, and the forge account is still connected.
+3. **Verify first: the logon task.** Record that the first start after signing in (the task's logon trigger, `InteractiveToken`) names the keychain, and that `schtasks /Run /TN agent-harness` while the session is locked does too.
+4. Record what adding a key-manager connection whose credential is longer than 2,560 bytes says: Credential Manager holds no more in one entry, so the keychain refuses the write.
+
 ## The handover (every platform)
 
 The launcher hands over to the active version's launcher once that version has
@@ -173,3 +203,23 @@ verbs, or list the section as not run.
 7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
 8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
 9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.
+
+## Host-side updater (`scripts/host-updater.sh`)
+
+**Blocked until two releases publish their images and manifests** (#357,
+#358): the environment makes an update ready only for a release whose manifest
+names an image, and the updater pulls only that image. `test/host-updater-script.test.ts`
+runs the script against a fake `docker`, `curl` and `flock` and a held clock;
+these steps prove it against a real Docker on a Linux host, never the shared
+agent box. Install it as `docs/host-updater.md` says, beside the older
+release's `compose.yaml`, with cron or the systemd timer, and set
+`AGENT_HARNESS_NOTIFY_COMMAND='logger -t agent-harness "$AGENT_HARNESS_OUTCOME: $AGENT_HARNESS_MESSAGE"'`.
+Record the result in the pull request that changes the script, or list the
+section as not run.
+
+1. With nothing to update, the first tick logs "Nothing to update" and the next ticks log nothing; `docker compose exec environment agent-harness update status --data-dir /data` shows the updates managed outside, with the updater's last poll.
+2. `docker compose exec environment agent-harness update apply --version <newer> --now --data-dir /data`. Within five minutes the updater logs the pull and the begin, the stop (which waits for a run under way), the snapshot, the recreate and the watch, and ten minutes later `updated`; `logger` shows it once. `.env` holds `AGENT_HARNESS_IMAGE=<newer>` and `AGENT_HARNESS_PREVIOUS_IMAGE=<older>`, `docker image ls` holds only those two of the repository, `/data/snapshots` is empty, and `update status` shows the last update `updated`.
+3. Run the script by hand while a tick is under way (during step 2's stop): it exits at once, printing nothing.
+4. Ask for a release built to fail its start (the spec's manual rollback release: a version whose `serve` exits before it says ready). The updater logs the rollback at `trial` for `health`, `.env` names the older image again, the older version runs, `update status` shows the update failed and rolled back, and `/data/snapshots` holds nothing.
+5. `docker logout git.systemtech.dev:5526`, then ask for an update: the tick logs `pull-failed` once, and the container keeps running untouched; the next ticks log nothing more. `docker login` again and the next tick updates.
+6. `AGENT_HARNESS_UPDATER=0` on the crontab line or in the unit: ticks log nothing and call nothing.

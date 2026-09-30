@@ -72,14 +72,14 @@ describe("status line one", () => {
     app.environment("laptop").setUsage([reading("account-9", [window("five_hour", 0.61, "2026-09-25T09:05:00.000Z"), window("seven_day", 0.12, "2026-09-25T09:05:00.000Z")])]);
     await app.waitFor("5hr ██░░ 61% · Week █░░░ 12%");
     const [one] = statusLines(app);
-    expect(one).toMatch(/^● desk · work · claude-opus-4 high · ⏸ auto · ◐ workspace \(default\)\s+5hr ██░░ 61% · Week █░░░ 12%$/);
+    expect(one).toMatch(/^DE desk · work · claude-opus-4 high · ⏸ auto · ◐ workspace \(default\)\s+5hr ██░░ 61% · Week █░░░ 12%$/);
   });
 
   it("says what a session with no run yet goes out as: the default account and model, the default mode, and no plan windows", async () => {
     const { app } = await opened([desk({ sessions: [{ title: "Receipts" }] })]);
     await app.waitFor("default account");
     const [one] = statusLines(app);
-    expect(one).toContain("● desk · default account · default model · ⏵⏵ accept edits · ◐ workspace (default)");
+    expect(one).toContain("DE desk · default account · default model · ⏵⏵ accept edits · ◐ workspace (default)");
     expect(one).not.toContain("5hr");
   });
 
@@ -112,7 +112,7 @@ describe("status line one", () => {
     const app = await renderApp({ script: { environments: [desk()] } });
     apps.push(app);
     await app.waitFor("No session is open.");
-    expect(statusLines(app)[0]).toContain("● desk · no session open");
+    expect(statusLines(app)[0]).toContain("DE desk · no session open");
   });
 });
 

@@ -22,6 +22,7 @@ import type { z } from "zod";
 import type { Address } from "../src/serve/http.js";
 import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
+import { fileVault, VAULT_FILE } from "../src/serve/vault.js";
 import type { ContainerDetector } from "../src/serve/container.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
@@ -142,7 +143,7 @@ export interface TestEnvironmentOptions {
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
-  /** The vault the environment holds; preset: the file vault in the data directory. */
+  /** The vault the environment holds; preset: the file vault in the data directory on every platform, so no test reaches the OS keychain. */
   readonly vault?: EnvironmentOptions["vault"];
   /** The Move sources registered at start (`test/move-sources.ts` scripts one); preset: the environment's own, the forge's. */
   readonly moveSources?: EnvironmentOptions["moveSources"];
@@ -347,7 +348,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     managedTools: { readPath: async () => EMPTY_PATH, packageOwner: async () => ({ kind: "none" }), hostEnv: { PATH: EMPTY_PATH }, ...options.managedTools },
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
-    ...(options.vault !== undefined && { vault: options.vault }),
+    vault: options.vault ?? fileVault(join(dataDir, VAULT_FILE)),
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),

@@ -172,7 +172,7 @@ export const useRail = (options: RailOptions): Rail => {
   const acts: RailActs = {
     runtime,
     views,
-    badges,
+    badge: (environmentId) => badgesOf(runtime.projections.environments.read()).get(environmentId),
     workspace: options.workspace,
     say,
     send: (environmentId, method, params, said, done, refused) => {

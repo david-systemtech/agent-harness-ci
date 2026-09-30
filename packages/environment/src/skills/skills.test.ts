@@ -392,13 +392,19 @@ describe("skills.own.remove", () => {
   });
 
   it("leaves what it trashed for thirty days, and the hourly sweep deletes it once it is thirty days old", async () => {
-    const { t, client } = await start();
+    const dataDir = join(tempDir(), "data");
+    const { t, client } = await start({ dataDir });
     await createSkill(client, "tdd");
     await removeSkill(client, "tdd");
     expect(trashed(t)).toHaveLength(1);
-    // The first hourly sweep once it is thirty days old deletes it (what a sweep before keeps is the trash's own suite's).
+    // Moving the clock runs every timer the environment holds on the way, and thirty days of them took 17 s at load 40
+    // and past the preset 30 s on a throttled runner (#701). So the environment is closed for all but the last hour,
+    // and started again on its data directory for the hourly sweep that falls due once it is thirty days old (what a
+    // sweep before keeps is the trash's own suite's).
+    await t.close();
     t.clock.advance(TRASH_KEPT_MS - TRASH_SWEEP_INTERVAL_MS);
-    t.clock.advance(TRASH_SWEEP_INTERVAL_MS);
-    await vi.waitFor(() => expect(trashed(t)).toEqual([]), { timeout: WAIT_MS, interval: 20 });
+    const { t: again } = await start({ dataDir, clock: t.clock });
+    again.clock.advance(TRASH_SWEEP_INTERVAL_MS);
+    await vi.waitFor(() => expect(trashed(again)).toEqual([]), { timeout: WAIT_MS, interval: 20 });
   });
 });
