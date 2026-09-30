@@ -1,9 +1,7 @@
 import {
-  MANAGED_TOOLS,
+  keyManagerClis,
   type KeyManagerConnectionRecord,
-  type KeyManagerProvider,
   type KeyManagerStatusKind,
-  type ManagedToolName,
   type ManagedToolRow,
   type SetupAction,
   type SetupTarget,
@@ -118,10 +116,6 @@ const runTokensMint = (connections: readonly KeyManagerConnectionRecord[]): Stat
       })),
   );
 
-/** The CLIs that serve a provider, in the table's order: `bao` then `vault` for OpenBao, either satisfying it (ADR 0026). */
-const cliOf = (provider: KeyManagerProvider): readonly ManagedToolName[] =>
-  MANAGED_TOOLS.flatMap((tool) => (tool.requiredFor.kind === "key-manager" && tool.requiredFor.provider === provider ? [tool.name] : []));
-
 /** A row whose tool is installed at its minimum or later: current, with a newer one known, or installed in a way that could not be told. */
 const meetsMinimum = (row: ManagedToolRow): boolean => row.status !== "not-installed" && row.status !== "below-minimum";
 
@@ -154,7 +148,8 @@ const cliInstalled = async (connections: readonly KeyManagerConnectionRecord[], 
   const rows = await toolRows();
   return answerOf(
     injecting.flatMap((connection) => {
-      const names = cliOf(connection.provider);
+      // The CLIs that serve its provider, in the table's order, any satisfying it (ADR 0026): bao then vault for OpenBao.
+      const names = keyManagerClis(connection.provider);
       const own = rows.filter((row) => names.includes(row.tool));
       const [first] = own;
       if (first === undefined || own.some(meetsMinimum)) return [];
