@@ -150,7 +150,7 @@
         ],
         "description": "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, and whether the provider loads it itself."
       },
-      "description": "Every member of the set, native ones included, by name."
+      "description": "Every member in the set, native ones included; a shadowed, disabled or invalid member is not one."
     },
     "hiddenNativeNames": {
       "type": "array",

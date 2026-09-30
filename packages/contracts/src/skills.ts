@@ -346,7 +346,7 @@ export const RunSkillSet = z
       description: "The generation's directory: a plugin holding a link to every member that is not native. Null when there is nothing to link.",
     }),
     fingerprint: SkillSetFingerprint.nullable().meta({ description: "The set's fingerprint; null while none is resolved for the run." }),
-    members: z.array(RunSkillSetMember).meta({ description: "Every member of the set, native ones included, by name." }),
+    members: z.array(RunSkillSetMember).meta({ description: "Every member in the set, native ones included; a shadowed, disabled or invalid member is not one." }),
     hiddenNativeNames: z.array(SkillName).meta({ description: "The names of the native members switched off, which the adapter hides from its provider." }),
   })
   .meta({
