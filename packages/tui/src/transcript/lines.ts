@@ -397,6 +397,9 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       return rewoundLines(row, context);
     case "forked":
       return forkedLines(row, context);
+    case "history-unreadable":
+      // An imported session whose history the account's directory no longer gave (#579): one line saying so, and why.
+      return [{ row: row.id, spans: [{ text: `${INDENT}· The history could not be read: ${oneLine(row.entry.message, 300)}`, dim: true }] }];
   }
 };
 

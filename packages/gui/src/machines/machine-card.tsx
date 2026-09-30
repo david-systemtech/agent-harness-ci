@@ -5,17 +5,22 @@ import { EnvironmentMark } from "../connections/environment-mark.js";
 import { Remedy } from "../connections/remedy.js";
 import { THIS_MACHINE, nameOf } from "../connections/words.js";
 import { GenericEditor, lackingLines, readOnlyLine, writersOf } from "../settings/generic-editor.js";
+import { BundledServerOffer, ClientOffer } from "../updates/offers.js";
+import { UpdateControls } from "../updates/update-controls.js";
 import { useRuntime } from "../window-context.js";
 import { ConnectionVerbs } from "./connection-verbs.js";
 import { ContainmentAvailability } from "./containment.js";
 import { LOOK_COMMANDS, LookEditor } from "./look-editor.js";
 import { PresetPairing } from "./preset-pairing.js";
 
-/** The keys the row holds, the update keys, which the card edits in the generic editor until the update controls (#424). */
+/** The keys the row holds, the update keys: channel and auto-update are the update controls', the rest the generic editor's. */
 const UPDATE_KEYS = rowKeys("environments.machines");
 
-/** What the card sends, every one at `admin`: the look commands, a pairing code, and the update keys' writer. */
-const SENT: readonly MethodName[] = [...LOOK_COMMANDS, "access.pairings.create", ...writersOf(UPDATE_KEYS)];
+/** The update keys the update controls do not draw: the pin, the idle window and the deferral cap. */
+const OTHER_UPDATE_KEYS = UPDATE_KEYS.filter((key) => key !== "updates.channel" && key !== "updates.autoUpdate");
+
+/** What the card sends, every one at `admin`: the look commands, a pairing code, the update keys' writer and Update now. */
+const SENT: readonly MethodName[] = [...LOOK_COMMANDS, "access.pairings.create", ...writersOf(UPDATE_KEYS), "updates.apply"];
 
 /** A part of a card, under its heading. */
 export const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
@@ -46,13 +51,15 @@ interface MachineCardProps {
  * One environment's card on Your machines (ADR 0025; #416): its name, its
  * icon in its colour, whether it is this machine's and the primary one,
  * another environment of the same name, its containment availability, a
- * pairing code for another client, its update keys, and what this client
- * does with its connection. While it is not ready, it says since when it has
- * not been reached (or why not) above everything it shows as last read,
- * read-only, with what the connection offers (Start, Pair again, Try again);
- * without `admin`, that it is read-only, with the capability's line; and on
- * a paired environment's card, when the desktop stores tokens unprotected,
- * that its token is.
+ * pairing code for another client, its update controls with the offer of
+ * this client's newer version (and, on the local environment's card, of the
+ * newer server the desktop carries) and its other update keys (#424), and
+ * what this client does with its connection. While it is not ready, it
+ * says since when it has not been reached (or why not) above everything it
+ * shows as last read, read-only, with what the connection offers (Start,
+ * Pair again, Try again); without `admin`, that it is read-only, with the
+ * capability's line; and on a paired environment's card, when the desktop
+ * stores tokens unprotected, that its token is.
  */
 export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: MachineCardProps) => {
   const runtime = useRuntime();
@@ -97,7 +104,10 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: M
         <PresetPairing view={view} writable={admits("access.pairings.create")} />
       </Part>
       <Part title="Updates">
-        <GenericEditor view={view} keys={UPDATE_KEYS} saysWhyReadOnly={false} />
+        <UpdateControls view={view} />
+        <ClientOffer view={view} />
+        {view.kind === "local" && <BundledServerOffer view={view} />}
+        <GenericEditor view={view} keys={OTHER_UPDATE_KEYS} saysWhyReadOnly={false} />
       </Part>
       <Part title="Connection">
         <ConnectionVerbs view={view} forgotten={forgotten} />

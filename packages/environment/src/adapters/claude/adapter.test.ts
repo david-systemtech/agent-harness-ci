@@ -47,6 +47,10 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
     if (hooks.sdk === undefined) throw new Error("The test installed no fake SDK.");
     return hooks.sdk.getSessionMessages(id, options);
   },
+  // A resume the store holds nothing of first copies it from the account's directory (#579); these runs' directories hold none.
+  importSessionToStore: async (id: string) => {
+    throw new Error(`Session ${id} not found`);
+  },
 }));
 
 const { createClaudeAdapter, CLAUDE_DESCRIPTOR, DEFAULT_TIMINGS } = await import("./index.js");

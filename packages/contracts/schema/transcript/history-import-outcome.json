@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HistoryImportOutcome",
+  "type": "string",
+  "enum": [
+    "appended",
+    "unreadable"
+  ],
+  "description": "What the first open of an imported session did with its history: appended (the history is in the log, before this event) or unreadable (the account's directory no longer gave it; the session opens without it)."
+}

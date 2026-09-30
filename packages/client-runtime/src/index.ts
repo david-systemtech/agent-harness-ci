@@ -266,6 +266,7 @@ export type {
   AssistantEntry,
   CommandEntry,
   ForkedEntry,
+  HistoryUnreadableEntry,
   OpaqueEntry,
   PromptEntry,
   PromptState,
@@ -583,4 +584,14 @@ export {
 export { readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
 export { ceilingAboveOwn, offeredPresets, type OfferedPreset, type OfferedPresets } from "./access/presets.js";
 export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
+export {
+  bundledClaudeCodeWords,
+  bundledServerWords,
+  clientOfferWords,
+  clientUpdateWords,
+  desktopBuildWords,
+  offersClientVersion,
+  pendingUpdateWords,
+  pinnedWords,
+} from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";

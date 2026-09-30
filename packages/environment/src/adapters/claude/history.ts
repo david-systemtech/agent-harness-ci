@@ -157,7 +157,7 @@ const blocksOf = (message: unknown): Block[] => {
 };
 
 /** What the CLI records in a user slot when a turn is stopped. */
-const isInterruptMarker = (text: unknown): boolean => text === "[Request interrupted by user]" || text === "[Request interrupted by user for tool use]";
+export const isInterruptMarker = (text: unknown): boolean => text === "[Request interrupted by user]" || text === "[Request interrupted by user for tool use]";
 
 /**
  * Whether an entry after a prompt belongs to that prompt's turn, as the

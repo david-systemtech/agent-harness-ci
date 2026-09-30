@@ -339,6 +339,8 @@ describe("a cold resume through the store", () => {
     const adapter = adapterWith({ configDirQueue: queue });
     const first = runInput(directory);
     const second = runInput(directory, { sessionId: OTHER });
+    // As an earlier run of each left it: the store holds the provider session, so the resume copies nothing from the directory (#579).
+    for (const projectKey of [SESSION, OTHER]) await store.append({ projectKey, sessionId: PROVIDER }, [{ type: "user", uuid: `u-${projectKey}`, parentUuid: null, sessionId: PROVIDER }]);
     const runs = [adapter.createRun(first, contextWith()), adapter.createRun(second, contextWith())];
     const made = await runsMade(2);
     expect(refreshQueries()).toHaveLength(1);
