@@ -6,7 +6,7 @@ import { usePickedEnvironment } from "../settings/settings-window.js";
 import { useRuntime } from "../window-context.js";
 import { ContainmentDefault } from "./containment-default.js";
 import { DenylistPart } from "./denylist.js";
-import { Part } from "./part.js";
+import { Part } from "../settings/part.js";
 import { UnattendedReview } from "./unattended-review.js";
 
 /** The permission keys the generic editor draws: every one but the containment default, which the pane draws with each level's availability. */

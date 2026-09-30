@@ -10,8 +10,10 @@ import type { Runtime } from "../runtime.js";
  * request. Each answers the one line a renderer says, so both say the same.
  */
 
-/** What an `admin` command did: its result (none from a retry answered by its stored receipt), or the one line saying why not. */
-export type AdminOutcome<N extends CommandMethodName> = { readonly ok: true; readonly result: ResultOf<N> | undefined } | { readonly ok: false; readonly line: string };
+/** What an `admin` command did: its result (none from a retry answered by its stored receipt) and whether it changed anything, or the one line saying why not. */
+export type AdminOutcome<N extends CommandMethodName> =
+  | { readonly ok: true; readonly result: ResultOf<N> | undefined; readonly changed: boolean }
+  | { readonly ok: false; readonly line: string };
 
 /** An `admin` command sent as a direct request (`requests.call`, never the outbox): its refusal or rejected receipt is one line. */
 export const adminCall = async <N extends CommandMethodName>(call: () => Promise<RequestAnswer<N>>): Promise<AdminOutcome<N>> => {
@@ -19,7 +21,7 @@ export const adminCall = async <N extends CommandMethodName>(call: () => Promise
   if (!answer.ok) return { ok: false, line: answer.error.message };
   const { receipt, result } = answer.result as { readonly receipt: CommandReceipt; readonly result?: ResultOf<N> };
   if (receipt.status === "rejected") return { ok: false, line: receipt.error.message };
-  return { ok: true, result };
+  return { ok: true, result, changed: receipt.changed };
 };
 
 /** What setting a session's mode said: the line, and the mode the session got when the environment said it. */
