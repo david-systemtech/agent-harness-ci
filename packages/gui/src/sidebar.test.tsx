@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, describe, expect, it } from "vitest";
-import { renderApp, type RenderedApp, type RenderOptions, type ScriptedEnvironment } from "../test/harness.js";
+import { describe, expect, it } from "vitest";
+import { DESK_ID, G_BRAND_DESK, G_BRAND_LAPTOP, G_OPS, LAPTOP_ID, OLD, SPARE, TRAIN, at, drawn, inUtc, region, row, settled, sidebar, two, typeIn } from "../test/sidebar-fixtures.js";
 
 /**
  * The sidebar at parity with the terminal UI's rail (docs/specs/gui.md, "The
@@ -14,104 +14,7 @@ import { renderApp, type RenderedApp, type RenderOptions, type ScriptedEnvironme
  * opening a row in the pane, the header's environment and Mod+B.
  */
 
-const at = (hours: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + hours * 3_600_000).toISOString();
-
-const DESK_ID = "0199aa00-0000-7000-8000-00000000de5c";
-const LAPTOP_ID = "0199aa00-0000-7000-8000-0000000014a7";
-const G_BRAND_DESK = "0199bb00-0000-4000-8000-00000000b0d1";
-const G_OPS = "0199bb00-0000-4000-8000-00000000b0d2";
-const G_BRAND_LAPTOP = "0199bb00-0000-4000-8000-00000000b0d3";
-const FIX = "0199aa00-0000-4000-8000-0000000000f1";
-const COPY = "0199aa00-0000-4000-8000-0000000000f2";
-const PINNED = "0199aa00-0000-4000-8000-0000000000f3";
-const LATER = "0199aa00-0000-4000-8000-0000000000f4";
-const DONE = "0199aa00-0000-4000-8000-0000000000f5";
-const SPARE = "0199aa00-0000-4000-8000-0000000000f6";
-const TRAIN = "0199aa00-0000-4000-8000-0000000000a1";
-const LBRAND = "0199aa00-0000-4000-8000-0000000000a2";
-const OLD = "0199aa00-0000-4000-8000-0000000000a3";
-const LPIN = "0199aa00-0000-4000-8000-0000000000a4";
-
-const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => ({
-  name: "desk",
-  reach: "local",
-  environmentId: DESK_ID,
-  hello: { environmentIcon: "desktop", environmentColour: "teal" },
-  groups: [
-    { id: G_BRAND_DESK, name: "Brandsolidate" },
-    { id: G_OPS, name: "Ops" },
-  ],
-  sessions: [
-    { id: FIX, title: "Fix the rail", tags: ["wip"], activity: { state: "running", since: at(0) }, lastActivityAt: at(0) },
-    { id: SPARE, title: "Spare", createdAt: "2026-09-23T00:00:00.000Z" },
-    { id: COPY, title: "Brand copy", groupId: G_BRAND_DESK },
-    { id: PINNED, title: "Pinned one", pinnedAt: at(-30), pinOrderKey: "m" },
-    { id: LATER, title: "Later", snoozedUntil: at(18), snoozedAt: at(-1) },
-    { id: DONE, title: "Done", settledAt: at(-2), settledBy: "user", settledOverride: "settled" },
-  ],
-  ...extra,
-});
-
-const laptop = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => ({
-  name: "laptop",
-  reach: "paired",
-  environmentId: LAPTOP_ID,
-  hello: { environmentIcon: "laptop", environmentColour: "amber" },
-  groups: [{ id: G_BRAND_LAPTOP, name: "brandsolidate" }],
-  sessions: [
-    { id: TRAIN, title: "Train tidy", parkedPromptCount: 2, activity: { state: "parked", since: at(0) } },
-    { id: LBRAND, title: "Brand on laptop", groupId: G_BRAND_LAPTOP },
-    { id: OLD, title: "Old thing", archivedAt: at(-40) },
-    { id: LPIN, title: "Laptop pin", pinnedAt: at(-20), pinOrderKey: "t" },
-  ],
-  ...extra,
-});
-
-const two = (options: { readonly desk?: Partial<ScriptedEnvironment>; readonly laptop?: Partial<ScriptedEnvironment> } & RenderOptions = {}) =>
-  renderApp({ environments: [desk(options.desk), laptop(options.laptop)] }, options);
-
-// The wake times are clock times on this machine's calendar: the tests read them in UTC, whatever zone the runner is in.
-const zone = process.env["TZ"];
-process.env["TZ"] = "UTC";
-afterAll(() => {
-  if (zone === undefined) delete process.env["TZ"];
-  else process.env["TZ"] = zone;
-});
-
-const sidebar = () => screen.getByRole("navigation", { name: "Sessions" });
-
-/** One heading's region in the sidebar, by its name. */
-const region = (name: string) => within(sidebar()).getByRole("region", { name });
-
-/**
- * The sidebar as a person reads it, top to bottom: each heading (a fold's
- * mark, its name, and its count while folded), then each row under it,
- * indented: its title, tags, wake time, activity and marker.
- */
-const drawn = (): string[] =>
-  within(sidebar())
-    .queryAllByRole("region")
-    .flatMap((section) => [
-      (within(section).getAllByRole("heading")[0]?.textContent ?? "").trim(),
-      ...within(section)
-        .queryAllByRole("listitem")
-        .map((row) => `  ${(row.textContent ?? "").trim()}`),
-    ]);
-
-/** The row whose title is `title`: the button that opens it. */
-const row = (title: string) => within(sidebar()).getByRole("button", { name: new RegExp(`^\\S+ ${title}\\b`) });
-
-/** Keys typed into a field, focused first: jsdom lays nothing out, so a click would land on the sidebar's divider. */
-const typeIn = async (app: RenderedApp, field: HTMLElement, keys: string) => {
-  act(() => field.focus());
-  await app.user.keyboard(keys);
-};
-
-/** Waits for both environments' sessions to be drawn. */
-const settled = async (app: RenderedApp, title = "Train tidy") => {
-  await within(sidebar()).findByRole("button", { name: new RegExp(title) });
-  return app;
-};
+inUtc();
 
 describe("the headings", () => {
   it("come pinned across environments, one per merged group, each environment's ungrouped sessions, snoozed with its wake time, settled and the archive folded", async () => {
