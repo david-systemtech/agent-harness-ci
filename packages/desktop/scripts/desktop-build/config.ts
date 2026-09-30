@@ -146,7 +146,8 @@ export const appManifest = (version: string): Record<string, unknown> => ({
   description: DESCRIPTION,
   homepage: HOMEPAGE,
   author: { name: PRODUCT_NAME },
-  // Electron names the Linux launcher entry the badge follows from it.
+  // Electron takes the window's app id (WM_CLASS) and the launcher entry the Linux badge follows from it: the Arch
+  // package's desktop entry, named for the executable, whose StartupWMClass electron-builder derives from it too.
   desktopName: `${LINUX_EXECUTABLE}.desktop`,
   type: "module",
   main: "main.js",
