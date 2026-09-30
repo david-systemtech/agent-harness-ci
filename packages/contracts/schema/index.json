@@ -1559,6 +1559,30 @@
       "title": "SkillsCarryOverReport"
     },
     {
+      "path": "skills/probe-id.json",
+      "title": "SkillProbeId"
+    },
+    {
+      "path": "skills/probe-member.json",
+      "title": "SkillProbeMember"
+    },
+    {
+      "path": "skills/probe-folder.json",
+      "title": "SkillProbeFolder"
+    },
+    {
+      "path": "skills/probe-result.json",
+      "title": "SkillsProbeResult"
+    },
+    {
+      "path": "skills/probe-problem.json",
+      "title": "SkillProbeProblem"
+    },
+    {
+      "path": "skills/probe-unreachable.json",
+      "title": "SkillProbeUnreachable"
+    },
+    {
       "path": "catalogue/skill-entry-id.json",
       "title": "CatalogueSkillEntryId"
     },
@@ -5971,6 +5995,18 @@
       "title": "skills.get error"
     },
     {
+      "path": "methods/skills.probe/params.json",
+      "title": "skills.probe params"
+    },
+    {
+      "path": "methods/skills.probe/result.json",
+      "title": "skills.probe result"
+    },
+    {
+      "path": "methods/skills.probe/error.json",
+      "title": "skills.probe error"
+    },
+    {
       "path": "methods/skills.own.create/params.json",
       "title": "skills.own.create params"
     },
@@ -7930,6 +7966,15 @@
       "params": "methods/skills.get/params.json",
       "result": "methods/skills.get/result.json",
       "error": "methods/skills.get/error.json"
+    },
+    {
+      "name": "skills.probe",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/skills.probe/params.json",
+      "result": "methods/skills.probe/result.json",
+      "error": "methods/skills.probe/error.json"
     },
     {
       "name": "skills.own.create",

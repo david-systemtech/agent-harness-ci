@@ -23,6 +23,9 @@ import {
   SkillSourceBranch,
   SkillSourceFollow,
   SkillsCarryOverReport,
+  SkillProbeUnreachable,
+  SkillsProbeResult,
+  SKILL_PROBE_PROBLEMS,
   approximateTokens,
   eventTypeEntry,
   isListEvent,
@@ -33,6 +36,7 @@ import {
   type SkillMember as SkillMemberType,
   type SkillSource as SkillSourceType,
   type SkillsCarryOverReport as SkillsCarryOverReportType,
+  type SkillsProbeResult as SkillsProbeResultType,
   type SkillsView as SkillsViewType,
 } from "./index.js";
 
@@ -241,10 +245,11 @@ describe("the skills methods and notice", () => {
     ],
   };
 
-  it("are skills.get at read, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
+  it("are skills.get at read, skills.probe as an admin query, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("skills."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "skills.get": ["query", "read"],
+      "skills.probe": ["query", "admin"],
       "skills.own.create": ["command", "admin"],
       "skills.own.remove": ["command", "admin"],
       "skills.carryOver": ["command", "admin"],
@@ -377,5 +382,66 @@ describe("the skills methods and notice", () => {
     expect(eventTypeEntry("environment", "skills.updated")).toMatchObject({ list: false });
     expect(published("notices/environment-notice.json")({ type: "skills.updated", payload: {} })).toBe(true);
     expect(published("skills/skills-updated.json")({})).toBe(true);
+  });
+});
+
+describe("skills.probe", () => {
+  const probe: SkillsProbeResultType = {
+    probeId: "9b2e6f1c-3a4d-4e5f-8a7b-1c2d3e4f5a6b",
+    identity: "https://github.com/mattpocock/skills",
+    branch: "main",
+    commit,
+    root: null,
+    folders: [
+      {
+        folder: "skills/engineering",
+        members: [
+          { name: "tdd", path: "tdd", description: "Test-driven development.", invocation: "model+slash", problems: [] },
+          { name: null, path: "Bad_Name", description: null, invocation: "model+slash", problems: [{ kind: "name", message: "No name passes." }, { kind: "description", message: "It has no description." }] },
+        ],
+        count: 1,
+        licence: "skills/engineering/LICENSE",
+      },
+    ],
+    truncated: false,
+  };
+  const rootSkill: SkillsProbeResultType = {
+    ...probe,
+    identity: "https://github.com/theclaymethod/unslop",
+    root: { folder: ".", members: [{ name: "unslop", path: ".", description: "Remove AI writing patterns.", invocation: "model+slash", problems: [] }], count: 1, licence: null },
+    folders: [],
+  };
+
+  it("is an admin query taking a URL by the source URL rule and an optional branch", () => {
+    const method = registry["skills.probe"];
+    expect([method.kind, method.scope]).toEqual(["query", "admin"]);
+    expect(method.params.safeParse({ url: "https://github.com/mattpocock/skills" }).success).toBe(true);
+    expect(method.params.safeParse({ url: "git@github.com:mattpocock/skills.git", branch: "release/2" }).success).toBe(true);
+    expect(method.params.safeParse({ url: "http://github.com/mattpocock/skills" }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["url"], params: { rule: "source-url", reason: "scheme" } }),
+    ]);
+    expect(method.params.safeParse({ url: "https://token@github.com/mattpocock/skills" }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["url"], params: { rule: "source-url", reason: "credential" } }),
+    ]);
+    expect(method.params.safeParse({ url: "https://github.com/mattpocock/skills", branch: "--upload-pack=x" }).success).toBe(false);
+  });
+
+  it("answers the probe id, identity, branch and commit, the root when it is a skill, and each folder with its members, count and licence, through the wire and the published schema", () => {
+    const validate = published("methods/skills.probe/result.json");
+    for (const result of [probe, rootSkill, { ...probe, folders: [], truncated: true }]) {
+      expect(roundTrip(registry["skills.probe"].result, result)).toEqual(result);
+      expect(validate(JSON.parse(JSON.stringify(result))), JSON.stringify(validate.errors)).toBe(true);
+    }
+    expect(SkillsProbeResult.safeParse({ ...probe, folders: [{ ...probe.folders[0], folder: "../skills" }] }).success).toBe(false);
+    expect(validate({ ...probe, commit: "main" })).toBe(false);
+    expect(validate({ ...probe, identity: "git@github.com:mattpocock/skills.git" })).toBe(false);
+  });
+
+  it("names what kept it from the repository: authentication, not_found, network or git_failed, with what git said and the origin", () => {
+    expect(SKILL_PROBE_PROBLEMS).toEqual(["authentication", "not_found", "network", "git_failed"]);
+    const data = { reason: "unreachable", problem: "git_failed", line: "fatal: bad object", origin: "https://github.com" } as const;
+    expect(roundTrip(SkillProbeUnreachable, data)).toEqual(data);
+    expect(published("skills/probe-unreachable.json")(data)).toBe(true);
+    expect(SkillProbeUnreachable.safeParse({ ...data, problem: "timeout" }).success).toBe(false);
   });
 });

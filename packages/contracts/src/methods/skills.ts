@@ -2,8 +2,17 @@ import { z } from "zod";
 import { AccountId } from "../accounts.js";
 import { commandParams, defineMethod } from "../method.js";
 import { SessionId } from "../sessions.js";
-import { SkillName } from "../skill-rules.js";
-import { SkillChoice, SkillMember, SkillsAlwaysOnSetPayload, SkillsCarryOverReport, SkillsEnabledSetPayload, SkillsView } from "../skills.js";
+import { SkillName, SkillSourceUrl } from "../skill-rules.js";
+import {
+  SkillChoice,
+  SkillMember,
+  SkillSourceBranch,
+  SkillsAlwaysOnSetPayload,
+  SkillsCarryOverReport,
+  SkillsEnabledSetPayload,
+  SkillsProbeResult,
+  SkillsView,
+} from "../skills.js";
 
 /**
  * The skill set's methods this far (skills spec, "The own directory and
@@ -147,5 +156,37 @@ export const skillsSetEnabled = defineMethod({
   kind: "command",
   params: commandParams(SkillsEnabledSetPayload.shape),
   result: choiceResult,
+  errors: [],
+});
+
+/**
+ * Probes a repository for its skill folders (skills spec, "Skill sources",
+ * the probe; ADR 0029), so a person adding a source ticks folders the
+ * environment found rather than guessing one. The environment shallow-clones
+ * `branch`, else the remote's default, through the ForgeService's git, which
+ * never prompts: the forge account for the URL's origin authenticates it,
+ * an origin with none is read anonymously, and an ssh URL on a host no forge
+ * account covers is read over ssh with the user's own keys. It answers the
+ * probe's id, the identity, the branch and commit, the root when it holds
+ * `SKILL.md`, and every folder up to four levels down whose children hold
+ * `SKILL.md`, each with its members, their count and any licence file; at
+ * most 2,000 directories are read, `.git` and `node_modules` skipped, and no
+ * link leading out of the checkout is followed. A URL failing the source
+ * URL rule is `invalid_params`. A repository it cannot reach is `conflict`,
+ * reason `unreachable` (`SkillProbeUnreachable`: the problem
+ * `authentication`, `not_found`, `network` or `git_failed`, what git said,
+ * and the origin). The checkout lies under the data directory and is kept
+ * thirty minutes for `skills.sources.add` to reuse by the probe's id, then
+ * removed.
+ */
+export const skillsProbe = defineMethod({
+  name: "skills.probe",
+  scope: "admin",
+  kind: "query",
+  params: z.object({
+    url: SkillSourceUrl,
+    branch: SkillSourceBranch.optional().meta({ description: "The branch to probe; the remote's default, the one its HEAD names, when absent." }),
+  }),
+  result: SkillsProbeResult,
   errors: [],
 });
