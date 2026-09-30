@@ -22,6 +22,7 @@ import {
   SkillSource,
   SkillSourceBranch,
   SkillSourceFollow,
+  SkillsCarryOverReport,
   approximateTokens,
   eventTypeEntry,
   isListEvent,
@@ -31,6 +32,7 @@ import {
   type RunSkillSet as RunSkillSetType,
   type SkillMember as SkillMemberType,
   type SkillSource as SkillSourceType,
+  type SkillsCarryOverReport as SkillsCarryOverReportType,
   type SkillsView as SkillsViewType,
 } from "./index.js";
 
@@ -239,12 +241,13 @@ describe("the skills methods and notice", () => {
     ],
   };
 
-  it("are skills.get at read, and skills.own.create and .remove, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
+  it("are skills.get at read, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("skills."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "skills.get": ["query", "read"],
       "skills.own.create": ["command", "admin"],
       "skills.own.remove": ["command", "admin"],
+      "skills.carryOver": ["command", "admin"],
       "skills.setAlwaysOn": ["command", "admin"],
       "skills.setEnabled": ["command", "admin"],
     });
@@ -337,6 +340,35 @@ describe("the skills methods and notice", () => {
       const validate = published(`methods/${name}/response.json`);
       expect(validate(JSON.parse(JSON.stringify(response))), JSON.stringify(validate.errors)).toBe(true);
     }
+  });
+
+  it("take an account and a dry-run flag to skills.carryOver, and answer what it copied, kept, offered and found invalid, and the subagents and plugins not carried, through the wire and the published response", () => {
+    const carryOver = registry["skills.carryOver"];
+    expect(carryOver.params.safeParse({ commandId, accountId: "claude-max", dryRun: true }).success).toBe(true);
+    expect(carryOver.params.safeParse({ commandId, accountId: "claude-max" }).success).toBe(false);
+    const report: SkillsCarryOverReportType = {
+      accountId: "claude-max",
+      dryRun: false,
+      copied: [{ kind: "command", name: "review", from: "/home/david/.claude/commands/review.md", path: "commands/review.md" }],
+      kept: [{ kind: "skill", name: "tdd", from: "/home/david/.agents/skills/tdd", path: "skills/tdd" }],
+      offered: [
+        { name: "grill-me", from: "/home/david/.claude/skills/grill-me", url: "https://github.com/mattpocock/skills", folder: "skills/productivity/grill-me", follow: { kind: "branch", branch: "main" } },
+        { name: "handoff", from: "/home/david/.claude/skills/handoff", url: "git@github.com:mattpocock/skills.git", folder: ".", follow: { kind: "pinned", commit } },
+      ],
+      invalid: [{ kind: "skill", name: "notes", from: "/home/david/.claude/skills/notes", problems: [{ kind: "description", message: "The member has no description in its frontmatter." }] }],
+      notCarried: [
+        { kind: "subagent", name: "reviewer" },
+        { kind: "plugin", name: "skills@mattpocock" },
+      ],
+    };
+    const response = { receipt: { status: "accepted", sequence: 9, changed: true }, result: report } as const;
+    expect(roundTrip(carryOver.response, response)).toEqual(response);
+    const validate = published("methods/skills.carryOver/response.json");
+    expect(validate(JSON.parse(JSON.stringify(response))), JSON.stringify(validate.errors)).toBe(true);
+    // An offer's URL is one skills.sources.add takes: never with a credential.
+    const leaky = { ...report, offered: [{ ...report.offered[0], url: "https://token-for-tests@github.com/mattpocock/skills" }] };
+    expect(SkillsCarryOverReport.safeParse(leaky).success).toBe(false);
+    expect(SkillsCarryOverReport.safeParse({ ...report, invalid: [{ ...report.invalid[0], problems: [] }] }).success).toBe(false);
   });
 
   it("raise skills.updated on the environment stream, with nothing more, in the notice union and the published schema", () => {

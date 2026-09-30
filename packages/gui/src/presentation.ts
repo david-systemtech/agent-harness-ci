@@ -1,5 +1,6 @@
 import { SIDEBAR_VIEWS, writable, type CollapsedHeadings, type DocumentStore, type Observable, type SidebarView } from "@agent-harness/client-runtime";
 import { Theme } from "@agent-harness/contracts";
+import { readRemaps, type KeyRemaps } from "./keys/key-map.js";
 
 /**
  * The GUI's client-local presentation (ADR 0003, ADR 0004; glossary: Pane):
@@ -160,6 +161,16 @@ export interface PresentationValues {
    * for the rest of that launch (`setup/checklist-window.tsx`).
    */
   readonly firstLaunchDone: boolean;
+  /**
+   * This client's GUI key remaps (docs/specs/gui.md, "Keyboard: the GUI
+   * column and the Keyboard shortcuts pane"; ADR 0022): an action's keys by
+   * its id, read against the defaults (`keys/key-map.ts`), so a remap of an
+   * id the list no longer has is dropped; the terminal UI keeps its own in
+   * its keybindings file.
+   */
+  readonly keyRemaps: KeyRemaps;
+  /** "Esc stops the run": the switch that heads the Keyboard shortcuts pane, off by default, binding app.interrupt's Esc (ADR 0022). */
+  readonly escStopsRun: boolean;
 }
 
 export type PresentationKey = keyof PresentationValues;
@@ -181,6 +192,8 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   cachedTheme: null,
   settingsRow: null,
   firstLaunchDone: false,
+  keyRemaps: Object.freeze({}),
+  escStopsRun: false,
 });
 
 /** The document the presentation is kept in, and the format this build writes. */
@@ -290,6 +303,8 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
   cachedTheme: (stored) => (stored === null ? null : Theme.safeParse(stored).data),
   settingsRow: (stored) => (stored === null || typeof stored === "string" ? stored : undefined),
   firstLaunchDone: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  keyRemaps: (stored) => readRemaps(stored),
+  escStopsRun: (stored) => (typeof stored === "boolean" ? stored : undefined),
 };
 
 export interface Presentation {

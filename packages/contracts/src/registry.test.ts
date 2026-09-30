@@ -287,6 +287,7 @@ describe("the method registry", () => {
       "routines.endpoints.remove",
       "skills.own.create",
       "skills.own.remove",
+      "skills.carryOver",
       "skills.setAlwaysOn",
       "skills.setEnabled",
       "trust.decide",
@@ -543,6 +544,7 @@ describe("the method registry", () => {
       | "skills.get"
       | "skills.own.create"
       | "skills.own.remove"
+      | "skills.carryOver"
       | "skills.setAlwaysOn"
       | "skills.setEnabled"
       | "trust.get"

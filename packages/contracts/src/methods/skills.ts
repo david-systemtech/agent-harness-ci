@@ -1,18 +1,19 @@
 import { z } from "zod";
+import { AccountId } from "../accounts.js";
 import { commandParams, defineMethod } from "../method.js";
 import { SessionId } from "../sessions.js";
 import { SkillName } from "../skill-rules.js";
-import { SkillChoice, SkillMember, SkillsAlwaysOnSetPayload, SkillsEnabledSetPayload, SkillsView } from "../skills.js";
+import { SkillChoice, SkillMember, SkillsAlwaysOnSetPayload, SkillsCarryOverReport, SkillsEnabledSetPayload, SkillsView } from "../skills.js";
 
 /**
  * The skill set's methods this far (skills spec, "The own directory and
- * Carry over", "Choices" and "Wire summary"; ADR 0009, ADR 0018, ADR
- * 0029): the read of the environment's skills, the own directory's create
- * and remove, and the choices that switch a name off and make it
- * always-on. The own directory is read at each run's start and on
- * `skills.get`, never watched; a read that finds it changed, and each
- * command that changes it or a choice, raises `skills.updated` on
- * `environment.subscribe`.
+ * Carry over", "Choices" and "Wire summary"; ADR 0009, ADR 0018, ADR 0021,
+ * ADR 0029): the read of the environment's skills, the own directory's
+ * create and remove, Carry over's skills half, and the choices that switch
+ * a name off and make it always-on. The own directory is read at each
+ * run's start and on `skills.get`, never watched; a read that finds it
+ * changed, and each command that changes it or a choice, raises
+ * `skills.updated` on `environment.subscribe`.
  */
 
 /**
@@ -77,6 +78,37 @@ export const skillsOwnRemove = defineMethod({
   kind: "command",
   params: commandParams({ name: SkillName }),
   result: z.object({ member: SkillMember.meta({ description: "The member moved to the trash, as it was read before." }) }),
+  errors: [],
+});
+
+/**
+ * Carry over's skills half (ADR 0021): reads the adopted account
+ * directory's `skills/` and `commands/`, and the machine's
+ * `~/.agents/skills`. A skill folder that resolves into a git working tree
+ * with a remote is offered as a source, not copied. Every other valid skill
+ * folder and command file is copied into the own directory, dereferencing
+ * links, unless the own directory already holds its name (a member's, or
+ * the folder or file it would be copied to), when it is kept and reported.
+ * An invalid one is reported with its problems and left. A provenance
+ * manifest beside the originals has the copied folders' entries merged
+ * into the own directory's. The report lists the subagents and plugins,
+ * which are not carried; `skills.updated` follows a run that copied.
+ * `dryRun` answers the same report and writes nothing. Nothing in the
+ * adopted directory or `~/.agents/skills` is created, linked or deleted.
+ * An account the environment does not hold is `not_found` (data `kind:
+ * account`); one whose directory it owns rather than adopted is `conflict`
+ * (reason `not_adopted`). A prepared command: the reads and the copies come
+ * first, outside the transaction, and are undone when it is not accepted.
+ */
+export const skillsCarryOver = defineMethod({
+  name: "skills.carryOver",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    accountId: AccountId.meta({ description: "The adopted account whose directory's skills and commands to carry over." }),
+    dryRun: z.boolean().meta({ description: "Answer the report of what a run would do, and write nothing." }),
+  }),
+  result: SkillsCarryOverReport,
   errors: [],
 });
 

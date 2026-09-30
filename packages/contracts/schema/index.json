@@ -1523,6 +1523,26 @@
       "title": "SkillSource"
     },
     {
+      "path": "skills/carried-item.json",
+      "title": "SkillCarriedItem"
+    },
+    {
+      "path": "skills/carry-over-offer.json",
+      "title": "SkillCarryOverOffer"
+    },
+    {
+      "path": "skills/carry-over-invalid.json",
+      "title": "SkillCarryOverInvalid"
+    },
+    {
+      "path": "skills/not-carried.json",
+      "title": "SkillNotCarried"
+    },
+    {
+      "path": "skills/carry-over-report.json",
+      "title": "SkillsCarryOverReport"
+    },
+    {
       "path": "catalogue/skill-entry-id.json",
       "title": "CatalogueSkillEntryId"
     },
@@ -5911,6 +5931,22 @@
       "title": "skills.own.remove error"
     },
     {
+      "path": "methods/skills.carryOver/params.json",
+      "title": "skills.carryOver params"
+    },
+    {
+      "path": "methods/skills.carryOver/result.json",
+      "title": "skills.carryOver result"
+    },
+    {
+      "path": "methods/skills.carryOver/response.json",
+      "title": "skills.carryOver response"
+    },
+    {
+      "path": "methods/skills.carryOver/error.json",
+      "title": "skills.carryOver error"
+    },
+    {
       "path": "methods/skills.setAlwaysOn/params.json",
       "title": "skills.setAlwaysOn params"
     },
@@ -7827,6 +7863,16 @@
       "result": "methods/skills.own.remove/result.json",
       "response": "methods/skills.own.remove/response.json",
       "error": "methods/skills.own.remove/error.json"
+    },
+    {
+      "name": "skills.carryOver",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.carryOver/params.json",
+      "result": "methods/skills.carryOver/result.json",
+      "response": "methods/skills.carryOver/response.json",
+      "error": "methods/skills.carryOver/error.json"
     },
     {
       "name": "skills.setAlwaysOn",

@@ -2,7 +2,7 @@ import { ContractError, ENVIRONMENT_STREAM_KIND, type SkillChoice, type SkillsVi
 import type { EventLog } from "../event-log/event-log.js";
 import type { ListedAccount } from "../instructions/methods.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { choicesFor, readSkillChoices, skillsStream } from "./choices.js";
 import type { OwnDirectory } from "./own-directory.js";
@@ -13,11 +13,12 @@ import { resolveSkillSet } from "./precedence.js";
  * `skills.get` at `read`, which reads the own directory and resolves the
  * set for a session's account, or the default account's, with the choices;
  * `skills.own.create` and `.remove` at `admin`, the own directory's
- * prepared commands; and `skills.setEnabled` and `skills.setAlwaysOn` at
- * `admin`, each appending its choice on the skills stream and
- * `skills.updated` after it, in the command's transaction. Sources are none
- * until their ticket adds them, and the set holds the own directory's layer
- * alone until the source and repository layers join it.
+ * prepared commands; `skills.carryOver` at `admin`, Carry over's skills
+ * half; and `skills.setEnabled` and `skills.setAlwaysOn` at `admin`, each
+ * appending its choice on the skills stream and `skills.updated` after it,
+ * in the command's transaction. Sources are none until their ticket adds
+ * them, and the set holds the own directory's layer alone until the source
+ * and repository layers join it.
  */
 
 export interface SkillsMethodsOptions {
@@ -29,6 +30,8 @@ export interface SkillsMethodsOptions {
   readonly defaultAccountId: () => string | null;
   /** The environment's accounts now, in the account list's order. */
   readonly accounts: () => readonly ListedAccount[];
+  /** Carry over's skills half (`carry-over.ts`). */
+  readonly carryOver: PreparedCommand<"skills.carryOver">;
 }
 
 /** The notice every committed choice is followed by. */
@@ -104,6 +107,7 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
     },
     "skills.own.create": own.create,
     "skills.own.remove": own.remove,
+    "skills.carryOver": options.carryOver,
     "skills.setEnabled": ({ name, accountId, enabled }, context) => choose({ kind: "enabled", name, accountId, enabled }, context),
     "skills.setAlwaysOn": ({ name, accountId, on }, context) => choose({ kind: "always-on", name, accountId, on }, context),
   };

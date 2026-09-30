@@ -373,6 +373,86 @@ export const SkillsUpdatedPayload = z.object({}).meta({
 });
 export type SkillsUpdatedPayload = z.infer<typeof SkillsUpdatedPayload>;
 
+// Carry over ------------------------------------------------------------------------
+
+/**
+ * An original Carry over copied into the own directory, or kept out of it
+ * (skills spec, "The own directory and Carry over"; ADR 0021): what it is,
+ * its name, where it was found, and its path in the own directory.
+ */
+export const SkillCarriedItem = z
+  .object({
+    kind: SkillMemberKind,
+    name: SkillName,
+    from: AbsolutePath.meta({ description: "Where the original lies: a folder or command file in the adopted directory's skills/ or commands/, or in the machine's ~/.agents/skills." }),
+    path: SkillMember.shape.path.meta({
+      description: "Its path in the own directory: where it was copied to, skills/<folder> or commands/<file>; for one kept, the path of what the own directory already holds under its name.",
+    }),
+  })
+  .meta({ description: "An original skill folder or command file Carry over copied into the own directory, or kept out of it because the own directory already holds its name." });
+export type SkillCarriedItem = z.infer<typeof SkillCarriedItem>;
+
+/**
+ * A skill folder Carry over offers as a source rather than copying: it
+ * resolves into a git working tree with a remote. The URL, folder and
+ * follow are what `skills.sources.add` takes.
+ */
+export const SkillCarryOverOffer = z
+  .object({
+    name: SkillName,
+    from: AbsolutePath.meta({ description: "Where the skill folder was found: in the adopted directory's skills/, or in the machine's ~/.agents/skills." }),
+    url: SkillSourceUrl.meta({ description: "The working tree's remote, as git expands it, stripped of any credential." }),
+    folder: SkillSourceFolder.meta({ description: "The skill folder's path in the repository, from its root; . when the folder is the repository's root." }),
+    follow: SkillSourceFollow.meta({ description: "The branch the working tree is on (its upstream's on the remote, else the local one), or a pin at its commit when HEAD is detached." }),
+  })
+  .meta({ description: "A skill folder inside a git working tree with a remote, offered as a skill source instead of copied: the URL, folder and follow skills.sources.add takes." });
+export type SkillCarryOverOffer = z.infer<typeof SkillCarryOverOffer>;
+
+/** An original Carry over leaves where it is because it reads as invalid. */
+export const SkillCarryOverInvalid = z
+  .object({
+    kind: SkillMemberKind,
+    name: SkillName.nullable().meta({ description: "Its name by the member-naming rule; null when none passes, a name problem saying why." }),
+    from: AbsolutePath.meta({ description: "Where the original lies." }),
+    problems: z.array(SkillMemberProblem).min(1).meta({ description: "What leaves it invalid, as the own directory's reader would list it." }),
+  })
+  .meta({ description: "An original skill folder or command file that reads as invalid, with its problems: neither copied nor offered." });
+export type SkillCarryOverInvalid = z.infer<typeof SkillCarryOverInvalid>;
+
+/** What Carry over lists as not carried: the adopted directory's subagents and plugins. */
+export const SKILL_NOT_CARRIED_KINDS = ["subagent", "plugin"] as const;
+export const SkillNotCarried = z
+  .object({
+    kind: z.enum(SKILL_NOT_CARRIED_KINDS).meta({ description: "What it is: subagent, a Markdown file in the adopted directory's agents/; plugin, an installed plugin its plugins/ lists." }),
+    name: z.string().min(1).meta({ description: "Its name: a subagent's file name without .md; a plugin's as its installed list names it, name@marketplace." }),
+  })
+  .meta({ description: "A subagent or plugin in the adopted directory, which Carry over does not carry." });
+export type SkillNotCarried = z.infer<typeof SkillNotCarried>;
+
+/**
+ * What `skills.carryOver` answers (skills spec, "The own directory and
+ * Carry over"; ADR 0021): each original skill folder and command file of
+ * the adopted directory and the machine's `~/.agents/skills`, as copied,
+ * kept, offered or invalid, each list's length its count, and the
+ * subagents and plugins not carried. A dry run answers the same, having
+ * written nothing.
+ */
+export const SkillsCarryOverReport = z
+  .object({
+    accountId: AccountId,
+    dryRun: z.boolean().meta({ description: "Whether it was a dry run: the report of what a run would do, with nothing written." }),
+    copied: z.array(SkillCarriedItem).meta({ description: "The originals copied into the own directory (in a dry run, those that would be); its length is the count." }),
+    kept: z.array(SkillCarriedItem).meta({ description: "The valid originals not copied because the own directory already holds their name; its length is the count." }),
+    offered: z.array(SkillCarryOverOffer).meta({ description: "The skill folders inside a git working tree with a remote, offered as sources and not copied; its length is the count." }),
+    invalid: z.array(SkillCarryOverInvalid).meta({ description: "The originals that read as invalid, with their problems, left where they are; its length is the count." }),
+    notCarried: z.array(SkillNotCarried).meta({ description: "The adopted directory's subagents and plugins, which are not carried." }),
+  })
+  .meta({
+    description:
+      "What Carry over's skills half did, or in a dry run would do: the originals copied into the own directory, kept out of it, offered as sources and invalid, and the subagents and plugins not carried.",
+  });
+export type SkillsCarryOverReport = z.infer<typeof SkillsCarryOverReport>;
+
 // A run's skill set ------------------------------------------------------------------
 
 /**
