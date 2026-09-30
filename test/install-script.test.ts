@@ -282,6 +282,16 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(f.calls()).toEqual([]);
   });
 
+  it("refuses an INSTALL_READY_TIMEOUT that is no whole number of seconds, or that has a leading zero the shell would read as octal, with exit 2, before any download", async () => {
+    for (const timeout of ["soon", "1.5", "08", "010"]) {
+      const f = await fixture();
+      const result = await install(f, [], { INSTALL_READY_TIMEOUT: timeout });
+      expect(result.code, timeout).toBe(2);
+      expect(result.stderr, timeout).toContain(`INSTALL_READY_TIMEOUT takes a number of seconds; got ${timeout}.`);
+      expect(f.calls(), timeout).toEqual([]);
+    }
+  });
+
   it("refuses to run as root before any download or command, since the service runs as the user who installs it", async () => {
     const f = await fixture();
     const result = await install(f, ["--name", "Build box"], { FAKE_UID: "0" });

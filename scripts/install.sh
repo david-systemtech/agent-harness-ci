@@ -134,8 +134,9 @@ if [ -n "$port" ]; then
 fi
 
 ready_timeout=${INSTALL_READY_TIMEOUT:-60}
+# A leading zero is refused: shell arithmetic reads 010 as octal and 08 as an error.
 case $ready_timeout in
-  "" | *[!0-9]*) usage_error "INSTALL_READY_TIMEOUT takes a number of seconds; got $ready_timeout." ;;
+  "" | *[!0-9]* | 0?*) usage_error "INSTALL_READY_TIMEOUT takes a number of seconds; got $ready_timeout." ;;
 esac
 
 [ -n "${AGENT_HARNESS_TOKEN:-}" ] ||
@@ -194,9 +195,10 @@ members_of() {
 # v and a release version, by SemVer precedence, as the environment reads the
 # channel: stable takes the newest without a prerelease part, beta (or any) the
 # newest of all. Of two equal in precedence the first listed wins. Prints its
-# tag, or nothing.
+# tag, or nothing. The C locale makes awk compare identifiers byte by byte, the
+# ASCII order SemVer asks for, where a POSIX awk would otherwise collate.
 newest_tag() {
-  awk -v channel="$1" -v pattern="$VERSION_PATTERN" '
+  LC_ALL=C awk -v channel="$1" -v pattern="$VERSION_PATTERN" '
     function numbers(a, b) {
       if (length(a) != length(b)) return length(a) < length(b) ? -1 : 1
       return (a "") < (b "") ? -1 : ((a "") > (b "") ? 1 : 0)
