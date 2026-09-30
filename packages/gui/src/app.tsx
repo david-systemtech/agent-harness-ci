@@ -1,4 +1,5 @@
 import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
+import { useMemo, type ReactNode } from "react";
 import { LocalServiceProvider } from "./connections/local-service.js";
 import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
@@ -12,7 +13,7 @@ import { StepNotices } from "./setup/step-notices.js";
 import { WindowSidebarProvider } from "./sidebar/window-sidebar.js";
 import { RunChoicesProvider } from "./status/run-choices.js";
 import { WindowTheme } from "./theme/window-theme.js";
-import { WindowProvider } from "./window-context.js";
+import { WindowProvider, usePresentation } from "./window-context.js";
 
 export interface AppProps {
   /** The window's one client runtime, which every component renders from (ADR 0004). */
@@ -31,11 +32,24 @@ export interface AppProps {
   readonly stepCards?: StepCards | undefined;
 }
 
+/** The window's keys: the GUI column with this client's remaps, and app.interrupt's Esc while "Esc stops the run" is on (#418). */
+const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly children: ReactNode }) => {
+  const [remaps] = usePresentation("keyRemaps");
+  const [escStopsRun] = usePresentation("escStopsRun");
+  const keyMap = useMemo(() => ({ remaps, escStopsRun }), [remaps, escStopsRun]);
+  return (
+    <KeyDispatch macOS={macOS} keyMap={keyMap}>
+      {children}
+    </KeyDispatch>
+  );
+};
+
 /**
  * The desktop window's renderer (docs/specs/gui.md): the frame over one
  * client runtime, painted with the home environment's theme from its first
  * frame (the one cached, until the window reads it again), its keys
- * dispatched through the GUI column of the shared action list, Settings,
+ * dispatched through the GUI column of the shared action list with this
+ * client's remaps, Settings,
  * Set up as the whole window on first launch (the full checklist) with the
  * step cards registered, the command palette over it, and the notices a Set
  * up step answers. What the window chose for a session's next runs
@@ -47,7 +61,7 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell, stepC
     <WindowTheme />
     <LocalServiceProvider>
       <PairingProvider>
-        <KeyDispatch macOS={macOS}>
+        <WindowKeys macOS={macOS}>
           <SettingsProvider>
             <StepCardsContext value={stepCards}>
               <ChecklistProvider>
@@ -62,7 +76,7 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell, stepC
               </ChecklistProvider>
             </StepCardsContext>
           </SettingsProvider>
-        </KeyDispatch>
+        </WindowKeys>
       </PairingProvider>
     </LocalServiceProvider>
   </WindowProvider>

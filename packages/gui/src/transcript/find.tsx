@@ -1,6 +1,6 @@
 import { createContext, use, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { Conditions } from "../keys/key-dispatch.js";
-import { useKeyAction } from "../keys/key-dispatch.js";
+import { useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { Button } from "../ui/index.js";
 
 /**
@@ -158,44 +158,56 @@ export const useFindBar = (column: RefObject<HTMLElement | null>, stopFollowing:
   return { open, query, marked, conditions, field, bar, status, show, close, type, step };
 };
 
-/** The find bar's keys: `app.find` from anywhere in the window, and while the bar has the keys, the next and previous match and closing it. */
+/**
+ * The find bar's keys: `app.find` from anywhere in the window, and while the bar has the keys, the next and previous
+ * match and closing it; while it is open, Esc from elsewhere closes it too, the first step of Escape's order (#418).
+ */
 export const FindKeys = ({ find }: { readonly find: FindBarState }) => {
   useKeyAction("app.find", find.show);
   useKeyAction("transcript.findNext", () => find.step(1));
   useKeyAction("transcript.findPrevious", () => find.step(-1));
   useKeyAction("transcript.findClose", find.close);
+  useEscapeStep("surface", find.close, find.open);
   return null;
 };
 
+/** A control's tooltip: what it does, and the key in force that does it too, when it has one. */
+const titled = (words: string, key: string | undefined): string => (key === undefined ? words : `${words} (${key})`);
+
 /** The bar itself, over the transcript's top edge, so opening it moves nothing David is reading. */
-export const FindBar = ({ find }: { readonly find: FindBarState }) => (
-  <div
-    ref={find.bar}
-    role="search"
-    aria-label="Find in the conversation"
-    className="absolute top-2 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border border-line-strong bg-float px-1.5 py-1 text-xs"
-  >
-    <input
-      ref={find.field}
-      type="search"
-      aria-label="Find"
-      placeholder="Find in the conversation"
-      spellCheck={false}
-      value={find.query}
-      onChange={(event) => find.type(event.target.value)}
-      className="h-6 w-44 min-w-0 shrink bg-transparent text-ink outline-none placeholder:text-ink-faint"
-    />
-    <span aria-live="polite" className="min-w-16 shrink-0 text-right text-ink-muted tabular-nums">
-      {find.status}
-    </span>
-    <Button aria-label="Previous match" title="Previous match (Shift+Enter)" onClick={() => find.step(-1)} className="h-6 px-1.5">
-      ↑
-    </Button>
-    <Button aria-label="Next match" title="Next match (Enter)" onClick={() => find.step(1)} className="h-6 px-1.5">
-      ↓
-    </Button>
-    <Button aria-label="Close find" title="Close (Esc)" onClick={find.close} className="h-6 px-1.5">
-      ✕
-    </Button>
-  </div>
-);
+export const FindBar = ({ find }: { readonly find: FindBarState }) => {
+  const previous = useFirstKey("transcript.findPrevious");
+  const next = useFirstKey("transcript.findNext");
+  const close = useFirstKey("transcript.findClose");
+  return (
+    <div
+      ref={find.bar}
+      role="search"
+      aria-label="Find in the conversation"
+      className="absolute top-2 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border border-line-strong bg-float px-1.5 py-1 text-xs"
+    >
+      <input
+        ref={find.field}
+        type="search"
+        aria-label="Find"
+        placeholder="Find in the conversation"
+        spellCheck={false}
+        value={find.query}
+        onChange={(event) => find.type(event.target.value)}
+        className="h-6 w-44 min-w-0 shrink bg-transparent text-ink outline-none placeholder:text-ink-faint"
+      />
+      <span aria-live="polite" className="min-w-16 shrink-0 text-right text-ink-muted tabular-nums">
+        {find.status}
+      </span>
+      <Button aria-label="Previous match" title={titled("Previous match", previous)} onClick={() => find.step(-1)} className="h-6 px-1.5">
+        ↑
+      </Button>
+      <Button aria-label="Next match" title={titled("Next match", next)} onClick={() => find.step(1)} className="h-6 px-1.5">
+        ↓
+      </Button>
+      <Button aria-label="Close find" title={titled("Close", close)} onClick={find.close} className="h-6 px-1.5">
+        ✕
+      </Button>
+    </div>
+  );
+};

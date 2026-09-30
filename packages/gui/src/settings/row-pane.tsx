@@ -5,6 +5,7 @@ import { AccessPane } from "../access/access-pane.js";
 import { AccountsPane } from "../accounts/accounts-pane.js";
 import { DefaultModelPane } from "../accounts/default-model-pane.js";
 import { UsagePane } from "../accounts/usage-pane.js";
+import { APPEARANCE_PANES } from "../appearance/panes.js";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { ForgesPane } from "../forges/forges-pane.js";
 import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
@@ -107,6 +108,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "access.permissions": PermissionsPane,
   "environments.access": AccessPane,
   "environments.service": ServicePane,
+  ...APPEARANCE_PANES,
 };
 
 /**

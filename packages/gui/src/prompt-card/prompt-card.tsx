@@ -1,9 +1,8 @@
 import { COUNTDOWN_TICK_MS, choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
-import { actionById, describeDenylistMatch, type KeyActionId, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
+import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { useEffect, useId, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useInFocusedPane } from "../grid/grid.js";
-import { keyLabel } from "../keys/chords.js";
-import { KeyContext, useKeyAction, useMacOS } from "../keys/key-dispatch.js";
+import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { Markdown } from "../transcript/markdown.js";
 import { Button, Input } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
@@ -294,26 +293,22 @@ const RowButton = ({ row, dim, onClick }: { readonly row: ChoiceRow; readonly di
   );
 };
 
-/** The card's two keys, the `permission` context's, with whether the card can answer now. */
+/**
+ * The card's two keys, the `permission` context's, with whether the card can answer now; and Esc from elsewhere in
+ * the window, which denies the focused pane's prompt once no surface before it in Escape's order takes it (#418).
+ */
 const CardKeys = ({ allow, deny, offer }: { readonly allow: () => void; readonly deny: () => void; readonly offer: CapabilityAnswer }) => {
   useKeyAction("permission.allow", allow, offer);
   useKeyAction("permission.deny", deny, offer);
+  useEscapeStep("prompt", deny);
   return null;
 };
 
-/** The first of an action's GUI keys in force, as this platform writes it. */
-const firstKey = (id: KeyActionId, macOS: boolean): string | undefined => {
-  const gui = actionById(id)?.gui;
-  const key = gui?.status === "wired" && gui.off !== true ? gui.keys[0] : undefined;
-  return key === undefined ? undefined : keyLabel(key, macOS);
-};
-
-/** What the card's keys do, in the keys this platform writes. */
+/** What the card's keys do, in the keys in force as this platform writes them. */
 const KeysHint = ({ kind }: { readonly kind: PromptKind }) => {
-  const macOS = useMacOS();
   const said = [
-    [firstKey("permission.deny", macOS), KEY_WORDS[kind].deny],
-    [firstKey("permission.allow", macOS), KEY_WORDS[kind].allow],
+    [useFirstKey("permission.deny"), KEY_WORDS[kind].deny],
+    [useFirstKey("permission.allow"), KEY_WORDS[kind].allow],
   ].flatMap(([key, words]) => (key === undefined ? [] : [`${key} ${words}`]));
   return <p className="text-xs text-ink-faint">{said.join(" · ")}</p>;
 };

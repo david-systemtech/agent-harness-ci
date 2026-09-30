@@ -172,6 +172,39 @@ describe("the presentation", () => {
     expect(String(reported[0])).toContain("lightOrDark, cachedTheme");
   });
 
+  it("holds the GUI's key remaps, preset none, read by id against the list, and “Esc stops the run”, preset off", async () => {
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read()).toMatchObject({ keyRemaps: {}, escStopsRun: false });
+    first.set("keyRemaps", { "app.find": ["Mod+G"], "picker.move": ["↑", "Mod+J"] });
+    first.set("escStopsRun", true);
+    await first.close();
+    expect((await openPresentation(documents)).values.read()).toMatchObject({ keyRemaps: { "app.find": ["Mod+G"], "picker.move": ["↑", "Mod+J"] }, escStopsRun: true });
+
+    // An id the list no longer has, a slash command, an action the GUI has absent and keys the rules refuse are dropped, unreported.
+    const reported: unknown[] = [];
+    const stored = inMemoryDocuments();
+    await stored.set("presentation", {
+      format: 1,
+      keyRemaps: {
+        "app.gone": ["Mod+G"],
+        "command.model": ["Mod+M"],
+        "app.interruptOrQuit": ["Mod+Q"],
+        "app.interrupt": ["Mod+C"],
+        "app.find": ["F"],
+        "app.palette": "Mod+P",
+        "app.sidebar.toggle": ["Mod+Shift+S"],
+      },
+    });
+    expect((await openPresentation(stored, (error) => reported.push(error))).values.read().keyRemaps).toEqual({ "app.sidebar.toggle": ["Mod+Shift+S"] });
+    expect(reported).toEqual([]);
+
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, keyRemaps: ["Mod+G"], escStopsRun: "yes" });
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toMatchObject({ keyRemaps: {}, escStopsRun: false });
+    expect(String(reported[0])).toContain("keyRemaps, escStopsRun");
+  });
+
   it("holds whether the sidebar is shown, preset shown, and the headings folded by name, preset none, each read back only when it is one", async () => {
     const documents = inMemoryDocuments();
     const first = await openPresentation(documents);
