@@ -228,7 +228,7 @@ export const verifyConnection = async (runtime: Pick<Runtime, "requests">, envir
 };
 
 /** The ticks with `policy` ticked or not, in the order the login's lookup names its policies, as the environment keeps them. */
-export const ticksWith = (connection: Pick<KeyManagerConnectionRecord, "policies" | "ticks">, policy: string, ticked: boolean): readonly string[] => {
+export const ticksWith = (connection: { readonly policies: KeyManagerConnectionRecord["policies"]; readonly ticks: readonly string[] | null }, policy: string, ticked: boolean): readonly string[] => {
   const held = new Set(connection.ticks ?? []);
   if (ticked) held.add(policy);
   else held.delete(policy);

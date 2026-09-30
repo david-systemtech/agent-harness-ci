@@ -357,6 +357,43 @@ describe("policies and injection", () => {
     expect(within(pane()).queryByText(WRITES)).toBeNull();
   });
 
+  it("keeps both of two ticks made one straight after the other, the second sent over the first", async () => {
+    const app = await opened({
+      keyManagers: {
+        policies: [
+          { name: "default", writes: "no" },
+          { name: "agent-read", writes: "no" },
+          { name: "team-read", writes: "no" },
+        ],
+        connections: [{ label: "Home OpenBao", address: "https://bao.home.test", ticks: ["default"] }],
+      },
+    });
+    await openKeyManagers(app);
+    const ticks = within(await card("Home OpenBao")).getByRole("group", { name: "Policies runs receive" });
+    const desk = app.environment("desk");
+    // The list is read again only after both ticks are made, as on a slow link.
+    const release = desk.holdKeyManagerLists();
+    await app.user.click(within(ticks).getByRole("checkbox", { name: /^agent-read/ }));
+    await waitFor(() => expect(desk.requests("keyManagers.connections.setPolicies")).toHaveLength(1));
+    await waitFor(() => expect(desk.keyManagerConnections()[0]?.ticks).toEqual(["default", "agent-read"]));
+    await app.user.click(within(ticks).getByRole("checkbox", { name: /^team-read/ }));
+    await waitFor(() => expect(desk.requests("keyManagers.connections.setPolicies")).toHaveLength(2));
+    release();
+    await waitFor(() => expect(desk.keyManagerConnections()[0]?.ticks).toEqual(["default", "agent-read", "team-read"]));
+    await waitFor(() =>
+      expect(
+        within(within(pane()).getByRole("group", { name: "Policies runs receive" }))
+          .getAllByRole("checkbox")
+          .filter((box) => (box as HTMLInputElement).checked)
+          .map((box) => box.getAttribute("name")),
+      ).toEqual(["default", "agent-read", "team-read"]),
+    );
+    expect(desk.requests("keyManagers.connections.setPolicies").map((request) => request.params["ticks"])).toEqual([
+      ["default", "agent-read"],
+      ["default", "agent-read", "team-read"],
+    ]);
+  });
+
   it("chooses which connection of a provider injects with keyManagers.connections.setInjected", async () => {
     const app = await opened({
       keyManagers: {

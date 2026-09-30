@@ -31,8 +31,9 @@ import type { ManualClock } from "./in-memory-platform.js";
  * untrusted verifies only against the anchor `certificateOf` answers, which
  * `keyManagers.certificate.preview` reads. Move writes into one store of
  * values by path, which a person's own paste (`pasteKeyManagerValue`) writes
- * into too. A test changes what a verification finds (`setKeyManagerStatus`)
- * and has the environment's own verification find it (`verifyKeyManager`).
+ * into too. A test changes what a verification finds (`setKeyManagerStatus`),
+ * has the environment's own verification find it (`verifyKeyManager`), and
+ * holds the list's answers (`holdKeyManagerLists`).
  */
 
 /** A forge account holding a stored token, as Move lists it. */
@@ -79,6 +80,8 @@ export interface ScriptedKeyManagersHandle {
   setKeyManagerStatus(connectionId: string, status: Pick<KeyManagerStatus, "kind" | "message">): void;
   /** The environment's own verification of the connection runs now, and records what it finds. */
   verifyKeyManager(connectionId: string): void;
+  /** Holds every `keyManagers.list` unanswered until the function it returns is called, each then answered as the environment stands at the release. */
+  holdKeyManagerLists(): () => void;
 }
 
 export interface KeyManagersHost {
@@ -232,7 +235,12 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   /** Whether no other connection of the provider injects, so this one, signed in now, does. */
   const firstOfProvider = (record: KeyManagerConnectionRecord) => !connections.some((c) => c.id !== record.id && c.provider === record.provider && c.injects);
 
-  wire.answer("keyManagers.list", () => ({ result: { connections: [...connections] } }));
+  let heldLists: (() => void)[] | null = null;
+  wire.answer("keyManagers.list", (): FakeAnswer | Promise<FakeAnswer> => {
+    const answer = (): FakeAnswer => ({ result: { connections: [...connections] } });
+    const waiting = heldLists;
+    return waiting === null ? answer() : new Promise((resolve) => waiting.push(() => resolve(answer())));
+  });
 
   wire.answer("keyManagers.connections.add", (params) => {
     const refused = host.refusal("keyManagers.connections.add");
@@ -590,6 +598,14 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     },
     setKeyManagerStatus(connectionId, found) {
       pending.set(connectionId, found);
+    },
+    holdKeyManagerLists() {
+      heldLists ??= [];
+      return () => {
+        const waiting = heldLists ?? [];
+        heldLists = null;
+        for (const release of waiting) release();
+      };
     },
     verifyKeyManager(connectionId) {
       const record = find(connectionId);
