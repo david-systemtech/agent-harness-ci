@@ -282,11 +282,11 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     return wait({ ...halted, failures }, phase, backoffDelay(failures, context.random));
   };
 
-  /** Discovery says `starting`: polled every two seconds with no failure counted. A block being re-checked stays blocked. */
+  /** Discovery says `starting`: polled every two seconds with no failure counted, the phase `updating` kept through an update's restart. A block being re-checked stays blocked. */
   const starting = (s: MachineState): MachineState => {
     if (rechecking(s)) return reblock(s);
-    // The environment restarting for the update taken is still updating.
-    return wait(unreachable(halt(s)), s.updateTaken ? "updating" : "starting", STARTING_POLL_MS);
+    // An environment starting again after `bye: updating`, or after the update taken across a protocol gap, is still updating.
+    return wait(unreachable(halt(s)), s.phase === "updating" ? "updating" : "starting", STARTING_POLL_MS);
   };
 
   /** A declared dead socket: closed, and replaced at once as a transient failure; if the replacement fails, the ladder starts at its first rung. */

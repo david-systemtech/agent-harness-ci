@@ -25,11 +25,11 @@ const RUNNING = "0.4.1";
 /** Where the route is, on the environment's own address. */
 const routeOf = (t: TestEnvironment): string => `http://${t.address.host}:${t.address.port}${UPDATE_PATH}`;
 
-/** What the route answered: its status, and its body as the contracts read it. */
+/** What the route answered: its status, and its body as the contracts read it. Each request closes its connection, so none is reset by the server closing an idle one. */
 const post = async (t: TestEnvironment, token: string | undefined, body: unknown) => {
   const response = await fetch(routeOf(t), {
     method: "POST",
-    headers: { "content-type": "application/json", ...(token !== undefined && { authorization: `Bearer ${token}` }) },
+    headers: { "content-type": "application/json", connection: "close", ...(token !== undefined && { authorization: `Bearer ${token}` }) },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
   return { status: response.status, headers: response.headers, body: (await response.json()) as unknown };
@@ -135,16 +135,28 @@ describe("POST /api/update refuses", () => {
     expect(updateNotices(t)).toEqual([]);
   });
 
-  it("a token that was revoked, and one that expired, as unauthorized naming which", async () => {
-    const { t, admin } = await withReleases();
+  it("a token that was revoked as unauthorized naming it", async () => {
+    const { t } = await withReleases();
     const revoked = await t.pair({ kind: "desktop", scopes: ["read", "admin"] });
     expect(t.env.clientSessions.revoke(revoked.clientSessionId)).toBe(true);
+
     const gone = await post(t, revoked.token, { version: "0.5.0" });
+
     expect(gone.status).toBe(401);
     expect(refusalOf(gone)).toMatchObject({ code: "unauthorized", message: expect.stringContaining("revoked") as unknown as string });
+    expect(updateNotices(t)).toEqual([]);
+  });
 
+  // Thirty days on the manual clock run every minute's sweep in one go, which blocks the process for seconds under load:
+  // its own test, with the time allowed for that, and no request before the advance to have its connection reset meanwhile.
+  it("a token that expired as unauthorized naming it", { timeout: 120_000 }, async () => {
+    const t = await startTestEnvironment({ harnessVersion: RUNNING, launcher: testLauncher({ present: true }) });
+    onCleanup(() => t.close());
+    const { token } = await t.pair({ kind: "desktop", scopes: ["read", "admin"] });
     t.clock.advance(31 * 24 * 60 * 60 * 1000);
-    const expired = await post(t, admin, { version: "0.5.0" });
+
+    const expired = await post(t, token, { version: "0.5.0" });
+
     expect(expired.status).toBe(401);
     expect(refusalOf(expired)).toMatchObject({ code: "unauthorized", message: expect.stringContaining("expired") as unknown as string });
     expect(updateNotices(t)).toEqual([]);

@@ -354,6 +354,17 @@ describe("bye", () => {
     },
   );
 
+  it("after updating, an environment that says starting is still updating, polled every two seconds with no failure counted; after draining it is starting", () => {
+    for (const reason of ["updating", "draining"] as const) {
+      const d = drive().ready();
+      d.feed({ type: "bye", attempt: d.state.attempt, bye: bye(reason) });
+      d.at(BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+      d.discovered({ kind: "document", document: document({ readiness: "starting" }) });
+      expect(d.state).toMatchObject({ phase: reason === "updating" ? "updating" : "starting", failures: 0 });
+      expect(armed(d.effects, "retry")).toEqual([STARTING_POLL_MS]);
+    }
+  });
+
   it("after draining, nothing answering is the local service down, or a paired environment gone", () => {
     const local = drive({ kind: "local" }).ready();
     local.feed({ type: "bye", attempt: local.state.attempt, bye: bye("draining") });

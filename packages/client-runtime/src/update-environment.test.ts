@@ -173,7 +173,13 @@ describe("update-environment otherwise", () => {
     wire.server.bye("updating");
     await flush();
     expect(record(runtime).phase).toBe("updating");
+    // Mid-restart the new version says starting: still updating, until hello agrees.
+    wire.discovery({ readiness: "starting" });
+    clock.advance(BYE_WAIT_MS);
+    await flush();
+    expect(record(runtime).phase).toBe("updating");
     wire.discovery({ harnessVersion: CLIENT_VERSION });
+    clock.advance(2000);
     clock.advance(BYE_WAIT_MS);
     await wire.server.accept();
     await flush();

@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { UpdateAnswer, UpdateError, UpdateRequest, invalidParams, registry, type EnvironmentReadiness, type WireError } from "@agent-harness/contracts";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import type { EventLog } from "../event-log/event-log.js";
-import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
+import { BodyTooLargeError, bearerToken, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
 import { createDispatch, type Answer } from "../wire/dispatch.js";
 
@@ -61,11 +61,11 @@ export const createUpdateRoute = (options: UpdateRouteOptions): RouteHandler => 
   const { scope } = registry["updates.apply"];
 
   const authenticate = (request: IncomingMessage): VerifiedClientSession => {
-    const match = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.authorization ?? "");
-    if (match === null) {
+    const token = bearerToken(request);
+    if (token === undefined) {
       throw refusal({ code: "unauthorized", message: "Send the token of a client session as Authorization: Bearer <token>.", data: {} });
     }
-    const verified = options.clientSessions.verify(match[1] as string);
+    const verified = options.clientSessions.verify(token);
     if (!verified.ok) throw refusal({ code: "unauthorized", message: verified.message, data: {} });
     if (!verified.clientSession.scopes.includes(scope)) {
       throw refusal({ code: "forbidden", message: `Updating the environment needs the ${scope} scope, which this client session does not hold.`, data: { scope } });

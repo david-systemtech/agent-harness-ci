@@ -546,6 +546,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     return { ok: true, expiresAt: Date.parse(result.expiresAt) };
   };
 
+  /** The token a connection sends: a local one's is in memory, a paired one's in the secret store. */
+  const tokenOf = async (environmentId: string, entry: Entry): Promise<string | undefined> =>
+    entry.saved.kind === "local" ? entry.token : platform.secrets.get(environmentId);
+
   /** What the runner of `entry` needs of the registry. */
   const hostFor = (environmentId: string, entry: () => Entry): RunnerHost => ({
     clock: platform.clock,
@@ -561,10 +565,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // Something answered, but not with a discovery document: not the service being down, a fault the ladder retries.
       return read.kind === "unreachable" ? { kind: "unreachable", message: read.message } : { kind: "malformed", message: read.message };
     },
-    token: async () => {
-      const e = entry();
-      return e.saved.kind === "local" ? e.token : platform.secrets.get(environmentId);
-    },
+    token: async () => tokenOf(environmentId, entry()),
     expiresAt: () => {
       const at = entry().saved.expiresAt;
       return at === null ? null : Date.parse(at);
@@ -1116,7 +1117,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       const overRoute = machine.phase === "blocked" && machine.blocked === "protocol-mismatch";
       let outcome: UpdateEnvironmentOutcome;
       if (overRoute) {
-        const token = entry.saved.kind === "local" ? entry.token : await platform.secrets.get(environmentId);
+        const token = await tokenOf(environmentId, entry);
         outcome = token === undefined ? failed("no-token", `This client holds no token for ${machine.name}: pair it again.`) : await askOverRoute(platform.fetch, entry.saved.address, token, version);
       } else {
         // The connection's own socket: `updates.apply` of this client's version, when idle.
