@@ -2,6 +2,7 @@ import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { PaneGridProvider } from "../grid/grid.js";
 import { useKeyAction } from "../keys/key-dispatch.js";
+import { NewSessionSurfaces } from "../new-session/surfaces.js";
 import { SettingsView } from "../settings/settings-view.js";
 import { useSettings } from "../settings/settings-window.js";
 import { ChecklistView } from "../setup/checklist-view.js";
@@ -31,8 +32,9 @@ const SESSION_PANES = "session-panes";
  * (`sidebarShown`), and `app.sidebar.toggle` (Mod+B) hides and shows it,
  * the session pane region taking the window's width while it is hidden.
  * It holds the window's terminal panes, which the header and
- * every session pane ask (#409), and the pane grid's line, which the header
- * draws and the grid's gestures say (#407). While Settings is open it takes
+ * every session pane ask (#409), the pane grid's line, which the header
+ * draws and the grid's gestures say (#407), and what the new-session
+ * surfaces keep beside the layout (#420). While Settings is open it takes
  * the window below the header in place of the sidebar and the session panes;
  * while the full checklist is open (Set up on first launch) it takes the
  * whole window.
@@ -50,36 +52,38 @@ export const Frame = () => {
   return (
     <TerminalPanesProvider>
       <PaneGridProvider>
-        {checklist.shown ? (
-          <ChecklistView />
-        ) : (
-          <div className="flex h-dvh flex-col bg-abyss text-ink">
-            <Header />
-            {shown ? (
-              <SettingsView />
-            ) : (
-              <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
-                {sidebarShown && (
-                  <>
-                    <Panel
-                      id={SIDEBAR}
-                      defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
-                      minSize={SIDEBAR_LEAST}
-                      maxSize={SIDEBAR_MOST}
-                      groupResizeBehavior="preserve-pixel-size"
-                    >
-                      <SidebarRegion />
-                    </Panel>
-                    <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
-                  </>
-                )}
-                <Panel id={SESSION_PANES}>
-                  <SessionPaneRegion />
-                </Panel>
-              </Group>
-            )}
-          </div>
-        )}
+        <NewSessionSurfaces>
+          {checklist.shown ? (
+            <ChecklistView />
+          ) : (
+            <div className="flex h-dvh flex-col bg-abyss text-ink">
+              <Header />
+              {shown ? (
+                <SettingsView />
+              ) : (
+                <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
+                  {sidebarShown && (
+                    <>
+                      <Panel
+                        id={SIDEBAR}
+                        defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
+                        minSize={SIDEBAR_LEAST}
+                        maxSize={SIDEBAR_MOST}
+                        groupResizeBehavior="preserve-pixel-size"
+                      >
+                        <SidebarRegion />
+                      </Panel>
+                      <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
+                    </>
+                  )}
+                  <Panel id={SESSION_PANES}>
+                    <SessionPaneRegion />
+                  </Panel>
+                </Group>
+              )}
+            </div>
+          )}
+        </NewSessionSurfaces>
       </PaneGridProvider>
     </TerminalPanesProvider>
   );

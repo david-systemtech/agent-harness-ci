@@ -3,6 +3,7 @@ import { useId, useState, type ReactNode } from "react";
 import { EnvironmentDot } from "../connections/environment-badge.js";
 import { EnvironmentStatus } from "../connections/environment-status.js";
 import { THIS_MACHINE } from "../connections/words.js";
+import { NewSessionButton } from "../new-session/control.js";
 import { classes } from "../ui/classes.js";
 import { ContextMenu, ContextMenuTrigger } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
@@ -25,7 +26,8 @@ import { freshnessWords, notDone, quoted } from "./words.js";
  * failed, and that it has no session; by repository, its heading says it
  * holds the sessions with no repository. Each heading takes a session dropped
  * on it (`drag.tsx`); a merged group's has a context menu that renames it,
- * in place, and deletes it (`heading-menu.tsx`).
+ * in place, and deletes it (`heading-menu.tsx`); an environment's has its
+ * New session control, carrying the environment (#420).
  */
 
 /** Draws the rows under a heading. */
@@ -111,6 +113,9 @@ export const EnvironmentSection = ({ heading, rows }: { readonly heading: Enviro
             <PendingWord>{`${view.pendingCommands} pending`}</PendingWord>
           </span>
         )}
+        <NewSessionButton control={{ environmentId: view.environmentId }} label={`New session on ${named}`} className="ml-auto h-5 px-1.5 text-xs font-normal text-ink-muted">
+          +
+        </NewSessionButton>
       </div>
       <EnvironmentStatus view={view} />
       {freshness !== undefined && <Note tone="text-ink-faint">{freshness}</Note>}
