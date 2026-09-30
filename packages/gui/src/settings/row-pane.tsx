@@ -2,6 +2,7 @@ import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } 
 import { FIRST_ROW, STEP_LABELS, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ComponentType, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
+import { ForgesPane } from "../forges/forges-pane.js";
 import { KeyManagersPane } from "../key-managers/key-managers-pane.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { YourMachines } from "../machines/your-machines.js";
@@ -104,6 +105,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   [FIRST_ROW]: SetupPane,
   "environments.machines": YourMachines,
   "access.key-managers": KeyManagersPane,
+  "access.forges": ForgesPane,
 };
 
 /**
@@ -111,7 +113,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
  * gives it (an `environment` row's picker, none for `everywhere` and
  * `client` rows), About with this client's version pinned above its picker
  * as the one line that belongs to no environment, then what the row holds:
- * its built pane (Set up's checklist, Your machines' cards, Key managers), the
+ * its built pane (Set up's checklist, Your machines' cards, Key managers, Forges), the
  * unbuilt row's hint, links and keys on the others. Opening a step's home row
  * checks that step.
  */
