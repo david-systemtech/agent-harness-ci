@@ -32,7 +32,7 @@ import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
 import { carryOverMethodFixtures, carryOverSchemaFixtures } from "./carry-over-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
-import { workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
+import { workspaceKept, workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -780,6 +780,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "instructions.updated",
       "extension.seen",
       "carry-over.imported",
+      "workspace.kept",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
@@ -828,6 +829,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       toolsUpdatedNotice.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
+      { type: "workspace.kept", payload: workspaceKept },
+      { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -858,6 +861,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
       toolsUpdatedNotice.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
+      { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
       validEnvelope,
     ],
   },

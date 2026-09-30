@@ -299,7 +299,7 @@ import {
   AbsolutePath,
   RequestedDirectory,
 } from "./sessions.js";
-import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection } from "./workspaces.js";
+import { BrowsedDirectory, InspectedBranch, InspectedCommit, InspectedRepository, WorkspaceInspection, WorkspaceKeptPayload, WorkspaceKeptReason } from "./workspaces.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
   AccountIdentity,
@@ -1103,6 +1103,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "workspaces/inspected-branch.json", title: "InspectedBranch", schema: InspectedBranch },
   { path: "workspaces/inspected-repository.json", title: "InspectedRepository", schema: InspectedRepository },
   { path: "workspaces/workspace-inspection.json", title: "WorkspaceInspection", schema: WorkspaceInspection },
+  { path: "workspaces/workspace-kept-reason.json", title: "WorkspaceKeptReason", schema: WorkspaceKeptReason },
+  { path: "workspaces/workspace-kept.json", title: "WorkspaceKeptPayload", schema: WorkspaceKeptPayload },
   { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
   { path: "actions/action-condition.json", title: "ActionCondition", schema: ActionCondition },
   { path: "actions/action.json", title: "Action", schema: Action },

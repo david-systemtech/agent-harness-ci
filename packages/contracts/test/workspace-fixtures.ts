@@ -1,8 +1,9 @@
 /**
- * Fixtures for browsing and inspecting an environment's directories (#331):
- * a valid and an invalid instance of every schema of theirs the export
- * writes, and params and results for `workspaces.browse` and
- * `workspaces.inspect`. `fixtures.ts` folds them into the package's table.
+ * Fixtures for browsing and inspecting an environment's directories (#331)
+ * and for the worktree the reaper keeps (#330): a valid and an invalid
+ * instance of every schema of theirs the export writes, and params and
+ * results for `workspaces.browse` and `workspaces.inspect`. `fixtures.ts`
+ * folds them into the package's table.
  */
 
 interface Fixtures {
@@ -32,7 +33,20 @@ const bare = { ...repository, root: "/srv/app.git", mainCheckout: "/srv/app.git"
 const unborn = { ...repository, branch: "main", head: null, branches: [], branchesTruncated: false };
 const inspection = { path: "/work/app/src", problem: null, repository };
 
+/** A worktree the reaper kept at its last session's purge (#330). */
+export const workspaceKept = {
+  path: "/data/worktrees/app-0123456789ab/agent-harness-7c9e6679",
+  branch: "agent-harness/7c9e6679",
+  title: "Invoices",
+  reason: "uncommitted_changes",
+};
+
 export const workspaceSchemaFixtures: Record<string, Fixtures> = {
+  "workspaces/workspace-kept-reason.json": { valid: ["uncommitted_changes", "git_filters_refused", "git_failed"], invalid: ["dirty", ""] },
+  "workspaces/workspace-kept.json": {
+    valid: [workspaceKept, { ...workspaceKept, branch: null, reason: "git_filters_refused" }],
+    invalid: [{ ...workspaceKept, path: "worktrees/app" }, { ...workspaceKept, title: "" }, { ...workspaceKept, branch: "" }, { path: workspaceKept.path, title: "Invoices", reason: "git_failed" }],
+  },
   "workspaces/browsed-directory.json": {
     valid: [
       { name: "app", repository: true },
