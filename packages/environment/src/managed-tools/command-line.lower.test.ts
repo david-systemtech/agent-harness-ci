@@ -11,7 +11,7 @@ import { commandLine } from "./command-line.js";
  * has, and the steps and pipes are the table's, not the arguments'.
  */
 
-/** The arguments a table's command can hold that a shell would otherwise read: spaces, quotes, `$`, `&`, `|`, a leading `=`, a backslash. */
+/** The arguments a table's command can hold that a shell would otherwise read: spaces, quotes, `$`, `&`, `|`, a leading `=`, a backslash mid-word, before another, before a quote and ending the word. */
 const AWKWARD = [
   "deb [arch=& signed-by=/etc/apt/keyrings/a.gpg] https://example.test/debian/& stable main",
   "baseurl=https://example.test/rpm/$basearch",
@@ -19,6 +19,9 @@ const AWKWARD = [
   "it's",
   "=https",
   "%s\\n",
+  "C:\\",
+  "a\\\\b",
+  "a\\'b",
   "a|b && c; d > e",
   "~/not-home",
   "*.asc",
@@ -33,6 +36,10 @@ describe.runIf(process.platform !== "win32")("a command's line", () => {
     for (const shell of SHELLS) {
       expect(execFileSync(shell, ["-c", line], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", HOME: "/nonexistent" } }), shell).toBe(AWKWARD.map((word) => `[${word}]\n`).join(""));
     }
+  });
+
+  it("writes a backslash fish would read as an escape inside single quotes outside them: one before another, before a quote or ending the word", () => {
+    expect(commandLine([[["printf", "%s\\n", "C:\\", "a\\\\b", "a\\'b"]]], "linux")).toBe(String.raw`printf '%s\n' 'C:'\\ 'a'\\'\b' 'a'\\\''b'`);
   });
 
   it("pipes a step's programs one into the next, and runs a step only once the one before it has succeeded", () => {

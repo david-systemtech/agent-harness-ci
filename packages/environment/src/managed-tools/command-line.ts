@@ -7,9 +7,13 @@ import type { ToolCommand } from "@agent-harness/contracts";
  * not plainly safe is single-quoted, which every login shell a terminal
  * starts (sh, bash, zsh, dash, ksh, fish, csh and tcsh) reads the same
  * way; a leading `=` is quoted too, since zsh expands `=name` to a
- * program's path. On Windows the line is PowerShell's, which quotes with
- * single quotes and doubles one inside, and a command there is one step,
- * since Windows PowerShell has no `&&`.
+ * program's path. A single quote is written outside the quotes as `\'`,
+ * and so is a backslash fish would read as an escape inside them (one
+ * before another, before a quote or ending the word), as `\\`; a backslash
+ * anywhere else stays inside, where every shell keeps it. On Windows the
+ * line is PowerShell's, which quotes with single quotes and doubles one
+ * inside, and a command there is one step, since Windows PowerShell has
+ * no `&&`.
  */
 
 /** A POSIX word no shell reads as anything but itself. */
@@ -18,7 +22,16 @@ const POSIX_SAFE = /^[A-Za-z0-9_@+:,./-][A-Za-z0-9_@+=:,./-]*$/;
 /** A PowerShell word read as a string: never an operator (`,`), a splat (`@`) or a variable (`$`). */
 const POWERSHELL_SAFE = /^[A-Za-z0-9_+:./-][A-Za-z0-9_+=:./-]*$/;
 
-const posixWord = (word: string): string => (POSIX_SAFE.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
+/** What a POSIX word is written outside its quotes: a single quote, and a backslash fish would read as an escape inside them. */
+const POSIX_UNQUOTED = /('|\\(?=[\\']|$))/;
+
+const posixWord = (word: string): string =>
+  POSIX_SAFE.test(word)
+    ? word
+    : word
+        .split(POSIX_UNQUOTED)
+        .map((part, index) => (index % 2 === 1 ? `\\${part}` : part === "" ? "" : `'${part}'`))
+        .join("");
 
 const powershellWord = (word: string): string => (POWERSHELL_SAFE.test(word) ? word : `'${word.replaceAll("'", "''")}'`);
 
