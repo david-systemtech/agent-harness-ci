@@ -7,6 +7,7 @@ import { CommandPalette } from "./palette/palette.js";
 import type { Presentation } from "./presentation.js";
 import { SettingsProvider } from "./settings/settings-window.js";
 import { ChecklistProvider } from "./setup/checklist-window.js";
+import { StepNotices } from "./setup/step-notices.js";
 import { RunChoicesProvider } from "./status/run-choices.js";
 import { WindowTheme } from "./theme/window-theme.js";
 import { WindowProvider } from "./window-context.js";
@@ -31,8 +32,8 @@ export interface AppProps {
  * client runtime, painted with the home environment's theme from its first
  * frame (the one cached, until the window reads it again), its keys
  * dispatched through the GUI column of the shared action list, Settings,
- * Set up as the whole window on first launch (the full checklist), and the
- * command palette over it. What the window chose for a session's next runs
+ * Set up as the whole window on first launch (the full checklist), the
+ * command palette over it, and the notices a Set up step answers. What the window chose for a session's next runs
  * is held for the life of the window (`RunChoicesProvider`).
  */
 export const App = ({ runtime, presentation, clock, version, macOS, shell }: AppProps) => (
@@ -48,6 +49,7 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell }: App
                   <Frame />
                 </RunChoicesProvider>
               </CommandPalette>
+              <StepNotices />
             </ChecklistProvider>
           </SettingsProvider>
         </KeyDispatch>

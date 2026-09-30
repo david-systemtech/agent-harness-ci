@@ -361,7 +361,7 @@ export {
   type SettingSaved,
   type SettingsWriter,
 } from "./settings/editor.js";
-export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, type SettingsLink } from "./settings/rows.js";
+export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, stepHome, type SettingsLink } from "./settings/rows.js";
 export {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,

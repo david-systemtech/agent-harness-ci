@@ -1,7 +1,6 @@
 import {
   CHECK_BUDGET_SECONDS,
   DEFAULT_CADENCE_MINUTES,
-  SETTINGS_ROWS,
   STEP_LABELS,
   STEP_ORDER,
   STEP_REGISTRY,
@@ -16,6 +15,7 @@ import type { Clock, Timer } from "../platform.js";
 import { REQUEST_TIMEOUT_MS, type RequestAnswer, type Requests } from "../requests.js";
 import type { EnvironmentData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
+import { stepHome } from "../settings/rows.js";
 
 /**
  * `projections.setup(environmentId)` (the Set up specification, "Modules"
@@ -136,11 +136,6 @@ const nextAgeChange = (view: SetupView): number | null => {
   return soonest;
 };
 
-/** The row each step lives on, from the row registry (every step of the order has one, registered or not). */
-const HOME_ROWS: ReadonlyMap<StepId, SettingsRowId> = new Map(
-  SETTINGS_ROWS.flatMap((row) => (typeof row.homeOf === "string" ? [] : row.homeOf.map((step): [StepId, SettingsRowId] => [step, row.id]))),
-);
-
 export interface SetupHost {
   readonly clock: Clock;
   readonly records: Observable<readonly ConnectionRecord[]>;
@@ -232,7 +227,7 @@ export const createSetup = (host: SetupHost): Setup => {
       return {
         id,
         label: STEP_LABELS[id],
-        home: HOME_ROWS.get(id) as SettingsRowId,
+        home: stepHome(id),
         registered: held !== undefined,
         // An answer is as fresh as the stream while the environment can be reached; the stream's results, once it is live.
         result: held === undefined ? null : resultView(held.result, now, !reachable || (!held.answered && !live)),

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { certificateOf, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -27,7 +27,7 @@ const settings = () => screen.getByRole("region", { name: "Settings" });
 
 /** Opens Settings on Key managers with Mod+, and the rail, as a person does, on the environment named when it is not the home one. */
 const openKeyManagers = async (app: RenderedApp, environment?: string) => {
-  await app.user.keyboard("{Control>},{/Control}");
+  if (screen.queryByRole("region", { name: "Settings" }) === null) await app.user.keyboard("{Control>},{/Control}");
   const open = await screen.findByRole("region", { name: "Settings" });
   await app.user.click(within(within(open).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Key managers" }));
   if (environment !== undefined) await app.user.selectOptions(within(pane()).getByRole("combobox", { name: "Environment" }), environment);
@@ -501,5 +501,70 @@ describe("copies to other environments", () => {
     expect(copied?.copiedFrom).toMatchObject({ environmentName: "desk" });
     expect(laptop.requests("keyManagers.connections.add")[0]?.params).not.toHaveProperty("credential");
     expect(app.environment("phone").requests("keyManagers.connections.add")).toEqual([]);
+  });
+});
+
+describe("the row's reach", () => {
+  it("opens from a connection's status notice, on that notice's environment", async () => {
+    const app = await opened({}, [{ name: "laptop", reach: "paired", capabilities: [...FLAGGED], keyManagers: { connections: [{ label: "Laptop OpenBao", address: "https://bao.laptop.test" }] } }]);
+    const laptop = app.environment("laptop");
+    const [connection] = laptop.keyManagerConnections();
+    // The window has heard the connection's status once, as its notices do, before the verification that changes it.
+    await waitFor(() => expect(laptop.requests("environment.subscribe").length).toBeGreaterThan(0));
+    laptop.setKeyManagerStatus(connection?.id ?? "", { kind: "sealed", message: "OpenBao at https://bao.laptop.test is sealed: unseal it to sign in." });
+    laptop.verifyKeyManager(connection?.id ?? "");
+    const notices = await screen.findByRole("region", { name: /^Notifications/ });
+    const toast = await within(notices).findByRole("listitem");
+    expect(toast.textContent).toContain("Laptop OpenBao on laptop: OpenBao at https://bao.laptop.test is sealed: unseal it to sign in.");
+    await app.user.click(within(toast).getByRole("button", { name: "Open Key managers" }));
+    const keyManagers = pane();
+    expect(within(within(keyManagers).getByRole("combobox", { name: "Environment" })).getByRole("option", { selected: true }).textContent).toBe("laptop");
+    expect(facts(await card("Laptop OpenBao"))["Status"]).toMatch(/^Sealed since /);
+    expect(screen.queryByRole("region", { name: /^Notifications/ })).toBeNull();
+  });
+
+  it("is absent with its reason without the keyManagers flag, and read-only with the capability's line without admin", async () => {
+    const app = await opened({ capabilities: [] }, [
+      { name: "laptop", reach: "paired", capabilities: [...FLAGGED], scopes: ["read", "sessions:write", "runs:drive", "terminal"], keyManagers: { connections: [{ label: "Laptop OpenBao", address: "https://bao.laptop.test" }], items: [{ name: "https://github.com", slug: "github" }] } },
+    ]);
+    const desk = await openKeyManagers(app);
+    expect(within(desk).getByText("desk does not offer keyManagers; a version that does is needed.")).toBeDefined();
+    expect(within(desk).queryByRole("button", { name: "Add a key manager" })).toBeNull();
+
+    const laptop = await openKeyManagers(app, "laptop");
+    expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    const bao = await card("Laptop OpenBao");
+    for (const name of ["Sign in again", "Verify now", "Edit", "Sign out", "Remove"]) expect(within(bao).getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
+    expect(within(laptop).getByRole("button", { name: "Add a key manager" }).hasAttribute("disabled")).toBe(true);
+    for (const box of within(bao).getAllByRole("checkbox")) expect(box.hasAttribute("disabled")).toBe(true);
+    expect(within(await item("https://github.com")).getByRole("button", { name: "Move" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("fails a direct send at once while the environment cannot be reached, holding nothing to send later", async () => {
+    const app = await opened({}, [{ name: "laptop", reach: "paired", capabilities: [...FLAGGED], keyManagers: { connections: [{ label: "Laptop OpenBao", address: "https://bao.laptop.test" }] } }]);
+    const keyManagers = await openKeyManagers(app, "laptop");
+    await card("Laptop OpenBao");
+    await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
+    const add = await dialog("Add a key manager on laptop");
+    await fillAppRole(app, add, { label: "Work OpenBao", address: "https://bao.work.test", secretId: "secret-for-tests" });
+
+    const laptop = app.environment("laptop");
+    laptop.discovery("nothing");
+    laptop.server.drop();
+    await waitFor(() => expect(app.runtime.projections.environments.read().find((view) => view.name === "laptop")?.unreachableSince).not.toBeNull());
+    await app.user.click(within(add).getByRole("button", { name: "Add" }));
+    expect(await within(add).findByText(/^Not added: /)).toBeDefined();
+    await app.user.click(within(add).getByRole("button", { name: "Cancel" }));
+    // The cached connections stay, read-only, with since when.
+    expect(within(pane()).getByText(/^Unreachable since \d\d:\d\d: its key managers as this window last read them, read-only\.$/)).toBeDefined();
+    expect(within(pane()).getByRole("region", { name: "Laptop OpenBao" })).toBeDefined();
+
+    // Back again, as the backoff reaches it: nothing was held for it.
+    laptop.discovery("ready");
+    await waitFor(async () => {
+      await act(async () => app.clock.advance(5_000));
+      expect(app.runtime.projections.environments.read().find((view) => view.name === "laptop")?.phase).toBe("ready");
+    });
+    expect(laptop.requests("keyManagers.connections.add")).toEqual([]);
   });
 });
