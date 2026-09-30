@@ -1,5 +1,6 @@
 import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { useKeyAction } from "../keys/key-dispatch.js";
 import { SettingsView } from "../settings/settings-view.js";
 import { useSettings } from "../settings/settings-window.js";
 import { ChecklistView } from "../setup/checklist-view.js";
@@ -25,13 +26,18 @@ const SESSION_PANES = "session-panes";
  * pane region, parted by a divider that resizes the sidebar. Where the
  * divider is left is presentation (`sidebarWidth`), kept as the sidebar's
  * share of the window; the sidebar keeps its width in pixels as the window
- * is resized. It holds the window's terminal panes, which the header and
+ * is resized. Whether the sidebar is shown is presentation too
+ * (`sidebarShown`), and `app.sidebar.toggle` (Mod+B) hides and shows it,
+ * the session pane region taking the window's width while it is hidden.
+ * It holds the window's terminal panes, which the header and
  * every session pane ask (#409). While Settings is open it takes the window
  * below the header in place of the sidebar and the session panes; while the
  * full checklist is open (Set up on first launch) it takes the whole window.
  */
 export const Frame = () => {
   const [sidebarWidth, setSidebarWidth] = usePresentation("sidebarWidth");
+  const [sidebarShown, setSidebarShown] = usePresentation("sidebarShown");
+  useKeyAction("app.sidebar.toggle", () => setSidebarShown((shown) => !shown));
   const keep = (layout: Layout, { isUserInteraction }: LayoutChangedMeta) => {
     const share = layout[SIDEBAR];
     if (isUserInteraction && share !== undefined) setSidebarWidth(share);
@@ -49,16 +55,20 @@ export const Frame = () => {
             <SettingsView />
           ) : (
             <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
-              <Panel
-                id={SIDEBAR}
-                defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
-                minSize={SIDEBAR_LEAST}
-                maxSize={SIDEBAR_MOST}
-                groupResizeBehavior="preserve-pixel-size"
-              >
-                <SidebarRegion />
-              </Panel>
-              <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
+              {sidebarShown && (
+                <>
+                  <Panel
+                    id={SIDEBAR}
+                    defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
+                    minSize={SIDEBAR_LEAST}
+                    maxSize={SIDEBAR_MOST}
+                    groupResizeBehavior="preserve-pixel-size"
+                  >
+                    <SidebarRegion />
+                  </Panel>
+                  <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
+                </>
+              )}
               <Panel id={SESSION_PANES}>
                 <SessionPaneRegion />
               </Panel>
