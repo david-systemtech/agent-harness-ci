@@ -100,6 +100,35 @@ describe("the first-launch mark", () => {
   });
 });
 
+describe("Skip for now", () => {
+  it("is on a skippable step's card beside Continue, moves the rail to the next step and records nothing", async () => {
+    const app = await firstLaunch();
+    const desk = app.environment("desk");
+    const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
+    const skippable: string[] = [];
+    while (within(card()).queryByRole("button", { name: "Continue" }) !== null) {
+      if (within(card()).queryByRole("button", { name: "Skip for now" }) !== null) skippable.push(within(card()).getByRole("heading").textContent ?? "");
+      await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
+    }
+    // The steps this build registers as skippable: Forges and Key manager, with nothing set up there when they are skipped.
+    expect(skippable).toEqual(["Forges", "Key manager"]);
+
+    await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
+    const commands = () => desk.requests().filter((request) => request.params["commandId"] !== undefined).length;
+    const sent = { commands: commands(), checks: desk.requests("setup.check").length };
+    await app.user.click(within(card()).getByRole("button", { name: "Skip for now" }));
+    expect(within(card()).getByRole("heading").textContent).toBe("Key manager");
+    expect(within(steps()).getByRole("button", { name: "Key manager" }).getAttribute("aria-current")).toBe("step");
+    await app.user.click(within(card()).getByRole("button", { name: "Skip for now" }));
+    expect(within(card()).getByRole("heading").textContent).toBe("Memory bank");
+    expect({ commands: commands(), checks: desk.requests("setup.check").length }).toEqual(sent);
+
+    // Nothing was recorded, the first-launch mark included: the next launch opens Set up again.
+    await app.remount();
+    expect(await screen.findByRole("region", { name: "Set up" })).toBeDefined();
+  });
+});
+
 /** The six steps both environments give results for, each done. */
 const PASSING: ScriptedSetup = { account: {}, "your-machines": {}, forges: {}, browser: {}, permissions: {}, appearance: {} };
 

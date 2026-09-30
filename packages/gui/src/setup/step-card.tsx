@@ -79,15 +79,18 @@ export const StepCard = ({ environmentId, step }: { readonly environmentId: stri
         <Button onClick={() => leave(step.home, environmentId)}>Open {settingsRow(step.home).label}</Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
-      <div className="mt-auto flex justify-end">
+      <div className="mt-auto flex justify-end gap-2">
         {next === undefined ? (
           <Button tone="primary" onClick={close}>
             Finish
           </Button>
         ) : (
-          <Button tone="primary" onClick={() => choose(next)}>
-            Continue
-          </Button>
+          <>
+            {step.skippable && <Button onClick={() => choose(next)}>Skip for now</Button>}
+            <Button tone="primary" onClick={() => choose(next)}>
+              Continue
+            </Button>
+          </>
         )}
       </div>
     </section>
