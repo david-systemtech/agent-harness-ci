@@ -75,6 +75,60 @@ export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
 export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js";
 export type { Forges, HandOverParams } from "./forges.js";
 export type { KeyManagers } from "./key-managers.js";
+export {
+  INJECTION_WORDS,
+  KEY_MANAGER_METHOD_WORDS,
+  KEY_MANAGER_PROVIDER_WORDS,
+  KEY_MANAGER_STATUS_ADVICE,
+  KEY_MANAGER_STATUS_WORDS,
+  POLICY_WRITES_WORDS,
+  basePathWords,
+  caWords,
+  certificateFacts,
+  cliRowOf,
+  cliWords,
+  copyLine,
+  injectsWords,
+  listWords,
+  methodWords,
+  mintWords,
+  originWords,
+  overridesWith,
+  policyWarning,
+  statusWords,
+  tokenWords,
+} from "./key-managers/words.js";
+export {
+  KEY_MANAGER_ADDRESS_PRESETS,
+  KEY_MANAGER_LABEL_PRESETS,
+  addConnection,
+  copyValue,
+  moveItems,
+  previewCertificate,
+  removeConnection,
+  setBasePath,
+  setInjected,
+  setPolicies,
+  signInAgain,
+  signOutConnection,
+  ticksWith,
+  updateConnection,
+  verifyConnection,
+  credentialOf,
+  credentialTyped,
+  formProblem,
+  type CertificatePreview,
+  type CopiedValue,
+  type MoveFollowUp,
+  type MoveLine,
+  type MoveOptions,
+  type ConnectionChanges,
+  type ConnectionForm,
+  type KeyManagerSender,
+  type KeyManagerOutcome,
+  type Removed,
+  type TypedCredential,
+} from "./key-managers/actions.js";
 export type { CopyOutcome, CopyReport, CopySource, CopyTarget } from "./copies.js";
 export {
   pairingDeepLink,
@@ -375,7 +429,7 @@ export {
   type SettingSaved,
   type SettingsWriter,
 } from "./settings/editor.js";
-export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, type SettingsLink } from "./settings/rows.js";
+export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, stepHome, type SettingsLink } from "./settings/rows.js";
 export {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,

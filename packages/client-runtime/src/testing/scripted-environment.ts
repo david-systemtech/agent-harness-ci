@@ -73,6 +73,7 @@ import type { GrantReader, HttpFetch, WebSocketFactory } from "../platform.js";
 import { FAKE_HARNESS_VERSION, fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
 import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
+import { KEY_MANAGER_COMMANDS, scriptedKeyManagers, type ScriptedKeyManagers, type ScriptedKeyManagersHandle } from "./scripted-key-managers.js";
 import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
 import { scriptedSetup, type ScriptedSetup, type ScriptedSetupHandle } from "./scripted-setup.js";
@@ -210,6 +211,12 @@ export interface ScriptedEnvironment {
    * `setup` flag, `environment.subscribe`'s snapshot carries the results last checked and a check that changed one is noticed.
    */
   readonly setup?: ScriptedSetup;
+  /**
+   * The key-manager connections, the key manager behind them, the items Move lists and the managed tools' rows
+   * (`scripted-key-managers.ts`): preset none held, over a key manager that takes every credential. The `keyManagers` and
+   * `managedTools` flags are the script's `capabilities`.
+   */
+  readonly keyManagers?: ScriptedKeyManagers;
 }
 
 /**
@@ -260,7 +267,7 @@ export interface Script {
   readonly environments: readonly ScriptedEnvironment[];
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle {
+export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -1089,7 +1096,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     readonly subscriptions: Set<string>;
   }
   const terminals = new Map<string, HeldTerminal>();
-  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
+  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, owner: "session", sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
   const lastOf = (t: HeldTerminal) => t.last;
   const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
     sequence: at,
@@ -1630,6 +1637,17 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     },
   }));
 
+  // The key-manager connections and Move (`scripted-key-managers.ts`).
+  const keyManagers = scriptedKeyManagers({
+    clock,
+    wire,
+    script: spec.keyManagers,
+    notice,
+    head: () => sequence,
+    next: () => ++sequence,
+    refusal: (method) => rejection(method),
+  });
+
   const others = (spec.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
   const revoked = new Set<string>();
   wire.answer("access.sessions.list", (params) => {
@@ -1739,6 +1757,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "terminals.write",
     "terminals.resize",
     "terminals.close",
+    ...KEY_MANAGER_COMMANDS,
     ...LIST_COMMANDS,
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
@@ -1855,6 +1874,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     notice,
     ...prompts,
     setSetup: setup.setSetup,
+    ...keyManagers,
     holdSetupChecks: setup.holdSetupChecks,
     passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
@@ -1918,3 +1938,4 @@ export { DISCOVERY_PATH };
 export { SCRIPTED_HOME, type ScriptedList } from "./scripted-list.js";
 export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scripted-prompts.js";
 export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js";
+export { certificateOf, type ScriptedKeyManagers, type ScriptedMoveItem } from "./scripted-key-managers.js";

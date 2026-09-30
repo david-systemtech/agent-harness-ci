@@ -22,6 +22,7 @@ import { openPresentation, type PaneSession, type Presentation, type Presentatio
 import type { StepCards } from "../src/setup/cards.js";
 
 export {
+  certificateOf,
   scriptedWorld,
   type EnvironmentHandle,
   type Script,

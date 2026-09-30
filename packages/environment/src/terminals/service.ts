@@ -13,7 +13,7 @@ import { sessionNotFound } from "../sessions/decider.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { requireSessionWorkspace, sessionWorkspace, sessionWorkspaceStatus } from "../workspace/session.js";
 import { PtyUnavailableError } from "./pty.js";
-import { createTerminals, type Terminals, type TerminalsOptions } from "./terminals.js";
+import { createTerminals, type OpenToolTerminal, type Terminals, type TerminalsOptions, type ToolTerminal } from "./terminals.js";
 
 /**
  * The terminal methods on the method table (tui spec, "Terminals, files and
@@ -32,6 +32,13 @@ import { createTerminals, type Terminals, type TerminalsOptions } from "./termin
  * session's deletion closes its terminals (session-state spec, "Deletion":
  * an obligation on this workstream, triggered by `session.deleted`); a
  * restore brings none back.
+ *
+ * A tool terminal (#362) is opened in process, for the Managed tools
+ * registry, never by `terminals.open`. The terminal scope watches it; only
+ * a client session that also holds `admin` writes to it, resizes it or
+ * closes it (David, 2026-09-28: the scope that starts an install answers
+ * its prompts, a `sudo` password among them), anyone else refused
+ * `forbidden` naming `admin`.
  */
 
 export interface TerminalServiceOptions extends Omit<TerminalsOptions, "clock"> {
@@ -41,8 +48,20 @@ export interface TerminalServiceOptions extends Omit<TerminalsOptions, "clock"> 
   readonly availability: Pick<AvailabilityWatcher, "check">;
 }
 
+/** Tool terminals as the environment opens them in process (#362): for the Managed tools registry, whose runner (#376) opens one per install or update. */
+export interface ToolTerminals {
+  /**
+   * Opens a tool terminal with `request`'s id (in any case; kept in
+   * lowercase) and starts its command. Throws `ContractError` `conflict`,
+   * reason `exists`, for an id used on this environment already, and reason
+   * `pty_unavailable` where no pseudo-terminal can start, opening nothing.
+   */
+  open(request: OpenToolTerminal): ToolTerminal;
+}
+
 export interface TerminalService {
   readonly terminals: Terminals;
+  readonly tools: ToolTerminals;
   readonly handlers: MethodHandlers;
   /** Stops hearing deletions and closes every terminal. */
   close(): void;
@@ -51,8 +70,8 @@ export interface TerminalService {
 /** Where a terminal command's receipt is kept: the terminal's own aggregate, which no event is appended to. */
 const terminalAggregate = (id: string): StreamRef => ({ kind: TERMINAL_STREAM_KIND, id });
 
-/** How a terminal command is refused: its session or terminal is not there, or its state does not allow it. */
-type Refusal = CommandRejection<"not_found" | "conflict">;
+/** How a terminal command is refused: its session or terminal is not there, its state does not allow it, or its caller may not. */
+type Refusal = CommandRejection<"not_found" | "conflict" | "forbidden">;
 
 const notOpen = (id: string): Refusal => ({
   code: "not_found",
@@ -66,10 +85,24 @@ const conflict = (reason: string, message: string, data: Record<string, unknown>
   data: { reason, ...data },
 });
 
-/** The open terminal a command on `id` acts on, or its rejection: not open, or (unless `exitedToo`) exited. */
-const target = (terminals: Terminals, id: string, exitedToo = false): { info: TerminalInfo } | { rejected: Refusal } => {
+const exists = (id: string): Refusal => conflict("exists", `A terminal ${id} was opened on this environment already.`, { id });
+
+/** A tool terminal's write, resize or close by a client session without `admin`. */
+const toolTerminalNeedsAdmin = (id: string): Refusal => ({
+  code: "forbidden",
+  message: `Terminal ${id} is a tool terminal: only a client session holding the admin scope may write to it, resize it or close it.`,
+  data: { scope: "admin" },
+});
+
+/**
+ * The open terminal a command on `id` acts on, or its rejection: not open;
+ * a tool terminal and `caller` without `admin`; or (unless `exitedToo`)
+ * exited.
+ */
+const target = (terminals: Terminals, id: string, caller: CommandContext, exitedToo = false): { info: TerminalInfo } | { rejected: Refusal } => {
   const info = terminals.info(id);
   if (info === undefined) return { rejected: notOpen(id) };
+  if (info.owner === "managed-tools" && !caller.clientSession.scopes.includes("admin")) return { rejected: toolTerminalNeedsAdmin(id) };
   if (!exitedToo && info.exitCode !== null) {
     return { rejected: conflict("exited", `Terminal ${id}'s shell has exited (code ${info.exitCode}); open another.`, { id, exitCode: info.exitCode }) };
   }
@@ -129,6 +162,17 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     return looking === undefined ? then() : looking.then(then);
   };
 
+  /** Why no terminal can start here, or undefined when one can. */
+  const noPty = (): Refusal | undefined => {
+    try {
+      terminals.check();
+      return undefined;
+    } catch (error) {
+      if (!(error instanceof PtyUnavailableError)) throw error;
+      return conflict("pty_unavailable", error.message);
+    }
+  };
+
   /** A command on a terminal, prepared only to wait for the terminal's open (`afterOpening`). */
   const behindOpen = <N extends "terminals.write" | "terminals.resize" | "terminals.close">(handler: MethodHandler<N>): PreparedCommand<N> => ({
     prepare: (params) => afterOpening(params.id.toLowerCase(), () => handler),
@@ -145,7 +189,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     const aggregate = terminalAggregate(id);
     const workspace = sessionWorkspaceStatus(log, sessionId);
     if (workspace === null) return { aggregate, rejected: sessionNotFound(sessionId) };
-    if (used(id)) return { aggregate, rejected: conflict("exists", `A terminal ${id} was opened on this environment already.`, { id }) };
+    if (used(id)) return { aggregate, rejected: exists(id) };
     if (terminals.list(sessionId).length >= MAX_TERMINALS_PER_SESSION) {
       return {
         aggregate,
@@ -159,12 +203,8 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     if (workspace.status === "missing") {
       return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is gone, or did not answer in time.`, { path: cwd }) };
     }
-    try {
-      terminals.check();
-    } catch (error) {
-      if (!(error instanceof PtyUnavailableError)) throw error;
-      return { aggregate, rejected: conflict("pty_unavailable", error.message) };
-    }
+    const unavailable = noPty();
+    if (unavailable !== undefined) return { aggregate, rejected: unavailable };
     const request = {
       id,
       sessionId,
@@ -175,7 +215,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
       openedAt: clock.now().toISOString(),
     };
     afterCommit(context, () => void terminals.open(request));
-    const terminal: TerminalInfo = { id, sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
+    const terminal: TerminalInfo = { id, owner: "session", sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
     return { aggregate, result: { terminal } };
   };
 
@@ -193,7 +233,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
 
     "terminals.write": behindOpen((params, context) => {
       const id = params.id.toLowerCase();
-      const found = target(terminals, id);
+      const found = target(terminals, id, context);
       if ("rejected" in found) return { aggregate: terminalAggregate(id), rejected: found.rejected };
       afterCommit(context, () => terminals.write(id, params.data));
       return { aggregate: terminalAggregate(id), result: { id } };
@@ -201,7 +241,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
 
     "terminals.resize": behindOpen((params, context) => {
       const id = params.id.toLowerCase();
-      const found = target(terminals, id);
+      const found = target(terminals, id, context);
       if ("rejected" in found) return { aggregate: terminalAggregate(id), rejected: found.rejected };
       afterCommit(context, () => terminals.resize(id, params.cols, params.rows));
       return { aggregate: terminalAggregate(id), result: { terminal: { ...found.info, cols: params.cols, rows: params.rows } } };
@@ -209,7 +249,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
 
     "terminals.close": behindOpen((params, context) => {
       const id = params.id.toLowerCase();
-      const found = target(terminals, id, true);
+      const found = target(terminals, id, context, true);
       if ("rejected" in found) return { aggregate: terminalAggregate(id), rejected: found.rejected };
       afterCommit(context, () => terminals.close(id, "closed"));
       return { aggregate: terminalAggregate(id), result: { id } };
@@ -231,8 +271,18 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     },
   };
 
+  const tools: ToolTerminals = {
+    open(request) {
+      const id = request.id.toLowerCase();
+      const refused = (used(id) ? exists(id) : undefined) ?? noPty();
+      if (refused !== undefined) throw new ContractError({ code: refused.code, message: refused.message ?? refused.code, data: refused.data ?? {} });
+      return terminals.openTool({ ...request, id });
+    },
+  };
+
   return {
     terminals,
+    tools,
     handlers,
     close() {
       stopHearing();

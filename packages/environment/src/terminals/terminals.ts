@@ -3,6 +3,7 @@ import {
   TERMINAL_EXITED_TYPE,
   TERMINAL_OUTPUT_TYPE,
   TERMINAL_STREAM_KIND,
+  TOOL_TERMINAL_KEPT_MS,
   type TerminalExitCause,
   type TerminalExitedPayload,
   type TerminalInfo,
@@ -16,7 +17,7 @@ import type { FeedSource } from "../wire/subscriptions.js";
 import type { ProcessEnvironment } from "../adapter/contract.js";
 import { nodePty, type Pty, type PtyProcess } from "./pty.js";
 import { createScrollback, type Chunk, type Scrollback } from "./scrollback.js";
-import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
+import { baseEnvironment, loginShell, throughShell, type ShellCommand } from "./shell.js";
 
 /**
  * The environment's terminals (tui spec, "Terminals, files and diffs"):
@@ -55,6 +56,17 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * typed once it starts, up to 64 KiB, what comes past that dropped and
  * said once; and a terminal closed before then exits at once, starts none,
  * and releases what it is supplied as that comes.
+ *
+ * A **tool terminal** (#362; key-managers spec, "Managed tools"; ADR 0026)
+ * is owned by the Managed tools registry rather than a session: it runs
+ * one command line through the user's login shell, in the directory and at
+ * the size its opener gives, over the clean base and the opener's
+ * variables, and is streamed, written to, resized and closed by its id as
+ * a session's is. It names no session, so no session lists it, counts it
+ * toward its sixteen or closes it. Its opener learns the command's exit;
+ * it keeps its scrollback thirty minutes after that, by the environment's
+ * clock, then closes. While its command runs it holds the environment
+ * busy, as a shell running a command does.
  */
 
 /** How long output is gathered into one chunk, in real milliseconds. */
@@ -90,7 +102,7 @@ export interface TerminalsOptions {
   readonly killGraceMs?: number;
 }
 
-/** What opening a terminal takes, once the command has decided it may. */
+/** What opening a session's terminal takes, once the command has decided it may. */
 export interface OpenTerminal {
   readonly id: string;
   readonly sessionId: string;
@@ -99,6 +111,30 @@ export interface OpenTerminal {
   readonly rows: number;
   readonly env: Readonly<Record<string, string>>;
   readonly openedAt: string;
+}
+
+/** What opening a tool terminal takes (#362). */
+export interface OpenToolTerminal {
+  readonly id: string;
+  /** The command line the user's login shell runs (`throughShell`), and nothing else: the terminal's command. */
+  readonly command: string;
+  /** The directory it runs in. */
+  readonly cwd: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** Put over the clean base. */
+  readonly env: Readonly<Record<string, string>>;
+}
+
+/** A tool terminal as its opener holds it. */
+export interface ToolTerminal {
+  readonly terminal: TerminalInfo;
+  /**
+   * Settles once its command has exited: with its code and signal, and the
+   * cause `exited`; `closed` when a close hung it up (the environment
+   * stopping among them); `failed`, code -1, when it could not start.
+   */
+  readonly exited: Promise<TerminalExitedPayload>;
 }
 
 export interface Terminals {
@@ -114,6 +150,8 @@ export interface Terminals {
    * its scrollback saying why; the failure is logged, never thrown.
    */
   open(request: OpenTerminal): TerminalInfo;
+  /** Opens a tool terminal and starts its command, as `open` starts a shell; see the module comment. */
+  openTool(request: OpenToolTerminal): ToolTerminal;
   /** Writes to the terminal's shell; nothing for a terminal that is not running. */
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
@@ -121,7 +159,7 @@ export interface Terminals {
   close(id: string, cause: Extract<TerminalExitCause, "closed" | "deleted">): void;
   /** Closes every terminal of the session, with cause `deleted`. */
   closeSession(sessionId: string): void;
-  /** The session's open terminals, oldest first. */
+  /** The session's open terminals, oldest first: never a tool terminal. */
   list(sessionId: string): TerminalInfo[];
   /** The subscription source of the open terminal `id`; undefined when there is none. */
   source(id: string): FeedSource<TerminalSnapshot> | undefined;
@@ -129,8 +167,9 @@ export interface Terminals {
   closeAll(): void;
   /**
    * Whether any open terminal's shell runs a command in its foreground (a
-   * build, a watcher), which holds the environment busy as a run does; a
-   * shell at its prompt holds nothing (#343).
+   * build, a watcher), or any tool terminal's command has not exited, which
+   * holds the environment busy as a run does; a shell at its prompt holds
+   * nothing (#343).
    */
   commandRunning(): boolean;
 }
@@ -141,9 +180,21 @@ interface Exit {
   readonly event: EventEnvelope;
 }
 
+/** Whose a terminal is: a session's, or the Managed tools registry's, which hears its command's exit. */
+type Owner =
+  | { readonly kind: "session"; readonly sessionId: string }
+  | { readonly kind: "managed-tools"; readonly exited: (exit: TerminalExitedPayload) => void };
+
+/** How a terminal's process is started: the program, where, and in what. */
+interface Launch {
+  readonly command: () => ShellCommand;
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
+}
+
 interface Terminal {
   readonly id: string;
-  readonly sessionId: string;
+  readonly owner: Owner;
   readonly openedAt: string;
   cols: number;
   rows: number;
@@ -164,7 +215,7 @@ interface Terminal {
   holding: Timer | undefined;
   closing: TerminalExitCause | undefined;
   killing: ReturnType<typeof setTimeout> | undefined;
-  /** When an exited terminal's scrollback is dropped. */
+  /** When an exited terminal's scrollback is dropped, or an exited tool terminal closes. */
   forgetting: Timer | undefined;
   exit: Exit | undefined;
 }
@@ -189,15 +240,22 @@ const envelope = (terminal: Terminal, sequence: number, eventId: string, occurre
 const outputEvent = (terminal: Terminal, chunk: Chunk): EventEnvelope =>
   envelope(terminal, chunk.sequence, chunk.eventId, chunk.occurredAt, TERMINAL_OUTPUT_TYPE, { data: chunk.data });
 
-const infoOf = (terminal: Terminal): TerminalInfo => ({
-  id: terminal.id,
-  sessionId: terminal.sessionId,
-  openedAt: terminal.openedAt,
-  cols: terminal.cols,
-  rows: terminal.rows,
-  exitCode: terminal.exit?.exitCode ?? null,
-  signal: terminal.exit?.signal ?? null,
-});
+const infoOf = (terminal: Terminal): TerminalInfo => {
+  const fields = {
+    id: terminal.id,
+    openedAt: terminal.openedAt,
+    cols: terminal.cols,
+    rows: terminal.rows,
+    exitCode: terminal.exit?.exitCode ?? null,
+    signal: terminal.exit?.signal ?? null,
+  };
+  return terminal.owner.kind === "session"
+    ? { ...fields, owner: "session", sessionId: terminal.owner.sessionId }
+    : { ...fields, owner: "managed-tools", sessionId: null };
+};
+
+/** Whether `terminal` is the session `sessionId`'s. */
+const ofSession = (terminal: Terminal, sessionId: string): boolean => terminal.owner.kind === "session" && terminal.owner.sessionId === sessionId;
 
 const snapshotOf = (terminal: Terminal, scrub: (text: string) => string): TerminalSnapshot => ({
   terminal: infoOf(terminal),
@@ -298,15 +356,22 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     terminal.exit = { exitCode, signal: signalNumber, event };
     publish(terminal, event);
     terminal.listeners.clear();
-    terminal.forgetting = options.clock.setTimeout(() => terminal.scrollback.clear(), EXITED_SCROLLBACK_MS);
+    const { owner } = terminal;
+    if (owner.kind === "managed-tools") owner.exited(payload);
+    // Closed already, it has nothing left to drop.
+    if (open.get(terminal.id) !== terminal) return;
+    terminal.forgetting =
+      owner.kind === "managed-tools"
+        ? options.clock.setTimeout(() => close(terminal.id, "closed"), TOOL_TERMINAL_KEPT_MS)
+        : options.clock.setTimeout(() => terminal.scrollback.clear(), EXITED_SCROLLBACK_MS);
   };
 
-  /** Starts the terminal's shell in `supplied`, over the clean base and under the client's variables, and types what was typed at it meanwhile. */
-  const start = (terminal: Terminal, request: OpenTerminal, supplied: Readonly<Record<string, string>>): void => {
+  /** Starts the terminal's process in `supplied`, over the clean base and under the opener's variables, and types what was typed at it meanwhile. */
+  const start = (terminal: Terminal, launch: Launch, supplied: Readonly<Record<string, string>>): void => {
     try {
-      const command = shell();
-      const env = { ...base(), ...(process.platform === "win32" ? {} : { SHELL: command.file }), ...supplied, ...request.env };
-      const child = pty.spawn(command.file, command.args, { cwd: request.cwd, cols: terminal.cols, rows: terminal.rows, env });
+      const command = launch.command();
+      const env = { ...base(), ...(process.platform === "win32" ? {} : { SHELL: command.file }), ...supplied, ...launch.env };
+      const child = pty.spawn(command.file, command.args, { cwd: launch.cwd, cols: terminal.cols, rows: terminal.rows, env });
       terminal.process = child;
       child.onData((data) => hear(terminal, data));
       child.onExit(({ exitCode, signal: signalNumber }) => exited(terminal, exitCode, signalNumber ? signalNumber : null));
@@ -331,12 +396,40 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     if (terminal.process === undefined) {
       // Its shell never started: it exits now, and whatever it is supplied later is released as it comes.
       exited(terminal, -1, null);
-      terminal.forgetting?.cancel();
       return;
     }
     signal(terminal.process, "SIGHUP");
     terminal.killing = setTimeout(() => signal(terminal.process, "SIGKILL"), killGraceMs);
     terminal.killing.unref?.();
+  };
+
+  /** Keeps a new terminal of `owner`'s open, its process not started yet. */
+  const admit = (request: { readonly id: string; readonly openedAt: string; readonly cols: number; readonly rows: number }, owner: Owner): Terminal => {
+    used.add(request.id);
+    const terminal: Terminal = {
+      id: request.id,
+      owner,
+      openedAt: request.openedAt,
+      cols: request.cols,
+      rows: request.rows,
+      scrollback: createScrollback(),
+      listeners: new Set(),
+      process: undefined,
+      typed: [],
+      typedBytes: 0,
+      release: undefined,
+      pending: [],
+      pendingBytes: 0,
+      gathering: undefined,
+      output: options.scrub.stream(),
+      holding: undefined,
+      closing: undefined,
+      killing: undefined,
+      forgetting: undefined,
+      exit: undefined,
+    };
+    open.set(request.id, terminal);
+    return terminal;
   };
 
   return {
@@ -347,32 +440,10 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
       return terminal === undefined ? undefined : infoOf(terminal);
     },
     open(request) {
-      used.add(request.id);
-      const terminal: Terminal = {
-        id: request.id,
-        sessionId: request.sessionId,
-        openedAt: request.openedAt,
-        cols: request.cols,
-        rows: request.rows,
-        scrollback: createScrollback(),
-        listeners: new Set(),
-        process: undefined,
-        typed: [],
-        typedBytes: 0,
-        release: undefined,
-        pending: [],
-        pendingBytes: 0,
-        gathering: undefined,
-        output: options.scrub.stream(),
-        holding: undefined,
-        closing: undefined,
-        killing: undefined,
-        forgetting: undefined,
-        exit: undefined,
-      };
-      open.set(request.id, terminal);
+      const terminal = admit(request, { kind: "session", sessionId: request.sessionId });
+      const launch: Launch = { command: shell, cwd: request.cwd, env: request.env };
       const environment = options.processEnvironment;
-      if (environment === undefined) start(terminal, request, {});
+      if (environment === undefined) start(terminal, launch, {});
       else {
         // Built and asked in one step, so a failure to build it is a failure to supply it, and the shell still starts.
         void (async () => environment(request.sessionId).supply())().then(
@@ -380,15 +451,22 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
             terminal.release = supplied.release;
             // Closed while it was supplied: nothing starts, and what came is released.
             if (terminal.exit !== undefined) return release(terminal);
-            start(terminal, request, supplied.variables);
+            start(terminal, launch, supplied.variables);
           },
           (error: unknown) => {
             console.error(`The process environment of terminal ${terminal.id} could not be supplied; its shell starts without it:`, error);
-            if (terminal.exit === undefined) start(terminal, request, {});
+            if (terminal.exit === undefined) start(terminal, launch, {});
           },
         );
       }
       return infoOf(terminal);
+    },
+    openTool(request) {
+      let heard: (exit: TerminalExitedPayload) => void = () => undefined;
+      const exited = new Promise<TerminalExitedPayload>((resolve) => (heard = resolve));
+      const terminal = admit({ ...request, openedAt: options.clock.now().toISOString() }, { kind: "managed-tools", exited: (exit) => heard(exit) });
+      start(terminal, { command: () => throughShell(shell(), request.command), cwd: request.cwd, env: request.env }, {});
+      return { terminal: infoOf(terminal), exited };
     },
     write(id, data) {
       const terminal = open.get(id);
@@ -417,9 +495,9 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     },
     close,
     closeSession(sessionId) {
-      for (const terminal of [...open.values()]) if (terminal.sessionId === sessionId) close(terminal.id, "deleted");
+      for (const terminal of [...open.values()]) if (ofSession(terminal, sessionId)) close(terminal.id, "deleted");
     },
-    list: (sessionId) => [...open.values()].filter((terminal) => terminal.sessionId === sessionId).map(infoOf),
+    list: (sessionId) => [...open.values()].filter((terminal) => ofSession(terminal, sessionId)).map(infoOf),
     source(id) {
       const terminal = open.get(id);
       if (terminal === undefined) return undefined;
@@ -463,6 +541,8 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     commandRunning: () =>
       [...open.values()].some((terminal) => {
         if (terminal.exit !== undefined || terminal.closing !== undefined) return false;
+        // A tool terminal is its command: running until it exits.
+        if (terminal.owner.kind === "managed-tools") return true;
         try {
           return terminal.process?.commandRunning() ?? false;
         } catch (error) {
