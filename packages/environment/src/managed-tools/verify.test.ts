@@ -171,7 +171,7 @@ posix("a failed bao token lookup", () => {
     const { bao, cli, client } = await withOpenBao(["bao"]);
     await connected(client, bao);
     bao.answer("GET auth/token/lookup-self", { status: 403, error: "permission denied" });
-    cli.bao?.leakTokenOnFailure();
+    cli.bao?.leakTokenOnRefusal();
 
     const answer = await verifyTool(client, "bao");
     const token = bao.created.at(-1) ?? "";

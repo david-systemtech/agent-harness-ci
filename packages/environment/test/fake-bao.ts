@@ -53,8 +53,8 @@ export interface FakeOpenBaoCli {
   readonly path: string;
   /** Every call so far, in order. */
   calls(): FakeOpenBaoCliCall[];
-  /** From the next call on, a failed lookup's error lines name the token it was given, as an error echoing a secret would. */
-  leakTokenOnFailure(): void;
+  /** From the next call on, a lookup the key manager refuses lists the token it was given among its error lines, as an error echoing a secret would; one that cannot reach it does not. */
+  leakTokenOnRefusal(): void;
 }
 
 /** What the fake OpenBao CLI runs: `bao` or `vault` speaking to the key manager its variables name, as the real ones do. */
@@ -78,12 +78,11 @@ const read = (suffix) => {
   }
   return undefined;
 };
+// Written, then left to end with the code once the write has flushed: process.exit could cut a pipe's pending write short.
 const exit = (stream, text, code) => {
   stream.write(text);
-  process.exit(code);
+  process.exitCode = code;
 };
-
-if (argv[0] === "--version" || argv[0] === "version") exit(process.stdout, name === "bao" ? "OpenBao v2.6.3 (fake for tests)\n" : "Vault v1.15.0 ('fake for tests'), built 2026-01-01T00:00:00Z\n", 0);
 
 const address = read("ADDR") ?? "https://127.0.0.1:8200";
 const token = read("TOKEN") ?? "";
@@ -91,7 +90,8 @@ const ca = read("CACERT_BYTES");
 const call = (path, withToken) =>
   new Promise((resolve) => {
     const url = new URL("/v1/" + path, address);
-    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, { method: "GET", headers: withToken && token !== "" ? { "X-Vault-Token": token } : {}, ...(ca !== undefined && { ca }) }, (response) => {
+    const options = { method: "GET", agent: false, headers: withToken && token !== "" ? { "X-Vault-Token": token } : {}, ...(ca !== undefined && { ca }) };
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, options, (response) => {
       let body = "";
       response.setEncoding("utf8");
       response.on("data", (chunk) => (body += chunk));
@@ -101,34 +101,39 @@ const call = (path, withToken) =>
     request.end();
   });
 
-if (argv[0] === "token" && argv[1] === "lookup") {
-  const answer = await call("auth/token/lookup-self", true);
-  if (answer.error !== undefined) exit(process.stderr, "Error looking up token: Get \"" + answer.url + "\": " + answer.error.message + "\n", 2);
-  if (answer.status !== 200) {
-    const errors = [...(answer.body.errors ?? []), ...(existsSync(leaks) ? ["the token was " + token] : [])];
-    exit(process.stderr, "Error looking up token: Error making API request.\n\nURL: GET " + answer.url + "\nCode: " + answer.status + ". Errors:\n\n" + errors.map((error) => "* " + error).join("\n") + "\n", 2);
+const main = async () => {
+  if (argv[0] === "--version" || argv[0] === "version") return exit(process.stdout, name === "bao" ? "OpenBao v2.6.3 (fake for tests)\n" : "Vault v1.15.0 ('fake for tests'), built 2026-01-01T00:00:00Z\n", 0);
+
+  if (argv[0] === "token" && argv[1] === "lookup") {
+    const answer = await call("auth/token/lookup-self", true);
+    if (answer.error !== undefined) return exit(process.stderr, "Error looking up token: Get \"" + answer.url + "\": " + answer.error.message + "\n", 2);
+    if (answer.status !== 200) {
+      const errors = [...(answer.body.errors ?? []), ...(existsSync(leaks) ? ["the token was " + token] : [])];
+      return exit(process.stderr, "Error looking up token: Error making API request.\n\nURL: GET " + answer.url + "\nCode: " + answer.status + ". Errors:\n\n" + errors.map((error) => "* " + error).join("\n") + "\n", 2);
+    }
+    const data = answer.body.data;
+    const rows = [
+      ["accessor", data.accessor],
+      ["display_name", data.display_name],
+      ["id", token],
+      ["meta", "map[" + Object.entries(data.meta ?? {}).map(([key, value]) => key + ":" + value).join(" ") + "]"],
+      ["policies", "[" + data.policies.join(" ") + "]"],
+      ["renewable", String(data.renewable)],
+      ["ttl", data.ttl + "s"],
+      ["type", data.type],
+    ];
+    return exit(process.stdout, ["Key                 Value", "---                 -----", ...rows.map(([key, value]) => key.padEnd(20) + value)].join("\n") + "\n", 0);
   }
-  const data = answer.body.data;
-  const rows = [
-    ["accessor", data.accessor],
-    ["display_name", data.display_name],
-    ["id", token],
-    ["meta", "map[" + Object.entries(data.meta ?? {}).map(([key, value]) => key + ":" + value).join(" ") + "]"],
-    ["policies", "[" + data.policies.join(" ") + "]"],
-    ["renewable", String(data.renewable)],
-    ["ttl", data.ttl + "s"],
-    ["type", data.type],
-  ];
-  exit(process.stdout, ["Key                 Value", "---                 -----", ...rows.map(([key, value]) => key.padEnd(20) + value)].join("\n") + "\n", 0);
-}
 
-if (argv[0] === "status") {
-  const answer = await call("sys/seal-status", false);
-  if (answer.error !== undefined) exit(process.stderr, "Error checking seal status: Get \"" + answer.url + "\": " + answer.error.message + "\n", 1);
-  exit(process.stdout, "Key             Value\n---             -----\nSeal Type       shamir\nInitialized     true\nSealed          " + answer.body.sealed + "\n", answer.body.sealed ? 2 : 0);
-}
+  if (argv[0] === "status") {
+    const answer = await call("sys/seal-status", false);
+    if (answer.error !== undefined) return exit(process.stderr, "Error checking seal status: Get \"" + answer.url + "\": " + answer.error.message + "\n", 1);
+    return exit(process.stdout, "Key             Value\n---             -----\nSeal Type       shamir\nInitialized     true\nSealed          " + answer.body.sealed + "\n", answer.body.sealed ? 2 : 0);
+  }
 
-exit(process.stderr, "Usage: " + name + " <command> [args]\n", 1);
+  return exit(process.stderr, "Usage: " + name + " <command> [args]\n", 1);
+};
+await main();
 `;
 
 /**
@@ -158,6 +163,6 @@ export const installFakeOpenBaoCli = (directory: string, name: "bao" | "vault"):
         .split("\n")
         .filter((line) => line !== "")
         .map((line) => JSON.parse(line) as FakeOpenBaoCliCall),
-    leakTokenOnFailure: () => writeFileSync(leaks, ""),
+    leakTokenOnRefusal: () => writeFileSync(leaks, ""),
   };
 };
