@@ -225,7 +225,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       if ("ref" in until) return refused(NO_REFS);
       const bound = waitBoundMs(until);
       const asked = "ms" in until ? until.ms : (until.timeoutMs ?? WAIT_FOR_MS.preset);
-      const clamped = asked > WAIT_FOR_MS.max ? `A wait is at most ${seconds(WAIT_FOR_MS.max)}, so this one waited ${seconds(WAIT_FOR_MS.max)}, not ${seconds(asked)}.` : undefined;
+      const clamped = asked > WAIT_FOR_MS.max ? `A wait is at most ${seconds(WAIT_FOR_MS.max)}: the ${seconds(asked)} asked for were cut to ${seconds(WAIT_FOR_MS.max)}.` : undefined;
       const waited = (value: PageLocation): PageResult<"waitFor"> => ({ ok: true, value, ...(clamped !== undefined && { notice: clamped }) });
       if ("ms" in until) {
         await page.pause(bound);

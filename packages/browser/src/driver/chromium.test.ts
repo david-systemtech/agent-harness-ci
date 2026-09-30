@@ -64,6 +64,12 @@ beforeAll(async () => {
   if (chromium === undefined) return;
   server = createServer((request, response) => {
     const name = (request.url ?? "/").replace(/^\/+/, "").replace(/[?#].*$/, "");
+    // A fixture page by its own name, and nothing else: no path climbs out of the fixtures' folder.
+    if (!/^[\w-]+\.html$/.test(name)) {
+      response.statusCode = 404;
+      response.end();
+      return;
+    }
     try {
       const page = readFileSync(new URL(name, FIXTURES), "utf8").replaceAll("{{PORT}}", String(port));
       response.setHeader("content-type", "text/html; charset=utf-8");

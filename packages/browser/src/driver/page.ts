@@ -102,6 +102,8 @@ export type FrameOutcome<R> = { readonly frame: PageFrame; readonly ok: true; re
 export type LoadOutcome = { readonly kind: "loaded" } | { readonly kind: "slow" } | { readonly kind: "failed"; readonly errorText: string };
 
 interface NetworkRecord {
+  /** The request's key among the page's requests: its session and its request id. */
+  readonly key: string;
   entry: { -readonly [K in keyof NetworkEntry]: NetworkEntry[K] };
   readonly started: number;
 }
@@ -768,6 +770,7 @@ export class CdpPage {
       }
       const request = params.request as { url: string; method: string };
       const record: NetworkRecord = {
+        key,
         entry: {
           method: request.method,
           url: request.url,
@@ -779,7 +782,9 @@ export class CdpPage {
       this.requests.set(key, record);
       this.requestOrder.push(record);
       if (this.requestOrder.length > RECORD_LIMIT) {
-        this.requestOrder.shift();
+        const dropped = this.requestOrder.shift() as NetworkRecord;
+        // A redirect's earlier hop shares its key with the hop after it, which stays.
+        if (this.requests.get(dropped.key) === dropped) this.requests.delete(dropped.key);
         this.requestsDropped++;
       }
       return;

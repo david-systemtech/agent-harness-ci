@@ -379,7 +379,7 @@ describe("click at a point, scroll and wait", () => {
     const answer = perform("waitFor", { until: { ms: 90_000 } });
     await expect.poll(() => clock.pending(), { timeout: 30_000 }).toBe(1);
     clock.advance(30_000);
-    expect(await answer).toEqual({ ok: true, value: { url: "about:blank", title: "" }, notice: "A wait is at most 30 seconds, so this one waited 30 seconds, not 90 seconds." });
+    expect(await answer).toEqual({ ok: true, value: { url: "about:blank", title: "" }, notice: "A wait is at most 30 seconds: the 90 seconds asked for were cut to 30 seconds." });
   });
 
   it("waits for text to appear in any frame, looking again until it does", async () => {
@@ -423,7 +423,18 @@ describe("click at a point, scroll and wait", () => {
     }
     expect(await longer).toEqual({
       ok: false,
-      reason: '"Never" did not appear on the page within 30 seconds. A wait is at most 30 seconds, so this one waited 30 seconds, not 45 seconds.',
+      reason: '"Never" did not appear on the page within 30 seconds. A wait is at most 30 seconds: the 45 seconds asked for were cut to 30 seconds.',
+    });
+  });
+
+  it("says a longer ask was cut without claiming the whole bound was waited when the text came at once", async () => {
+    const { peer, perform } = await driven();
+    await perform("open", {});
+    peer.inPage("showsText", () => true);
+    expect(await perform("waitFor", { until: { text: "Ready", timeoutMs: 45_000 } })).toEqual({
+      ok: true,
+      value: { url: "about:blank", title: "" },
+      notice: "A wait is at most 30 seconds: the 45 seconds asked for were cut to 30 seconds.",
     });
   });
 });
@@ -475,6 +486,24 @@ describe("the deep verbs under the host's policy", () => {
     expect(answer.value).toHaveLength(1_000);
     expect(answer.value[0]?.text).toBe("line 6");
     expect(answer.notice).toBe("The 5 oldest lines were dropped: the browser keeps the latest 1,000 between two reads.");
+  });
+
+  it("keeps the latest 1,000 requests between two reads, and says how many older ones went", async () => {
+    const { peer, perform } = await driven({ kind: "headless", networkAtAttach: true });
+    await perform("open", {});
+    const session = peer.sentOf("Network.enable")[0]?.sessionId;
+    for (let n = 1; n <= 1_003; n++) {
+      peer.emit("Network.requestWillBeSent", { requestId: `r${n}`, request: { url: `https://example.com/${n}`, method: "GET" }, timestamp: 1, wallTime: at / 1_000, type: "Fetch" }, session);
+    }
+    // The peer's answer to a later command comes after the events it sent before it.
+    await perform("screenshot", {});
+    const answer = await perform("network", {});
+    if (!answer.ok) throw new Error(answer.reason);
+    expect([answer.value.length, answer.value[0]?.url, answer.notice]).toEqual([
+      1_000,
+      "https://example.com/4",
+      "The 3 oldest requests were dropped: the browser keeps the latest 1,000 between two reads.",
+    ]);
   });
 
   it("answers the requests since the last read, only the failed ones when asked, and says the first read starts the recording", async () => {
