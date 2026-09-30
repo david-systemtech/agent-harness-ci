@@ -495,3 +495,22 @@ export {
   type AccountAdded,
   type AttendedSignIn,
 } from "./status/sign-in.js";
+export {
+  DEFAULT_CHOICE_WORDS,
+  NO_PLAN_READING,
+  NO_WINDOWS_READ,
+  accountChoiceWords,
+  accountStatusWords,
+  ambientOffer,
+  directoryWords,
+  effortChoices,
+  familyChoices,
+  familyWords,
+  gaugeWho,
+  planWords,
+  pooledWords,
+  removalWords,
+  resetWords,
+  type FamilyChoice,
+} from "./accounts/words.js";
+export { adoptAccount, relabelAccount, removeAccount, type AccountOutcome } from "./accounts/actions.js";

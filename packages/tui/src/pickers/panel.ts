@@ -1,12 +1,17 @@
 import {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,
+  NO_PLAN_READING,
+  NO_WINDOWS_READ,
   aboveCeilingWords,
   gaugeOf,
+  gaugeWho,
   identityWords,
   modelName,
   percent,
+  pooledWords,
   readingWords,
+  resetWords,
   windowWords,
   type AccountsAnswer,
   type EnvironmentView,
@@ -209,23 +214,23 @@ export const usageLines = (
   const label = (environmentId: string, accountId: string) => accounts(environmentId)?.value?.find((a) => a.id === accountId)?.label ?? accountId;
   const lines: (readonly Span[])[] = [];
   for (const gauge of usage.gauges) {
-    const who = gauge.identity?.email ?? "an account never read";
-    const pooled = gauge.accounts.map((a) => `${label(a.environmentId, a.accountId)} on ${name(a.environmentId)}`).join(", ");
-    lines.push([{ text: who, bold: true }, { text: ` · ${pooled}`, dim: true }]);
-    if (gauge.windows.length === 0) lines.push([{ text: `  ${gauge.unavailableReason ?? "No plan windows read yet."}`, dim: true }]);
+    const pooled = gauge.accounts.map((a) => pooledWords(label(a.environmentId, a.accountId), name(a.environmentId))).join(", ");
+    lines.push([{ text: gaugeWho(gauge), bold: true }, { text: ` · ${pooled}`, dim: true }]);
+    if (gauge.windows.length === 0) lines.push([{ text: `  ${gauge.unavailableReason ?? NO_WINDOWS_READ}`, dim: true }]);
     const words = columnOf(gauge.windows.map((w) => windowWords(w.window)));
     for (const window of gauge.windows) {
       const tone = meterTone(window);
+      const reset = resetWords(window.resetsAt);
       lines.push([
         { text: `  ${pad(windowWords(window.window), words)}` },
         ...(window.utilisation !== null && cells > 0 ? [{ text: `${meterBar(window.utilisation, cells)} `, ...(tone !== undefined && { color: tone }) }] : []),
         { text: window.verdict === "rejected" ? `${percent(window.utilisation)} out` : percent(window.utilisation), ...(tone !== undefined && { color: tone }), bold: tone === "red" },
-        { text: window.resetsAt !== null ? `  resets ${clockTime(window.resetsAt)}` : "", dim: true },
+        { text: reset === undefined ? "" : `  ${reset}`, dim: true },
       ]);
     }
   }
   for (const answer of usage.environments) if (answer.error) lines.push([{ text: `${name(answer.environmentId)}: ${answer.error.message}`, color: "yellow" }]);
-  if (lines.length === 0) lines.push([{ text: "No account has a plan reading yet.", dim: true }]);
+  if (lines.length === 0) lines.push([{ text: NO_PLAN_READING, dim: true }]);
   return lines;
 };
 
