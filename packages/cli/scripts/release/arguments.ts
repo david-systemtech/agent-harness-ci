@@ -6,18 +6,26 @@ import type { ReleaseRepository } from "./publish.js";
 
 /** How the release build is run, for its usage line. */
 export const BUILD_USAGE =
-  "usage: pnpm --filter agent-harness build-artefacts --tag v<version> --out <folder> --image-reference <reference> --image-digest sha256:<hex> [--platform <os>-<arch>]... [--asset <kind>=<path>]...";
+  "usage: pnpm --filter agent-harness build-artefacts --tag v<version> --out <folder> --image-reference <reference> --image-digest sha256:<hex> [--platform <os>-<arch>]... [--asset <kind>[:<platform>:<format>]=<path>]...";
 
 /** Arguments the build cannot take: the message says which. */
 export class ArgumentsError extends Error {
   override readonly name = "ArgumentsError";
 }
 
-/** An `--asset` argument, `<kind>=<path>`, its path read from `cwd`. */
+/**
+ * An `--asset` argument, `<kind>=<path>`, or `<kind>:<platform>:<format>=<path>`
+ * for an asset built for one platform (a desktop build), its path read from
+ * `cwd`.
+ */
 const otherAssetOf = (argument: string, cwd: string): OtherAsset => {
   const at = argument.indexOf("=");
-  if (at < 1 || at === argument.length - 1) throw new ArgumentsError(`--asset takes <kind>=<path>, not ${JSON.stringify(argument)}.`);
-  return { kind: argument.slice(0, at), path: resolve(cwd, argument.slice(at + 1)) };
+  const [kind, platform, format, ...more] = argument.slice(0, Math.max(at, 0)).split(":");
+  if (!kind || at === argument.length - 1 || more.length > 0 || (platform !== undefined && (!platform || !format))) {
+    throw new ArgumentsError(`--asset takes <kind>=<path> or <kind>:<platform>:<format>=<path>, not ${JSON.stringify(argument)}.`);
+  }
+  const path = resolve(cwd, argument.slice(at + 1));
+  return platform && format ? { kind, path, target: { platform, format } } : { kind, path };
 };
 
 /**

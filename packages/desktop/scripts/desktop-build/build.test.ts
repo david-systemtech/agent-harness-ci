@@ -35,12 +35,12 @@ const executableHeader = (platform: string): Buffer => {
 };
 
 /**
- * A server artefact of `platform` and `version`, packed with `tar` as the
- * release build packs one: its Node, and its CLI's `package.json`. A Windows
- * artefact is a zip on a release, which Windows' own `tar` unpacks; here it is
- * a gzipped tar, which every runner's `tar` unpacks.
+ * A server artefact of `platform` and `version`, packed as the release build
+ * packs one: its Node, and its CLI's `package.json`. A Windows artefact is a
+ * zip on a release, made here with Python's zipfile when `zip` is asked,
+ * else a gzipped tar, which every runner's `tar` unpacks.
  */
-const serverArtefact = (platform: string, version = "0.5.0"): string => {
+const serverArtefact = (platform: string, version = "0.5.0", zip = false): string => {
   const root = join(scratch(), "artefact");
   const node = platform.startsWith("win32-") ? ["node", "node.exe"] : ["node", "bin", "node"];
   mkdirSync(join(root, ...node.slice(0, -1)), { recursive: true });
@@ -48,8 +48,9 @@ const serverArtefact = (platform: string, version = "0.5.0"): string => {
   mkdirSync(join(root, "packages", "cli", "dist"), { recursive: true });
   writeFileSync(join(root, "packages", "cli", "package.json"), JSON.stringify({ name: "agent-harness", version }));
   writeFileSync(join(root, "packages", "cli", "dist", "main.js"), "export {};\n");
-  const archive = join(scratch(), `agent-harness-${platform}.tar.gz`);
-  execFileSync("tar", ["-czf", archive, "-C", root, "node", "packages"]);
+  const archive = join(scratch(), `agent-harness-${platform}.${zip ? "zip" : "tar.gz"}`);
+  if (zip) execFileSync("python3", ["-m", "zipfile", "-c", archive, "node", "packages"], { cwd: root });
+  else execFileSync("tar", ["-czf", archive, "-C", root, "node", "packages"]);
   return archive;
 };
 
@@ -205,11 +206,11 @@ describe("the desktop build", () => {
     await expect(buildDesktop(fixture("linux-x64").options({ server: archive }), fixture("linux-x64").seams)).rejects.toThrow(/names no release version/);
   });
 
-  it("builds only on the platform it builds for, naming the runner that does", async () => {
+  it("builds only on a platform it is built on, naming the runner that builds it", async () => {
     const cases = [
       ["darwin-arm64", "linux-x64", "The darwin-arm64 desktop is built on darwin-arm64, not linux-x64: run it on CI's `macos` runner."],
       ["linux-x64", "linux-arm64", "The linux-x64 desktop is built on linux-x64, not linux-arm64: run it on CI's `ci-x64` runner."],
-      ["win32-x64", "linux-x64", "The win32-x64 desktop is built on win32-x64, not linux-x64: run it on a win32-x64 machine, by hand (no CI runner has its OS)."],
+      ["win32-x64", "darwin-arm64", "The win32-x64 desktop is built on win32-x64 or linux-x64, not darwin-arm64: run it on CI's `ci-x64` runner."],
     ] as const;
     for (const [platform, host, message] of cases) {
       const build = fixture(host);
@@ -269,6 +270,17 @@ describe("the desktop build", () => {
       "!macroend",
       "",
     ]);
+  });
+
+  it("builds the Windows setup on linux-x64 too, where electron-builder runs Wine, from the release's zip artefact, unpacked as Windows unpacks it", async () => {
+    const build = fixture("linux-x64");
+    await buildDesktop(build.options({ platform: "win32-x64", server: serverArtefact("win32-x64", "0.5.0", true) }), build.seams);
+    expect(readdirSync(build.out)).toEqual(["agent-harness-desktop-win32-x64-setup.exe"]);
+    const [packed] = build.packed;
+    expect(packed?.request.target.platform).toBe("win32-x64");
+    expect(packed?.request.config).toMatchObject({ win: { target: [{ target: "nsis", arch: ["x64"] }] }, nsis: { oneClick: true, perMachine: false } });
+    expect(packed?.server).toEqual(["node/node.exe", "packages/cli/dist/main.js", "packages/cli/package.json"]);
+    expect(packed?.nsisInclude).toContain("!macro customInstall");
   });
 
   it("builds the Arch package on linux-x64: one package name for every version, its executable not the CLI's name, a desktop entry claiming the scheme, and dependencies in Arch's repositories", async () => {

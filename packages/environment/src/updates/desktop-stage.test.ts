@@ -123,6 +123,23 @@ describe("updates.desktop.stage", () => {
     expect((await stage(client, { platform: "linux-x64", format: "pacman" })).version).toBe("0.7.0-beta.1");
   });
 
+  it("on the beta channel, stages each of the three builds a published prerelease lists as the release workflow names them (#359), by the platform and format each shell reports", async () => {
+    const { fake, t, client } = await withReleases();
+    const builds: FakeDesktopBuild[] = [
+      { name: "agent-harness-desktop-darwin-arm64.zip", platform: "darwin-arm64", format: "zip", bytes: buildBytes("0.5.0-beta.1", "zip") },
+      { name: "agent-harness-desktop-win32-x64-setup.exe", platform: "win32-x64", format: "nsis", bytes: buildBytes("0.5.0-beta.1", "nsis") },
+      { name: "agent-harness-desktop-linux-x64.pacman", platform: "linux-x64", format: "pacman", bytes: buildBytes("0.5.0-beta.1", "pacman") },
+    ];
+    fake.publish({ version: "0.5.0-beta.1", desktop: builds });
+    await setUpdates(client, { "updates.channel": "beta" });
+
+    for (const { name, platform, format, bytes } of builds) {
+      expect(await stage(client, { platform, format }), name).toEqual({ path: join(t.dataDir, "desktop-builds", "0.5.0-beta.1", name), version: "0.5.0-beta.1", sha256: sha256Of(bytes) });
+    }
+    const downloads = fake.reads().map((request) => request.path.split("/releases/download/v0.5.0-beta.1/")[1]);
+    expect(downloads.filter((name) => name !== undefined && name !== "release.json")).toEqual(builds.map((build) => build.name));
+  });
+
   it("refuses a download that does not match the manifest, conflict artefact, and keeps nothing of it", async () => {
     const { fake, t, client } = await withReleases();
     const [pacman] = desktopBuilds("0.5.0") as [FakeDesktopBuild];

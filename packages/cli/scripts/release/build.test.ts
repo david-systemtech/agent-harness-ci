@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { declaredVersion } from "../../src/launch/versions.js";
 import { FIXTURE_IMAGE, fixtureBuild, fixtureReport, type FixtureBuild } from "../../test/release-fixtures.js";
 import { buildOptionsOf } from "./arguments.js";
+import type { OtherAsset } from "./assets.js";
 import { buildRelease } from "./build.js";
 import { withoutNode } from "./verify.js";
 
@@ -263,6 +264,26 @@ const otherAssets = (): { kind: string; path: string }[] => {
   ];
 };
 
+/**
+ * The three desktop builds as the release workflow names them (#359), each
+ * with the platform and format its shell's update installs, made in a folder
+ * beside the build's output: bytes standing in for the macOS zip, the Windows
+ * setup and the Arch package.
+ */
+const desktopBuilds = (): OtherAsset[] => {
+  const sources = join(build.out, "..", "desktop");
+  mkdirSync(sources, { recursive: true });
+  const desktop = (name: string, platform: string, format: string): OtherAsset => {
+    writeFileSync(join(sources, name), `the ${format} desktop build\n`);
+    return { kind: "desktop", path: join(sources, name), target: { platform, format } };
+  };
+  return [
+    desktop("agent-harness-desktop-darwin-arm64.zip", "darwin-arm64", "zip"),
+    desktop("agent-harness-desktop-win32-x64-setup.exe", "win32-x64", "nsis"),
+    desktop("agent-harness-desktop-linux-x64.pacman", "linux-x64", "pacman"),
+  ];
+};
+
 describe("the release's other assets", { timeout: BUILD_MS }, () => {
   it("are written beside the artefacts with a sidecar each, a folder packed as agent-harness-<kind>.tar.gz, and listed in release.json after them with their kind, no platform and the format their name says", async () => {
     build = fixtureBuild();
@@ -286,6 +307,45 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
     const schema = unpack("agent-harness-schema.tar.gz");
     expect(readdirSync(schema, { recursive: true, encoding: "utf8" }).sort()).toEqual(["schema", "schema/index.json", "schema/release", "schema/release/manifest.json"]);
     expect(text(join(schema, "schema", "release", "manifest.json"))).toBe('{"title":"ReleaseManifest"}\n');
+  });
+
+  it("take the desktop builds, each written with a sidecar and listed in release.json with kind desktop, the platform and the format it was named with", async () => {
+    build = fixtureBuild();
+    await buildRelease(build.options({ platforms: ["linux-x64"], assets: desktopBuilds() }), build.seams);
+    const names = ["agent-harness-desktop-darwin-arm64.zip", "agent-harness-desktop-win32-x64-setup.exe", "agent-harness-desktop-linux-x64.pacman"];
+    for (const name of names) {
+      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
+    }
+    const listed = (name: string, platform: string, format: string) => ({
+      name,
+      kind: "desktop",
+      platform,
+      format,
+      size: statSync(join(build.out, name)).size,
+      sha256: text(join(build.out, `${name}.sha256`)).split(" ", 1)[0],
+    });
+    const manifest = ReleaseManifest.parse(JSON.parse(text(join(build.out, "release.json"))));
+    expect(manifest.assets.slice(1)).toEqual([
+      listed("agent-harness-desktop-darwin-arm64.zip", "darwin-arm64", "zip"),
+      listed("agent-harness-desktop-win32-x64-setup.exe", "win32-x64", "nsis"),
+      listed("agent-harness-desktop-linux-x64.pacman", "linux-x64", "pacman"),
+    ]);
+    expect(text(join(build.out, "agent-harness-desktop-win32-x64-setup.exe"))).toBe("the nsis desktop build\n");
+  });
+
+  it("refuse, before anything is built, a desktop build without its platform and format, one the manifest cannot list, and a second build of one platform and format", async () => {
+    build = fixtureBuild();
+    const [zip, setup] = desktopBuilds() as [OtherAsset, OtherAsset, OtherAsset];
+    const refused: [OtherAsset[], RegExp][] = [
+      [[{ kind: "desktop", path: zip.path }], /agent-harness-desktop-darwin-arm64\.zip is a desktop build without its platform and format: --asset desktop:<platform>:<format>=<path>/],
+      [[{ ...zip, target: { platform: "macOS", format: "zip" } }], /"macOS" is not a platform: <os>-<arch> as Node names them, such as darwin-arm64/],
+      [[{ ...zip, target: { platform: "darwin-arm64", format: "Zip" } }], /"Zip" is not a format: lowercase letters and digits, in parts joined by dots, such as nsis or tar\.gz/],
+      [[zip, { ...setup, target: { platform: "darwin-arm64", format: "zip" } }], /two desktop builds for darwin-arm64 as zip/],
+    ];
+    for (const [assets, message] of refused) {
+      await expect(buildRelease(build.options({ platforms: ["linux-x64"], assets }), build.seams), String(message)).rejects.toThrow(message);
+    }
+    expect(build.compiled).toBe(0);
   });
 
   it("names the release's image in the compose file in place of the unreleased placeholder, changing no other line", async () => {
@@ -344,8 +404,18 @@ describe("the build's command line", () => {
         { kind: "schema", path: "/abs/schema" },
       ],
     });
-    expect(() => buildOptionsOf([...args, "--asset", "scripts/install.sh"], "/work")).toThrow(/--asset takes <kind>=<path>, not "scripts\/install\.sh"/);
+    expect(() => buildOptionsOf([...args, "--asset", "scripts/install.sh"], "/work")).toThrow(/--asset takes <kind>=<path> or <kind>:<platform>:<format>=<path>, not "scripts\/install\.sh"/);
     expect(() => buildOptionsOf([...args, "--asset", "install-script="], "/work")).toThrow(/--asset takes <kind>=<path>/);
+  });
+
+  it("takes a desktop build as --asset desktop:<platform>:<format>=<path>, and no platform without its format", () => {
+    const args = ["--tag", "v0.5.0", "--out", "release", "--image-reference", FIXTURE_IMAGE.reference, "--image-digest", FIXTURE_IMAGE.digest];
+    expect(buildOptionsOf([...args, "--asset", "desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe"], "/work/checkout")).toMatchObject({
+      assets: [{ kind: "desktop", path: "/work/checkout/desktop/agent-harness-desktop-win32-x64-setup.exe", target: { platform: "win32-x64", format: "nsis" } }],
+    });
+    for (const asset of ["desktop:win32-x64=setup.exe", "desktop:win32-x64:nsis:x=setup.exe", "desktop::nsis=setup.exe", "desktop:win32-x64:=setup.exe"]) {
+      expect(() => buildOptionsOf([...args, "--asset", asset], "/work"), asset).toThrow(/--asset takes <kind>=<path> or <kind>:<platform>:<format>=<path>/);
+    }
   });
 
   it("refuses arguments missing one it needs, or one it does not know", () => {

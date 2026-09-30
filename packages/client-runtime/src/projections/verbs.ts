@@ -25,7 +25,9 @@ import type { RewoundAt, UserMessageEntry } from "./session.js";
  *    known yet (its descriptor not read) decides nothing; the environment
  *    refuses what it cannot do.
  * 3. **The session's state**, as the environment would refuse it:
- *    `run_active` for a rewind or an undo while a run is live;
+ *    `workspace_missing` for a read now while the session's workspace is
+ *    gone (#328: no run reads anything until the session is given another,
+ *    #421); `run_active` for a rewind or an undo while a run is live;
  *    `queued_messages` for a rewind while the environment holds queued
  *    messages; `run_started` for an undo once a run has started since the
  *    rewind; `draft_full` for a withdraw whose text the draft has no room
@@ -43,6 +45,7 @@ export type VerbMethod = "runs.readNow" | "runs.withdraw" | "sessions.fork" | "s
 export type VerbReason =
   | AbsentReason
   | "adapter"
+  | "workspace_missing"
   | "run_active"
   | "queued_messages"
   | "run_started"
@@ -101,7 +104,12 @@ export interface VerbsInput {
   readonly rewindable: boolean;
   /** The session's draft, which a withdraw appends to. */
   readonly draft: string | null;
+  /** The session's workspace while the environment has found it gone (`workspaceMissingSince`): its path; else null. */
+  readonly gone: string | null;
 }
+
+/** What a run command says on a session whose workspace is gone (#328, #421): nothing runs there until the session is given another. */
+export const workspaceGoneLine = (path: string): string => `${path} is gone: choose a workspace for the session first.`;
 
 const PRESENT: VerbAvailability = { status: "present" };
 const absent = (reason: VerbReason, message: string): VerbAvailability => ({ status: "absent", reason, message });
@@ -132,7 +140,7 @@ export interface SessionVerbsAnswer {
 
 /** Each verb's availability on the session, and its queue with each message's own withdraw. */
 export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
-  const { adapter, live, queued, rewound } = input;
+  const { adapter, live, queued, rewound, gone } = input;
   const connection = (method: VerbMethod) => () => input.connection(method);
   const adapterCan = (flag: "fork" | "rewind", verb: string) => () => (adapter === null || adapter[flag] ? null : absent("adapter", `${adapter.displayName} cannot ${verb} a session.`));
   const noRun = (what: string) => () => (live ? absent("run_active", `A run is live on this session: stop it before ${what}.`) : null);
@@ -171,7 +179,11 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
   const newest = readable.at(-1);
 
   const verbs: SessionVerbs = {
-    readNow: first(connection("runs.readNow"), () => (readable.length > 0 ? null : absent("no_queue", "Nothing is queued to read."))),
+    readNow: first(
+      connection("runs.readNow"),
+      () => (gone === null ? null : absent("workspace_missing", workspaceGoneLine(gone))),
+      () => (readable.length > 0 ? null : absent("no_queue", "Nothing is queued to read.")),
+    ),
     withdraw: first(connection("runs.withdraw"), () => (newest === undefined ? absent("no_queue", "Nothing is queued to withdraw.") : newest.withdraw)),
     fork: first(connection("sessions.fork"), adapterCan("fork", "fork")),
     rewind: first(

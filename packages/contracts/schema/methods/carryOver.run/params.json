@@ -21,7 +21,7 @@
     },
     "skills": {
       "type": "boolean",
-      "description": "The card's skills tick: copy the directory's skills and commands too. The copy is #580's; until it lands, no skill is copied."
+      "description": "The card's skills tick: run skills.carryOver with the same dry run, copying the directory's skills and commands into the own directory, its report joining this one's."
     }
   },
   "required": [
