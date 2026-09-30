@@ -3,14 +3,13 @@ import { isDeepStrictEqual } from "node:util";
 import {
   ENVIRONMENT_STREAM_KIND,
   MANAGED_TOOLS,
-  ToolsUpdatedPayload,
+  ManagedToolRow,
   compareToolVersions,
   managedTool,
   type ManagedTool,
   type ManagedToolAction,
   type ManagedToolInstallMethod,
   type ManagedToolName,
-  type ManagedToolRow,
   type ManagedToolStatus,
   type ResultOf,
 } from "@agent-harness/contracts";
@@ -185,8 +184,12 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
       stream.id,
     );
     for (const event of events) {
-      const parsed = ToolsUpdatedPayload.safeParse(JSON.parse(event.payload));
-      if (parsed.success) for (const row of parsed.data.tools) found.set(row.tool, row);
+      const { tools } = JSON.parse(event.payload) as { readonly tools?: unknown };
+      for (const carried of Array.isArray(tools) ? tools : []) {
+        // A row carried before rows had a latest version (#374) knows none.
+        const parsed = ManagedToolRow.safeParse(typeof carried === "object" && carried !== null ? { latest: null, ...carried } : carried);
+        if (parsed.success) found.set(parsed.data.tool, parsed.data);
+      }
     }
     return found;
   };

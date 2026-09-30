@@ -8,6 +8,7 @@ import { latestNoticed, noticedRows, startFakeReleaseSources, type FakeReleaseSo
 import { fakeToolPath, type FakeToolPath } from "../../test/fake-tools.js";
 import { startTestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import { MANAGED_TOOLS_ACTOR } from "./registry.js";
 
 /**
  * The latest version of each managed tool through the primary seam
@@ -181,6 +182,25 @@ posix("a tool's latest version", () => {
     // Since the restart, only doppler, found since, was noticed: gh's row, its latest among it, is as the log last carried it.
     const notices = t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "tools.updated" && event.sequence > closedAt);
     expect(notices.flatMap((event) => noticedRows(event)).map((row) => row.tool)).toEqual(["doppler", "doppler"]);
+  });
+
+  it("is none in a row the log carried from before rows had one, so the first start after the update notices nothing new", async () => {
+    const released = await sources();
+    const path = fakePath();
+    const dataDir = join(tempDir(), "data");
+    const clock = manualClock();
+    const before = await withTools(fakePath(), released, { dataDir, clock });
+    await list(before.client);
+    // gh's row as a probe before #374 carried it: no latest.
+    const gh = path.install("gh", { output: "gh version 2.63.2 (2024-12-05)" });
+    const recorded = { tool: "gh", label: "GitHub CLI", path: gh.onPath, realpath: gh.file, version: "2.63.2", minimum: "2.40.0", method: "manual", status: "current", action: "copy" };
+    before.t.env.log.append({ kind: "environment", id: before.t.env.id }, [{ type: "tools.updated", payload: { tools: [recorded] } }], { actor: MANAGED_TOOLS_ACTOR });
+    const closedAt = before.t.env.log.head();
+    await before.t.close();
+
+    const { t, client } = await withTools(path, released, { dataDir, clock });
+    expect((await list(client)).tools.find((row) => row.tool === "gh")).toEqual({ ...recorded, latest: null });
+    expect(t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "tools.updated" && event.sequence > closedAt)).toEqual([]);
   });
 
   it("is left as last known, or none, by a fetch that fails or has not answered within ten seconds, which counts as the day's fetch", async () => {

@@ -169,7 +169,7 @@ export const ManagedToolRow = z
     version: ManagedToolVersion.nullable().meta({ description: "The version its --version reported within five seconds; null when it is not installed or none was read." }),
     latest: ManagedToolVersion.nullable().meta({
       description:
-        "The newest release known, from the source matching its install method (the Homebrew API, the npm registry, WinGet's manifests, GitHub releases), else the vendor's release feed: fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
+        "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry for npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
     }),
     minimum: ManagedToolVersion.nullable().meta({ description: "The tool's declared minimum; null for one that is never required." }),
     method: ManagedToolInstallMethod.nullable().meta({ description: "How it was installed; null when it is not installed." }),
