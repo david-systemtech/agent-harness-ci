@@ -9,11 +9,12 @@ import { bundleApp } from "./bundle.js";
 import { appManifest, builderConfig, nsisSchemeInclude } from "./config.js";
 import { electronBuilderPack } from "./pack.js";
 import { stageServer } from "./server.js";
-import { desktopTarget, DesktopBuildError, whereBuilt, type DesktopTarget } from "./targets.js";
+import { desktopTarget, DesktopBuildError, type DesktopTarget } from "./targets.js";
 
 /**
  * The desktop build (#423): one platform's desktop, built on that platform
- * for a release's version, as the file the desktop's `update` installs. The
+ * (the Windows setup on an x86_64 Linux too, #359) for a release's version,
+ * as the file the desktop's `update` installs. The
  * main process and the preload are bundled and the `gui` build copied into a
  * staged app whose `package.json` carries the version; the platform's server
  * artefact of the same version is unpacked beside it; electron-builder packs
@@ -63,7 +64,9 @@ export const buildDesktop = async (options: DesktopBuildOptions, seams: DesktopB
   if (version === null) throw new DesktopBuildError(`The tag ${JSON.stringify(options.tag)} is not v and a semantic version (v0.5.0, v1.0.0-beta.2): a desktop is built only for a release's version.`);
   const target = desktopTarget(options.platform);
   const host = seams.host ?? `${process.platform}-${process.arch}`;
-  if (host !== target.platform) throw new DesktopBuildError(`The ${target.platform} desktop is built on ${target.platform}, not ${host}: run it on ${whereBuilt(target)}.`);
+  if (!target.hosts.includes(host)) {
+    throw new DesktopBuildError(`The ${target.platform} desktop is built on ${target.hosts.join(" or ")}, not ${host}: run it on CI's \`${target.runner}\` runner.`);
+  }
   if (existsSync(options.out) && readdirSync(options.out).length > 0) throw new DesktopBuildError(`${options.out} is not empty: the build writes a desktop into an empty folder.`);
   const log = seams.log ?? ((line: string) => console.log(line));
   mkdirSync(options.out, { recursive: true });
@@ -71,7 +74,7 @@ export const buildDesktop = async (options: DesktopBuildOptions, seams: DesktopB
   const folders = { app: join(work, "app"), server: join(work, "server"), output: join(work, "dist"), nsisInclude: join(work, "installer.nsh") };
   try {
     log(`${target.platform}: unpacking the server artefact ${options.server}`);
-    await stageServer(options.server, folders.server, target, version);
+    await stageServer(options.server, folders.server, target, version, host);
     mkdirSync(folders.app, { recursive: true });
     log(`${target.platform}: bundling the app`);
     await (seams.compile ?? bundleApp)(folders.app, version);
