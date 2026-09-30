@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { OtherAsset } from "./assets.js";
 import type { BuildOptions } from "./build.js";
+import type { ReleaseRepository } from "./publish.js";
 
 /** How the release build is run, for its usage line. */
 export const BUILD_USAGE =
@@ -54,4 +55,36 @@ export const buildOptionsOf = (args: readonly string[], cwd: string): BuildOptio
     ...(platform !== undefined && { platforms: platform }),
     ...(asset !== undefined && { assets: asset.map((argument) => otherAssetOf(argument, cwd)) }),
   };
+};
+
+/** How the publisher is run, for its usage line. */
+export const PUBLISH_USAGE = "usage: pnpm --filter agent-harness publish-release --tag v<version> (--from <folder> | --check), with GITHUB_SERVER_URL, GITHUB_REPOSITORY and RELEASE_TOKEN set";
+
+/** What the publisher's command line asks: publish `folder`, or with none only check that the tag's release is unpublished. */
+export interface PublishCommand {
+  readonly tag: string;
+  readonly folder: string | null;
+  readonly forge: ReleaseRepository;
+}
+
+/**
+ * The publisher's command from its `args` and the job's `env` (the forge's
+ * origin and repository as Forgejo Actions names them, and `RELEASE_TOKEN`),
+ * a relative `--from` read from `cwd`. An option missing, unknown or clashing
+ * is an `ArgumentsError`.
+ */
+export const publishOptionsOf = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string): PublishCommand => {
+  let values;
+  try {
+    ({ values } = parseArgs({ args: [...args], options: { tag: { type: "string" }, from: { type: "string" }, check: { type: "boolean" } }, strict: true, allowPositionals: false }));
+  } catch (error) {
+    throw new ArgumentsError(error instanceof Error ? error.message : String(error));
+  }
+  const { tag, from, check } = values;
+  if (tag === undefined) throw new ArgumentsError("--tag is needed: the release's tag.");
+  if ((from === undefined) === (check !== true)) throw new ArgumentsError("Either --from <folder> or --check is needed: publish the folder the build wrote, or only check that the tag's release is unpublished.");
+  const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repository, RELEASE_TOKEN: token } = env;
+  if (server === undefined || server === "" || repository === undefined || repository === "") throw new ArgumentsError("GITHUB_SERVER_URL and GITHUB_REPOSITORY are needed: the forge and repository the release is published on.");
+  if (token === undefined || token === "") throw new ArgumentsError("RELEASE_TOKEN is empty: publishing needs a token that can write the repository's releases.");
+  return { tag, folder: from === undefined ? null : resolve(cwd, from), forge: { server, repository, token } };
 };
