@@ -94,14 +94,21 @@ const statusLine = ({ status }: KeyManagerConnectionRecord): string => STATUS_WO
 /** How a policy's write flag reads beside its name. */
 const WRITE_WORDS: Readonly<Record<KeyManagerPolicyWrites, string>> = { yes: "writes", no: "does not write", possibly: "may write" };
 
-/** The policies ticked for the connection's run tokens, each with whether it writes where the login's policies say; null for a connection with no ticks. */
+/** The policy every run token holds beside the ticked ones (key-managers spec, "Run tokens"): its own lookup, renewal and revocation need it. */
+const DEFAULT_POLICY = "default";
+
+/** A policy's name with whether it writes, where the login's policies say. */
+const flaggedPolicy = (record: KeyManagerConnectionRecord, name: string): string => {
+  const writes = record.policies?.find((policy) => policy.name === name)?.writes;
+  return writes === undefined ? name : `${name} (${WRITE_WORDS[writes]})`;
+};
+
+/** The policies ticked for the connection's run tokens, each with whether it writes, and `default` beside them when it is not ticked; null for a connection with no ticks. */
 const ticksLine = (record: KeyManagerConnectionRecord): string | null => {
   if (record.ticks === null) return null;
-  const flagged = record.ticks.map((tick) => {
-    const writes = record.policies?.find((policy) => policy.name === tick)?.writes;
-    return writes === undefined ? tick : `${tick} (${WRITE_WORDS[writes]})`;
-  });
-  return `Policies ticked for its run tokens: ${flagged.length === 0 ? "none" : listed(flagged)}.`;
+  const ticked = record.ticks.length === 0 ? "none" : listed(record.ticks.map((tick) => flaggedPolicy(record, tick)));
+  const beside = record.ticks.includes(DEFAULT_POLICY) ? "" : `, beside ${flaggedPolicy(record, DEFAULT_POLICY)}, which every run token holds`;
+  return `Policies ticked for its run tokens: ${ticked}${beside}.`;
 };
 
 /** One CLI's row as the line gives it: installed with its version against the minimum, or not installed; never whether a newer one exists. */
@@ -175,11 +182,14 @@ const givesToken = ({ status, canMint }: KeyManagerConnectionRecord): boolean =>
 
 /**
  * Whether the token the connection gives runs is read-only: it gives one,
- * and every policy ticked for it is known not to write; false for a
- * connection with no ticks, whose token is not scoped by them.
+ * and every policy the token holds, the ticked ones and `default`, is known
+ * not to write; false for a connection with no ticks, whose token is not
+ * scoped by them.
  */
 const readOnly = (record: KeyManagerConnectionRecord): boolean =>
-  givesToken(record) && record.ticks !== null && record.ticks.every((tick) => record.policies?.find((policy) => policy.name === tick)?.writes === "no");
+  givesToken(record) &&
+  record.ticks !== null &&
+  [...record.ticks, DEFAULT_POLICY].every((name) => record.policies?.find((policy) => policy.name === name)?.writes === "no");
 
 /**
  * The standing rule for a run given `injected`: read-only when each of them

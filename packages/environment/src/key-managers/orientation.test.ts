@@ -263,6 +263,23 @@ posix("the standing rule", () => {
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([writing, readOnly]);
   });
 
+  it("reads the default policy every run token holds beside the ticks: none ticked is read-only while default writes nothing, and a default that writes keeps the first form", async () => {
+    const { t, bao, client } = await withOpenBao();
+    const home = await connected(client, bao, { label: "Home" });
+    expect((await setPolicies(client, home.id, [])).receipt).toMatchObject({ status: "accepted" });
+    const session = await create(client);
+
+    const quiet = await runTo(t, client, session.id);
+    bao.policy("default", `path "personal/*" { capabilities = ["create", "update"] }`);
+    await verify(client, home.id);
+    const writing = await runTo(t, client, session.id, "Default writes now");
+
+    expect(keyManagersOf(quiet)).toContain("Policies ticked for its run tokens: none, beside default (does not write), which every run token holds.");
+    expect(keyManagersOf(quiet).at(-1)).toBe(READ_ONLY);
+    expect(keyManagersOf(writing)).toContain("Policies ticked for its run tokens: none, beside default (writes), which every run token holds.");
+    expect(keyManagersOf(writing).at(-1)).toBe(RULE);
+  });
+
   it("keeps its first form while a ticked policy only may write, its text unread", async () => {
     const { t, bao, client } = await withOpenBao();
     bao.policy("reader", `path "personal/*" { capabilities = ["read", "list"] }`);
