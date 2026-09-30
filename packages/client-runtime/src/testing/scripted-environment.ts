@@ -1447,6 +1447,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const holder = accounts.find((a) => a.id !== accountId && a.label.toLowerCase() === label.toLowerCase());
     return holder ? accountRefusal("label_taken", `The label ${label} is taken by another account on this environment, ignoring case.`, { accountId: holder.id }) : undefined;
   };
+  /** Removes `held`, releasing the machine's own directory if it held it, as the account store does. */
+  const removeAccount = (held: AccountRecord) => {
+    accounts.splice(accounts.indexOf(held), 1);
+    if (ambient.accountId === held.id) ambient = { ...ambient, accountId: null };
+    accountUpdated(held.id, "removed");
+  };
   wire.answer("accounts.probe", () => ({ result: { ...ambient, checkedAt: clock.now().toISOString() } }));
   wire.answer("accounts.refresh", () => ({ result: { accounts: [...accounts] } }));
   wire.answer("accounts.adopt", (params) => {
@@ -1484,8 +1490,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   wire.answer("accounts.remove", (params) => {
     const refused = rejection("accounts.remove");
     if (refused) return refused;
-    const at = accounts.findIndex((a) => a.id === params["accountId"]);
-    const held = accounts[at];
+    const held = accounts.find((a) => a.id === params["accountId"]);
     if (!held) return accountNotHeld(params["accountId"]);
     const deleteDirectory = params["deleteDirectory"] === true;
     if (deleteDirectory && held.directory.kind === "adopted") {
@@ -1495,19 +1500,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         { accountId: held.id },
       );
     }
-    accounts.splice(at, 1);
-    if (ambient.accountId === held.id) ambient = { ...ambient, accountId: null };
-    accountUpdated(held.id, "removed");
+    removeAccount(held);
     return acceptedWith({ accountId: held.id, directoryDeleted: deleteDirectory });
   });
   const changeAccount = (accountId: string, changes: Partial<AccountRecord> | null) => {
     const at = accounts.findIndex((a) => a.id === accountId);
     const held = accounts[at];
     if (!held) throw new Error(`${spec.name} holds no account ${accountId}.`);
-    if (changes === null) {
-      accounts.splice(at, 1);
-      return accountUpdated(accountId, "removed");
-    }
+    if (changes === null) return removeAccount(held);
     accounts[at] = checked(AccountRecord, { ...held, ...changes });
     accountUpdated(accountId, changes.label !== undefined ? "relabelled" : changes.identity !== undefined ? "identity-set" : "status-changed");
   };
