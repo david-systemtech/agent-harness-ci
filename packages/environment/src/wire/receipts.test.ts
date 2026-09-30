@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { ContractError, commandParams, defineMethod, type ClientSessionCredential } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
-import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
+import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { formatActor, RECEIPT_RETENTION_MS, type StreamRef } from "../event-log/event-log.js";
 import { SWEEP_INTERVAL_MS } from "../auth/client-sessions.js";
@@ -15,7 +16,7 @@ import { SWEEP_INTERVAL_MS } from "../auth/client-sessions.js";
  * events, and a retry is answered from it without applying anything.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -57,8 +58,8 @@ interface Suite {
   values(target: string): unknown[];
 }
 
-const start = async (): Promise<Suite> => {
-  const t = await startTestEnvironment();
+const start = async (options: TestEnvironmentOptions = {}): Promise<Suite> => {
+  const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
   const suite: Suite = {
     t,
@@ -293,17 +294,16 @@ describe("a command's receipt and events", () => {
 
 describe("receipt retention", () => {
   it("answers a retry from the receipt for 30 days; after that the sweep has removed it and the retry is a new command", async () => {
-    const { t, values } = await start();
-    const bot = await t.pair({ scopes: ["sessions:write", "read"] });
+    const before = await start({ dataDir: join(tempDir(), "data") });
+    const bot = await before.t.pair({ scopes: ["sessions:write", "read"] });
     const actor = formatActor({ kind: "client_session", id: bot.clientSessionId });
     const commandId = randomUUID();
-    let client = await t.client({ token: bot.token, clientKind: "program" });
+    let client = await before.t.client({ token: bot.token, clientKind: "program" });
     const first = await setTarget(client, commandId, "t1", "a");
     await setTarget(client, randomUUID(), "t1", "b");
-    // Closed while time passes, so no socket is pinged through the days.
-    await client.close();
 
-    t.clock.advance(29 * DAY);
+    // Closed across the 29 days, so none of its timers run through them (#783); the last day's sweeps run.
+    const { t, values } = await restartAfter(before.t, 29 * DAY, start);
     client = await t.client({ token: bot.token, clientKind: "program" });
     expect(await setTarget(client, commandId, "t1", "a")).toEqual({ receipt: first.receipt });
     // The client session would expire before the receipt does; renewed, it is the same actor.
@@ -322,16 +322,16 @@ describe("receipt retention", () => {
   });
 
   it("is exact without the sweep: one millisecond past 30 days, before the next sweep, the retry is a new command", async () => {
-    const { t, values } = await start();
-    const bot = await t.pair({ scopes: ["sessions:write", "read"] });
+    const before = await start({ dataDir: join(tempDir(), "data") });
+    const bot = await before.t.pair({ scopes: ["sessions:write", "read"] });
     const commandId = randomUUID();
-    let client = await t.client({ token: bot.token, clientKind: "program" });
+    let client = await before.t.client({ token: bot.token, clientKind: "program" });
     const first = await setTarget(client, commandId, "t1", "a");
     await setTarget(client, randomUUID(), "t1", "b");
-    await client.close();
 
-    // Renewed a day before it would expire, so the same client session retries after the window.
-    t.clock.advance(RECEIPT_RETENTION_MS - DAY);
+    // Renewed a day before it would expire, so the same client session retries after the window. Closed across the
+    // days before, so none of its timers run through them (#783); the last day's sweeps run.
+    const { t, values } = await restartAfter(before.t, RECEIPT_RETENTION_MS - DAY, start);
     client = await t.client({ token: bot.token, clientKind: "program" });
     const renewed = await client.apply("access.sessions.refresh", { commandId: randomUUID() });
     await client.close();

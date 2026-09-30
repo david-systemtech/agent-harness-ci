@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -519,4 +519,22 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       }
     },
   };
+};
+
+/**
+ * Closes `t`, moves its clock on by `ms` with nothing running, and starts an environment again with `restart` on the same
+ * data directory and clock. Moving a running environment's clock runs every timer it holds on the way, synchronously:
+ * thirty days of them took 17 s at load 40, and past the preset 30 s on a throttled runner (#701, #783). So a test that
+ * needs days to pass walks a running environment only over the stretch it asserts on. `t` must have been started on a
+ * data directory of the test's own, since `close` removes one it made itself.
+ */
+export const restartAfter = async <T>(
+  t: TestEnvironment,
+  ms: number,
+  restart: (options: { readonly dataDir: string; readonly clock: ManualClock }) => Promise<T>,
+): Promise<T> => {
+  await t.close();
+  if (!existsSync(t.dataDir)) throw new Error(`restartAfter needs a data directory of the test's own; ${t.dataDir} went with the environment.`);
+  t.clock.advance(ms);
+  return restart({ dataDir: t.dataDir, clock: t.clock });
 };
