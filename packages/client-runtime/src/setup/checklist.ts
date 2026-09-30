@@ -53,12 +53,17 @@ export const checkedAgoWords = (ageMs: number): string => {
 /**
  * A step's line: "Checking…" while this client's own check of it is pending
  * (ADR 0031's half second), else its result's reason, with its age once it
- * is older than its step's cadence; "Not checked yet." with no result.
+ * is older than its step's cadence, or marked stale and dated while it is not
+ * known to hold now (the Set up specification, "Running checks": an
+ * unreachable environment's cached results beneath its line, #573), "(stale,
+ * checked 10 min ago)"; "Not checked yet." with no result.
  */
 export const stepLine = (step: SetupStepView): string => {
   if (step.pending) return "Checking…";
-  if (step.result === null) return "Not checked yet.";
-  return step.result.olderThanCadence ? `${step.result.reason} (${checkedAgoWords(step.result.ageMs)})` : step.result.reason;
+  const { result } = step;
+  if (result === null) return "Not checked yet.";
+  if (result.stale) return `${result.reason} (stale, ${checkedAgoWords(result.ageMs)})`;
+  return result.olderThanCadence ? `${result.reason} (${checkedAgoWords(result.ageMs)})` : result.reason;
 };
 
 /**

@@ -405,6 +405,49 @@ describe("the header's Set up line", () => {
 });
 
 describe("an environment the checklist cannot reach", () => {
+  it("marks each result it holds stale, dated, beneath the line saying since when, on the pane's rows and on the card", async () => {
+    const tenMinutesBefore = new Date(Date.parse(MANUAL_CLOCK_START) - 10 * 60_000).toISOString();
+    const app = await renderApp({
+      environments: [
+        { name: "desk", reach: "local" },
+        {
+          name: "laptop",
+          reach: "paired",
+          capabilities: ["setup"],
+          setup: onlySteps({
+            ...PASSING,
+            permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"], checkedAt: tenMinutesBefore },
+          }),
+        },
+      ],
+    });
+    await screen.findByText(NO_SESSION);
+    const pane = await setupPane(app);
+    await app.user.selectOptions(within(pane).getByRole("combobox", { name: "Environment" }), "laptop");
+    expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
+    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", "The denylist lost 2 presets."]);
+
+    const laptop = app.environment("laptop");
+    laptop.discovery("nothing");
+    laptop.server.drop();
+    expect(await within(pane).findByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
+    expect(within(pane).getByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
+    expect(paneSteps(pane).filter(([, state]) => state !== null)).toEqual([
+      ["Account", "done", "Every setting it writes holds a valid value. (stale, checked just now)"],
+      ["Your machines", "done", expect.stringMatching(/^The environment runs as a non-root user\. .* \(stale, checked just now\)$/)],
+      ["Forges", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
+      ["Browser", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
+      ["Permissions", "needs attention", "The denylist lost 2 presets. (stale, checked 10 min ago)"],
+      ["Appearance", "done", expect.stringMatching(/ \(stale, checked just now\)$/)],
+    ]);
+
+    await app.user.click(within(pane).getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(within(steps()).getByRole("button", { name: "Permissions" }));
+    const shown = checklist() as HTMLElement;
+    expect(within(shown).getByText(/^laptop has not been reached since \d\d:\d\d: its results are from before\.$/)).toBeDefined();
+    expect(within(within(shown).getByRole("region", { name: "Permissions" })).getByText("The denylist lost 2 presets. (stale, checked 10 min ago)")).toBeDefined();
+  });
+
   it("says since when, its results kept beneath, and offers this machine's environment, its service down, a start", async () => {
     // With the setup flag, the results come on the environment's stream, which the runtime keeps across a restart.
     const first = await renderApp({
