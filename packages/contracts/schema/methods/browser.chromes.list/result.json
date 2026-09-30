@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "browser.chromes.list result",
+  "type": "object",
+  "properties": {
+    "chromes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The name a paired Chrome is kept under (Work, Personal): trimmed, at most 80 characters, no control or invisible characters; A browser when nothing was left."
+          },
+          "pairedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When it paired."
+          },
+          "lastConnectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When it last opened a socket that proved itself; its pairing is its first."
+          },
+          "lastReportedVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The extension version it last reported: announced as it paired, or said in a later hello."
+          },
+          "connected": {
+            "type": "boolean",
+            "description": "Whether it holds a proved socket to the listener now."
+          },
+          "outdated": {
+            "type": "boolean",
+            "description": "Whether its last reported version differs from the version of the extension the environment's folder holds; it is still served."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "pairedAt",
+          "lastConnectedAt",
+          "lastReportedVersion",
+          "connected",
+          "outdated"
+        ],
+        "description": "A paired Chrome: its id, name, pairing time, last connection time and last reported version, whether it is connected, and whether it is outdated."
+      },
+      "description": "Every paired Chrome, the first paired first."
+    }
+  },
+  "required": [
+    "chromes"
+  ]
+}

@@ -419,6 +419,41 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
   });
 
+  it("fetches browser.chromes.list and browser.status again on chrome.updated, and no other query (#548)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const chromeId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    const chrome = { id: chromeId, name: "Work", pairedAt: "2026-09-24T00:00:00.000Z", lastConnectedAt: "2026-09-24T00:00:00.000Z", lastReportedVersion: "0.4.2", outdated: false };
+    const reads = { list: 0, status: 0 };
+    wire.answer("browser.chromes.list", () => {
+      reads.list++;
+      return { result: { chromes: [{ ...chrome, connected: reads.list > 1 }] } };
+    });
+    wire.answer("browser.status", () => {
+      reads.status++;
+      return {
+        result: {
+          listener: { state: "listening", port: 47615 },
+          folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
+          shippedVersion: "0.4.2",
+          unpairedConnected: reads.status === 1,
+        },
+      };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const list = runtime.requests.cached(id, "browser.chromes.list", {});
+    list.subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "browser.status", {});
+    status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.list, reads.status]).toEqual([1, 1, 1]);
+
+    environment?.event(noticeEvent(1, wire.environmentId, "chrome.updated", { chromeId, name: "Work", change: "connected" }));
+    await flush();
+    expect([asked(), reads.list, reads.status]).toEqual([1, 2, 2]);
+    expect(list.read()).toMatchObject({ result: { chromes: [{ id: chromeId, connected: true }] }, error: null });
+    expect(status.read()).toMatchObject({ result: { unpairedConnected: false }, error: null });
+  });
+
   it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;

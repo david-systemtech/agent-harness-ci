@@ -206,8 +206,11 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * opening its socket (`extension.seen`, #547) `browser.status`, whose
  * unpaired flag ticks the Browser card's Load sub-step; an import of an
  * adopted account's directory ending (`carry-over.imported`, #578) Carry
- * over's inventory, whose new sessions it imported; and a state import
- * ending (`state-import.finished`, #581) the state import's detection.
+ * over's inventory, whose new sessions it imported; a state import
+ * ending (`state-import.finished`, #581) the state import's detection; and a
+ * paired Chrome's pairing, rename, unpairing, connection, disconnection or
+ * version report (`chrome.updated`, #548) `browser.chromes.list`, and
+ * `browser.status`, whose unpaired flag a pairing clears.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -229,7 +232,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
-  "browser.status": ["extension.seen"],
+  "browser.status": ["extension.seen", "chrome.updated"],
+  "browser.chromes.list": ["chrome.updated"],
   "carryOver.inventory": ["carry-over.imported"],
   "stateImport.detect": ["state-import.finished"],
 };

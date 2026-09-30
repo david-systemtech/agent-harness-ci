@@ -784,6 +784,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "carry-over.imported",
       "state-import.finished",
       "workspace.kept",
+      "chrome.updated",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
   },
@@ -838,6 +839,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       { type: "workspace.kept", payload: workspaceKept },
       { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
+      { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "connected" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -870,6 +872,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       toolsUpdatedNotice.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
+      { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "proved" } },
       validEnvelope,
     ],
   },

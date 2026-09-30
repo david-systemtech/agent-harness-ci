@@ -146,7 +146,7 @@ import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import { skillsGet, skillsOwnCreate, skillsOwnRemove } from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
-import { browserStatus } from "./methods/browser.js";
+import { browserChromesList, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -355,6 +355,10 @@ export const methods = [
   trustDecide,
   trustRevoke,
   browserStatus,
+  browserPairingCode,
+  browserChromesList,
+  browserChromesRename,
+  browserChromesUnpair,
 ] as const;
 
 type Registered = (typeof methods)[number];

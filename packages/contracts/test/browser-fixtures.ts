@@ -143,9 +143,34 @@ const statusFixtures: Fixtures = {
   invalid: [{ ...status, unpairedConnected: undefined }, { ...status, shippedVersion: "" }, { ...status, listener: { state: "listening" } }, { listener: listening, folder }],
 };
 
+/** Pairing and paired Chromes (#548): the code, a Chrome as the list answers it, the chrome stream and chrome.updated. */
+const code = { code: "K7Q2MXH4", expiresAt: at };
+const chrome = { id: chromeId, name: "Work", pairedAt: at, lastConnectedAt: at, lastReportedVersion: "0.4.2", connected: true, outdated: false };
+const chromeFixtures: Fixtures = {
+  valid: [chrome, { ...chrome, name: "A browser", connected: false, outdated: true }],
+  invalid: [{ ...chrome, name: "" }, { ...chrome, name: "x".repeat(81) }, { ...chrome, id: "work" }, { ...chrome, connected: undefined }, { ...chrome, lastReportedVersion: "" }],
+};
+const commandId = "5b2d0c1e-8f0a-4d5c-9e3b-2a1f0c9d8e7b";
+
 /** Params and result instances for the browser methods. */
 export const browserMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "browser.status": { params: { valid: [{}], invalid: [null, []] }, result: statusFixtures },
+  "browser.pairing.code": {
+    params: { valid: [{}], invalid: [null, []] },
+    result: { valid: [code], invalid: [{ ...code, code: "K7Q2MXH" }, { ...code, code: "K7Q2MXH1" }, { ...code, expiresAt: "soon" }, { code: code.code }] },
+  },
+  "browser.chromes.list": {
+    params: { valid: [{}], invalid: [null, []] },
+    result: { valid: [{ chromes: [] }, { chromes: [chrome, chromeFixtures.valid[1]] }], invalid: [{}, { chromes: [{ ...chrome, outdated: undefined }] }] },
+  },
+  "browser.chromes.rename": {
+    params: { valid: [{ commandId, chromeId, name: "Personal" }, { commandId, chromeId, name: "" }], invalid: [{ commandId, chromeId }, { commandId, name: "Work" }, { chromeId, name: "Work" }, { commandId, chromeId, name: "x".repeat(1_001) }] },
+    result: { valid: [{ chrome }], invalid: [{}, { chrome: { ...chrome, name: "" } }] },
+  },
+  "browser.chromes.unpair": {
+    params: { valid: [{ commandId, chromeId }], invalid: [{ commandId }, { chromeId }, { commandId, chromeId: "work" }] },
+    result: { valid: [{ chrome: { ...chrome, connected: false } }], invalid: [{}, { chrome: { id: chromeId } }] },
+  },
 };
 
 export const browserSchemaFixtures: Record<string, Fixtures> = {
@@ -229,6 +254,22 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
   },
   "browser/status/folder.json": { valid: [folder, noBuild], invalid: [{ path: "", problem: null }, { path: folder.path, problem: "" }, { path: folder.path }] },
   "browser/status/status.json": statusFixtures,
+  "browser/chrome-pairing-code.json": { valid: ["K7Q2MXH4", "23456789"], invalid: ["K7Q2MXH", "K7Q2MXH4R", "k7q2mxh4", "K7Q2-MXH", "K7Q2MXH1"] },
+  "browser/chrome-name.json": { valid: ["Work", "A browser", "x".repeat(80)], invalid: ["", "x".repeat(81), 7] },
+  "browser/paired-chrome.json": chromeFixtures,
+  "browser/chrome-event-type.json": { valid: ["chrome.paired", "chrome.renamed", "chrome.version-reported", "chrome.unpaired"], invalid: ["chrome.connected", "chrome.updated", ""] },
+  "browser/chrome-events/chrome.paired.json": {
+    valid: [{ name: "Work", extensionVersion: "0.4.2" }],
+    invalid: [{ name: "Work" }, { name: "", extensionVersion: "0.4.2" }, { name: "Work", extensionVersion: "" }],
+  },
+  "browser/chrome-events/chrome.renamed.json": { valid: [{ name: "Personal" }], invalid: [{}, { name: "" }, { name: "x".repeat(81) }] },
+  "browser/chrome-events/chrome.version-reported.json": { valid: [{ extensionVersion: "0.4.3" }], invalid: [{}, { extensionVersion: "" }] },
+  "browser/chrome-events/chrome.unpaired.json": { valid: [{}], invalid: [null, "unpaired"] },
+  "browser/chrome-change.json": { valid: ["paired", "renamed", "unpaired", "connected", "disconnected", "version"], invalid: ["proved", "chrome.paired", ""] },
+  "browser/chrome-updated.json": {
+    valid: [{ chromeId, name: "Work", change: "paired" }, { chromeId, name: "A browser", change: "disconnected" }],
+    invalid: [{ chromeId, change: "paired" }, { chromeId, name: "Work", change: "proved" }, { chromeId: "work", name: "Work", change: "renamed" }],
+  },
   "browser/extension-seen.json": {
     valid: [{ protocolVersion: 2, extensionVersion: "0.4.2" }, { protocolVersion: 1, extensionVersion: "0.4.2-beta.1" }],
     invalid: [{ protocolVersion: 0, extensionVersion: "0.4.2" }, { protocolVersion: 2, extensionVersion: "" }, { protocolVersion: 2 }],

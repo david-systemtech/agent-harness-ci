@@ -232,6 +232,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // A state import ended (#581): the request cache reads stateImport.detect again, and Carry over's card shows its report.
         case "state-import.finished":
           return;
+        // A paired Chrome's change (#548) raises none: the request cache reads browser.chromes.list and browser.status again.
+        case "chrome.updated":
+          return;
         // A routine's result delivered to every connected client (#525): opening the notice opens the firing's session.
         case "routine.delivered": {
           const { name: routine, sessionId, outcome, summary } = notice.payload;

@@ -3047,6 +3047,46 @@
       "title": "ExtensionSeenPayload"
     },
     {
+      "path": "browser/chrome-pairing-code.json",
+      "title": "ChromePairingCode"
+    },
+    {
+      "path": "browser/chrome-name.json",
+      "title": "ChromeName"
+    },
+    {
+      "path": "browser/paired-chrome.json",
+      "title": "PairedChrome"
+    },
+    {
+      "path": "browser/chrome-event-type.json",
+      "title": "ChromeEventType"
+    },
+    {
+      "path": "browser/chrome-events/chrome.paired.json",
+      "title": "ChromePairedPayload"
+    },
+    {
+      "path": "browser/chrome-events/chrome.renamed.json",
+      "title": "ChromeRenamedPayload"
+    },
+    {
+      "path": "browser/chrome-events/chrome.version-reported.json",
+      "title": "ChromeVersionReportedPayload"
+    },
+    {
+      "path": "browser/chrome-events/chrome.unpaired.json",
+      "title": "ChromeUnpairedPayload"
+    },
+    {
+      "path": "browser/chrome-change.json",
+      "title": "ChromeChange"
+    },
+    {
+      "path": "browser/chrome-updated.json",
+      "title": "ChromeUpdatedPayload"
+    },
+    {
       "path": "settings/events/settings.updated.json",
       "title": "SettingsUpdatedPayload"
     },
@@ -5733,6 +5773,62 @@
     {
       "path": "methods/browser.status/error.json",
       "title": "browser.status error"
+    },
+    {
+      "path": "methods/browser.pairing.code/params.json",
+      "title": "browser.pairing.code params"
+    },
+    {
+      "path": "methods/browser.pairing.code/result.json",
+      "title": "browser.pairing.code result"
+    },
+    {
+      "path": "methods/browser.pairing.code/error.json",
+      "title": "browser.pairing.code error"
+    },
+    {
+      "path": "methods/browser.chromes.list/params.json",
+      "title": "browser.chromes.list params"
+    },
+    {
+      "path": "methods/browser.chromes.list/result.json",
+      "title": "browser.chromes.list result"
+    },
+    {
+      "path": "methods/browser.chromes.list/error.json",
+      "title": "browser.chromes.list error"
+    },
+    {
+      "path": "methods/browser.chromes.rename/params.json",
+      "title": "browser.chromes.rename params"
+    },
+    {
+      "path": "methods/browser.chromes.rename/result.json",
+      "title": "browser.chromes.rename result"
+    },
+    {
+      "path": "methods/browser.chromes.rename/response.json",
+      "title": "browser.chromes.rename response"
+    },
+    {
+      "path": "methods/browser.chromes.rename/error.json",
+      "title": "browser.chromes.rename error"
+    },
+    {
+      "path": "methods/browser.chromes.unpair/params.json",
+      "title": "browser.chromes.unpair params"
+    },
+    {
+      "path": "methods/browser.chromes.unpair/result.json",
+      "title": "browser.chromes.unpair result"
+    },
+    {
+      "path": "methods/browser.chromes.unpair/response.json",
+      "title": "browser.chromes.unpair response"
+    },
+    {
+      "path": "methods/browser.chromes.unpair/error.json",
+      "title": "browser.chromes.unpair error"
     }
   ],
   "cases": [
@@ -7468,6 +7564,44 @@
       "params": "methods/browser.status/params.json",
       "result": "methods/browser.status/result.json",
       "error": "methods/browser.status/error.json"
+    },
+    {
+      "name": "browser.pairing.code",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/browser.pairing.code/params.json",
+      "result": "methods/browser.pairing.code/result.json",
+      "error": "methods/browser.pairing.code/error.json"
+    },
+    {
+      "name": "browser.chromes.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/browser.chromes.list/params.json",
+      "result": "methods/browser.chromes.list/result.json",
+      "error": "methods/browser.chromes.list/error.json"
+    },
+    {
+      "name": "browser.chromes.rename",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/browser.chromes.rename/params.json",
+      "result": "methods/browser.chromes.rename/result.json",
+      "response": "methods/browser.chromes.rename/response.json",
+      "error": "methods/browser.chromes.rename/error.json"
+    },
+    {
+      "name": "browser.chromes.unpair",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/browser.chromes.unpair/params.json",
+      "result": "methods/browser.chromes.unpair/result.json",
+      "response": "methods/browser.chromes.unpair/response.json",
+      "error": "methods/browser.chromes.unpair/error.json"
     }
   ]
 }

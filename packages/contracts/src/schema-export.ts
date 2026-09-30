@@ -256,6 +256,15 @@ import {
   HeadlessExecutable,
   HeadlessLimits,
 } from "./browser-settings.js";
+import {
+  CHROME_EVENT_TYPES,
+  ChromeChange,
+  ChromeEventType,
+  ChromeName,
+  ChromePairingCode,
+  ChromeUpdatedPayload,
+  PairedChrome,
+} from "./browser-chromes.js";
 import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
 import {
   Catalogue,
@@ -1326,6 +1335,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
+  { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
+  { path: "browser/chrome-name.json", title: "ChromeName", schema: ChromeName },
+  { path: "browser/paired-chrome.json", title: "PairedChrome", schema: PairedChrome },
+  { path: "browser/chrome-event-type.json", title: "ChromeEventType", schema: ChromeEventType },
+  ...Object.entries(CHROME_EVENT_TYPES).map(([type, entry]) => ({ path: `browser/chrome-events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
+  { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
+  { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,
