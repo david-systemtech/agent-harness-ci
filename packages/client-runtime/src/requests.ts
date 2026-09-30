@@ -187,7 +187,8 @@ const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.accoun
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; and a probe changing managed-tool
- * rows (`tools.updated`) the managed tools (#384).
+ * rows (`tools.updated`) the managed tools (#384) and the key-manager
+ * connections, each carrying its CLI's row (#375).
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -203,7 +204,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "skills.get": ["skills.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
-  "keyManagers.list": KEY_MANAGER_EVENTS,
+  "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
 };

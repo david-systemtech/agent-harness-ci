@@ -2,6 +2,7 @@ import {
   KEY_MANAGER_EVENT_PAYLOADS,
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
   KeyManagerConnectionRecord,
+  ListedKeyManagerConnection,
   ManagedToolRow,
   ToolsUpdatedPayload,
   type KeyManagerStatus,
@@ -124,3 +125,6 @@ export const toolRow = (fields: Partial<ManagedToolRow> = {}): ManagedToolRow =>
 
 /** `tools.updated`'s payload, the rows given as they are now. */
 export const toolsUpdatedPayload = (...rows: ManagedToolRow[]): Record<string, unknown> => ToolsUpdatedPayload.parse({ tools: rows });
+
+/** A connection as `keyManagers.list` answers it (#375): its record with its CLI's row, `bao`'s unless `cli` is given. */
+export const listedConnection = (record: KeyManagerConnectionRecord, cli: ManagedToolRow = toolRow()): ListedKeyManagerConnection => ListedKeyManagerConnection.parse({ ...record, cli });
