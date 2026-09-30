@@ -53,6 +53,7 @@ export const Branches = ({ place, repository, sessionId, choose, back, line, wai
   useEffect(() => {
     if (!readable) return;
     let current = true;
+    setAnswer(null);
     void runtime.requests.call(environmentId, "workspaces.inspect", { path: repository }).then((inspected) => current && setAnswer(inspected));
     return () => {
       current = false;
