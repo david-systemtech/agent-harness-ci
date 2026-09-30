@@ -224,6 +224,7 @@ import {
   HeadlessExecutable,
   HeadlessLimits,
 } from "./browser-settings.js";
+import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
 import { CredentialInjection, CredentialInjectionByAccount, InjectionAnswer, RunInjection } from "./credential-settings.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -1180,6 +1181,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/bridge/refused.json", title: "BridgeRefused", schema: BridgeRefused },
   { path: "browser/bridge/from-extension.json", title: "BridgeFromExtension", schema: BridgeFromExtension },
   { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
+  { path: "browser/status/listener.json", title: "ExtensionListenerStatus", schema: ExtensionListenerStatus },
+  { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
+  { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
+  { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,

@@ -33,6 +33,7 @@ import { absentProbe } from "./containment.js";
 import type { ConfiguredAccount } from "../src/accounts/account-service.js";
 import type { SignInDirectorFactory } from "../src/accounts/signin-seam.js";
 import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
+import { TEST_EXTENSION, TEST_EXTENSION_PORTS } from "./fake-extension.js";
 import { refusingSpawn } from "./signin.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
 import {
@@ -158,6 +159,12 @@ export interface TestEnvironmentOptions {
   readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
   /** The steps `setup.check` runs (`test/setup-steps.ts` scripts them); preset: the step registry with the environment's own answers. */
   readonly setupSteps?: EnvironmentOptions["setupSteps"];
+  /**
+   * The extension's folder and listener (#547), each part over the helper's
+   * preset: `TEST_EXTENSION` as the built extension carried, and the
+   * listener's preferred port 0, so a test never takes 47615.
+   */
+  readonly browser?: EnvironmentOptions["browser"];
 }
 
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
@@ -340,6 +347,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
+    browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, ...options.browser },
   };
   let env: EnvironmentHandle;
   try {

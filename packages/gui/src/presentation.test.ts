@@ -126,6 +126,22 @@ describe("the presentation", () => {
     expect(String(reported[0])).toContain("lightOrDark, cachedTheme");
   });
 
+  it("holds whether the sidebar is shown, preset shown, and the headings folded by name, preset none, each read back only when it is one", async () => {
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read()).toMatchObject({ sidebarShown: true, collapsedHeadings: {} });
+    first.set("sidebarShown", false);
+    first.set("collapsedHeadings", { "group:brandsolidate": true, "shelf:settled": false });
+    await first.close();
+    expect((await openPresentation(documents)).values.read()).toMatchObject({ sidebarShown: false, collapsedHeadings: { "group:brandsolidate": true, "shelf:settled": false } });
+
+    const reported: unknown[] = [];
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, sidebarShown: "no", collapsedHeadings: { "block:pinned": "yes" } });
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toMatchObject({ sidebarShown: true, collapsedHeadings: {} });
+    expect(String(reported[0])).toContain("sidebarShown, collapsedHeadings");
+  });
+
   it("holds only keys on the organisation-state lint's presentation list", () => {
     for (const key of Object.keys(PRESENTATION_DEFAULTS)) expect(PRESENTATION_KEYS).toContain(key);
   });

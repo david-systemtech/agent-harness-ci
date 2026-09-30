@@ -1,4 +1,4 @@
-import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { activityOf, type EnvironmentView } from "@agent-harness/client-runtime";
 import type { SessionSummary } from "@agent-harness/contracts";
 
 /**
@@ -81,20 +81,20 @@ export interface Glyph {
 
 /**
  * The activity glyph (docs/specs/tui.md, "The rail"): `idle`, `starting`,
- * `running`, and `parked` with the count of its parked prompts. A session
- * with a parked prompt reads as parked whatever its activity says, as the
- * runtime's run states read it.
+ * `running`, and `parked` with the count of its parked prompts, as the
+ * client runtime reads a row's activity (`activityOf`, which the window's
+ * sidebar draws too).
  */
 export const glyphOf = (summary: Pick<SessionSummary, "activity" | "parkedPromptCount">): Glyph => {
-  if (summary.activity.state === "parked" || summary.parkedPromptCount > 0) {
-    return { text: `?${summary.parkedPromptCount > 0 ? summary.parkedPromptCount : ""}`, colour: "yellow", dim: false };
-  }
-  switch (summary.activity.state) {
+  const activity = activityOf(summary);
+  switch (activity.state) {
+    case "parked":
+      return { text: `?${activity.parked > 0 ? activity.parked : ""}`, colour: "yellow", dim: false };
     case "starting":
       return { text: "◌", colour: "cyan", dim: false };
     case "running":
       return { text: "●", colour: "green", dim: false };
-    default:
+    case "idle":
       return { text: "·", colour: undefined, dim: true };
   }
 };
