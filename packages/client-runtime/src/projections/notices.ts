@@ -45,7 +45,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * (#391) raises none: what changed shows where the settings are read, which
  * the request cache fetches again on it. `skills.updated` (#494) raises
  * none: it refreshes the cached `skills.get`; nor does `trust.updated`
- * (#500), which refreshes the cached `trust.get` and `trust.list`.
+ * (#500), which refreshes the cached `trust.get` and `trust.list`, nor
+ * `carry-over.imported` (#578), which refreshes the cached
+ * `carryOver.inventory`.
  */
 
 export interface EnvironmentNoticeContext {
@@ -197,6 +199,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
         case "trust.updated":
+          return;
+        // An import of an adopted account's directory ended (#578): the request cache reads carryOver.inventory again,
+        // and Carry over's card shows what it did.
+        case "carry-over.imported":
           return;
       }
     },
