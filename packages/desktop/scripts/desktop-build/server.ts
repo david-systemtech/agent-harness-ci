@@ -48,15 +48,25 @@ const headerOf = (path: string): Buffer => {
 };
 
 /**
- * Unpacks the server artefact `archive` into `into` with the platform's
- * `tar`, which reads a gzipped tar everywhere and a zip on Windows and macOS
- * (the Windows artefact is a zip, and its desktop is built on Windows), and
- * checks it: its Node is where `target`'s platform keeps it and is built for
- * that platform, and its CLI names `version`, as `bundledServer()` reads it.
+ * How the build running on `host` unpacks `archive` into `into`: with the
+ * host's `tar`, which reads a gzipped tar everywhere and a zip on Windows and
+ * macOS; a zip on Linux (the Windows artefact, when the setup is built there)
+ * with Python's zipfile, since GNU tar reads none and node-gyp has Python on
+ * every runner that builds the release.
  */
-export const stageServer = async (archive: string, into: string, target: DesktopTarget, version: string): Promise<void> => {
+const unpackCommand = (archive: string, into: string, host: string): [string, string[]] =>
+  host.startsWith("linux-") && archive.endsWith(".zip") ? ["python3", ["-m", "zipfile", "-e", archive, into]] : ["tar", ["-xf", archive, "-C", into]];
+
+/**
+ * Unpacks the server artefact `archive` into `into`, as the build running on
+ * `host` can (`unpackCommand`), and checks it: its Node is where `target`'s
+ * platform keeps it and is built for that platform, and its CLI names
+ * `version`, as `bundledServer()` reads it.
+ */
+export const stageServer = async (archive: string, into: string, target: DesktopTarget, version: string, host: string): Promise<void> => {
   mkdirSync(into, { recursive: true });
-  await run("tar", ["-xf", archive, "-C", into]).catch((error: unknown) => {
+  const [command, args] = unpackCommand(archive, into, host);
+  await run(command, args).catch((error: unknown) => {
     throw new DesktopBuildError(`The server artefact ${archive} did not unpack: ${error instanceof Error ? error.message : String(error)}`);
   });
   const node = artefactNode(target.os);

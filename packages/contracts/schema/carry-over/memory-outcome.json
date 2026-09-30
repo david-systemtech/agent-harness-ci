@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverMemoryOutcome",
+  "type": "string",
+  "enum": [
+    "copied",
+    "carried",
+    "kept"
+  ],
+  "description": "What a memory folder's copy did: copied, its files into its key's auto-memory directory, which held nothing; carried, whole under carried/ in that directory with a pointer line appended to its MEMORY.md, the directory holding other memory; kept, nothing copied, the directory holding it already or the folder unchanged since an import last copied it there."
+}

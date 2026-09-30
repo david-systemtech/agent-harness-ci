@@ -264,6 +264,11 @@
     },
     {
       "type": "string",
+      "const": "carry-over.memory-assigned",
+      "description": "A memory folder no transcript maps was assigned to a repository and copied; a client reads carryOver.inventory again."
+    },
+    {
+      "type": "string",
       "const": "state-import.finished",
       "description": "A state import ended, with its report and what failed; a client reads stateImport.detect again."
     },

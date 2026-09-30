@@ -3,7 +3,8 @@ import { desktopTarget, DESKTOP_TARGETS } from "./targets.js";
 
 /**
  * The desktop's three builds (#423): which file each platform's build is, the
- * format the desktop's `update` installs it as (#355), and where CI builds it.
+ * format the desktop's `update` installs it as (#355), and where CI builds it
+ * (#359).
  */
 
 describe("the desktop's builds", () => {
@@ -15,10 +16,18 @@ describe("the desktop's builds", () => {
     ]);
   });
 
-  it("say which runner builds each: the Mac's for the zip, an x86_64 ci runner for the Arch package, and none for the setup, which is built by hand on Windows", () => {
+  it("say which runner builds each: the Mac's for the zip, an x86_64 ci runner for the Arch package and for the setup, which is built there with Wine", () => {
     expect(desktopTarget("darwin-arm64").runner).toBe("macos");
     expect(desktopTarget("linux-x64").runner).toBe("ci-x64");
-    expect(desktopTarget("win32-x64").runner).toBeNull();
+    expect(desktopTarget("win32-x64").runner).toBe("ci-x64");
+  });
+
+  it("say where each builds: the zip and the Arch package on their own platform, the setup on Windows or on an x86_64 Linux with Wine", () => {
+    expect(DESKTOP_TARGETS.map(({ platform, hosts }) => [platform, hosts])).toEqual([
+      ["darwin-arm64", ["darwin-arm64"]],
+      ["win32-x64", ["win32-x64", "linux-x64"]],
+      ["linux-x64", ["linux-x64"]],
+    ]);
   });
 
   it("refuse a platform no desktop is built for, naming the three", () => {

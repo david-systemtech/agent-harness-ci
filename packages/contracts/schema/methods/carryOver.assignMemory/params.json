@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "carryOver.assignMemory params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "The adopted account whose directory to carry over."
+    },
+    "folder": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+      "description": "The memory folder to assign, by its project folder's name under the adopted directory's projects/."
+    },
+    "repositoryIdentity": {
+      "type": "string",
+      "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+      "description": "The repository whose auto memory the folder is copied into."
+    }
+  },
+  "required": [
+    "commandId",
+    "accountId",
+    "folder",
+    "repositoryIdentity"
+  ]
+}

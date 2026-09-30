@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "carryOver.assignMemory response",
+  "type": "object",
+  "properties": {
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "accepted"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head once the command committed: its last event, or the head it saw when it appended none."
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "False for a command that was accepted and changed nothing, so appended no event."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head when the command was rejected."
+            },
+            "changed": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "A stable error code in snake case."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "data"
+              ],
+              "description": "The rejection as an error: its code (the reason), a message for people and structured data."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed",
+            "reason",
+            "error"
+          ]
+        }
+      ],
+      "description": "A command's receipt: accepted (with the head sequence after it and whether it changed anything) or rejected (with the reason and the error). A retry with the same commandId answers the same receipt."
+    },
+    "result": {
+      "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+        },
+        "repositoryIdentity": {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "The repository the folder was assigned to: its key."
+        },
+        "copy": {
+          "type": "object",
+          "properties": {
+            "folder": {
+              "type": "string",
+              "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+              "description": "The project folder the memory lies in, by its name under projects/: what carryOver.assignMemory takes."
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The memory folder itself, projects/<folder>/memory in the adopted directory."
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The auto-memory key it went to: the repository identity, else the main checkout, else the path a transcript named."
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "copied",
+                "carried",
+                "kept"
+              ],
+              "description": "What a memory folder's copy did: copied, its files into its key's auto-memory directory, which held nothing; carried, whole under carried/ in that directory with a pointer line appended to its MEMORY.md, the directory holding other memory; kept, nothing copied, the directory holding it already or the folder unchanged since an import last copied it there."
+            },
+            "under": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^carried\\/[^/]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Where in the key's directory a carried folder landed, carried/<name>; null when it was copied or kept."
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "The SHA-256 of the folder's files as the copy read them, their paths and bytes: an import leaves a folder with a digest already copied to the same key alone."
+            }
+          },
+          "required": [
+            "folder",
+            "path",
+            "key",
+            "outcome",
+            "under",
+            "digest"
+          ],
+          "description": "A memory folder copied by the carried/ rule: the folder, the key it went to, what the copy did and a digest of what it read."
+        }
+      },
+      "required": [
+        "accountId",
+        "repositoryIdentity",
+        "copy"
+      ]
+    }
+  },
+  "required": [
+    "receipt"
+  ]
+}

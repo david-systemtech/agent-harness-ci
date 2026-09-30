@@ -785,6 +785,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "instructions.updated",
       "extension.seen",
       "carry-over.imported",
+      "carry-over.memory-assigned",
       "state-import.finished",
       "workspace.kept",
       "chrome.updated",
@@ -836,6 +837,14 @@ export const schemaFixtures: Record<string, Fixtures> = {
         payload: { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] },
       },
       {
+        type: "carry-over.memory-assigned",
+        payload: {
+          accountId: "claude-max",
+          repositoryIdentity: "https://git.systemtech.dev/david/agent-harness",
+          copy: { folder: "-tmp-pad", path: "/home/david/.claude/projects/-tmp-pad/memory", key: "https://git.systemtech.dev/david/agent-harness", outcome: "copied", under: null, digest: `sha256:${"0".repeat(64)}` },
+        },
+      },
+      {
         type: "state-import.finished",
         payload: { carried: stateImportCarried, reEnter: [], later: [], notCarried: [{ label: "Browser pairings", count: 1, step: "browser" }], failed: [] },
       },
@@ -874,6 +883,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
       { type: "setup.result-changed", payload: { step: "forges" } },
       { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
+      { type: "carry-over.memory-assigned", payload: { accountId: "claude-max", repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" } },
       { type: "state-import.finished", payload: { carried: stateImportCarried, reEnter: [], later: [], notCarried: [] } },
       toolsUpdatedNotice.invalid,
       ...toolRunNotices.invalid,

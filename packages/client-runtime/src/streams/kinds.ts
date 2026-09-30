@@ -377,6 +377,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // An import of an adopted account's directory ending (#578) changes no status: the request cache reads carryOver.inventory again.
       case "carry-over.imported":
         return data;
+      // A memory folder assigned to a repository (#580) changes no status: the request cache reads carryOver.inventory again.
+      case "carry-over.memory-assigned":
+        return data;
       // A state import ending (#581) changes no status: the request cache reads stateImport.detect again.
       case "state-import.finished":
         return data;

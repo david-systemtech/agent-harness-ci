@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import { ChromeUpdatedPayload } from "./browser-chromes.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
-import { CarryOverImportedPayload } from "./carry-over.js";
+import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carry-over.js";
 import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
@@ -137,12 +137,13 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "instructions.updated",
   // The Managed tools registry's notice (#373); an extension that holds no credential seen at the
   // listener (the Browser card's Load sub-step, #547); an import of an adopted account's directory
-  // ended (Carry over's, #578).
+  // ended (Carry over's, #578); a memory folder no transcript maps assigned to a repository (#580).
   "tools.updated",
   "tool.run-started",
   "tool.run-finished",
   "extension.seen",
   "carry-over.imported",
+  "carry-over.memory-assigned",
   // A state import ended (#581's contract, #94's build).
   "state-import.finished",
   // A worktree the environment made stayed, unlocked, when the last session naming it was purged
@@ -214,6 +215,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "tool.run-finished": "A tool's install or update in a tool terminal ended, with its exit code and verification.",
   "extension.seen": "An unpaired extension opened its socket to the listener; the Browser card ticks Load.",
   "carry-over.imported": "Carry over's notice: an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again.",
+  "carry-over.memory-assigned": "A memory folder no transcript maps was assigned to a repository and copied; a client reads carryOver.inventory again.",
   "state-import.finished": "A state import ended, with its report and what failed; a client reads stateImport.detect again.",
   "workspace.kept": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why.",
   "chrome.updated": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again.",
@@ -447,6 +449,11 @@ const CarryOverImported = describedNotice(
   CarryOverImportedPayload,
   "An import of an adopted account's directory ended, in the transaction of what it imported: the account, what it did with the sessions, and what failed.",
 );
+const CarryOverMemoryAssigned = describedNotice(
+  "carry-over.memory-assigned",
+  CarryOverMemoryAssignedPayload,
+  "A memory folder of an adopted account's directory that no transcript maps was assigned to a repository and copied into its auto memory, in the transaction of the assignment's receipt: the account, the repository, and what the copy did.",
+);
 const StateImportFinished = describedNotice(
   "state-import.finished",
   StateImportFinishedPayload,
@@ -523,6 +530,7 @@ export const EnvironmentNotice = z
     ToolRunFinished,
     ExtensionSeen,
     CarryOverImported,
+    CarryOverMemoryAssigned,
     StateImportFinished,
     WorkspaceKept,
     ChromeUpdated,

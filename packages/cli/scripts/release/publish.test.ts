@@ -33,32 +33,48 @@ const forgejo = async (quirks: FakeForgejoQuirks = {}): Promise<{ fake: FakeForg
 
 const sha256 = (content: string) => createHash("sha256").update(content).digest("hex");
 
+/** An asset of a release folder: its manifest entry's name, kind, platform and format, and its content. */
+interface FolderAsset {
+  readonly name: string;
+  readonly kind: string;
+  readonly platform: string | null;
+  readonly format: string | null;
+  readonly content: string;
+}
+
 /** What a release folder holds besides release.json: each asset's name, kind and content. */
-const ASSETS = [
+const ASSETS: readonly FolderAsset[] = [
   { name: "agent-harness-linux-x64.tar.gz", kind: "environment", platform: "linux-x64", format: "tar.gz", content: "the linux artefact\n" },
   { name: "install.sh", kind: "install-script", platform: null, format: null, content: "#!/bin/sh\necho install\n" },
 ];
 
+/** The three desktop builds a release publishes (#359), as the build lists them. */
+const DESKTOP_BUILDS: readonly FolderAsset[] = [
+  { name: "agent-harness-desktop-darwin-arm64.zip", kind: "desktop", platform: "darwin-arm64", format: "zip", content: "the macOS zip\n" },
+  { name: "agent-harness-desktop-win32-x64-setup.exe", kind: "desktop", platform: "win32-x64", format: "nsis", content: "the Windows setup\n" },
+  { name: "agent-harness-desktop-linux-x64.pacman", kind: "desktop", platform: "linux-x64", format: "pacman", content: "the Arch package\n" },
+];
+
 /**
- * A release folder as the build leaves it for `version`: each asset and
- * `release.json` listing them, with a sidecar each; `manifest` replaces
+ * A release folder as the build leaves it for `version`: each of `assets`
+ * and `release.json` listing them, with a sidecar each; `manifest` replaces
  * fields of the manifest written.
  */
-const releaseFolder = (version: string, manifest: Partial<ReleaseManifest> = {}): string => {
+const releaseFolder = (version: string, manifest: Partial<ReleaseManifest> = {}, assets: readonly FolderAsset[] = ASSETS): string => {
   const folder = mkdtempSync(join(tmpdir(), "release-publish-"));
   cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
   const write = (name: string, content: string) => {
     writeFileSync(join(folder, name), content);
     writeFileSync(join(folder, `${name}.sha256`), `${sha256(content)}  ${name}\n`);
   };
-  for (const asset of ASSETS) write(asset.name, asset.content);
+  for (const asset of assets) write(asset.name, asset.content);
   const listed: ReleaseManifest = {
     version,
     protocolVersion: PROTOCOL_VERSION,
     launcherProtocol: LAUNCHER_PROTOCOL,
     databaseSchemaVersion: 17,
     bundledClaudeCodeVersion: "2.1.283 (Claude Code)",
-    assets: ASSETS.map(({ content, ...asset }) => ({ ...asset, size: Buffer.byteLength(content), sha256: sha256(content) })),
+    assets: assets.map(({ content, ...asset }) => ({ ...asset, size: Buffer.byteLength(content), sha256: sha256(content) })),
     image: { reference: `git.example.test:5526/david/agent-harness:${version}`, digest: `sha256:${"0".repeat(64)}` },
     ...manifest,
   };
@@ -103,6 +119,29 @@ describe("publishing a tag's release", () => {
       { draft: false },
     ]);
     expect(release?.assets.find((asset) => asset.name === "install.sh")?.sha256).toBe(sha256("#!/bin/sh\necho install\n"));
+  });
+
+  it("writes notes on a release with desktop builds: they are unsigned, and how to open each the first time on macOS, Windows and Arch", async () => {
+    const { fake, forge } = await forgejo();
+    await publishRelease({ tag: "v0.5.0-beta.1", folder: releaseFolder("0.5.0-beta.1", {}, [...ASSETS, ...DESKTOP_BUILDS]) }, forge, quiet);
+    const release = fake.release("v0.5.0-beta.1");
+    expect(release?.assets.map((asset) => asset.name)).toEqual(expect.arrayContaining(DESKTOP_BUILDS.flatMap(({ name }) => [name, `${name}.sha256`])));
+    const notes = String((fake.bodies[0] as { body?: unknown }).body).split("\n\n");
+    expect(notes[0]).toBe("## The desktop builds are not signed");
+    expect(notes[1]).toMatch(/^macOS and Windows warn the first time one downloaded by a browser is opened\. Once it is open, the desktop updates itself without a warning:/);
+    const macOS = notes.find((paragraph) => paragraph.startsWith("**macOS**")) ?? "";
+    expect(macOS).toContain("`agent-harness-desktop-darwin-arm64.zip`");
+    expect(macOS).toContain("move `agent-harness.app` into Applications");
+    expect(macOS).toContain("System Settings > Privacy & Security");
+    expect(macOS).toContain("Open Anyway");
+    expect(macOS).toContain("`xattr -dr com.apple.quarantine /Applications/agent-harness.app`");
+    const windows = notes.find((paragraph) => paragraph.startsWith("**Windows**")) ?? "";
+    expect(windows).toContain("`agent-harness-desktop-win32-x64-setup.exe`");
+    expect(windows).toContain("Windows protected your PC");
+    expect(windows).toContain("More info, then Run anyway");
+    const arch = notes.find((paragraph) => paragraph.startsWith("**Arch Linux**")) ?? "";
+    expect(arch).toContain("`sudo pacman -U agent-harness-desktop-linux-x64.pacman`");
+    expect(notes.map((paragraph) => paragraph.split(" ", 2).join(" "))).toEqual(["## The", "macOS and", "**macOS** (Apple", "**Windows** (x64),", "**Arch Linux**"]);
   });
 
   it("flags the release a prerelease exactly when the version has a prerelease part", async () => {

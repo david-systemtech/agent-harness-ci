@@ -42,29 +42,32 @@ preload exposes, and a member named bare is on it: `setBadge(3)` is
 ## Building a desktop
 
 The sections that need a packaged desktop take the build of their platform
-(#423): `build-desktop` builds one platform's desktop on that platform, for a
-release's version, from that platform's server artefact of the same version.
-The macOS zip and the Arch package come from the `desktop` workflow, run by
-hand (Actions, desktop, Run workflow; the `macos` job waits while the Mac
-sleeps, the `arch` job for a `ci-x64` runner), which keeps no file: run the
-same commands on the machine to keep one. No runner has Windows, so the setup
-is built by hand. On a machine of the platform, from a checkout, after
-`pnpm install`:
+(#423): `build-desktop` builds one platform's desktop on that platform (the
+Windows setup on an x86_64 Linux with Wine too, #359), for a release's version,
+from that platform's server artefact of the same version. The `desktop`
+workflow builds all three, run by hand (Actions, desktop, Run workflow; the
+`macos` job waits while the Mac sleeps, the `arch` and `windows` jobs for a
+`ci-x64` runner), and keeps no file; a release publishes all three. To keep a
+build of no release, run the same commands on a machine that builds it, from a
+checkout, after `pnpm install`:
 
 1. **The server artefact.** On macOS or an x86_64 Linux, the release build
    makes the machine's own: `pnpm --filter agent-harness build-artefacts
    --tag v0.0.0-check.1 --out server --platform <darwin-arm64 or linux-x64>
    --image-reference ci.invalid/agent-harness:0.0.0-check.1 --image-digest
    sha256:<64 zeros>`. The Windows artefact is built on the x86_64 Linux
-   machine beside its own (`--platform linux-x64 --platform win32-x64`) and
-   copied to the Windows machine, or taken from a release.
+   machine beside its own (`--platform linux-x64 --platform win32-x64`); the
+   setup is built from it there, with Wine, or on a Windows machine it is
+   copied to.
 2. **The desktop.** `pnpm --filter @agent-harness/desktop build-desktop
    --platform <platform> --tag v0.0.0-check.1 --server
-   server/agent-harness-<platform>.<tar.gz, or zip on Windows> --out desktop`
+   server/agent-harness-<platform>.<tar.gz, or zip for win32-x64> --out desktop`
    writes `desktop/agent-harness-desktop-darwin-arm64.zip`,
    `agent-harness-desktop-win32-x64-setup.exe` or
    `agent-harness-desktop-linux-x64.pacman`. On Linux, electron-builder's
-   fpm needs `bsdtar` (Debian's `libarchive-tools`, Arch's `libarchive`). A
+   fpm needs `bsdtar` (Debian's `libarchive-tools`, Arch's `libarchive`), and
+   the Windows setup needs Wine, which runs the setup to write its
+   uninstaller, and `python3`, which unpacks the Windows zip. A
    server artefact of another version or platform is refused before anything
    is packed. Use a later tag (`v0.0.0-check.2`) for the build that a
    restart-to-update section applies.

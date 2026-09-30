@@ -302,7 +302,7 @@ export {
   type SessionRun,
   type SessionRunsView,
 } from "./projections/runs.js";
-export { stopFirstOffer, type QueuedMessage, type SessionVerbs, type StopFirstOffer, type VerbAvailability, type VerbMethod, type VerbReason } from "./projections/verbs.js";
+export { stopFirstOffer, workspaceGoneLine, type QueuedMessage, type SessionVerbs, type StopFirstOffer, type VerbAvailability, type VerbMethod, type VerbReason } from "./projections/verbs.js";
 export type { Attention, AttentionEvent } from "./projections/attention.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";

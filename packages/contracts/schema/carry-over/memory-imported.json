@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverMemoryImported",
+  "type": "object",
+  "properties": {
+    "folders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+            "description": "The project folder the memory lies in, by its name under projects/: what carryOver.assignMemory takes."
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+            "description": "The memory folder itself, projects/<folder>/memory in the adopted directory."
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The auto-memory key it went to: the repository identity, else the main checkout, else the path a transcript named."
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "copied",
+              "carried",
+              "kept"
+            ],
+            "description": "What a memory folder's copy did: copied, its files into its key's auto-memory directory, which held nothing; carried, whole under carried/ in that directory with a pointer line appended to its MEMORY.md, the directory holding other memory; kept, nothing copied, the directory holding it already or the folder unchanged since an import last copied it there."
+          },
+          "under": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^carried\\/[^/]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where in the key's directory a carried folder landed, carried/<name>; null when it was copied or kept."
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "description": "The SHA-256 of the folder's files as the copy read them, their paths and bytes: an import leaves a folder with a digest already copied to the same key alone."
+          }
+        },
+        "required": [
+          "folder",
+          "path",
+          "key",
+          "outcome",
+          "under",
+          "digest"
+        ],
+        "description": "A memory folder copied by the carried/ rule: the folder, the key it went to, what the copy did and a digest of what it read."
+      },
+      "description": "Each memory folder mapped, by a transcript or an assignment, with what its copy did (in a dry run, would do); failed ones are named in failed."
+    },
+    "unmappable": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+            "description": "The project folder the memory lies in, by its name under projects/: what carryOver.assignMemory takes."
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+            "description": "The memory folder itself, projects/<folder>/memory in the adopted directory."
+          }
+        },
+        "required": [
+          "folder",
+          "path"
+        ],
+        "description": "A memory folder of the adopted directory: its project folder's name and its path."
+      },
+      "description": "The folders no transcript maps and no assignment has, which the import left."
+    }
+  },
+  "required": [
+    "folders",
+    "unmappable"
+  ],
+  "description": "What an import did with the adopted directory's memory folders: each mapped folder's copy, and the unmappable ones."
+}
