@@ -238,6 +238,8 @@ describe("a deleted session", () => {
     "sessions.rewind": { sessionId, messageId: randomUUID() },
     // Nor a rewind to undo (#218).
     "sessions.undoRewind": { sessionId },
+    // Nor instructions of its own to set (#506).
+    "sessions.setInstructions": { sessionId, text: "Only touch the CLI package." },
     // A deleted session is not found before the forge is asked (#317).
     "forge.pullRequests.link": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
     "forge.pullRequests.unlink": { sessionId, url: "https://github.com/david/agent-harness/pull/1" },
@@ -633,7 +635,7 @@ describe("sessions.subscribeSession", () => {
       type: "snapshot",
       subscription,
       sequence: head,
-      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [], rewinds: [] },
+      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" },
     });
     expect(await client.next((f) => "subscription" in f && f.subscription === subscription)).toEqual({
       type: "synchronized",
