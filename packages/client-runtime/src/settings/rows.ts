@@ -78,12 +78,6 @@ export const parseSettingsLink = (url: string): SettingsLink | undefined => {
   return { row: settingsRowNamed(name) ?? FIRST_ROW };
 };
 
-/**
- * The steps of Set up a row links to, in the checklist's order after its own:
- * the steps it is home to, then the steps whose keys sit on it or that link
- * it as a further row (a step's `links`). None on Set up, which is home to
- * the whole checklist, and none on a row no step lives on.
- */
 /** The row each step lives on, from the row registry: every step of the order has one, registered or not. */
 const HOME_ROWS: ReadonlyMap<StepId, SettingsRowId> = new Map(
   SETTINGS_ROWS.flatMap((row) => (typeof row.homeOf === "string" ? [] : row.homeOf.map((step): [StepId, SettingsRowId] => [step, row.id]))),
@@ -92,6 +86,12 @@ const HOME_ROWS: ReadonlyMap<StepId, SettingsRowId> = new Map(
 /** The row a step lives on: where Set up's link to it, and a notice its step answers, open. */
 export const stepHome = (step: StepId): SettingsRowId => HOME_ROWS.get(step) as SettingsRowId;
 
+/**
+ * The steps of Set up a row links to, in the checklist's order after its own:
+ * the steps it is home to, then the steps whose keys sit on it or that link
+ * it as a further row (a step's `links`). None on Set up, which is home to
+ * the whole checklist, and none on a row no step lives on.
+ */
 export const rowSteps = (id: SettingsRowId): readonly StepId[] => {
   const { homeOf } = settingsRow(id);
   if (!Array.isArray(homeOf)) return [];

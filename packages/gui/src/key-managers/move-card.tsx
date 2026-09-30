@@ -2,7 +2,7 @@ import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, ty
 import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerReference } from "@agent-harness/contracts";
 import { useId, useMemo, useState } from "react";
 import { Button, Dialog, DialogContent, Input, Select } from "../ui/index.js";
-import { useClock, useFollowed, useRuntime, useShell } from "../window-context.js";
+import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 import { Field } from "./add-connection.js";
 
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
@@ -37,7 +37,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
   const clock = useClock();
   const heading = useId();
   const sender = { runtime, clock };
-  const listed = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
+  const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
   const [chosen, choose] = useState<string | undefined>(undefined);
   const connection = connections.find((each) => each.id === (chosen ?? presetOf(connections)));
   const [typed, setTyped] = useState<string | undefined>(undefined);
@@ -45,45 +45,53 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
   const [line, setLine] = useState<string | undefined>(undefined);
   const [followUps, setFollowUps] = useState<ReadonlyMap<string, MoveFollowUp>>(new Map());
   const [copied, setCopied] = useState<Copied | undefined>(undefined);
+  const [sending, setSending] = useState(false);
   if (connection === undefined) return null;
 
-  const items = listed?.result?.items ?? [];
+  const items = listed.result?.items ?? [];
+  // A Move or a copy on its way takes no second press.
+  const acting = !writable || sending;
   const names = new Map(items.map((item) => [item.id, item.name]));
   const basePath = typed ?? connection.basePath ?? connection.suggestedBasePath ?? "";
   const targetOf = (item: KeyManagerMoveItem) => item.targets.find((target) => target.connectionId === connection.id)?.reference;
 
   const move = (which: "all" | readonly KeyManagerMoveItemRef[], options: MoveOptions = {}) => {
     setLine(undefined);
+    setSending(true);
     void moveItems(sender, environmentId, connection, which, names, options).then((answer) => {
+      setSending(false);
       if (!answer.ok) return setLine(answer.line);
       setLines(answer.lines);
       setFollowUps((held) => new Map([...held, ...answer.lines.map((each) => [each.item.id, each.followUp] as const)]));
     });
   };
-  const copy = (item: KeyManagerMoveItemRef) =>
+  const copy = (item: KeyManagerMoveItemRef) => {
+    setSending(true);
     void copyValue(sender, environmentId, connection, item).then((answer) => {
+      setSending(false);
       if (!answer.ok) return setLine(answer.line);
       setFollowUps((held) => new Map([...held, [item.id, "verify"]]));
       setCopied({ value: answer.value, reference: answer.reference });
     });
+  };
   const followUp = (item: KeyManagerMoveItem) => {
     const ref = { kind: item.kind, id: item.id };
     switch (followUps.get(item.id)) {
       case "overwrite":
         return (
-          <Button disabled={!writable} onClick={() => move([ref], { overwrite: true })}>
+          <Button disabled={acting} onClick={() => move([ref], { overwrite: true })}>
             Overwrite
           </Button>
         );
       case "copy-value":
         return (
-          <Button disabled={!writable} onClick={() => copy(ref)}>
+          <Button disabled={acting} onClick={() => copy(ref)}>
             Copy value
           </Button>
         );
       case "verify":
         return (
-          <Button disabled={!writable} onClick={() => move([ref], { verifyOnly: true })}>
+          <Button disabled={acting} onClick={() => move([ref], { verifyOnly: true })}>
             Verify the paste
           </Button>
         );
@@ -129,7 +137,9 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
         </Button>
       </div>
       {connection.basePath === null && connection.suggestedBasePath !== null && <p className="text-sm text-ink-muted">Suggested: {connection.suggestedBasePath}.</p>}
-      {items.length === 0 ? (
+      {listed.result === null ? (
+        <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the stored tokens…" : `The stored tokens could not be read: ${listed.error.message}`}</p>
+      ) : items.length === 0 ? (
         <p className="text-sm text-ink-muted">No stored token is left to move here.</p>
       ) : (
         <ul aria-label="Stored tokens" className="flex flex-col gap-2">
@@ -141,7 +151,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
                 <span className="text-ink-muted">{target === undefined ? "Set a base path to see where it goes." : `To ${referenceLocator(target)}`}</span>
                 <span className="ml-auto flex gap-2">
                   {followUp(item)}
-                  <Button disabled={!writable || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
+                  <Button disabled={acting || target === undefined} onClick={() => move([{ kind: item.kind, id: item.id }])}>
                     Move
                   </Button>
                 </span>
@@ -151,7 +161,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
         </ul>
       )}
       {connection.basePath !== null && items.length > 0 && (
-        <Button tone="primary" className="self-start" disabled={!writable} onClick={() => move("all")}>
+        <Button tone="primary" className="self-start" disabled={acting} onClick={() => move("all")}>
           Move all
         </Button>
       )}

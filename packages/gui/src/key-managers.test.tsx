@@ -142,6 +142,28 @@ describe("Add", () => {
     expect(sent).not.toContain("secret-rejected-for-tests");
   });
 
+  it("adds another provider by its token alone, which this version's environment answers provider_unavailable in one line", async () => {
+    const app = await opened();
+    const keyManagers = await openKeyManagers(app);
+    await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
+    const add = await dialog("Add a key manager on desk");
+    await app.user.selectOptions(within(add).getByRole("combobox", { name: "Provider" }), "doppler");
+    expect((within(add).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("Doppler");
+    expect((within(add).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe("https://api.doppler.com");
+    expect(within(add).queryByRole("combobox", { name: "Signs in by" })).toBeNull();
+    await app.user.type(within(add).getByLabelText("Token"), "token-for-tests");
+    await app.user.click(within(add).getByRole("button", { name: "Add" }));
+    expect(
+      await within(add).findByText(
+        "Not added: This environment cannot sign in to Doppler yet: add the connection without a credential, and sign it in with a version that can. Nothing was stored.",
+      ),
+    ).toBeDefined();
+    const params = app.environment("desk").requests("keyManagers.connections.add")[0]?.params ?? {};
+    expect(params).toMatchObject({ provider: "doppler", address: "https://api.doppler.com", credential: { method: "token", token: "token-for-tests" } });
+    expect(Object.keys(params)).not.toContain("method");
+    expect(Object.keys(params)).not.toContain("mount");
+  });
+
   it("says a connection the environment holds already in one line", async () => {
     const app = await opened({ keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200" }] } });
     const keyManagers = await openKeyManagers(app);
@@ -279,6 +301,9 @@ describe("the card's verbs", () => {
     await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Sign out" }));
     await app.user.click(within(await dialog("Sign out of Home OpenBao?")).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))["Status"]).toMatch(/^Awaiting a sign-in since /));
+    // What the login was known by goes with it.
+    expect(facts(within(pane()).getByRole("region", { name: "Home OpenBao" }))).toMatchObject({ "Run tokens": "Not known until it is verified." });
+    expect(within(within(pane()).getByRole("region", { name: "Home OpenBao" })).queryByRole("group", { name: "Policies runs receive" })).toBeNull();
 
     await app.user.click(within(await card("Home OpenBao")).getByRole("button", { name: "Remove" }));
     const remove = await dialog("Remove Home OpenBao?");

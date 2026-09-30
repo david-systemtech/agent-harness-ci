@@ -214,6 +214,11 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   });
   const notFound = (id: unknown): FakeAnswer => rejected("not_found", `No key-manager connection ${String(id)} is on this environment.`, { kind: "key_manager_connection" });
   const invalid = (path: string, message: string): FakeAnswer => ({ error: invalidParams([{ code: "custom", path: [path], message }], message) });
+  /** A provider this version's environment cannot sign in to or move into yet (#377 to #379), as it refuses one. */
+  const unavailable = (provider: KeyManagerProvider, what: string, after: string): FakeAnswer =>
+    rejected("provider_unavailable", `This environment cannot ${what} ${PROVIDER_NAMES[provider]} yet${what === "sign in to" ? ": add the connection without a credential, and sign it in with a version that can" : ""}.${after}`, {
+      provider,
+    });
 
   /** How a sign-in with `credential` against `address` pinning `ca` goes: signed in, refused, or held back by a certificate the environment does not trust. */
   const tryCredential = (address: string, ca: string | null, credential: KeyManagerCredential, connectionId: string): "signed-in" | "untrusted" | FakeAnswer => {
@@ -240,6 +245,8 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
       return rejected("conflict", `A connection to ${PROVIDER_NAMES[provider]} at ${address} is on this environment already.`, { reason: "connection_exists" });
     }
     const credential = params["credential"] as KeyManagerCredential | undefined;
+    // As this version's environment does: it signs in to OpenBao alone, and adds another provider only without a credential (#365).
+    if (credential !== undefined && provider !== "openbao") return unavailable(provider, "sign in to", " Nothing was stored.");
     const method = (params["method"] as KeyManagerCredential["method"] | undefined) ?? credential?.method ?? null;
     const ca = (params["ca"] as string | undefined) ?? null;
     const tried = credential === undefined ? "none" : tryCredential(address, ca, credential, id);
@@ -316,6 +323,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     if (refused) return refused;
     const record = find(params["connectionId"]);
     if (record === undefined) return notFound(params["connectionId"]);
+    if (record.provider !== "openbao") return unavailable(record.provider, "sign in to", " Nothing was changed.");
     const credential = params["credential"] as KeyManagerCredential;
     const signed = signInWith(record, credential, {
       method: credential.method,
@@ -366,7 +374,8 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     if (record === undefined) return notFound(params["connectionId"]);
     if (record.status.kind === "awaiting-sign-in") return accepted({ connection: record });
     const out = status("awaiting-sign-in", "Signed out: sign in again in Set up, Key manager.");
-    put({ ...record, status: out, tokenInformation: null, injects: false, injectedVariables: [] });
+    // What the login was known by goes with it, as the environment's store drops it.
+    put({ ...record, status: out, tokenInformation: null, policies: null, canMint: null, injects: false, injectedVariables: [] });
     credentials.delete(record.id);
     event("key-manager.connection.signed-out", { connectionId: record.id, status: out });
     return accepted({ connection: find(record.id) });
@@ -434,7 +443,8 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     if (record.injects) return accepted({ connection: record });
     const replaced = connections.find((c) => c.provider === record.provider && c.injects);
     if (replaced !== undefined) put({ ...replaced, injects: false, injectedVariables: [] });
-    put({ ...record, injects: true, injectedVariables: OPENBAO_VARIABLES });
+    // Only OpenBao's block is given by this version, so another provider's names none.
+    put({ ...record, injects: true, injectedVariables: record.provider === "openbao" ? OPENBAO_VARIABLES : [] });
     event("key-manager.connection.injected-set", { connectionId: record.id, replaced: replaced?.id ?? null });
     return accepted({ connection: find(record.id) });
   });
@@ -489,6 +499,7 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     const overwrite = params["overwrite"] === true;
     const verifyOnly = params["verifyOnly"] === true;
     if (overwrite && verifyOnly) return invalid("overwrite", "overwrite cannot come with verifyOnly, which writes nothing.");
+    if (record.provider !== "openbao") return unavailable(record.provider, "move stored tokens into", "");
     if (record.basePath === null) return invalid("connectionId", `${record.label} has no base path: set one before moving.`);
     if (record.status.kind !== "signed-in") {
       return rejected("credential_source_unavailable", `The key-manager connection ${record.label} is not signed in (${record.status.message}), so nothing can be moved into it.`, {

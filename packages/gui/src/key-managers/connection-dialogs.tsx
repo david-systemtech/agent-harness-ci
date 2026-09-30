@@ -108,6 +108,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
   const [ca, setCa] = useState<string | null>(connection.ca);
   const [checking, setChecking] = useState(false);
   const [line, setLine] = useState<string | undefined>(undefined);
+  const [sending, setSending] = useState(false);
   const openBao = connection.provider === "openbao";
 
   const submit = (event: FormEvent) => {
@@ -121,7 +122,9 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
     };
     if (Object.keys(changes).length === 0) return close();
     setLine(undefined);
+    setSending(true);
     void updateConnection(sender, environmentId, connection, changes).then((updated) => {
+      setSending(false);
       if (!updated.ok) return setLine(updated.line);
       close();
       say(updated.line);
@@ -158,7 +161,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
           <div className="flex justify-end gap-2">
             <Button onClick={close}>Cancel</Button>
-            <Button tone="primary" type="submit">
+            <Button tone="primary" type="submit" disabled={sending}>
               Save
             </Button>
           </div>
