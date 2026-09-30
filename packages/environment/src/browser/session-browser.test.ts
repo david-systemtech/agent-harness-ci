@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  ChatCompletion,
+  CompletionsErrorBody,
   registry,
   type Mode,
   type ParamsOf,
@@ -301,5 +303,74 @@ describe("an unattended run's browser", () => {
     const id = await sessionWith(client, WORK_CHROME);
     const { runId } = t.env.startRun({ sessionId: id, text: "Read the page", ...program(true) } as ActorRunRequest);
     expect(resolvedOf(t, id, runId)).toMatchObject({ browser: WORK_CHROME, reason: "chosen" });
+  });
+});
+
+describe("the completions surface's sessions", () => {
+  /** A program's bearer token: a pairing exchanged as kind `program` with the scopes a turn needs. */
+  const program = async (t: TestEnvironment) => (await t.pair({ kind: "program", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits", label: "hermes" })).token;
+
+  const post = (t: TestEnvironment, token: string, extension: Record<string, unknown>): Promise<Response> =>
+    fetch(`http://${t.address.host}:${t.address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ model: "claude-max/opus", messages: [{ role: "user", content: "Read the page" }], "agent-harness": extension }),
+    });
+
+  const complete = async (t: TestEnvironment, token: string, extension: Record<string, unknown> = {}) => {
+    const response = await post(t, token, extension);
+    const text = await response.text();
+    if (response.status !== 200) throw new Error(`The completion answered ${response.status}: ${text}`);
+    return ChatCompletion.parse(JSON.parse(text))["agent-harness"];
+  };
+
+  it("creates a session with none, chosen by the completions surface, which its run resolves to none", async () => {
+    const t = await start({}, withHeadless());
+    const token = await program(t);
+    const { sessionId, runId } = await complete(t, token);
+    expect(payloadsOf<SessionBrowserSetPayload>(t, sessionId, "session.browser.set")).toEqual([{ browser: { kind: "none" }, chosenBy: "completions" }]);
+    expect(await get(await t.client(), sessionId)).toMatchObject({ browser: { kind: "none" } });
+    expect(resolvedOf(t, sessionId, runId)).toMatchObject({ requested: { kind: "none" }, browser: { kind: "none" }, reason: "chosen" });
+  });
+
+  it("creates one with the headless browser when the request says agent-harness.browser: headless", async () => {
+    const t = await start({}, withHeadless());
+    const token = await program(t);
+    const answer = await complete(t, token, { browser: "headless" });
+    expect(answer.ignored).toEqual([]);
+    expect(payloadsOf<SessionBrowserSetPayload>(t, answer.sessionId, "session.browser.set")).toEqual([{ browser: { kind: "headless" }, chosenBy: "completions" }]);
+    expect(resolvedOf(t, answer.sessionId, answer.runId)).toMatchObject({ browser: { kind: "headless" }, reason: "chosen" });
+  });
+
+  it("refuses any other value as the namespace refuses a malformed field, recording nothing", async () => {
+    const t = await start();
+    const token = await program(t);
+    const before = t.env.log.head();
+    for (const browser of ["chrome", "none", "on", { kind: "headless" }, true]) {
+      const response = await post(t, token, { browser });
+      expect({ status: response.status, body: CompletionsErrorBody.parse(await response.json()) }, JSON.stringify(browser)).toMatchObject({
+        status: 400,
+        body: { error: { code: "invalid_params", param: "agent-harness.browser" } },
+      });
+    }
+    expect(t.env.log.head()).toBe(before);
+  });
+
+  it("gives a fork it makes the browser it asks for, and leaves a named session's own, reporting the field ignored", async () => {
+    const t = await start({}, withHeadless());
+    const token = await program(t);
+    const client = await t.client();
+    const named = await sessionWith(client, { kind: "dock" });
+    await command(client, "sessions.setBrowser", { sessionId: named, browser: { kind: "dock" } });
+    const continued = await complete(t, token, { sessionId: named, browser: "headless" });
+    expect(continued.ignored).toEqual(["agent-harness.browser"]);
+    expect(await get(client, named)).toMatchObject({ browser: { kind: "dock" } });
+
+    const forked = await complete(t, token, { sessionId: named, forkSession: true, browser: "headless" });
+    expect(forked.sessionId).not.toBe(named);
+    expect(forked.ignored).toEqual([]);
+    expect(payloadsOf<SessionBrowserSetPayload>(t, forked.sessionId, "session.browser.set")).toEqual([{ browser: { kind: "headless" }, chosenBy: "completions" }]);
+    const plain = await complete(t, token, { sessionId: named, forkSession: true });
+    expect(await get(client, plain.sessionId)).toMatchObject({ browser: { kind: "none" } });
   });
 });

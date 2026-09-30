@@ -2,7 +2,6 @@ import {
   MAX_TAGS,
   awakeShelfOf,
   type BrowserChooser,
-  type BrowserOnCreate,
   type Mode,
   type SessionBrowser,
   type SessionBrowserSetPayload,
@@ -127,7 +126,13 @@ export interface CreateSession {
   readonly model: string | null;
   readonly mode: Mode | null;
   /** The session's first browser and who chose it, recorded after its creation; null for none chosen. */
-  readonly browser: BrowserOnCreate | null;
+  readonly browser: FirstBrowser | null;
+}
+
+/** A session's first browser and who chose it: a person or the reach default through `sessions.create`, or the completions surface for a session it makes. */
+export interface FirstBrowser {
+  readonly value: SessionBrowser;
+  readonly chosenBy: BrowserChooser;
 }
 
 /** Facts about other aggregates `sessions.create` depends on. */

@@ -4,7 +4,6 @@ import {
   SESSION_STREAM_KIND,
   invalidParams,
   listEventTypes,
-  type BrowserOnCreate,
   type Mode,
   type SessionSummary,
   type Workspace,
@@ -35,6 +34,7 @@ import {
   sessionNotFound,
   stampedAt,
   type Decision,
+  type FirstBrowser,
   type Refusal,
   type SessionState,
 } from "./decider.js";
@@ -98,7 +98,7 @@ export interface SessionCreation {
   readonly model?: string | null | undefined;
   readonly mode?: Mode | null | undefined;
   /** The session's first browser and who chose it; none chosen when absent. */
-  readonly browser?: BrowserOnCreate | null | undefined;
+  readonly browser?: FirstBrowser | null | undefined;
 }
 
 /** A creation's refusal: the decider's, or an account that cannot run. */
