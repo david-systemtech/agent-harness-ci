@@ -21,6 +21,7 @@ import {
   type RunSummary,
   type SessionContainmentSetPayload,
   type SessionForkedPayload,
+  type SessionInstructionsSetPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type SessionSummary,
@@ -109,6 +110,8 @@ import type { SessionLease } from "../streams/streams.js";
  *   run's policy naming the level it asked for, whichever came last (#402:
  *   run info and the status line read them). Neither makes an entry, and a
  *   snapshot carries neither, so both are what was heard after it;
+ * - **the session's own instructions** (#506), the snapshot's, then each
+ *   `session.instructions-set` heard after it; no entry;
  * - an event of a type the contracts do not know, and one of a known type
  *   whose payload cannot be folded, is kept as an `opaque` entry naming its
  *   type, and the fold goes on (ADR 0001): an older client survives a newer
@@ -269,6 +272,8 @@ export interface SessionTranscript {
    * (the level is on no summary and no snapshot).
    */
   readonly containment: ContainmentLevel | null;
+  /** The session's own instructions, the snapshot's or the latest `session.instructions-set` heard since; empty when it has none. */
+  readonly instructions: string;
   /** Every run, oldest first. */
   readonly runs: readonly RunSummary[];
   /** The transcript, in the order its entries were opened; what a rewind cut is one `rewound` fold at the rewind point. */
@@ -415,6 +420,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   const policies: Record<string, RunPolicy> = {};
   let containment: ContainmentLevel | null = null;
+  let instructions = snapshot.instructions;
   /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
   const rewound = (): RewoundAt | null => {
     const latest = folds.at(-1);
@@ -505,6 +511,12 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         const { containment: set } = event.payload as SessionContainmentSetPayload;
         if (typeof set?.effective !== "string") throw new TypeError("session.containment.set names no level.");
         containment = set.effective;
+        return;
+      }
+      case "session.instructions-set": {
+        const { text } = event.payload as SessionInstructionsSetPayload;
+        if (typeof text !== "string") throw new TypeError("session.instructions-set carries no text.");
+        instructions = text;
         return;
       }
       case "usage.reported": {
@@ -707,6 +719,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     rewound: rewound(),
     policies,
     containment,
+    instructions,
   };
 };
 
@@ -789,7 +802,7 @@ export interface SessionProjectionInput {
   readonly waitingDraft: string | null | undefined;
 }
 
-const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, containment: null };
+const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, containment: null, instructions: "" };
 
 /** The view of one session: its stream's reduction beside its freshness, its overlaid summary and its draft. `transcript` reuses a reduction of the same data. */
 export const projectSession = (input: SessionProjectionInput, transcript?: SessionTranscript): SessionProjection => {

@@ -150,12 +150,42 @@ export const RunInstructionsComposedPayload = z
   });
 export type RunInstructionsComposedPayload = z.infer<typeof RunInstructionsComposedPayload>;
 
+// Session instructions ----------------------------------------------------------------
+
 /**
- * The composition's event on a session's stream: it changes nothing listed,
- * and transcript compaction may fold it (`sessions/compaction.ts`).
+ * A session's own instructions (skills spec, "Session instructions"; ADR
+ * 0009; #506): one text per session, set by `sessions.setInstructions`,
+ * which fills the session layer of its next runs under
+ * `# Instructions for this session`. Its bound is an owned instruction's
+ * body's (chosen); empty text is none.
+ */
+export const MAX_SESSION_INSTRUCTIONS = 20_000;
+
+export const SessionInstructions = z
+  .string()
+  .max(MAX_SESSION_INSTRUCTIONS)
+  .meta({
+    description: `A session's own instructions: Markdown, at most ${MAX_SESSION_INSTRUCTIONS} characters, which its runs are handed under # Instructions for this session, after the user, team-bank and project layers; empty when it has none.`,
+  });
+export type SessionInstructions = z.infer<typeof SessionInstructions>;
+
+export const SessionInstructionsSetPayload = z
+  .object({ text: SessionInstructions })
+  .meta({
+    description:
+      "session.instructions-set: the session's own instructions were set (sessions.setInstructions), empty text clearing them, or a fork was made with its source's. The session's next runs are handed them; a live run keeps what it began with.",
+  });
+export type SessionInstructionsSetPayload = z.infer<typeof SessionInstructionsSetPayload>;
+
+/**
+ * The instruction events on a session's stream, neither of which changes
+ * anything listed: the composition's, which transcript compaction may fold
+ * (`sessions/compaction.ts`), and the session's own instructions set (#506),
+ * which it keeps.
  */
 export const INSTRUCTION_SESSION_EVENT_TYPES = {
   "run.instructions.composed": { list: false, payload: RunInstructionsComposedPayload },
+  "session.instructions-set": { list: false, payload: SessionInstructionsSetPayload },
 } as const satisfies Record<string, EventTypeEntry>;
 
 // Owned instructions ------------------------------------------------------------------

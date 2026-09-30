@@ -105,6 +105,7 @@ import {
   instructionsRestoreSuggestion,
   instructionsSetEnabled,
   instructionsSetScope,
+  sessionsSetInstructions,
 } from "./methods/instructions.js";
 import {
   forgeAccountsAdd,
@@ -223,6 +224,7 @@ export const methods = [
   sessionsFork,
   sessionsRewind,
   sessionsUndoRewind,
+  sessionsSetInstructions,
   groupsCreate,
   groupsRename,
   groupsReorder,

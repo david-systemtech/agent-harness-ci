@@ -26,7 +26,7 @@ import { projectSession, reduceSession, type TranscriptEntry } from "./session.j
  * reducer on a real runtime.
  */
 
-const NO_SNAPSHOT = { runs: [], items: [], parkedPrompts: [], rewinds: [] };
+const NO_SNAPSHOT = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 
 const reduce = (events: readonly EventEnvelope[], snapshot = NO_SNAPSHOT) => reduceSession(snapshot, events);
 const kinds = (items: readonly TranscriptEntry[]) => items.map((item) => item.kind);
@@ -192,7 +192,7 @@ describe("the queue (ADR 0022)", () => {
       heldBy: null,
       sentAt: occurredAt(2),
     };
-    const { queued } = reduceSession({ runs: [], items: [old], parkedPrompts: [], rewinds: [] }, [sessionStreamEvent(3, "message.sent", { ...queuedBy(THIRD, "Older", "provider"), heldBy: null })]);
+    const { queued } = reduceSession({ runs: [], items: [old], parkedPrompts: [], rewinds: [], instructions: "" }, [sessionStreamEvent(3, "message.sent", { ...queuedBy(THIRD, "Older", "provider"), heldBy: null })]);
     expect(queued.map((message) => [message.messageId, message.heldBy])).toEqual([
       [SECOND, "environment"],
       [THIRD, "environment"],
@@ -398,6 +398,18 @@ describe("a run's policy and the session's containment (#402)", () => {
     const named = recorded("run.policy.resolved", 0, { containment: { requested: "workspace-no-network", effective: "workspace", mechanism: "bubblewrap", reason: "No network namespace." } });
     expect(reduce([...set, ...numbered(2, [["run.policy.resolved", named]])]).containment).toBe("workspace-no-network");
     expect(reduce([...set, ...numbered(2, [["run.policy.resolved", recorded("run.policy.resolved")]])]).containment).toBe("workspace");
+  });
+});
+
+describe("the session's own instructions (#506)", () => {
+  it("holds the snapshot's, then the latest session.instructions-set heard, empty text clearing them, and makes no entry", () => {
+    expect(reduce([]).instructions).toBe("");
+    expect(reduce([], { ...NO_SNAPSHOT, instructions: "From the snapshot." }).instructions).toBe("From the snapshot.");
+    const set = numbered(1, [["session.instructions-set", { text: "Only touch the CLI package in this session." }]]);
+    const heard = reduce(set, { ...NO_SNAPSHOT, instructions: "From the snapshot." });
+    expect(heard.instructions).toBe("Only touch the CLI package in this session.");
+    expect(heard.items).toEqual([]);
+    expect(reduce([...set, ...numbered(2, [["session.instructions-set", { text: "" }]])]).instructions).toBe("");
   });
 });
 

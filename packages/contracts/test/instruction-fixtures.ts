@@ -172,6 +172,14 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
     valid: [ownedRow, tickedRow],
     invalid: [{ ...ownedRow, id: undefined }, { ...ownedRow, accounts: undefined }, { ...ownedRow, title: "" }, { ...ownedRow, newerVersion: undefined }, { ...tickedRow, newerVersion: 0 }],
   },
+  "instructions/session-instructions.json": {
+    valid: ["", "Only touch the CLI package in this session.", "t".repeat(20000)],
+    invalid: ["t".repeat(20001), null, 7],
+  },
+  "sessions/events/session.instructions-set.json": {
+    valid: [{ text: "Only touch the CLI package in this session." }, { text: "" }],
+    invalid: [{}, { text: null }, { text: "t".repeat(20001) }],
+  },
   "sessions/events/run.instructions.composed.json": {
     valid: [
       { runId, manifest: composedManifest, digest },
@@ -289,5 +297,19 @@ export const instructionMethodFixtures: Record<string, { params: Fixtures; resul
       invalid: [{ commandId, id: instructionId, sessionId }, { commandId, id: instructionId, sessionId, path: "" }, { commandId, id: instructionId, path: "instruction.md" }, { commandId, sessionId, path: "a.md" }],
     },
     result: instructionResult,
+  },
+  "sessions.setInstructions": {
+    params: {
+      valid: [
+        { commandId, sessionId, text: "Only touch the CLI package in this session." },
+        { commandId, sessionId, text: "" },
+        { commandId, sessionId, text: "t".repeat(20000) },
+      ],
+      invalid: [{ commandId, sessionId }, { sessionId, text: "" }, { commandId, sessionId: "s-1", text: "" }, { commandId, sessionId, text: "t".repeat(20001) }],
+    },
+    result: {
+      valid: [{ sessionId, text: "Only touch the CLI package in this session." }, { sessionId, text: "" }],
+      invalid: [{ text: "" }, { sessionId }, { sessionId, text: "t".repeat(20001) }],
+    },
   },
 };
