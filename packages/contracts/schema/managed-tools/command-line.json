@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolCommandLine",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 8192,
+  "pattern": "^[^\\r\\n]+$",
+  "description": "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it."
+}

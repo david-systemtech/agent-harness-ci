@@ -32,6 +32,7 @@ import {
   type HealthDocument,
   type MintedPairing,
   type ReleaseSource,
+  type ToolCommandEntry,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
@@ -133,6 +134,7 @@ import type { ReleaseOrigins } from "../managed-tools/latest.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
 import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
+import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { followFiringEnds } from "../routines/firing-end.js";
@@ -458,6 +460,8 @@ export interface EnvironmentOptions {
     readonly packageOwner?: PackageOwnerLookup;
     readonly hostEnv?: HostEnvironment;
     readonly releaseOrigins?: Partial<ReleaseOrigins>;
+    /** The closed command table `tools.run` runs and a row's Update is read from (#376). Preset: the contracts'; tests give one whose installer is a fake. */
+    readonly commands?: readonly ToolCommandEntry[];
   };
   /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
@@ -1238,6 +1242,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
   });
   closers.push(() => terminalService.close());
+  // Install and Update in a tool terminal (#376): closed before the terminals, so a run the stop cuts short is recorded finished.
+  const toolRunner = createToolRunner({
+    tools: managedTools,
+    toolTerminals: terminalService.tools,
+    doctor: toolDoctor,
+    verifier: toolVerifier,
+    log,
+    clock,
+    environmentId: record.id,
+    ...(options.managedTools?.commands !== undefined && { commands: options.managedTools.commands }),
+  });
+  closers.push(() => toolRunner.close());
   const lifecycle = createLifecycle({
     clock,
     runs: host.runs,
@@ -1422,7 +1438,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
-    ...managedToolsMethods(managedTools, toolDoctor, toolVerifier),
+    ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,

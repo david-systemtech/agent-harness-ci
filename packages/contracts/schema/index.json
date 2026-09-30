@@ -1339,6 +1339,50 @@
       "title": "ToolsUpdatedPayload"
     },
     {
+      "path": "managed-tools/command-platform.json",
+      "title": "ToolCommandPlatform"
+    },
+    {
+      "path": "managed-tools/command-method.json",
+      "title": "ToolCommandMethod"
+    },
+    {
+      "path": "managed-tools/installable-name.json",
+      "title": "InstallableToolName"
+    },
+    {
+      "path": "managed-tools/command.json",
+      "title": "ToolCommand"
+    },
+    {
+      "path": "managed-tools/command-entry.json",
+      "title": "ToolCommandEntry"
+    },
+    {
+      "path": "managed-tools/command-line.json",
+      "title": "ToolCommandLine"
+    },
+    {
+      "path": "managed-tools/runnable-action.json",
+      "title": "RunnableToolAction"
+    },
+    {
+      "path": "managed-tools/run-conflict-reason.json",
+      "title": "ToolRunConflictReason"
+    },
+    {
+      "path": "managed-tools/errors/tool_not_runnable.json",
+      "title": "ToolNotRunnableError"
+    },
+    {
+      "path": "managed-tools/events/tool.run-started.json",
+      "title": "ToolRunStartedPayload"
+    },
+    {
+      "path": "managed-tools/events/tool.run-finished.json",
+      "title": "ToolRunFinishedPayload"
+    },
+    {
       "path": "scrub/shape-rule-id.json",
       "title": "ShapeRuleId"
     },
@@ -2089,6 +2133,10 @@
     {
       "path": "terminals/terminal-info.json",
       "title": "TerminalInfo"
+    },
+    {
+      "path": "terminals/tool-terminal-info.json",
+      "title": "ToolTerminalInfo"
     },
     {
       "path": "terminals/terminal-snapshot.json",
@@ -4919,6 +4967,22 @@
       "title": "tools.verify error"
     },
     {
+      "path": "methods/tools.run/params.json",
+      "title": "tools.run params"
+    },
+    {
+      "path": "methods/tools.run/result.json",
+      "title": "tools.run result"
+    },
+    {
+      "path": "methods/tools.run/response.json",
+      "title": "tools.run response"
+    },
+    {
+      "path": "methods/tools.run/error.json",
+      "title": "tools.run error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -5901,6 +5965,11 @@
       "path": "data/managed-tools.json",
       "title": "Managed tools",
       "schema": "managed-tools/tool.json"
+    },
+    {
+      "path": "data/managed-tool-commands.json",
+      "title": "Managed tool commands",
+      "schema": "managed-tools/command-entry.json"
     },
     {
       "path": "data/catalogue-skills.json",
@@ -7000,6 +7069,16 @@
       "params": "methods/tools.verify/params.json",
       "result": "methods/tools.verify/result.json",
       "error": "methods/tools.verify/error.json"
+    },
+    {
+      "name": "tools.run",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/tools.run/params.json",
+      "result": "methods/tools.run/result.json",
+      "response": "methods/tools.run/response.json",
+      "error": "methods/tools.run/error.json"
     },
     {
       "name": "settings.get",

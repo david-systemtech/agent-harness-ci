@@ -29,6 +29,7 @@ import {
 } from "./key-manager-connections.js";
 import { KeyManagerMovedPayload, KeyManagerStoredValueDeletedPayload, KeyManagerValueCopiedPayload } from "./key-manager-moves.js";
 import { DrainStarted } from "./lifecycle.js";
+import { ToolRunFinishedPayload, ToolRunStartedPayload } from "./managed-tool-commands.js";
 import { ToolsUpdatedPayload } from "./managed-tools.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
@@ -134,6 +135,8 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // listener (the Browser card's Load sub-step, #547); an import of an adopted account's directory
   // ended (Carry over's, #578).
   "tools.updated",
+  "tool.run-started",
+  "tool.run-finished",
   "extension.seen",
   "carry-over.imported",
   // A state import ended (#581's contract, #94's build).
@@ -203,6 +206,8 @@ const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT_NOTICE
   "trust.updated": ", trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again)",
   "instructions.updated": ", instructions.updated (an owned instruction changed; a client reads instructions.list and instructions.preview again)",
   "tools.updated": ", the Managed tools registry's tools.updated (a probe, or a latest version fetched, changed rows; a client refreshes what it caches of tools.list)",
+  "tool.run-started": ", tool.run-started",
+  "tool.run-finished": " and tool.run-finished (a tool's install or update began in a tool terminal, and ended with its exit code and verification)",
   "extension.seen": ", extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load)",
   "carry-over.imported": ", Carry over's carry-over.imported (an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again)",
   "state-import.finished": ", state-import.finished (a state import ended, with its report and what failed; a client reads stateImport.detect again)",
@@ -410,6 +415,12 @@ const ToolsUpdated = describedNotice(
   ToolsUpdatedPayload,
   "A probe of the managed tools, or a latest version fetched, changed rows: those rows as they are now.",
 );
+const ToolRunStarted = describedNotice("tool.run-started", ToolRunStartedPayload, "A client session began installing or updating a tool in a tool terminal (tools.run): the tool, the action, the method, the terminal and the command line.");
+const ToolRunFinished = describedNotice(
+  "tool.run-finished",
+  ToolRunFinishedPayload,
+  "A tool run ended: its exit code and why, once the tool was probed again and verified.",
+);
 const ExtensionSeen = describedNotice(
   "extension.seen",
   ExtensionSeenPayload,
@@ -491,6 +502,8 @@ export const EnvironmentNotice = z
     TrustUpdated,
     InstructionsUpdated,
     ToolsUpdated,
+    ToolRunStarted,
+    ToolRunFinished,
     ExtensionSeen,
     CarryOverImported,
     StateImportFinished,

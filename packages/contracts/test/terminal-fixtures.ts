@@ -35,6 +35,7 @@ export const terminalSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ "1X": "a" }, { "A-B": "a" }, { A: 1 }],
   },
   "terminals/terminal-exit-cause.json": { valid: ["exited", "closed", "deleted", "failed"], invalid: ["killed", ""] },
+  "terminals/tool-terminal-info.json": { valid: [toolTerminal, { ...toolTerminal, exitCode: 0 }], invalid: [terminal, { ...toolTerminal, sessionId }, { ...toolTerminal, owner: "session" }] },
   "terminals/terminal-info.json": {
     valid: [terminal, exitedTerminal, toolTerminal, { ...toolTerminal, exitCode: 0 }],
     invalid: [

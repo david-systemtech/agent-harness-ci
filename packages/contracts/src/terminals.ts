@@ -116,6 +116,17 @@ const terminalFields = {
   signal: z.int().nullable().meta({ description: "The signal that ended the shell, when one did; null otherwise or while it runs." }),
 };
 
+/** A tool terminal (#362) as its record describes it: the Managed tools registry's, naming no session. */
+export const ToolTerminalInfo = z
+  .object({
+    id: TerminalId,
+    owner: z.literal("managed-tools").meta({ description: "A tool terminal: the Managed tools registry's, listed under no session." }),
+    sessionId: z.null().meta({ description: "Null: a tool terminal names no session." }),
+    ...terminalFields,
+  })
+  .meta({ description: "A tool terminal: one install or update command the Managed tools registry runs through the user's login shell." });
+export type ToolTerminalInfo = z.infer<typeof ToolTerminalInfo>;
+
 /**
  * A terminal as `terminals.list` and a subscription's snapshot describe it,
  * with its owner (#362): a session, whose workspace it opened in, under
@@ -133,14 +144,7 @@ export const TerminalInfo = z
         ...terminalFields,
       })
       .meta({ description: "A session's terminal: the user's login shell in the session's workspace." }),
-    z
-      .object({
-        id: TerminalId,
-        owner: z.literal("managed-tools").meta({ description: "A tool terminal: the Managed tools registry's, listed under no session." }),
-        sessionId: z.null().meta({ description: "Null: a tool terminal names no session." }),
-        ...terminalFields,
-      })
-      .meta({ description: "A tool terminal: one install or update command the Managed tools registry runs through the user's login shell." }),
+    ToolTerminalInfo,
   ])
   .meta({
     description:

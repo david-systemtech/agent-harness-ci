@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolCommandPlatform",
+  "type": "string",
+  "enum": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "description": "A platform the command table has commands for, as Node names it: darwin (macOS), linux or win32 (Windows)."
+}

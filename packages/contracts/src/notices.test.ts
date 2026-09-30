@@ -64,6 +64,8 @@ describe("environment notices", () => {
       "trust.updated",
       "instructions.updated",
       "tools.updated",
+      "tool.run-started",
+      "tool.run-finished",
       "extension.seen",
       "carry-over.imported",
       "state-import.finished",

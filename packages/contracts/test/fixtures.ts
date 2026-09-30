@@ -15,7 +15,7 @@ import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
-import { managedToolMethodFixtures, managedToolSchemaFixtures, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
+import { managedToolMethodFixtures, managedToolSchemaFixtures, toolRunNotices, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
 import { invalidBindings, networkSchemaFixtures, validBindings } from "./network-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
@@ -836,6 +836,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
         payload: { carried: stateImportCarried, reEnter: [], later: [], notCarried: [{ label: "Browser pairings", count: 1, step: "browser" }], failed: [] },
       },
       toolsUpdatedNotice.valid,
+      ...toolRunNotices.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       { type: "workspace.kept", payload: workspaceKept },
       { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
@@ -870,6 +871,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
       { type: "state-import.finished", payload: { carried: stateImportCarried, reEnter: [], later: [], notCarried: [] } },
       toolsUpdatedNotice.invalid,
+      ...toolRunNotices.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "proved" } },

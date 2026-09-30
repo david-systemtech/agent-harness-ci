@@ -167,7 +167,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
-import { toolsDetail, toolsList, toolsVerify } from "./methods/tools.js";
+import { toolsDetail, toolsList, toolsRun, toolsVerify } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -294,6 +294,7 @@ export const methods = [
   toolsList,
   toolsDetail,
   toolsVerify,
+  toolsRun,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
