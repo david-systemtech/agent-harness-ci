@@ -243,6 +243,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     const host = {
       runs: runs.sessions,
       session: sessionProjections(key),
+      list: sessionList.view,
       records: registry.list,
       providers: requestCache.cached(environmentId, "providers.list", {}),
       accounts: requestCache.cached(environmentId, "accounts.list", {}),

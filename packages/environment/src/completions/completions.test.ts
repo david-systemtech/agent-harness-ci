@@ -166,8 +166,24 @@ const eventsOf = (t: TestEnvironment, sessionId: string): EventEnvelope[] => t.e
 const ofType = (t: TestEnvironment, sessionId: string, type: string): EventEnvelope[] => eventsOf(t, sessionId).filter((event) => event.type === type);
 const payloadsOf = <P>(t: TestEnvironment, sessionId: string, type: string): P[] => ofType(t, sessionId, type).map((event) => event.payload as P);
 
+/**
+ * The session's events of `type` once it holds `count` of them: heard as each commits, or read when they are there
+ * already. It waits on the events themselves, never on a time budget, which a loaded runner outruns (#823).
+ */
+const untilLogged = (t: TestEnvironment, sessionId: string, type: string, count = 1): Promise<EventEnvelope[]> =>
+  new Promise((resolve) => {
+    const settle = (): void => {
+      const found = ofType(t, sessionId, type);
+      if (found.length < count) return;
+      stop();
+      resolve(found);
+    };
+    const stop = t.env.log.subscribe(settle);
+    settle();
+  });
+
 const untilEnded = async (t: TestEnvironment, sessionId: string, count = 1): Promise<void> => {
-  await vi.waitFor(() => expect(ofType(t, sessionId, "run.ended")).toHaveLength(count));
+  await untilLogged(t, sessionId, "run.ended", count);
 };
 
 /** The session list as a client over the wire reads it. */
@@ -946,6 +962,9 @@ describe("session continuity", () => {
     const live = (await first.chunk())["agent-harness"].sessionId as string;
     const queued = await stream(t, token, turn("Then this", { "agent-harness": { sessionId: live } }));
     await queued.chunk();
+    // Each interrupt below waits for its adapter to have the run: one still composing its instructions ends without reading
+    // its prompt, which the run of the queue then reads too, with the held script this run was given.
+    await t.adapter.reached(1);
     await client.request("runs.readNow", { commandId: randomUUID(), sessionId: live });
     const chunks = chunksOf(await queued.rest());
     expect(contentOf(chunks)).toBe("Done: Then this");
@@ -957,6 +976,7 @@ describe("session continuity", () => {
     const idle = opening["agent-harness"].sessionId as string;
     const waiting = await stream(t, token, turn("Then this", { "agent-harness": { sessionId: idle } }));
     await waiting.chunk();
+    await t.adapter.reached(3);
     await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
     expect(chunksOf(await waiting.rest()).at(-1)?.["agent-harness"].waiting).toBeDefined();
     await client.request("runs.readNow", { commandId: randomUUID(), sessionId: idle });
@@ -994,6 +1014,8 @@ describe("session continuity", () => {
     const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
     const queued = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
     await queued.chunk();
+    // Once its adapter has the run, whose interrupt is the one held: a run still composing ends without asking it.
+    await t.adapter.reached(1);
     const client = await t.client();
     await client.request("runs.readNow", { commandId: randomUUID(), sessionId });
     await untilEnded(t, sessionId);
@@ -1023,9 +1045,10 @@ describe("session continuity", () => {
     expect(last?.error).toMatchObject({ code: "withdrawn" });
     expect(last?.["agent-harness"].waiting).toBeUndefined();
     // A whole answer, withdrawn while it waits.
+    const before = ofType(t, sessionId, "message.sent").length;
     const whole = post(t, token, turn("And this", { "agent-harness": { sessionId } }));
-    await vi.waitFor(() => expect(payloadsOf<{ text: string }>(t, sessionId, "message.sent").map((sent) => sent.text)).toContain("And this"));
-    const sent = ofType(t, sessionId, "message.sent").at(-1);
+    const sent = (await untilLogged(t, sessionId, "message.sent", before + 1)).at(-1);
+    expect(sent?.payload["text"]).toBe("And this");
     await client.request("runs.withdraw", { commandId: randomUUID(), messageId: sent?.payload["messageId"] as string });
     expect(await refusalOf(await whole)).toMatchObject({ status: 409, body: { error: { type: "conflict_error", code: "withdrawn" }, "agent-harness": { sessionId } } });
     // The run the messages were queued to goes on to its end.
@@ -1170,6 +1193,9 @@ describe("session continuity", () => {
     });
     const first = await stream(t, token, turn("Start", { "agent-harness": { sessionId } }));
     await first.chunk();
+    // Once its adapter has the run, so the provider holds the queued message the script reads; one queued while the run
+    // still composes its instructions waits in the environment's queue for the run after, which this run never ends for.
+    await t.adapter.reached(1);
     // Its account is removed while the run goes on, and work becomes the default a bare model names.
     await client.request("accounts.remove", { commandId: randomUUID(), accountId: "claude-max" });
     const queued = await stream(t, token, { ...turn("and tidy up"), model: "opus", "agent-harness": { sessionId } });
@@ -1265,7 +1291,7 @@ describe("the mode, the ceiling and attendance", () => {
     const reading = await stream(t, token, turn("Build", { "agent-harness": { attended: true } }));
     const first = await reading.chunk();
     const sessionId = first["agent-harness"].sessionId as string;
-    await vi.waitFor(() => expect(ofType(t, sessionId, "prompt.opened")).toHaveLength(1));
+    await untilLogged(t, sessionId, "prompt.opened");
     expect(ofType(t, sessionId, "prompt.answered")).toHaveLength(0);
     const client = await t.client();
     const promptId = String(ofType(t, sessionId, "prompt.opened")[0]?.payload["promptId"]);
@@ -1871,7 +1897,7 @@ describe("client-tool passthrough (#139)", () => {
       const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
       // Queued with the same tools: nothing ignored; the run of the queue is served them and its call comes back in this answer.
       const queued = exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER], "agent-harness": { sessionId } }), streaming);
-      await vi.waitFor(() => expect(ofType(t, sessionId, "message.sent")).toHaveLength(2));
+      await untilLogged(t, sessionId, "message.sent", 2);
       held.open();
       await first.rest();
       const answer = await queued;

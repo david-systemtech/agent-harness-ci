@@ -227,7 +227,8 @@ describe("the workspace chip", () => {
       });
 
   it("offers the known directories with their repository and gone mark, a typed path and scratch; a hidden one leaves this client's list until a session uses it again", async () => {
-    const app = await launch();
+    // The directories desk has, which the picker inspects before the chip takes one (#421).
+    const app = await launch({ desk: { folders: { "/work/harness": {}, "/home/seth/notes": {} } } });
     await app.user.click(headingControl("desk"));
     const surface = () => surfaces()[0] as HTMLElement;
     await chipsRead(surface, ["Environment: desk", "Account: Work seth@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"]);
@@ -240,13 +241,13 @@ describe("the workspace chip", () => {
     await chipsRead(surface, ["Environment: desk", "Account: Work seth@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory notes"]);
 
     await app.user.click(screen.getByRole("button", { name: /^\/home\/seth\/notes/ }));
-    expect(screen.queryByRole("list", { name: "Known directories" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Known directories" })).toBeNull());
 
     await openChip(app, surface(), "Workspace");
     const typed = screen.getByRole("textbox", { name: "A directory on desk" });
     act(() => typed.focus());
     await app.user.keyboard("work/harness{Enter}");
-    expect(within(surface()).getByRole("status").textContent).toBe("A workspace is a full path on desk, or one from its home (~).");
+    expect(within(screen.getByRole("dialog", { name: "Where it works on desk" })).getByRole("status").textContent).toBe("A workspace is a full path on desk, or one from its home (~).");
     await app.user.clear(typed);
     await app.user.keyboard("/work/harness{Enter}");
     await chipsRead(surface, ["Environment: desk", "Account: Work seth@work.test", "Model: Opus 5 (claude-opus-5)", "Workspace: directory harness"]);
@@ -294,7 +295,9 @@ describe("the first send", () => {
   });
 
   it("is refused in one line on the surface, which keeps its text and leaves no session", async () => {
-    const app = await launch({ desk: { directories: { "/work/gone": "does_not_exist" } } });
+    // Without terminal the picker cannot inspect a path first (#421), so the create's refusal is the first word of it.
+    const scopes = ["read", "sessions:write", "runs:drive", "admin"] as const;
+    const app = await launch({ desk: { directories: { "/work/gone": "does_not_exist" }, scopes } });
     await app.user.click(headingControl("desk"));
     const surface = () => surfaces()[0] as HTMLElement;
     await openChip(app, surface(), "Workspace");
