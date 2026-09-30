@@ -774,6 +774,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "instructions.updated",
       "extension.seen",
       "carry-over.imported",
     ],
@@ -817,6 +818,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
       { type: "trust.updated", payload: {} },
+      { type: "instructions.updated", payload: {} },
       {
         type: "carry-over.imported",
         payload: { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] },

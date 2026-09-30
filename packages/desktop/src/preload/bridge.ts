@@ -1,13 +1,13 @@
 import type {
   GrantReader,
   HttpFetch,
-  SecretStore,
   Shell,
   ShellClipboard,
   ShellDeepLinks,
   ShellDialogs,
   ShellNetwork,
   ShellPreview,
+  ShellSecrets,
   ShellService,
   ShellSystem,
   ShellWindow,
@@ -29,7 +29,7 @@ export interface DesktopShell extends Shell {
   readonly http: HttpFetch;
   readonly network: ShellNetwork;
   readonly deepLinks: Required<ShellDeepLinks>;
-  readonly secrets: SecretStore;
+  readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
   readonly service: ShellService;
   readonly preview: ShellPreview;
@@ -101,6 +101,7 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
       get: (name) => ask("secrets.get", name),
       set: (name, secret) => ask("secrets.set", name, secret),
       delete: (name) => ask("secrets.delete", name),
+      protection: () => ask("secrets.protection"),
     },
     localGrant: { read: () => ask("localGrant.read") },
     service: { install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },

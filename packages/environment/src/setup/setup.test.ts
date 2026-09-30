@@ -54,6 +54,7 @@ describe("setup.check", () => {
       ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
       ["forges", "skipped", [], []],
       ["key-manager", "skipped", [], []],
+      ["instructions", "done", [], []],
       ["browser", "done", [], []],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],

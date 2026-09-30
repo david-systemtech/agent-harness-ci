@@ -70,6 +70,21 @@ describe("secrets", () => {
     expect(electron.safeStorage.plainText).toBe(true);
     expect(readFileSync(join(platform.paths.data, "secrets", `${DESK}.secret`)).toString("latin1")).toMatch(/^v10/);
     expect(reported.map(String)).toEqual([expect.stringMatching(/no secret service.*unprotected/i)]);
+    // The renderer is told too, for the Your machines card (#416).
+    expect(await shell().secrets.protection()).toBe("unprotected");
+  });
+
+  it("tells the renderer the key is the OS's where a secret service answers, and unprotected before any token was kept where none does", async () => {
+    expect(await (await start({ platform: platformOn("linux") })).shell().secrets.protection()).toBe("os");
+
+    const electron = fakeElectron({ os: "linux" });
+    electron.safeStorage.backend = "basic_text";
+    const reported: unknown[] = [];
+    const { shell } = await start({ electron, platform: platformOn("linux"), reportError: (error) => reported.push(error) });
+    expect(await shell().secrets.protection()).toBe("unprotected");
+    await shell().secrets.set(DESK, "token-for-tests-desk");
+    expect(await shell().secrets.get(DESK)).toBe("token-for-tests-desk");
+    expect(reported.map(String)).toEqual([expect.stringMatching(/no secret service.*unprotected/i)]);
   });
 
   it("refuses to keep a token where the OS keeps no key for the app, keeping nothing, and takes one it cannot read as none, saying why", async () => {
@@ -79,7 +94,10 @@ describe("secrets", () => {
     const { shell } = await start({ electron, platform, reportError: (error) => reported.push(error) });
     await shell().secrets.set(DESK, "token-for-tests-desk");
 
+    expect(await shell().secrets.protection()).toBe("os");
+
     electron.safeStorage.keychain = false;
+    expect(await shell().secrets.protection()).toBe("none");
     await expect(shell().secrets.set(LAPTOP, "token-for-tests-laptop")).rejects.toThrow(/cannot keep a client session token/);
     expect(readdirSync(join(platform.paths.data, "secrets"))).toEqual([`${DESK}.secret`]);
     expect(await shell().secrets.get(DESK)).toBeUndefined();

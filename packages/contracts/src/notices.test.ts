@@ -60,6 +60,7 @@ describe("environment notices", () => {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "instructions.updated",
       "tools.updated",
       "extension.seen",
       "carry-over.imported",

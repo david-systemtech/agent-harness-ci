@@ -1,5 +1,5 @@
 import { clockTime, confirmationOf, describeKey, parseTyped, valueWords, writerOf, type EnvironmentView, type Runtime } from "@agent-harness/client-runtime";
-import { settingForm, type Confirmation, type SettingsKey } from "@agent-harness/contracts";
+import { settingForm, type Confirmation, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogClose, DialogContent, Input, Switch } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
@@ -32,18 +32,35 @@ export const reachWords = (runtime: Runtime, view: EnvironmentView): string => {
   return answer.status === "absent" ? answer.message.replace(/\.$/, "") : "Not reached yet";
 };
 
-/** The lines of the capabilities the connection lacks to write the keys, each once. */
-const lackingLines = (runtime: Runtime, environmentId: string, keys: readonly SettingsKey[]): readonly string[] => [
+/** Why nothing shown of an environment not ready can be written, over what this window read of it, if anything. */
+export const readOnlyLine = (runtime: Runtime, view: EnvironmentView, read: boolean): string =>
+  `${reachWords(runtime, view)}: ${read ? "the values this window last read, read-only." : "this window has read none of its values."}`;
+
+/** The methods that write `keys`, each once; none for a key the environment records itself. */
+export const writersOf = (keys: readonly SettingsKey[]): readonly MethodName[] => [...new Set(keys.flatMap((key) => writerOf(key) ?? []))];
+
+/** The lines of the capabilities the connection lacks to call `methods`, each once. */
+export const lackingLines = (runtime: Runtime, environmentId: string, methods: readonly MethodName[]): readonly string[] => [
   ...new Set(
-    keys.flatMap((key) => {
-      const writer = writerOf(key);
-      const answer = writer === null ? undefined : runtime.capability(environmentId, writer);
-      return answer?.status === "absent" ? [answer.message] : [];
+    methods.flatMap((method) => {
+      const answer = runtime.capability(environmentId, method);
+      return answer.status === "absent" ? [answer.message] : [];
     }),
   ),
 ];
 
-export const GenericEditor = ({ view, keys }: { readonly view: EnvironmentView; readonly keys: readonly SettingsKey[] }) => {
+interface GenericEditorProps {
+  readonly view: EnvironmentView;
+  readonly keys: readonly SettingsKey[];
+  /**
+   * Whether it says why its keys are read-only, since when the environment
+   * has not been reached or the capability lacking: preset true; false where
+   * what holds it says so for everything it shows (a Your machines card).
+   */
+  readonly saysWhyReadOnly?: boolean;
+}
+
+export const GenericEditor = ({ view, keys, saysWhyReadOnly = true }: GenericEditorProps) => {
   const runtime = useRuntime();
   const settings = useSettingsValues(view.environmentId);
   const { answer, values } = settings;
@@ -51,7 +68,7 @@ export const GenericEditor = ({ view, keys }: { readonly view: EnvironmentView; 
   const [asking, setAsking] = useState<Asking | undefined>(undefined);
 
   const ready = view.phase === "ready";
-  const lacking = ready ? lackingLines(runtime, view.environmentId, keys) : [];
+  const lacking = ready && saysWhyReadOnly ? lackingLines(runtime, view.environmentId, writersOf(keys)) : [];
 
   const say = (key: SettingsKey, line: string | undefined) =>
     setLines((now) => {
@@ -70,10 +87,8 @@ export const GenericEditor = ({ view, keys }: { readonly view: EnvironmentView; 
 
   return (
     <div className="flex flex-col gap-3">
-      {!ready && (
-        <p className="text-sm text-amber">
-          {reachWords(runtime, view)}: {values === null ? "this window has read none of its values." : "the values this window last read, read-only."}
-        </p>
+      {!ready && saysWhyReadOnly && (
+        <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>
       )}
       {lacking.map((line) => (
         <p key={line} className="text-sm text-amber">
