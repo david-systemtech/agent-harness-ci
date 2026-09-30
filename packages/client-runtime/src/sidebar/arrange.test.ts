@@ -31,13 +31,14 @@ const pin = (environmentId: string, key: string | null) => row(environmentId, { 
 const active = (environmentId: string, key: string | null, extra: Partial<SessionRow> = {}) => row(environmentId, { activeOrderKey: key }, extra);
 
 const block = (kind: SessionBlock["kind"], rows: readonly SessionRow[]): SessionBlock => ({ kind, rows });
-const folding = (kind: FoldingHeading["kind"], rows: readonly SessionRow[], text = "Pinned", group: MergedGroupHeading | null = null): FoldingHeading => {
-  const of = block(kind === "pinned" ? "pinned" : kind === "group" ? "active" : kind === "archive" ? "archived" : kind, rows);
-  return { kind, key: `${kind}:x`, text, block: of, rows: [], folded: false, pending: false, group };
+const folding = (kind: FoldingHeading["kind"], rows: readonly SessionRow[], text = "Pinned", group: MergedGroupHeading | null = null, repository: string | null = null): FoldingHeading => {
+  const of = block(kind === "pinned" ? "pinned" : kind === "group" || kind === "repository" ? "active" : kind === "archive" ? "archived" : kind, rows);
+  return { kind, key: `${kind}:x`, text, block: of, rows: [], folded: false, pending: false, group, repository };
 };
-const environment = (environmentId: string, rows: readonly SessionRow[]): EnvironmentHeading => ({
+const environment = (environmentId: string, rows: readonly SessionRow[], holds: EnvironmentHeading["holds"] = "ungrouped"): EnvironmentHeading => ({
   kind: "environment",
   key: `environment:${environmentId}`,
+  holds,
   block: block("active", rows),
   rows: [],
   environment: { environmentId, name: environmentId } as EnvironmentView,
@@ -172,6 +173,31 @@ describe("dropOnto: a session dropped on a row or a heading", () => {
     expect(dropOnto(grouped, { kind: "heading", heading: environment("desk", []) })).toEqual({ kind: "group", row: grouped, name: null });
     expect(dropOnto(active("desk", null), { kind: "heading", heading: environment("desk", []) })).toEqual({ kind: "unchanged" });
     expect(dropOnto(grouped, { kind: "heading", heading: environment("laptop", []) })).toEqual({ kind: "refused", why: "environment", environmentId: "desk" });
+  });
+
+  it("refuses a session dropped on a repository's heading or its rows from outside it, a repository not being a group; one of it stays, and moves within it", () => {
+    const SITE = "https://github.com/david/site";
+    const inside = [row("desk", { repositoryIdentity: SITE }), row("laptop", { repositoryIdentity: SITE })] as const;
+    const heading = folding("repository", inside, "david/site", null, SITE);
+    const elsewhere = row("desk", { repositoryIdentity: "https://github.com/david/other" });
+    const none = active("desk", null);
+    for (const dragged of [elsewhere, none]) {
+      expect(dropOnto(dragged, { kind: "heading", heading })).toEqual({ kind: "refused", why: "repository" });
+      expect(dropOnto(dragged, { kind: "row", heading, at: 0 })).toEqual({ kind: "refused", why: "repository" });
+    }
+    // Of the repository and pinned: it is under the repository already, and a drop moves nothing.
+    const pinnedInside = row("desk", { repositoryIdentity: SITE, pinnedAt: "2026-09-24T00:00:00.000Z" });
+    expect(dropOnto(pinnedInside, { kind: "heading", heading })).toEqual({ kind: "unchanged" });
+    expect(dropOnto(inside[0], { kind: "heading", heading })).toEqual({ kind: "unchanged" });
+    expect(dropOnto(inside[0], { kind: "row", heading, at: 1 })).toMatchObject({ kind: "reorder", block: "active" });
+  });
+
+  it("by repository, refuses a session with a repository dropped on its environment's heading, and leaves one with none where it is", () => {
+    const grouped = row("desk", { groupId: "g-ops", repositoryIdentity: "https://github.com/david/site" }, { groupName: "Ops" });
+    const unidentified = row("desk", { groupId: "g-ops", repositoryIdentity: null }, { groupName: "Ops" });
+    expect(dropOnto(grouped, { kind: "heading", heading: environment("desk", [], "unidentified") })).toEqual({ kind: "refused", why: "repository" });
+    expect(dropOnto(unidentified, { kind: "heading", heading: environment("desk", [], "unidentified") })).toEqual({ kind: "unchanged" });
+    expect(dropOnto(unidentified, { kind: "heading", heading: environment("laptop", [], "unidentified") })).toEqual({ kind: "refused", why: "environment", environmentId: "desk" });
   });
 
   it("refuses a drop on a shelf, its heading or its rows, and any drop in a filtered list", () => {

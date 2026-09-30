@@ -28,9 +28,14 @@ import { rowKey, type SessionBlock, type SessionHeading } from "./headings.js";
  *   heading it pins it at the end, with no key.
  * - **Refused**, with nothing sent: a shelf (the snoozed, settled and
  *   archived ones), which has no manual order; another environment's
- *   heading, since a session stays on its environment; and a filtered list,
- *   since the neighbours a move goes between may be hidden. Each renderer
- *   says why in its own words (`noManualOrder` for a shelf).
+ *   heading, since a session stays on its environment; by repository, a
+ *   repository's heading or its rows, for a session not of that
+ *   repository, and an environment's heading for one of any repository,
+ *   since a repository is not a group: a session's is its workspace's; and
+ *   a filtered list, since the neighbours a move goes between may be
+ *   hidden. Each renderer says why in its own words (`noManualOrder` for a
+ *   shelf). A session of the repository dropped on its heading, or one with
+ *   none on its environment's, stays where it is.
  */
 
 /** A shelf, which has no manual order. */
@@ -58,10 +63,11 @@ export interface KeyMove {
   readonly key: string;
 }
 
-/** Why an arrangement sends nothing: a shelf, another environment (the session's own named), a filtered list. */
+/** Why an arrangement sends nothing: a shelf, another environment (the session's own named), a repository, a filtered list. */
 export type Refusal =
   | { readonly kind: "refused"; readonly why: "shelf"; readonly shelf: UnorderedShelf }
   | { readonly kind: "refused"; readonly why: "environment"; readonly environmentId: string }
+  | { readonly kind: "refused"; readonly why: "repository" }
   | { readonly kind: "refused"; readonly why: "filtered" };
 
 /** What an arrangement sends, or why it sends nothing. */
@@ -155,8 +161,13 @@ const ontoHeading = (dragged: SessionRow, heading: SessionHeading, at: number | 
   if (shelf !== null) return { kind: "refused", why: "shelf", shelf };
   if (from !== -1) return at === null ? { kind: "unchanged" } : reorder(heading.block, from, at);
   if (heading.kind === "pinned") return pinAt(dragged, heading.block.rows, at);
+  const { repositoryIdentity } = dragged.summary;
+  // A repository is not a group: a session's is its workspace's, and no drop puts it under another.
+  const underIt = (identity: string | null) => (repositoryIdentity === identity ? { kind: "unchanged" as const } : { kind: "refused" as const, why: "repository" as const });
+  if (heading.kind === "repository") return underIt(heading.repository);
   if (heading.kind === "environment") {
     if (heading.environment.environmentId !== dragged.environmentId) return { kind: "refused", why: "environment", environmentId: dragged.environmentId };
+    if (heading.holds === "unidentified") return underIt(null);
     return dragged.groupName === null ? { kind: "unchanged" } : { kind: "group", row: dragged, name: null };
   }
   const group = heading.kind === "group" ? heading.group : null;
