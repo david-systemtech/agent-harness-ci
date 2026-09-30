@@ -93,6 +93,14 @@ export interface MachineState {
   readonly expiresAt: number | null;
   /** Why the last token refresh failed, until one succeeds. */
   readonly refreshFailed: string | null;
+  /**
+   * The environment took the update `update-environment` asked of it across a
+   * protocol gap (`POST /api/update`): the block it was under is kept, and
+   * only `hello` agreeing clears it, but the connection shows `updating` and
+   * polls discovery through the restart, where a re-check of a block would
+   * fall back to `blocked`.
+   */
+  readonly updateTaken: boolean;
 }
 
 export interface MachineConfig {
@@ -127,6 +135,7 @@ export const initialMachine = (config: MachineConfig): MachineState => ({
   unreachableSince: null,
   expiresAt: null,
   refreshFailed: null,
+  updateTaken: false,
 });
 
 /** What discovery came to: the document, nothing answering, an answer that is not a document, or a failed grant exchange. */
@@ -154,6 +163,8 @@ export type MachineInput =
   /** A socket opened elsewhere (pairing) said `hello` and is the connection's now. */
   | { readonly type: "adopt"; readonly hello: HelloFrame; readonly expiresAt: number | null }
   | { readonly type: "ping"; readonly attempt: number }
+  /** The environment took the update asked of it over `POST /api/update`, while the connection was blocked `protocol-mismatch`. */
+  | { readonly type: "update-taken" }
   /** The socket closed after a `bye`. */
   | { readonly type: "bye"; readonly attempt: number; readonly bye: ByeFrame }
   /** The socket closed with no `bye`. */
@@ -257,20 +268,26 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     return { ...s, phase, parked: false, retryAt: now + ms };
   };
 
+  /** Whether a failure is a block being re-checked: a block held, and no update taken across the gap to wait out. */
+  const rechecking = (s: MachineState): boolean => s.blocked !== null && !s.updateTaken;
+
   /** A re-check of a block that could not finish: back to blocked, quietly, with no retry; only discovery and `hello` agreeing clear it. */
   const reblock = (s: MachineState): MachineState => ({ ...unreachable(halt(s)), phase: "blocked" });
 
   /** A failure a retry may cure: one more rung of the ladder, waited in `phase`. A block being re-checked stays blocked. */
   const fail = (s: MachineState, phase: ConnectionPhase): MachineState => {
-    if (s.blocked !== null) return reblock(s);
+    if (rechecking(s)) return reblock(s);
     const halted = unreachable(halt(s));
     const failures = halted.failures + 1;
     return wait({ ...halted, failures }, phase, backoffDelay(failures, context.random));
   };
 
   /** Discovery says `starting`: polled every two seconds with no failure counted. A block being re-checked stays blocked. */
-  const starting = (s: MachineState): MachineState =>
-    s.blocked !== null ? reblock(s) : wait(unreachable(halt(s)), "starting", STARTING_POLL_MS);
+  const starting = (s: MachineState): MachineState => {
+    if (rechecking(s)) return reblock(s);
+    // The environment restarting for the update taken is still updating.
+    return wait(unreachable(halt(s)), s.updateTaken ? "updating" : "starting", STARTING_POLL_MS);
+  };
 
   /** A declared dead socket: closed, and replaced at once as a transient failure; if the replacement fails, the ladder starts at its first rung. */
   const lose = (s: MachineState): MachineState => begin({ ...unreachable(halt(s, true)), phase: "connecting", failures: 0 });
@@ -313,7 +330,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     if (reason === "revoked" || reason === "expired") out.push({ type: "clear-token" });
     const notice = halted.blocked === reason ? undefined : noticeFor(halted, reason, theirs);
     if (notice) out.push({ type: "notice", notice });
-    return { ...halted, phase: "blocked", blocked: reason };
+    return { ...halted, phase: "blocked", blocked: reason, updateTaken: false };
   };
 
   /** Where nothing answering leaves the connection. */
@@ -346,6 +363,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       phase: "ready",
       step: "open",
       blocked: null,
+      updateTaken: false,
       bye: null,
       retryAt: null,
       parked: false,
@@ -395,13 +413,18 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         if (check.ok) {
           // A block clears only on `hello`: until then a re-check says blocked, so the record never shows a reason beside another phase.
           out.push({ type: "open-socket", attempt: known.attempt }, { type: "arm-timer", timer: "establish", ms: ESTABLISH_TIMEOUT_MS });
-          return { ...known, phase: known.blocked === null ? "connecting" : "blocked", step: "dialing" };
+          const phase = known.updateTaken ? "updating" : known.blocked === null ? "connecting" : "blocked";
+          return { ...known, phase, step: "dialing" };
         }
         switch (check.reason) {
           case "starting":
             return starting(known);
           case "draining":
             return fail(known, known.phase === "updating" ? "updating" : "draining");
+          case "protocol-mismatch":
+            // The old environment still answers: the update it took waits for idle, or for the restart it will bring.
+            if (known.updateTaken) return wait(unreachable(halt(known)), "updating", BYE_WAIT_MS);
+            return block(known, check.reason, document.protocolVersion);
           default:
             return block(known, check.reason, document.protocolVersion);
         }
@@ -426,7 +449,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       }
       case "draining":
       case "updating":
-        return s.blocked !== null ? reblock(said) : wait(unreachable(halt(said)), frame.reason, BYE_WAIT_MS);
+        return rechecking(s) ? reblock(said) : wait(unreachable(halt(said)), frame.reason, BYE_WAIT_MS);
     }
   };
 
@@ -464,12 +487,18 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         return begin(halted);
       }
       case "disable":
-        return { ...halt(state), phase: "disabled", failures: 0, unreachableSince: null };
+        return { ...halt(state), phase: "disabled", failures: 0, unreachableSince: null, updateTaken: false };
       case "release":
-        return { ...halt(state), phase: state.blocked === null ? "connecting" : "blocked" };
-      case "retryNow":
+        return { ...halt(state), phase: state.blocked === null ? "connecting" : "blocked", updateTaken: false };
+      case "retryNow": {
         if (state.phase === "disabled") return state;
-        return begin(halt(input.fresh ? { ...state, failures: 0 } : state));
+        // David asking to try again gives up waiting on the update taken: the block is re-checked as it was.
+        const asked = state.updateTaken ? { ...state, updateTaken: false, phase: "blocked" as const } : state;
+        return begin(halt(input.fresh ? { ...asked, failures: 0 } : asked));
+      }
+      case "update-taken":
+        if (state.phase !== "blocked" || state.blocked !== "protocol-mismatch") return state;
+        return wait(unreachable(halt({ ...state, updateTaken: true, failures: 0 })), "updating", BYE_WAIT_MS);
       case "discovery-result":
         return live(input.attempt, "discovery") ? discovered(state, input.answer) : state;
       case "no-token":

@@ -5,6 +5,7 @@ import {
   PAIR_PATH,
   PROTOCOL_VERSION,
   SCOPES,
+  UPDATE_PATH,
   type AuthFrame,
   type ByeReason,
   type CapabilityFlags,
@@ -19,7 +20,7 @@ import {
   type WireError,
 } from "@agent-harness/contracts";
 import { originOf, wireUrl } from "../connections/address.js";
-import { uuidv7 } from "../ids.js";
+import { uuidv4, uuidv7 } from "../ids.js";
 import type { Clock, GrantReader, HttpFetch, SocketHandlers, WebSocketFactory } from "../platform.js";
 
 /**
@@ -37,6 +38,15 @@ import type { Clock, GrantReader, HttpFetch, SocketHandlers, WebSocketFactory } 
 
 /** A response's body: `{result}` or `{error}`. */
 export type FakeAnswer = { readonly result: Record<string, unknown> } | { readonly error: WireError };
+
+/** What the update route answered: a status and a body, or nothing answering. */
+export type FakeUpdateAnswer = { readonly status: number; readonly body: unknown } | "unreachable";
+
+/** A `POST /api/update` the client made: the bearer token it sent and the body it posted. */
+export interface FakeUpdatePost {
+  readonly token: string | undefined;
+  readonly body: unknown;
+}
 
 /** How a method's requests are answered: from the params, the whole request frame beside them. */
 export type FakeResponder = (params: Record<string, unknown>, request: RequestFrame) => FakeAnswer | Promise<FakeAnswer | undefined> | undefined;
@@ -112,6 +122,14 @@ export interface FakeWire {
    * `subscribed` to its id itself (`server.send`).
    */
   answer(method: string, responder: FakeResponder): void;
+  /**
+   * How `POST /api/update` answers from now on, whatever the discovery says
+   * (the route is outside the wire): preset the update taken, its id fresh
+   * and its target the version asked for.
+   */
+  updateRoute(answer: FakeUpdateAnswer): void;
+  /** Every `POST /api/update` the client has made, in order. */
+  updatePosts(): readonly FakeUpdatePost[];
   /** How many sockets the client has opened, and how many are open now. */
   opened(): number;
   open(): number;
@@ -153,6 +171,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   let issued: ClientSessionCredential | undefined;
   let sequence = 0;
   let tokens = 0;
+  let updateAnswer: FakeUpdateAnswer | undefined;
+  const updatePosts: FakeUpdatePost[] = [];
 
   const document = (): DiscoveryDocument => ({
     environmentId,
@@ -261,6 +281,13 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     if (path === undefined || unreachable()) throw new TypeError("fetch failed");
     if (path === DISCOVERY_PATH) return overrides === "hanging" ? new Promise<never>(() => undefined) : json(200, document());
     if ((path === PAIR_PATH || path === BOOTSTRAP_PATH) && request?.method === "POST") return json(200, issue());
+    if (path === UPDATE_PATH && request?.method === "POST") {
+      const posted = { token: /^Bearer (\S+)$/.exec(request.headers?.["authorization"] ?? "")?.[1], body: JSON.parse(request.body ?? "null") as unknown };
+      updatePosts.push(posted);
+      if (updateAnswer === "unreachable") throw new TypeError("fetch failed");
+      if (updateAnswer) return json(updateAnswer.status, updateAnswer.body);
+      return json(200, { updateId: uuidv4(), toVersion: (posted.body as { version: string }).version });
+    }
     return json(404, { code: "not_found", message: `The fake environment serves nothing at ${path}.` });
   };
 
@@ -333,6 +360,10 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     answer(method, responder) {
       responders.set(method, responder);
     },
+    updateRoute(answer) {
+      updateAnswer = answer;
+    },
+    updatePosts: () => [...updatePosts],
     opened: () => sockets.length,
     open: () => sockets.filter((s) => !s.closed).length,
     discoveries: () => reads,

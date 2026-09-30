@@ -313,6 +313,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       remove: (environmentId) => registry.remove(environmentId),
       retryNow: (environmentId) => registry.retryNow(environmentId),
       startService: (environmentId) => registry.startService(environmentId),
+      updateEnvironment: (environmentId) => registry.updateEnvironment(environmentId),
     },
     preferences: registry.preferences,
     projections: {
