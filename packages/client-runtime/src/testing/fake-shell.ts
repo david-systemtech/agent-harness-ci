@@ -10,6 +10,7 @@ import type {
   ShellNetwork,
   ShellNotifications,
   ShellPreview,
+  ShellSecrets,
   ShellService,
   ShellTray,
   ShellUpdate,
@@ -61,6 +62,7 @@ export interface ShellFunctions {
   "secrets.get": SecretStore["get"];
   "secrets.set": SecretStore["set"];
   "secrets.delete": SecretStore["delete"];
+  "secrets.protection": NonNullable<ShellSecrets["protection"]>;
   http: HttpFetch;
   "network.allow": ShellNetwork["allow"];
   system: NonNullable<Shell["system"]>;
@@ -79,6 +81,7 @@ export type ScriptableShellFunction = Exclude<ShellFunctionName, "deepLinks.onOp
 export type FakeShell = Required<Shell> & {
   readonly notifications: Required<ShellNotifications>;
   readonly deepLinks: Required<ShellDeepLinks>;
+  readonly secrets: Required<ShellSecrets>;
   /** Every call, oldest first. */
   readonly calls: readonly ShellCall[];
   /** Answers every later call of `member` with `responder`, still recording it. */
@@ -135,6 +138,8 @@ export const fakeShell = (): FakeShell => {
     "secrets.get": async (name) => secrets.get(name),
     "secrets.set": async (name, secret) => void secrets.set(name, secret),
     "secrets.delete": async (name) => void secrets.delete(name),
+    // A keychain whose key the OS keeps, until the test scripts one that stores tokens unprotected.
+    "secrets.protection": async () => "os",
     // Nothing answers until the test scripts it: a request fails as one to an address with nothing listening does.
     http: async () => {
       throw new TypeError("fetch failed");
@@ -180,7 +185,7 @@ export const fakeShell = (): FakeShell => {
     clipboard: { readText: recorded("clipboard.readText"), writeText: recorded("clipboard.writeText"), readImage: recorded("clipboard.readImage") },
     openExternal: recorded("openExternal"),
     localGrant: { read: recorded("localGrant.read") },
-    secrets: { get: recorded("secrets.get"), set: recorded("secrets.set"), delete: recorded("secrets.delete") },
+    secrets: { get: recorded("secrets.get"), set: recorded("secrets.set"), delete: recorded("secrets.delete"), protection: recorded("secrets.protection") },
     http: recorded("http"),
     network: { allow: recorded("network.allow") },
     system: recorded("system"),

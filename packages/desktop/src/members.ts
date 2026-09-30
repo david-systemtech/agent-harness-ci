@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { GrantReader, SecretStore, ShellContent, ShellFile, ShellService, ShellSystem } from "@agent-harness/client-runtime";
+import type { GrantReader, ShellContent, ShellFile, ShellSecrets, ShellService, ShellSystem } from "@agent-harness/client-runtime";
 import { optionalCount, optionalFilters, optionalFlag, optionalText, options, text, texts } from "./arguments.js";
 import { isCanvasColour, type CanvasStore } from "./canvas.js";
 import type { Answered, Told } from "./channels.js";
@@ -56,7 +56,7 @@ const readChosen = async (path: string, maxBytes: number | undefined): Promise<S
 
 export interface MemberParts {
   readonly electron: DesktopElectron;
-  readonly secrets: SecretStore;
+  readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
   readonly service: ShellService;
   readonly platform: DesktopPlatform;
@@ -135,6 +135,7 @@ export const shellMembers = ({ electron, secrets, localGrant, service, platform,
     "secrets.get": (name) => secrets.get(text(name, "A secret's name")),
     "secrets.set": (name, secret) => secrets.set(text(name, "A secret's name"), text(secret, "A secret")),
     "secrets.delete": (name) => secrets.delete(text(name, "A secret's name")),
+    "secrets.protection": () => secrets.protection(),
     "localGrant.read": () => localGrant.read(),
     "service.install": () => service.install(),
     "service.start": () => service.start(),
