@@ -299,7 +299,7 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
     ]);
   });
 
-  it("are refused, before anything is built, when one is missing, not a kind, the artefacts' own kind, named as another asset is, or a compose file without the placeholder written once", async () => {
+  it("are refused, before anything is built, when one is missing, not a kind, the artefacts' own kind, named as another asset or its sidecar is, or a compose file without the placeholder written once", async () => {
     build = fixtureBuild();
     const sources = join(build.out, "..", "sources");
     mkdirSync(sources, { recursive: true });
@@ -314,7 +314,11 @@ describe("the release's other assets", { timeout: BUILD_MS }, () => {
       [[{ kind: "install-script", path: file("install.sh") }, { kind: "host-updater", path: file("install.sh") }], /two assets named install\.sh/],
       [[{ kind: "install-script", path: file("release.json", "{}\n") }], /two assets named release\.json/],
       [[{ kind: "install-script", path: file("agent-harness-linux-x64.tar.gz") }], /two assets named agent-harness-linux-x64\.tar\.gz/],
-      [[{ kind: "compose", path: file("compose.yaml", "services: {}\n") }], /compose\.yaml names the image git\.systemtech\.dev:5526\/david\/agent-harness:unreleased 0 times, not once/],
+      [[{ kind: "install-script", path: file("agent-harness-linux-x64.tar.gz.sha256") }], /two assets named agent-harness-linux-x64\.tar\.gz\.sha256/],
+      [[{ kind: "install-script", path: file("release.json.sha256") }], /two assets named release\.json\.sha256/],
+      [[{ kind: "install-script", path: file("install.sh") }, { kind: "host-updater", path: file("install.sh.sha256") }], /two assets named install\.sh\.sha256/],
+      [[{ kind: "host-updater", path: file("updater.sh.sha256") }, { kind: "install-script", path: file("updater.sh") }], /two assets named updater\.sh\.sha256/],
+      [[{ kind: "compose",path: file("compose.yaml", "services: {}\n") }], /compose\.yaml names the image git\.systemtech\.dev:5526\/david\/agent-harness:unreleased 0 times, not once/],
       [[{ kind: "compose", path: file("twice.yaml", "a: git.systemtech.dev:5526/david/agent-harness:unreleased\nb: git.systemtech.dev:5526/david/agent-harness:unreleased\n") }], /2 times, not once/],
     ];
     for (const [assets, message] of refused) {

@@ -45,20 +45,22 @@ const placeholdersIn = (path: string): number => readFileSync(path, "utf8").spli
 
 /**
  * Checks the other `assets` before anything is built: each exists, is of a
- * kind the manifest can list that is not the artefacts' own, and has a name
- * no other asset has, the artefacts' (`artefactNames`) and `release.json`
- * among them; a compose file names the unreleased image exactly once. Any
- * other is a `BuildError`.
+ * kind the manifest can list that is not the artefacts' own, and neither its
+ * name nor its sidecar's is one another asset or its sidecar has, the
+ * artefacts' (`artefactNames`) and `release.json` among them; a compose file
+ * names the unreleased image exactly once. Any other is a `BuildError`.
  */
 export const checkOtherAssets = (assets: readonly OtherAsset[], artefactNames: readonly string[]): void => {
-  const names = new Set([...artefactNames, RELEASE_MANIFEST_FILE]);
+  const filesOf = (name: string): string[] => [name, `${name}.sha256`];
+  const names = new Set([...artefactNames, RELEASE_MANIFEST_FILE].flatMap(filesOf));
   for (const asset of assets) {
     if (!existsSync(asset.path)) throw new BuildError(`The ${asset.kind} asset ${asset.path} does not exist.`);
     if (!ReleaseAssetKind.safeParse(asset.kind).success) throw new BuildError(`${JSON.stringify(asset.kind)} is not an asset kind: lowercase letters, digits and hyphens, such as install-script.`);
     if (asset.kind === "environment") throw new BuildError(`${asset.path} cannot be an environment asset: those are the build's own artefacts.`);
     const name = nameOf(asset);
-    if (names.has(name)) throw new BuildError(`The release would publish two assets named ${name}.`);
-    names.add(name);
+    const taken = filesOf(name).find((file) => names.has(file));
+    if (taken !== undefined) throw new BuildError(`The release would publish two assets named ${taken}.`);
+    for (const file of filesOf(name)) names.add(file);
     if (asset.kind === "compose") {
       const found = placeholdersIn(asset.path);
       if (found !== 1) throw new BuildError(`${name} names the image ${UNRELEASED_IMAGE} ${found} times, not once: the release writes its own image there.`);
