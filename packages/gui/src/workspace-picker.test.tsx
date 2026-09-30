@@ -294,3 +294,103 @@ describe("a worktree", () => {
     await waitFor(() => expect(workspaceChip().getAttribute("aria-label")).toMatch(/^Workspace: worktree tools on agent-harness\//));
   });
 });
+
+describe("without terminal on the connection", () => {
+  const WITHOUT = "This client was paired with desk without the terminal scope.";
+  const scopes = ["read", "sessions:write", "runs:drive", "admin"] as const;
+
+  it("dims Browse and the branch list with the capability's reason, and a typed path and a typed branch still work, the create's refusal the surface's line", async () => {
+    const app = await launch({ desk: { scopes } });
+    await openPicker(app);
+    expect(within(picker()).getByRole("button", { name: "Browse desk…" }).hasAttribute("disabled")).toBe(true);
+    expect(within(picker()).getByText(WITHOUT)).toBeDefined();
+
+    await app.user.click(within(picker()).getByRole("button", { name: "A worktree…" }));
+    expect(within(picker()).getByRole("button", { name: "Browse desk…" }).hasAttribute("disabled")).toBe(true);
+    act(() => within(picker()).getByRole("textbox", { name: "A repository on desk" }).focus());
+    await app.user.keyboard("/work/harness{Enter}");
+    await waitFor(() => expect(within(picker()).getByRole("heading").textContent).toBe("A worktree of harness on desk: its branch"));
+    expect(pickerLine()).toBe(WITHOUT);
+    act(() => within(picker()).getByRole("textbox", { name: "A new branch's name" }).focus());
+    await app.user.keyboard("review");
+    // Unread, the branches may hold the name: it is offered as a new branch and as one the repository has.
+    expect(within(picker()).getByRole("button", { name: /^New branch review/ })).toBeDefined();
+    await app.user.click(within(picker()).getByRole("button", { name: /^Branch review/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Where it works on / })).toBeNull());
+    expect(workspaceChip().getAttribute("aria-label")).toBe("Workspace: worktree harness on review");
+    expect(params(app, "desk", "workspaces.inspect")).toEqual([]);
+
+    // The environment judges it at the first send: another worktree holds review.
+    act(() => within(surface()).getByRole("textbox", { name: "Message" }).focus());
+    await app.user.keyboard("Look at the review{Enter}");
+    await waitFor(() => expect(within(surface()).getByRole("status").textContent).toBe(`Not started: review is checked out in ${REVIEW_TREE} by “Review it”.`));
+
+    act(() => workspaceChip().focus());
+    await app.user.keyboard("{Enter}");
+    act(() => within(picker()).getByRole("textbox", { name: "A directory on desk" }).focus());
+    await app.user.keyboard("/srv/typed{Enter}");
+    await waitFor(() => expect(workspaceChip().getAttribute("aria-label")).toBe("Workspace: directory typed"));
+    expect(params(app, "desk", "workspaces.inspect")).toEqual([]);
+    expect(params(app, "desk", "workspaces.browse")).toEqual([]);
+  });
+});
+
+describe("a session whose workspace is missing", () => {
+  const GONE = "/srv/old is gone: choose a workspace for the session first.";
+  const oldId = (app: RenderedApp) => app.environment("desk").sessionId(3);
+  const choose = () => within(pane()).getByRole("button", { name: "Choose a workspace" });
+
+  it("replaces the composer with the gone path and Choose a workspace, which opens the picker and sends sessions.setWorkspace; the composer returns once it is accepted", async () => {
+    const app = await launch();
+    await app.user.click(row("Old one"));
+    await waitFor(() => expect(within(pane()).getByText(GONE)).toBeDefined());
+    expect(within(pane()).queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(within(pane()).getByRole("region", { name: "Transcript" })).toBeDefined();
+
+    await app.user.click(choose());
+    expect(within(picker()).getByRole("heading").textContent).toBe("Where it works on desk");
+    // The gone directory is shown and not offered.
+    expect(within(picker()).getByRole("button", { name: /^\/srv\/old/ }).hasAttribute("disabled")).toBe(true);
+    await app.user.click(within(picker()).getByRole("button", { name: /^\/home\/seth\/notes/ }));
+    await waitFor(() => expect(within(pane()).getByRole("textbox", { name: "Message" })).toBeDefined());
+    expect(params(app, "desk", "sessions.setWorkspace")).toEqual([
+      expect.objectContaining({ sessionId: oldId(app), workspace: { kind: "directory", path: "/home/seth/notes" } }),
+    ]);
+    expect(screen.queryByRole("dialog", { name: /^Where it works on / })).toBeNull();
+    expect(within(pane()).queryByText(GONE)).toBeNull();
+    expect(within(pane()).getByRole("note", { name: /^Workspace/ }).textContent).toBe("directory notes");
+  });
+
+  it("says the environment's refusal in one line on the picker, which stays open for another choice", async () => {
+    const app = await launch({ desk: { directories: { "/work/gone": "does_not_exist" } } });
+    await app.user.click(row("Old one"));
+    await app.user.click(await within(pane()).findByRole("button", { name: "Choose a workspace" }));
+    act(() => within(picker()).getByRole("textbox", { name: "A directory on desk" }).focus());
+    await app.user.keyboard("/work/gone{Enter}");
+    await waitFor(() => expect(pickerLine()).toBe("/work/gone does not exist on desk."));
+    expect(params(app, "desk", "sessions.setWorkspace")).toHaveLength(1);
+    expect(within(pane()).queryByRole("textbox", { name: "Message" })).toBeNull();
+
+    await app.user.click(within(picker()).getByRole("button", { name: "Scratch: a directory of its own" }));
+    await waitFor(() => expect(within(pane()).getByRole("textbox", { name: "Message" })).toBeDefined());
+    expect(params(app, "desk", "sessions.setWorkspace")[1]).toEqual(expect.objectContaining({ workspace: { kind: "scratch" } }));
+  });
+
+  it("keeps the transcript and organisation commands, and the run affordances say why they cannot", async () => {
+    const app = await launch();
+    await app.user.click(row("Old one"));
+    await waitFor(() => expect(within(pane()).getByText(GONE)).toBeDefined());
+
+    // An organisation command still works: the caption renames it.
+    await app.user.click(within(pane()).getByRole("button", { name: "Rename “Old one”" }));
+    await app.user.keyboard("{Control>}a{/Control}Old and moved{Enter}");
+    await waitFor(() => expect(params(app, "desk", "sessions.rename")).toEqual([expect.objectContaining({ sessionId: oldId(app), title: "Old and moved" })]));
+
+    await app.user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    const entry = (name: string) => within(palette).getAllByRole("option").find((option) => option.textContent?.startsWith(name));
+    expect(entry("Send it")?.textContent).toBe(`Send it, steer a turn, run a row, send a failed checkEnter${GONE}`);
+    expect(entry("Send it")?.getAttribute("aria-disabled")).toBe("true");
+    expect(entry("Have the queued message read now")?.textContent).toBe(`Have the queued message read now, mid-turn${GONE}`);
+  });
+});
