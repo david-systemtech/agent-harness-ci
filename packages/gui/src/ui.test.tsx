@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,9 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
   Dialog,
   DialogContent,
@@ -144,6 +147,34 @@ describe("the primitives", () => {
     await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Fix the rail") });
     await user.click(screen.getByRole("menuitem", { name: "Rename" }));
     expect(chosen).toEqual(["Rename"]);
+  });
+
+  it("a context menu's item opens a submenu of its own, whose item runs and closes both", async () => {
+    const user = userEvent.setup();
+    const chosen: string[] = [];
+    render(
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <p>Fix the rail</p>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>Snooze</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onSelect={() => chosen.push("An hour")}>An hour</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Fix the rail") });
+    // By the keys: jsdom lays nothing out, so the pointer's way from the item to its submenu reads as leaving both.
+    act(() => screen.getByRole("menuitem", { name: "Snooze" }).focus());
+    await user.keyboard("{ArrowRight}");
+    act(() => screen.getByRole("menuitem", { name: "An hour" }).focus());
+    await user.keyboard("{Enter}");
+    expect(chosen).toEqual(["An hour"]);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("a dialog opens from its trigger, named by its title and described by its description, and Esc closes it", async () => {

@@ -143,6 +143,37 @@ describe("the scripted environment in a DOM", () => {
     expect(desk.summary(desk.sessionId(0)).archivedAt).toBeNull();
   });
 
+  it("renames a group, refusing a name another group has, and deletes one, taking its sessions out of it, as the environment's deciders do", async () => {
+    const OTHER = "0199bb00-0000-4000-8000-000000000002";
+    const { world, runtime, until } = await launch({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          sessions: [{ title: "Fix the rail", groupId: GROUP_ID }, { title: "Copy", groupId: GROUP_ID }],
+          groups: [{ id: GROUP_ID, name: "Brandsolidate" }, { id: OTHER, name: "Ops" }],
+        },
+      ],
+    });
+    onTestFinished(runtime.projections.sessionList.subscribe(() => undefined));
+    const desk = world.environment("desk");
+    await until(() => runtime.projections.sessionList.read().rows.length === 2, "listing two sessions");
+
+    expect(await runtime.commands.dispatch(desk.environmentId, "groups.rename", { groupId: GROUP_ID, name: " ops " })).toMatchObject({
+      ok: false,
+      error: { code: "conflict", data: { reason: "name_taken" } },
+    });
+    expect(await runtime.commands.dispatch(desk.environmentId, "groups.rename", { groupId: GROUP_ID, name: "  Brand   work " })).toMatchObject({ ok: true });
+    expect(desk.list.groups().find((group) => group.id === GROUP_ID)?.name).toBe("Brand work");
+    await until(() => runtime.projections.sessionList.read().groups.some((group) => group.name === "Brand work"), "renaming the heading");
+
+    expect(await runtime.commands.dispatch(desk.environmentId, "groups.delete", { groupId: GROUP_ID })).toMatchObject({ ok: true });
+    expect(desk.list.groups().map((group) => group.name)).toEqual(["Ops"]);
+    expect(desk.list.summaries().map((summary) => summary.groupId)).toEqual([null, null]);
+    await until(() => runtime.projections.sessionList.read().rows.every((row) => row.groupName === null), "ungrouping its sessions");
+    expect(await runtime.commands.dispatch(desk.environmentId, "groups.delete", { groupId: GROUP_ID })).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
   it("says settings.changed with the keys each write changed, as the environment does, and when another client changes them, which a cached settings.get follows (#391)", async () => {
     const { world, runtime, until } = await launch({ environments: [{ name: "desk", reach: "local" }] });
     const desk = world.environment("desk");
