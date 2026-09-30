@@ -4,7 +4,7 @@ import { capability } from "../adapter/capabilities.js";
 import type { HistoryEvent } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog } from "../event-log/event-log.js";
-import { readSummary, type Reader } from "../sessions/session-reads.js";
+import { readOrigin, readSummary, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { accountSource } from "./sessions.js";
 
@@ -76,19 +76,12 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
   /** The reads under way, by session: a second open waits for the first's. */
   const pending = new Map<string, Promise<void>>();
 
-  /** The session's origin when it is an imported one; null for any other, or one not here. */
-  const importedOrigin = (sessionId: string): Extract<SessionOrigin, { kind: "import" }> | null => {
-    const [row] = reader.all<{ origin: string | null }>("SELECT origin FROM sessions WHERE id = ?", sessionId);
-    const origin = row?.origin == null ? null : (JSON.parse(row.origin) as SessionOrigin);
-    return origin?.kind === "import" ? origin : null;
-  };
-
   /** Whether the session's history is in the log: its `session.history-imported` is on its stream, whatever the outcome. */
   const imported = (sessionId: string): boolean =>
     reader.all(`SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.history-imported' LIMIT 1`, sessionId).length > 0;
 
   /** The history the adopted account's adapter reads, or why it could not be read. */
-  const read = async (origin: Extract<SessionOrigin, { kind: "import" }>): Promise<{ readonly history: readonly HistoryEvent[] } | { readonly unreadable: string }> => {
+  const read = async (origin: SessionOrigin): Promise<{ readonly history: readonly HistoryEvent[] } | { readonly unreadable: string }> => {
     const source = accountSource(host, origin.accountId);
     if (source === null) return { unreadable: `The account ${origin.accountId} its history lives in is no longer on this environment.` };
     const where = source.account.directory ?? `the account ${origin.accountId}'s directory`;
@@ -101,7 +94,7 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
     }
   };
 
-  const append = async (sessionId: string, origin: Extract<SessionOrigin, { kind: "import" }>): Promise<void> => {
+  const append = async (sessionId: string, origin: SessionOrigin): Promise<void> => {
     const found = await read(origin);
     const runId = randomUUID();
     const dropped = (event: HistoryEvent, issues: unknown) => diagnostic(`A ${event.type} of the imported session ${sessionId}'s history is outside its schema; it is left out.`, issues);
@@ -124,8 +117,8 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
       const id = sessionId.toLowerCase();
       const under = pending.get(id);
       if (under !== undefined) return under;
-      const origin = importedOrigin(id);
-      if (origin === null || imported(id)) return null;
+      const origin = readOrigin(reader, id);
+      if (origin?.kind !== "import" || imported(id)) return null;
       const appending = append(id, origin)
         .catch((error: unknown) => diagnostic(`Appending the imported session ${id}'s history failed; it opens without it.`, error))
         .finally(() => pending.delete(id));
