@@ -9,11 +9,12 @@ import {
   UPDATE_CAUSES,
   UPDATE_FAILURE_STAGES,
   UPDATE_SOURCES,
+  WORKSPACE_KEPT_REASONS,
   eventTypeEntry,
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' and Move's (#365, #366, #371, #372), the routines' (#519), settings changed (#391), a Set up step's result changed (#569), the skill set changed (#494), the Managed tools registry's (#373) and an unpaired extension seen (#547), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' and Move's (#365, #366, #371, #372), the routines' (#519), settings changed (#391), a Set up step's result changed (#569), the skill set changed (#494), the Managed tools registry's (#373), an unpaired extension seen (#547) and a worktree the reaper kept (#330), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -62,6 +63,7 @@ describe("environment notices", () => {
       "trust.updated",
       "tools.updated",
       "extension.seen",
+      "workspace.kept",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
@@ -72,6 +74,32 @@ describe("environment notices", () => {
       type: "environment.started",
       payload: { harnessVersion: "0.1.0", protocolVersion: 1 },
     });
+  });
+});
+
+/** A worktree the reaper kept at its last session's purge (workspace-picker spec, "The reaper"; #330). */
+describe("the workspace.kept notice", () => {
+  const notice = (payload: unknown) => EnvironmentNotice.safeParse({ type: "workspace.kept", payload });
+  const kept = { path: "/data/worktrees/app-0123456789ab/agent-harness-7c9e6679", branch: "agent-harness/7c9e6679", title: "Invoices", reason: "uncommitted_changes" };
+
+  it("names the worktree's path, its branch (null when detached), the session's title and why it stayed", () => {
+    expect(WORKSPACE_KEPT_REASONS).toEqual(["uncommitted_changes", "git_filters_refused", "git_failed"]);
+    for (const reason of WORKSPACE_KEPT_REASONS) expect(notice({ ...kept, reason }).data, reason).toEqual({ type: "workspace.kept", payload: { ...kept, reason } });
+    expect(notice({ ...kept, branch: null }).success).toBe(true);
+    for (const bad of [
+      { ...kept, reason: "dirty" },
+      { ...kept, path: "worktrees/app" },
+      { ...kept, branch: "" },
+      { ...kept, title: "" },
+      { path: kept.path, title: kept.title, reason: kept.reason },
+    ]) {
+      expect(notice(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("goes on the environment stream, never in the session list", () => {
+    expect(eventTypeEntry("environment", "workspace.kept")).toMatchObject({ list: false });
+    expect(eventTypeEntry("session", "workspace.kept")).toBeUndefined();
   });
 });
 

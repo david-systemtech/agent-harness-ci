@@ -2003,6 +2003,14 @@
       "title": "WorkspaceInspection"
     },
     {
+      "path": "workspaces/workspace-kept-reason.json",
+      "title": "WorkspaceKeptReason"
+    },
+    {
+      "path": "workspaces/workspace-kept.json",
+      "title": "WorkspaceKeptPayload"
+    },
+    {
       "path": "actions/action-context.json",
       "title": "ActionContext"
     },

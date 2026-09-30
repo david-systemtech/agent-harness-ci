@@ -90,3 +90,32 @@ export const WorkspaceInspection = z
   })
   .meta({ description: "Whether a path would be a usable directory workspace, and the repository holding it." });
 export type WorkspaceInspection = z.infer<typeof WorkspaceInspection>;
+
+/**
+ * Why the reaper kept a worktree at its last session's purge
+ * (workspace-picker spec, "The reaper"; #330): it has uncommitted work (a
+ * tracked file changed, or an untracked file git does not ignore, a nested
+ * repository included); its repository's own config names a clean, smudge
+ * or process filter, which checking it would run (#212); or git could not
+ * say, or could not remove it.
+ */
+export const WORKSPACE_KEPT_REASONS = ["uncommitted_changes", "git_filters_refused", "git_failed"] as const;
+export const WorkspaceKeptReason = z.enum(WORKSPACE_KEPT_REASONS).meta({
+  description:
+    "Why a worktree stayed at its last session's purge: uncommitted_changes (a tracked file changed, or an untracked file git does not ignore, a nested repository included), git_filters_refused (its repository's own config names a clean, smudge or process filter, which checking it would run) or git_failed (git could not check or remove it).",
+});
+export type WorkspaceKeptReason = z.infer<typeof WorkspaceKeptReason>;
+
+/** What `workspace.kept` records: the worktree the reaper left in place, unlocked, and why (#330). */
+export const WorkspaceKeptPayload = z
+  .object({
+    path: AbsolutePath.meta({ description: "The worktree, under the environment's worktrees root, as the environment records it." }),
+    branch: z.string().min(1).nullable().meta({ description: "The branch checked out in it, without refs/heads/; null when its HEAD is detached or git could not say." }),
+    title: z.string().min(1).meta({ description: "The title of the purged session whose worktree it was, as the list showed it." }),
+    reason: WorkspaceKeptReason,
+  })
+  .meta({
+    description:
+      "A worktree the environment made stayed when the last session naming it was purged, unlocked, so no work is lost: where it is, its branch, whose it was and why.",
+  });
+export type WorkspaceKeptPayload = z.infer<typeof WorkspaceKeptPayload>;

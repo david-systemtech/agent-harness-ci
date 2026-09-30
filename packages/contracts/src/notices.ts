@@ -43,6 +43,7 @@ import { SkillsUpdatedPayload } from "./skills.js";
 import { TrustUpdatedPayload } from "./trust.js";
 import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
+import { WorkspaceKeptPayload } from "./workspaces.js";
 
 /**
  * The environment's own notices: the events on its `environment` stream,
@@ -86,7 +87,9 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * revoked (#500); a probe changed managed-tool rows (#373: the Managed tools
  * registry's notice); an extension that holds no credential opened its
  * socket to the environment's listener (#547: the Browser card's Load
- * sub-step); so every connected client
+ * sub-step); a worktree stayed, unlocked, when the last session naming it
+ * was purged (#330: the reaper's notice, which the client runtime raises);
+ * so every connected client
  * learns of it whatever else it is subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
@@ -138,10 +141,11 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "trust.updated",
   "tools.updated",
   "extension.seen",
+  "workspace.kept",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.injected-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager), key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move) and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again), the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list), and extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts), and the key managers': key-manager.connection.added, key-manager.connection.signed-in, key-manager.connection.signed-out, key-manager.connection.updated, key-manager.connection.policies-set, key-manager.connection.base-path-set, key-manager.connection.injected-set, key-manager.connection.verified and key-manager.connection.removed (a client refreshes what it caches of the key-manager connections), key-manager.moved (an item's stored value was moved into a key manager), key-manager.stored-value-deleted (a stored value a move left behind was deleted; a client refreshes what it caches of the items to move) and key-manager.value-copied (an item's stored value was answered once to a client session, to paste at a target the login cannot write), and the routines': routine.updated (a routine changed; a client refreshes its routines list), routine.delivered (a routine's result for every connected client), routine.delivery-failed (a routine's result could not be delivered to its webhook), routine.endpoint-set and routine.endpoint-removed (a client refreshes what it caches of the webhook endpoints), settings.changed (settings changed, with every settings.updated; a client refreshes what it caches of the settings), and setup.result-changed (a Set up step's result changed in anything but when it was checked; a client replaces that step's result in what the snapshot's setup gave it), skills.updated (the skill set changed; a client reads skills.get again), trust.updated (a trust decision was recorded or revoked; a client reads trust.get and trust.list again), the Managed tools registry's tools.updated (a probe changed rows; a client refreshes what it caches of tools.list), extension.seen (an unpaired extension opened its socket to the listener; the Browser card ticks Load), and workspace.kept (a worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -337,6 +341,12 @@ const ExtensionSeen = describedNotice(
   "An extension that holds no credential opened its socket to the environment's listener and announced itself: the unpaired signal, which ticks the Browser card's Load sub-step.",
 );
 
+const WorkspaceKept = describedNotice(
+  "workspace.kept",
+  WorkspaceKeptPayload,
+  "A worktree the environment made stayed, unlocked, when the last session naming it was purged: its path, branch, the session's title and why.",
+);
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
@@ -391,6 +401,7 @@ export const EnvironmentNotice = z
     TrustUpdated,
     ToolsUpdated,
     ExtensionSeen,
+    WorkspaceKept,
   ])
   .meta({
     description:
