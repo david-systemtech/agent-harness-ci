@@ -121,7 +121,7 @@ export {
   type MoveOptions,
   type ConnectionChanges,
   type ConnectionForm,
-  type KeyManagerHands,
+  type KeyManagerSender,
   type KeyManagerOutcome,
   type Removed,
   type TypedCredential,

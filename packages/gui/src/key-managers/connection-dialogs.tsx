@@ -26,7 +26,7 @@ export interface ConnectionDialogProps {
 }
 
 /** The runtime and clock the key-manager actions are sent with. */
-const useHands = () => ({ runtime: useRuntime(), clock: useClock() });
+const useSender = () => ({ runtime: useRuntime(), clock: useClock() });
 
 /**
  * Sign in, or sign in again (`keyManagers.connections.signIn`, sent
@@ -35,7 +35,7 @@ const useHands = () => ({ runtime: useRuntime(), clock: useClock() });
  * in one line, the secret emptied; a sign-in closes it.
  */
 export const SignInAgain = ({ environmentId, connection, close, say, again }: ConnectionDialogProps & { readonly again: boolean }) => {
-  const hands = useHands();
+  const sender = useSender();
   const [method, setMethod] = useState<KeyManagerAuthMethod>(connection.method ?? "token");
   const [username, setUsername] = useState(connection.username ?? "");
   const [typed, setTyped] = useState<TypedCredential>(NO_CREDENTIAL);
@@ -51,7 +51,7 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
     setLine(undefined);
     setSending(true);
     setTyped({ ...NO_CREDENTIAL, roleId: typed.roleId });
-    void signInAgain(hands, environmentId, connection, credential, username).then((signed) => {
+    void signInAgain(sender, environmentId, connection, credential, username).then((signed) => {
       setSending(false);
       if (!signed.ok) return setLine(signed.line);
       close();
@@ -101,7 +101,7 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
  * in the form in one line.
  */
 export const EditConnection = ({ environmentId, connection, close, say }: ConnectionDialogProps) => {
-  const hands = useHands();
+  const sender = useSender();
   const [label, setLabel] = useState(connection.label);
   const [address, setAddress] = useState(connection.address);
   const [tokenRole, setTokenRole] = useState(connection.tokenRole ?? "");
@@ -121,7 +121,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
     };
     if (Object.keys(changes).length === 0) return close();
     setLine(undefined);
-    void updateConnection(hands, environmentId, connection, changes).then((updated) => {
+    void updateConnection(sender, environmentId, connection, changes).then((updated) => {
       if (!updated.ok) return setLine(updated.line);
       close();
       say(updated.line);
@@ -171,7 +171,7 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
 
 /** Sign out, once confirmed (`keyManagers.connections.signOut`). */
 export const ConfirmSignOut = ({ environmentId, connection, close, say }: ConnectionDialogProps) => {
-  const hands = useHands();
+  const sender = useSender();
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent
@@ -186,7 +186,7 @@ export const ConfirmSignOut = ({ environmentId, connection, close, say }: Connec
             tone="danger"
             onClick={() => {
               close();
-              void signOutConnection(hands, environmentId, connection).then((out) => say(out.line));
+              void signOutConnection(sender, environmentId, connection).then((out) => say(out.line));
             }}
           >
             Sign out
@@ -203,10 +203,10 @@ export const ConfirmSignOut = ({ environmentId, connection, close, say }: Connec
  * removes it all the same, leaving them unable to resolve.
  */
 export const ConfirmRemove = ({ environmentId, connection, close, say }: ConnectionDialogProps) => {
-  const hands = useHands();
+  const sender = useSender();
   const [refused, setRefused] = useState<{ readonly line: string; readonly referenced: boolean } | undefined>(undefined);
   const remove = (force: boolean) =>
-    void removeConnection(hands, environmentId, connection, force).then((removed) => {
+    void removeConnection(sender, environmentId, connection, force).then((removed) => {
       if (!removed.ok) return setRefused(removed);
       close();
       say(removed.line);

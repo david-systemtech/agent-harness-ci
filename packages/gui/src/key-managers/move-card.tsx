@@ -36,7 +36,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
   const runtime = useRuntime();
   const clock = useClock();
   const heading = useId();
-  const hands = { runtime, clock };
+  const sender = { runtime, clock };
   const listed = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.move.list", {}), [runtime, environmentId]));
   const [chosen, choose] = useState<string | undefined>(undefined);
   const connection = connections.find((each) => each.id === (chosen ?? presetOf(connections)));
@@ -54,14 +54,14 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
 
   const move = (which: "all" | readonly KeyManagerMoveItemRef[], options: MoveOptions = {}) => {
     setLine(undefined);
-    void moveItems(hands, environmentId, connection, which, names, options).then((answer) => {
+    void moveItems(sender, environmentId, connection, which, names, options).then((answer) => {
       if (!answer.ok) return setLine(answer.line);
       setLines(answer.lines);
       setFollowUps((held) => new Map([...held, ...answer.lines.map((each) => [each.item.id, each.followUp] as const)]));
     });
   };
   const copy = (item: KeyManagerMoveItemRef) =>
-    void copyValue(hands, environmentId, connection, item).then((answer) => {
+    void copyValue(sender, environmentId, connection, item).then((answer) => {
       if (!answer.ok) return setLine(answer.line);
       setFollowUps((held) => new Map([...held, [item.id, "verify"]]));
       setCopied({ value: answer.value, reference: answer.reference });
@@ -123,7 +123,7 @@ export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps
         </Field>
         <Button
           disabled={!writable || basePath.trim() === "" || basePath.trim() === connection.basePath}
-          onClick={() => void setBasePath(hands, environmentId, connection, basePath).then((set) => setLine(set.line))}
+          onClick={() => void setBasePath(sender, environmentId, connection, basePath).then((set) => setLine(set.line))}
         >
           Set the base path
         </Button>

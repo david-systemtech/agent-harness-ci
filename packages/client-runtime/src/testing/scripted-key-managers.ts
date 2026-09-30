@@ -48,7 +48,7 @@ export interface ScriptedMoveItem {
 }
 
 export interface ScriptedKeyManagers {
-  /** The connections held from the start, each over an OpenBao signed in by AppRole (`scriptedConnection`), `fields` replacing its own. */
+  /** The connections held from the start, each over an OpenBao at `https://bao-<n>.test:8200` signed in by AppRole, the first injecting; the fields given replace its own. */
   readonly connections?: readonly Partial<KeyManagerConnectionRecord>[];
   /** The policies a sign-in's login holds, with their write flags: preset `default` and `agent-read`, neither writing. */
   readonly policies?: readonly KeyManagerLoginPolicy[];

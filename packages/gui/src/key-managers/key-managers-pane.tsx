@@ -5,7 +5,7 @@ import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { Button } from "../ui/index.js";
-import { useFollowed, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { AddConnection } from "./add-connection.js";
 import { ConnectionCard } from "./connection-card.js";
 import { InjectionSetting } from "./injection-setting.js";
@@ -34,7 +34,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const flagged = runtime.capability(environmentId, "keyManagers");
-  const listed = useFollowed(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.list", {}), [runtime, environmentId]));
+  const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.list", {}), [runtime, environmentId]));
   const toolsAnswer = runtime.capability(environmentId, "tools.list");
   const tooled = useFollowed(useMemo(() => (toolsAnswer.status === "present" ? runtime.requests.cached(environmentId, "tools.list", {}) : undefined), [runtime, environmentId, toolsAnswer.status]));
   const [adding, setAdding] = useState(false);
@@ -49,7 +49,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
       </>
     );
   }
-  const connections = listed?.result?.connections ?? null;
+  const connections = listed.result?.connections ?? null;
   const tools = toolsAnswer.status === "absent" ? toolsAnswer.message : (tooled?.result?.tools ?? []);
   const ready = view.phase === "ready";
   const admin = runtime.capability(environmentId, "keyManagers.connections.add");
@@ -70,7 +70,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       {connections === null
-        ? ready && <p className="text-sm text-ink-faint">{listed?.error == null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
+        ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
         : connections.length === 0
           ? <p className="text-sm text-ink-muted">No key manager is connected here.</p>
           : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} tools={tools} writable={writable} say={say} />)}

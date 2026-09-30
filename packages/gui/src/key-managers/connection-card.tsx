@@ -15,7 +15,7 @@ import {
   updateConnection,
   verifyConnection,
 } from "@agent-harness/client-runtime";
-import type { KeyManagerConnectionRecord, ManagedToolRow } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, KeyManagerStatusKind, ManagedToolRow } from "@agent-harness/contracts";
 import { useId, useState, type ReactNode } from "react";
 import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -28,7 +28,7 @@ import { PolicyTicks } from "./policy-ticks.js";
 type Open = "certificate" | "sign-in" | "edit" | "sign-out" | "remove" | "copy" | null;
 
 /** The statuses a sign-in answers: no credential here, or one the key manager no longer takes. */
-const SIGN_IN_FIXES: ReadonlySet<KeyManagerConnectionRecord["status"]["kind"]> = new Set(["awaiting-sign-in", "credential-rejected", "expired"]);
+const SIGN_IN_FIXES: ReadonlySet<KeyManagerStatusKind> = new Set<KeyManagerStatusKind>(["awaiting-sign-in", "credential-rejected", "expired"]);
 
 /** One fact of a card: its name and what the connection holds of it; nothing for a fact it holds none of. */
 const Fact = ({ name, children }: { readonly name: string; readonly children: ReactNode }) =>
@@ -65,12 +65,12 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
   const heading = useId();
   const now = clock.now();
   const [open, setOpen] = useState<Open>(null);
-  const hands = { runtime, clock };
+  const sender = { runtime, clock };
   const kind = connection.status.kind;
   const awaiting = kind === "awaiting-sign-in";
   const close = () => setOpen(null);
   const dialog = { environmentId, connection, close, say };
-  const advice = KEY_MANAGER_STATUS_ADVICE[connection.status.kind];
+  const advice = KEY_MANAGER_STATUS_ADVICE[kind];
   const cli = typeof tools === "string" ? tools : cliRowOf(connection.provider, tools);
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
@@ -108,7 +108,7 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
           Verify now
         </Button>
         {!connection.injects && (
-          <Button disabled={!writable} onClick={() => void setInjected(hands, environmentId, connection).then((set) => say(set.line))}>
+          <Button disabled={!writable} onClick={() => void setInjected(sender, environmentId, connection).then((set) => say(set.line))}>
             Inject its variables
           </Button>
         )}
@@ -128,7 +128,7 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
           environmentId={environmentId}
           address={connection.address}
           close={close}
-          trust={(ca) => void updateConnection(hands, environmentId, connection, { ca }).then((updated) => say(updated.line))}
+          trust={(ca) => void updateConnection(sender, environmentId, connection, { ca }).then((updated) => say(updated.line))}
         />
       )}
       {open === "sign-in" && <SignInAgain {...dialog} again={!awaiting} />}

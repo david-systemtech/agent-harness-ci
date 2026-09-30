@@ -77,8 +77,8 @@ export interface ConnectionForm {
 /** What a command a pane sends did: its one line, and the connection it answered with when it answered one. */
 export type KeyManagerOutcome = { readonly ok: true; readonly line: string; readonly connection: KeyManagerConnectionRecord | null } | { readonly ok: false; readonly line: string };
 
-/** What the pane's hands need: the runtime's requests and its clock for command ids. */
-export interface KeyManagerHands {
+/** What a pane's commands are sent with: the runtime's requests, and its clock for their command ids. */
+export interface KeyManagerSender {
   readonly runtime: Pick<Runtime, "requests">;
   readonly clock: Clock;
 }
@@ -99,7 +99,7 @@ export const formProblem = (form: ConnectionForm, credential: KeyManagerCredenti
  * a connection held already, the environment not reachable) is one line,
  * and so is where the connection stands once added.
  */
-export const addConnection = async ({ runtime, clock }: KeyManagerHands, environmentId: string, form: ConnectionForm, credential: KeyManagerCredential): Promise<KeyManagerOutcome> => {
+export const addConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, form: ConnectionForm, credential: KeyManagerCredential): Promise<KeyManagerOutcome> => {
   const openBao = form.provider === "openbao";
   const params: ParamsOf<"keyManagers.connections.add"> = {
     commandId: uuidv7(clock.now()),
@@ -147,7 +147,7 @@ export type ConnectionChanges = Pick<ParamsOf<"keyManagers.connections.update">,
  * sign-in is, changing nothing. Accepting a certificate's anchor pins it
  * here, as the CA.
  */
-export const updateConnection = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, changes: ConnectionChanges): Promise<KeyManagerOutcome> =>
+export const updateConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, changes: ConnectionChanges): Promise<KeyManagerOutcome> =>
   connectionOutcome(
     await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.update", { commandId: uuidv7(clock.now()), connectionId: connection.id, ...changes })),
     "Updated",
@@ -173,7 +173,7 @@ export const previewCertificate = async (runtime: Pick<Runtime, "requests">, env
  * userpass.
  */
 export const signInAgain = async (
-  { runtime, clock }: KeyManagerHands,
+  { runtime, clock }: KeyManagerSender,
   environmentId: string,
   connection: KeyManagerConnectionRecord,
   credential: KeyManagerCredential,
@@ -195,7 +195,7 @@ export const signInAgain = async (
   );
 
 /** Signs the connection out (`keyManagers.connections.signOut`): its login revoked and its credential deleted, so it awaits a sign-in. */
-export const signOutConnection = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> =>
+export const signOutConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> =>
   connectionOutcome(
     await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.signOut", { commandId: uuidv7(clock.now()), connectionId: connection.id })),
     "Signed out of",
@@ -211,7 +211,7 @@ export type Removed = { readonly ok: true; readonly line: string } | { readonly 
  * even while references name it. A refusal because they do (`conflict`
  * reason `referenced`) says who holds them.
  */
-export const removeConnection = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, force: boolean): Promise<Removed> => {
+export const removeConnection = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, force: boolean): Promise<Removed> => {
   const answer = await runtime.requests.call(environmentId, "keyManagers.connections.remove", { commandId: uuidv7(clock.now()), connectionId: connection.id, ...(force && { force }) });
   if (!answer.ok) return { ok: false, line: `Not removed: ${answer.error.message}`, referenced: false };
   const { receipt } = answer.result;
@@ -236,7 +236,7 @@ export const ticksWith = (connection: Pick<KeyManagerConnectionRecord, "policies
 };
 
 /** Ticks which of the login's policies runs receive (`keyManagers.connections.setPolicies`). */
-export const setPolicies = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, ticks: readonly string[]): Promise<KeyManagerOutcome> =>
+export const setPolicies = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, ticks: readonly string[]): Promise<KeyManagerOutcome> =>
   connectionOutcome(
     await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.setPolicies", { commandId: uuidv7(clock.now()), connectionId: connection.id, ticks: [...ticks] })),
     "Ticked the policies of",
@@ -245,13 +245,13 @@ export const setPolicies = async ({ runtime, clock }: KeyManagerHands, environme
   );
 
 /** Makes the connection the one of its provider whose variables runs receive (`keyManagers.connections.setInjected`). */
-export const setInjected = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
+export const setInjected = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord): Promise<KeyManagerOutcome> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.connections.setInjected", { commandId: uuidv7(clock.now()), connectionId: connection.id }));
   return answer.ok ? { ok: true, connection: answer.result?.connection ?? null, line: `Runs receive the variables of ${connection.label} from their next start.` } : { ok: false, line: `Not changed: ${answer.line}` };
 };
 
 /** Sets where Move keeps the harness's secrets on the connection (`keyManagers.connections.setBasePath`). */
-export const setBasePath = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, basePath: string): Promise<KeyManagerOutcome> => {
+export const setBasePath = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, basePath: string): Promise<KeyManagerOutcome> => {
   const answer = await adminCall(() =>
     runtime.requests.call(environmentId, "keyManagers.connections.setBasePath", { commandId: uuidv7(clock.now()), connectionId: connection.id, basePath: basePath.trim() }),
   );
@@ -295,7 +295,7 @@ export interface MoveOptions {
  * Move (no base path, not signed in) is one line.
  */
 export const moveItems = async (
-  { runtime, clock }: KeyManagerHands,
+  { runtime, clock }: KeyManagerSender,
   environmentId: string,
   connection: KeyManagerConnectionRecord,
   items: "all" | readonly KeyManagerMoveItemRef[],
@@ -332,7 +332,7 @@ export type CopiedValue = { readonly ok: true; readonly value: string; readonly 
  * target: for a person to paste there, then verify. The value is held by
  * whoever shows it, and nowhere else on the client.
  */
-export const copyValue = async ({ runtime, clock }: KeyManagerHands, environmentId: string, connection: KeyManagerConnectionRecord, item: KeyManagerMoveItemRef): Promise<CopiedValue> => {
+export const copyValue = async ({ runtime, clock }: KeyManagerSender, environmentId: string, connection: KeyManagerConnectionRecord, item: KeyManagerMoveItemRef): Promise<CopiedValue> => {
   const answer = await adminCall(() => runtime.requests.call(environmentId, "keyManagers.move.copyValue", { commandId: uuidv7(clock.now()), connectionId: connection.id, item }));
   if (!answer.ok) return { ok: false, line: `The value was not copied: ${answer.line}` };
   if (answer.result === undefined) return { ok: false, line: "The value was copied once already; move the item again to copy it again." };
