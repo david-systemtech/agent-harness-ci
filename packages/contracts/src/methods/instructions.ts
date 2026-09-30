@@ -263,8 +263,9 @@ export const instructionsRestoreSuggestion = defineMethod({
  * Imports an instruction an LLM step wrote (ADR 0019): the Markdown file at
  * `path` in the scratch workspace of a minted session (one tagged `setup`
  * and `instructions`, as the Instructions step mints it) becomes a new
- * owned instruction under the id the client minted, its first heading the
- * title and what follows the heading the body, with the catalogue entry's
+ * owned instruction under the id the client minted, its first heading
+ * outside a code fence the title and the text before and after that heading,
+ * a blank line apart, the body, with the catalogue entry's
  * id and current version as its origin when `catalogueId` is given
  * (restoring the entry if it was dismissed); preset for every account,
  * enabled and after the last. A session that was not minted, a path outside

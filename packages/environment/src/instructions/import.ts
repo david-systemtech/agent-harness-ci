@@ -1,5 +1,5 @@
 import { realpathSync, readFileSync, statSync } from "node:fs";
-import { extname, isAbsolute, relative, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { ContractError, InstructionBody, InstructionTitle, MAX_INSTRUCTION_BODY, invalidParams, type Workspace } from "@agent-harness/contracts";
 import type { CommandRejection } from "../serve/methods.js";
 import { tagsOf, type Reader } from "../sessions/session-tables.js";
@@ -9,8 +9,9 @@ import { tagsOf, type Reader } from "../sessions/session-tables.js";
  * instructions", Minted; #509): a Markdown file inside the scratch
  * workspace of a minted session, one tagged `setup` and the step's id,
  * `instructions`, as the Instructions step mints it (setup spec, "The LLM
- * step and minted sessions"). Its first heading is the title and the rest
- * of the file the body. Anything else is `invalid_params`: a session not
+ * step and minted sessions"). Its first heading outside a code fence is the
+ * title, and the text before and after that heading, a blank line apart, the
+ * body. Anything else is `invalid_params`: a session not
  * minted, a path outside the workspace (a symbolic link out of it
  * included) or not a `.md` file, a file with no heading, or one over the
  * bounds. A session not on the environment, or deleted, is `not_found`.
@@ -45,10 +46,10 @@ export const splitAtFirstHeading = (text: string): { readonly title: string; rea
   return null;
 };
 
-/** Whether `path` lies inside `root`, below it. */
+/** Whether `path` lies inside `root`, below it: its first segment is not `..`, so a name such as `..draft.md` is inside. */
 const inside = (root: string, path: string): boolean => {
   const rel = relative(root, path);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 };
 
 export const readMintedFile = (reader: Reader, sessionId: string, path: string): { readonly title: string; readonly body: string } | CommandRejection<"not_found"> => {

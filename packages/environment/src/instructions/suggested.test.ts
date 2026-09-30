@@ -266,7 +266,7 @@ describe("import from a minted session", () => {
     const { t } = await start();
     const client = await t.client();
     const text = "# Fresh checkouts, my way\n\nClone into `~/scratch`, never pull in place.\n\n## Why\n\nMy checkouts drift.\n";
-    const { sessionId, root } = await minted(client, { "out/instruction.md": text, "plain.md": "Intro line.\n\n```\n# not a heading\n```\n\n## Plain  ##\n\nBody." });
+    const { sessionId, root } = await minted(client, { "out/instruction.md": text, "plain.md": "Intro line.\n\n```\n# not a heading\n```\n\n## Plain  ##\n\nBody.", "..draft.md": "# Draft\n\nTwo dots start the name." });
 
     const tailored = await importing(client, { sessionId, path: "out/instruction.md", catalogueId: ENTRY });
     expect(tailored.result?.instruction).toMatchObject({
@@ -278,7 +278,9 @@ describe("import from a minted session", () => {
     });
     const plain = await importing(client, { sessionId, path: join(root, "plain.md") });
     expect(plain.result?.instruction).toMatchObject({ title: "Plain", body: "Intro line.\n\n```\n# not a heading\n```\n\nBody.", origin: null });
-    expect(typesOf(t)).toEqual(["instructions.created", "instructions.created"]);
+    const dotted = await importing(client, { sessionId, path: "..draft.md" });
+    expect(dotted.result?.instruction).toMatchObject({ title: "Draft", body: "Two dots start the name." });
+    expect(typesOf(t)).toEqual(["instructions.created", "instructions.created", "instructions.created"]);
   });
 
   it("refuses invalid_params for a path elsewhere, a file that is not Markdown or has no heading, and a session that was not minted", async () => {
