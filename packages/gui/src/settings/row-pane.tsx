@@ -13,7 +13,9 @@ import { YourMachines } from "../machines/your-machines.js";
 import { ServicePane } from "../service/service-pane.js";
 import { SetupPane } from "../setup/setup-pane.js";
 import { useCheckHomedSteps } from "../setup/use-setup.js";
-import { useClientVersion, useObservable, useRuntime } from "../window-context.js";
+import { AboutPane } from "../updates/about-pane.js";
+import { ClientBuild } from "../updates/client-build.js";
+import { useObservable, useRuntime } from "../window-context.js";
 import { EnvironmentPicker } from "./environment-picker.js";
 import { GenericEditor, reachWords } from "./generic-editor.js";
 import { dimReason } from "./rail.js";
@@ -101,6 +103,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "accounts.default-model": DefaultModelPane,
   "accounts.usage": UsagePane,
   "environments.machines": YourMachines,
+  "about.about": AboutPane,
   "access.key-managers": KeyManagersPane,
   "access.permissions": PermissionsPane,
   "environments.access": AccessPane,
@@ -110,15 +113,15 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
 /**
  * A row's pane (ADR 0027): its heading, then in its header what its scope
  * gives it (an `environment` row's picker, none for `everywhere` and
- * `client` rows), About with this client's version pinned above its picker
- * as the one line that belongs to no environment, then what the row holds:
- * its built pane (Set up's checklist, the three Accounts rows, Your
- * machines' cards, Key managers, Permissions, Access, Service), the unbuilt row's hint, links and keys on
- * the others. Opening a step's home row checks that step.
+ * `client` rows), About with this client's version and the desktop's own
+ * update pinned above its picker as the one line that belongs to no
+ * environment, then what the row holds: its built pane (Set up's checklist,
+ * the three Accounts rows, Your machines' cards, Key managers, Permissions,
+ * Access, Service, About), the unbuilt row's hint, links and keys on the
+ * others. Opening a step's home row checks that step.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
   const entry = settingsRow(row);
-  const version = useClientVersion();
   const heading = useId();
   const Built = BUILT_PANES[row];
   useCheckHomedSteps(row);
@@ -128,7 +131,7 @@ export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
         <h2 id={heading} className="text-lg font-semibold text-ink">
           {entry.label}
         </h2>
-        {row === "about.about" && <p className="text-sm text-ink">This client: {version}</p>}
+        {row === "about.about" && <ClientBuild />}
         {entry.scope === "environment" && <EnvironmentPicker />}
       </header>
       {Built === undefined ? <UnbuiltRow row={row} /> : <Built />}
