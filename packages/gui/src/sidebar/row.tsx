@@ -2,6 +2,7 @@ import type { DropTarget, EnvironmentView, HeadingRow, RowActivity } from "@agen
 import { Fragment, useState } from "react";
 import { EnvironmentDot } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
+import { PullRequestMark } from "../session/pull-requests.js";
 import { classes } from "../ui/classes.js";
 import { ContextMenu, ContextMenuTrigger } from "../ui/index.js";
 import { useDragRow, useDropTarget } from "./drag.js";
@@ -13,7 +14,8 @@ import { activityWords, quoted } from "./words.js";
 /**
  * A row of the sidebar (docs/specs/gui.md, "The window and the sidebar"):
  * the environment's badge, the title, the tags, a snoozed session's wake
- * time, the activity with the parked count, and the pending marker while a
+ * time, the state of its pull request (the one linked last, #419), the
+ * activity with the parked count, and the pending marker while a
  * command about it awaits its receipt (`awaitingReceipt`). A row of an
  * environment that cannot be reached is the cached snapshot's, dim, and
  * says so. Clicking it opens the session in the focused pane; the one open
@@ -97,6 +99,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
                   <span className="shrink-0 text-xs text-ink-muted">{line.wake}</span>
                 </>
               )}
+              <PullRequestMark pullRequests={summary.pullRequests} />
               {line.activity.state !== "idle" && " "}
               <ActivityMark activity={line.activity} />
               {line.pending && (
