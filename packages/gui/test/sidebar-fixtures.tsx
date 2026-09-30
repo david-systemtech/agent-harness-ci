@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterAll } from "vitest";
 import { renderApp, type RenderedApp, type RenderOptions, type ScriptedEnvironment } from "./harness.js";
 
@@ -102,6 +102,37 @@ export const drawn = (): string[] =>
 
 /** The row whose title is `title`: the button that opens it. */
 export const row = (title: string) => within(sidebar()).getByRole("button", { name: new RegExp(`^\\S+ ${title}\\b`) });
+
+/** The line a row is drawn on: where a session dropped takes its place. */
+export const lineOf = (title: string) => row(title).closest("li") as HTMLElement;
+
+/** A heading's own line, by its region's name: where a session dropped goes under it. */
+export const heading = (name: string) => within(region(name)).getAllByRole("heading")[0] as HTMLElement;
+
+/** A drag as the browser carries one: one data transfer from the drag's start to its end. */
+export const dataTransfer = () => {
+  const data = new Map<string, string>();
+  return {
+    setData: (type: string, value: string) => void data.set(type, value),
+    getData: (type: string) => data.get(type) ?? "",
+    get types() {
+      return [...data.keys()];
+    },
+    dropEffect: "none",
+    effectAllowed: "all",
+  };
+};
+
+/** Drags `from` (a row) and drops it on `onto`; answers whether the drop was taken, as the pointer would show it. */
+export const drag = (from: HTMLElement, onto: HTMLElement): boolean => {
+  const carried = dataTransfer();
+  fireEvent.dragStart(from, { dataTransfer: carried });
+  fireEvent.dragEnter(onto, { dataTransfer: carried });
+  const taken = !fireEvent.dragOver(onto, { dataTransfer: carried });
+  fireEvent.drop(onto, { dataTransfer: carried });
+  fireEvent.dragEnd(from, { dataTransfer: carried });
+  return taken;
+};
 
 /** Keys typed into a field, focused first: jsdom lays nothing out, so a click would land on the sidebar's divider. */
 export const typeIn = async (app: RenderedApp, field: HTMLElement, keys: string) => {

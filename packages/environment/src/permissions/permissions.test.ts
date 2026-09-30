@@ -296,6 +296,8 @@ describe("run.policy.resolved", () => {
     const client = await t.client();
     const { id } = await create(client, { mode: "plan" });
     const { runId: first } = await startRun(client, id);
+    // Held by the provider, which opens a turn for it: the send waits for the adapter to have the run.
+    await t.adapter.reached(1);
     await send(client, "runs.send", { sessionId: id, text: "Also this" });
     held.open();
     await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));

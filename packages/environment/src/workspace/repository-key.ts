@@ -29,18 +29,14 @@ export interface RepositoryKey {
 const DOT_GIT = ".git";
 
 /**
- * The main checkout of the repository whose `.git` lies in `directory`, or
- * undefined when none does, as git names a repository's main worktree. A
- * `.git` directory is a checkout's own. A `.git` file names the git
- * directory elsewhere (`gitdir:`), whose common git directory is the one its
+ * The common git directory `directory`'s `.git` leads to: undefined when
+ * there is none, null when it is a file that cannot be read. A `.git`
+ * directory is a checkout's own. A `.git` file names the git directory
+ * elsewhere (`gitdir:`), whose common git directory is the one its
  * `commondir` names (a linked worktree's), else itself (a submodule's, or
- * one separated with `--separate-git-dir`): a common directory named `.git`
- * lies in the main checkout; any other (a bare repository, a submodule's
- * under its superproject's, a separated one) stands for it, as `git
- * worktree list` gives it, so a checkout and its worktrees share it. A
- * `.git` file that cannot be read is taken as the checkout here.
+ * one separated with `--separate-git-dir`).
  */
-const checkoutAt = (directory: string): string | undefined => {
+const commonDirectoryAt = (directory: string): string | null | undefined => {
   const dotGit = join(directory, DOT_GIT);
   let isDirectory: boolean;
   try {
@@ -50,16 +46,30 @@ const checkoutAt = (directory: string): string | undefined => {
   } catch {
     return undefined;
   }
-  if (isDirectory) return directory;
+  if (isDirectory) return dotGit;
   try {
     const named = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
-    if (named === undefined) return directory;
-    const gitDir = isAbsolute(named) ? named : resolve(directory, named);
-    const common = commonDirectory(gitDir);
-    return basename(common) === DOT_GIT ? dirname(common) : common;
+    if (named === undefined) return null;
+    return commonDirectory(isAbsolute(named) ? named : resolve(directory, named));
   } catch {
-    return directory;
+    return null;
   }
+};
+
+/**
+ * The main checkout of the repository whose `.git` lies in `directory`, or
+ * undefined when none does, as git names a repository's main worktree: a
+ * common git directory named `.git` lies in the main checkout; any other (a
+ * bare repository, a submodule's under its superproject's, a separated one)
+ * stands for it, as `git worktree list` gives it, so a checkout and its
+ * worktrees share it. A `.git` file that cannot be read is taken as the
+ * checkout here.
+ */
+const checkoutAt = (directory: string): string | undefined => {
+  const common = commonDirectoryAt(directory);
+  if (common === undefined) return undefined;
+  if (common === null) return directory;
+  return basename(common) === DOT_GIT ? dirname(common) : common;
 };
 
 /** The common git directory of the git directory `gitDir`: the one its `commondir` names, else itself. */
@@ -73,14 +83,28 @@ const commonDirectory = (gitDir: string): string => {
   return isAbsolute(named) ? named : resolve(gitDir, named);
 };
 
-/** The main checkout of the innermost repository holding `path`, found from `path` up; null when no repository holds it. */
-const checkoutAbove = (path: string): string | null => {
+/** What `at` finds in the innermost directory from `path` up where it finds anything; null when it finds nothing up to the root. */
+const innermost = <T>(path: string, at: (directory: string) => T | undefined): T | null => {
   for (let directory = path; ; directory = dirname(directory)) {
-    const checkout = checkoutAt(directory);
-    if (checkout !== undefined) return checkout;
+    const found = at(directory);
+    if (found !== undefined) return found;
     if (dirname(directory) === directory) return null;
   }
 };
+
+/** The main checkout of the innermost repository holding `path`, found from `path` up; null when no repository holds it. */
+const checkoutAbove = (path: string): string | null => innermost(path, checkoutAt);
+
+/**
+ * The common git directory of the innermost repository holding `path`,
+ * found from `path` up and read from the files git keeps (no git runs, so
+ * nothing the repository's config names does): where its objects, refs and
+ * config live, a worktree's index and `HEAD` included (its main checkout's
+ * `.git`, or its bare repository), a checkout's own `.git`, a submodule's
+ * under its superproject's. Null when no repository holds `path`, or the
+ * innermost's `.git` file cannot be read.
+ */
+export const commonGitDirectory = (path: string): string | null => innermost(path, commonDirectoryAt);
 
 /**
  * The main checkout (or bare repository) of the repository holding
@@ -107,14 +131,12 @@ export const repositoryKey = (place: RepositoryPlace): RepositoryKey | null => {
 };
 
 /** The root of the innermost repository holding `path` (a worktree's own, a submodule's), found from `path` up: where its `.git` lies; null when none does. */
-export const repositoryRoot = (path: string): string | null => {
-  for (let directory = path; ; directory = dirname(directory)) {
+export const repositoryRoot = (path: string): string | null =>
+  innermost(path, (directory) => {
     try {
       const stats = statSync(join(directory, DOT_GIT));
-      if (stats.isDirectory() || stats.isFile()) return directory;
+      return stats.isDirectory() || stats.isFile() ? directory : undefined;
     } catch {
-      // Not here: look in the parent.
+      return undefined;
     }
-    if (dirname(directory) === directory) return null;
-  }
-};
+  });

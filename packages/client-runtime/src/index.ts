@@ -357,6 +357,7 @@ export {
   ARCHIVE_HEADING,
   PINNED_HEADING,
   SETTLED_HEADING,
+  SIDEBAR_VIEWS,
   SNOOZED_HEADING,
   activityOf,
   environmentHeading,
@@ -364,6 +365,7 @@ export {
   isFolded,
   isReachable,
   keepsFold,
+  repositoryHeading,
   rowKey,
   sessionHeadings,
   type BlockKind,
@@ -376,6 +378,7 @@ export {
   type RowActivity,
   type SessionBlock,
   type SessionHeading,
+  type SidebarView,
 } from "./sidebar/headings.js";
 export { WHEN_EXAMPLES, parseWhen, presetTimes, wakeWords, whenWords, type WhenPreset } from "./sidebar/when.js";
 export {
@@ -492,3 +495,22 @@ export {
   type AccountAdded,
   type AttendedSignIn,
 } from "./status/sign-in.js";
+export {
+  DEFAULT_CHOICE_WORDS,
+  NO_PLAN_READING,
+  NO_WINDOWS_READ,
+  accountChoiceWords,
+  accountStatusWords,
+  ambientOffer,
+  directoryWords,
+  effortChoices,
+  familyChoices,
+  familyWords,
+  gaugeWho,
+  planWords,
+  pooledWords,
+  removalWords,
+  resetWords,
+  type FamilyChoice,
+} from "./accounts/words.js";
+export { adoptAccount, relabelAccount, removeAccount, type AccountOutcome } from "./accounts/actions.js";

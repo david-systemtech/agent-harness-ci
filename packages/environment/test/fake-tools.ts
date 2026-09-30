@@ -6,10 +6,12 @@ import type { PackageOwnerLookup } from "../src/managed-tools/package-owner.js";
 /**
  * Fake managed tools on a PATH the test sets (key-managers spec, "Testing
  * Decisions"; #373): each an executable shell script that answers
- * `--version` as the test says, prints nothing, or hangs, and records every
- * call's arguments; placed in the PATH's directory, or elsewhere and linked
- * into it, as a Homebrew Cellar or `node_modules` would place it. The PATH
- * is the one the environment's scripted read of the login shell answers.
+ * `--version` as the test says, prints nothing, or hangs, answers a
+ * subcommand the test scripts (`claude doctor`, #374) as it says, and
+ * records every call's arguments; placed in the PATH's directory, or
+ * elsewhere and linked into it, as a Homebrew Cellar or `node_modules`
+ * would place it. The PATH is the one the environment's scripted read of
+ * the login shell answers.
  */
 
 export interface FakeTool {
@@ -21,13 +23,27 @@ export interface FakeTool {
   calls(): string[][];
 }
 
+/** How the fake answers a subcommand the test scripts. */
+export interface FakeToolAnswer {
+  /** What it prints on standard output; preset nothing. */
+  readonly stdout?: string;
+  /** What it prints on standard error; preset nothing. */
+  readonly stderr?: string;
+  /** How it exits; preset 0. */
+  readonly exitCode?: number;
+  /** Never answers. */
+  readonly hang?: boolean;
+}
+
 export interface FakeToolOptions {
   /** What `--version` prints; preset `<name> version 1.0.0`. */
   readonly output?: string;
   /** How `--version` exits; preset 0. */
   readonly exitCode?: number;
-  /** Never answers `--version`. */
+  /** Never answers `--version`: it sleeps, by the absolute path, since the fake PATH holds no `sleep`. */
   readonly hang?: boolean;
+  /** How it answers a call whose first argument is the key (`doctor`); any other call is answered as `--version` is. */
+  readonly answers?: Readonly<Record<string, FakeToolAnswer>>;
   /** Where the script is, relative to the fake PATH's root; preset `bin/<name>`, on the PATH itself. */
   readonly at?: string;
   /** The directory, relative to the root, whose `<name>` links to a script placed elsewhere; preset `bin`; null for no link. */
@@ -45,6 +61,12 @@ export interface FakeToolPath {
   append(directory: string): void;
 }
 
+/** `text` as one single-quoted word of the shell. */
+const quoted = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
+
+/** The shell that prints `text` and a line end, redirected by `redirect`; nothing when there is no text. */
+const printed = (text: string | undefined, redirect: string): string => (text === undefined ? "" : `printf '%s\\n' ${quoted(text)}${redirect}; `);
+
 /** A PATH under `root` with nothing on it yet. */
 export const fakeToolPath = (root: string): FakeToolPath => {
   const bin = join(root, "bin");
@@ -58,8 +80,12 @@ export const fakeToolPath = (root: string): FakeToolPath => {
       const file = join(root, options.at ?? join("bin", name));
       mkdirSync(dirname(file), { recursive: true });
       const calls = `${file}.calls`;
-      const answer = options.hang === true ? "exec sleep 3600" : `printf '%s\\n' '${(options.output ?? `${name} version 1.0.0`).replaceAll("'", "'\\''")}'\nexit ${options.exitCode ?? 0}`;
-      writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n${answer}\n`);
+      const answer = options.hang === true ? "exec /bin/sleep 3600" : `${printed(options.output ?? `${name} version 1.0.0`, "")}exit ${options.exitCode ?? 0}`;
+      const scripted = Object.entries(options.answers ?? {}).map(([first, { stdout, stderr, exitCode, hang }]) =>
+        hang === true ? `  ${quoted(first)}) exec /bin/sleep 3600 ;;\n` : `  ${quoted(first)}) ${printed(stdout, "")}${printed(stderr, " >&2")}exit ${exitCode ?? 0} ;;\n`,
+      );
+      const dispatch = scripted.length === 0 ? "" : `case "$1" in\n${scripted.join("")}esac\n`;
+      writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n${dispatch}${answer}\n`);
       chmodSync(file, 0o755);
       writeFileSync(calls, "");
       const link = options.link === undefined ? "bin" : options.link;

@@ -16,8 +16,12 @@ import {
   SPARE,
   TRAIN,
   at,
+  dataTransfer,
+  drag,
   drawn,
+  heading,
   inUtc,
+  lineOf,
   region,
   row,
   settled,
@@ -367,36 +371,6 @@ describe("a merged heading", () => {
     expect(within(region("laptop")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toContain("Brand on laptop");
   });
 });
-
-/** A drag as the browser carries one: one data transfer from the drag's start to its end. */
-const dataTransfer = () => {
-  const data = new Map<string, string>();
-  return {
-    setData: (type: string, value: string) => void data.set(type, value),
-    getData: (type: string) => data.get(type) ?? "",
-    get types() {
-      return [...data.keys()];
-    },
-    dropEffect: "none",
-    effectAllowed: "all",
-  };
-};
-
-/** Drags `from` (a row) and drops it on `onto`; answers whether the drop was taken, as the pointer would show it. */
-const drag = (from: HTMLElement, onto: HTMLElement): boolean => {
-  const carried = dataTransfer();
-  fireEvent.dragStart(from, { dataTransfer: carried });
-  fireEvent.dragEnter(onto, { dataTransfer: carried });
-  const taken = !fireEvent.dragOver(onto, { dataTransfer: carried });
-  fireEvent.drop(onto, { dataTransfer: carried });
-  fireEvent.dragEnd(from, { dataTransfer: carried });
-  return taken;
-};
-
-/** The line a row is drawn on: where a session dropped takes its place. */
-const lineOf = (title: string) => row(title).closest("li") as HTMLElement;
-/** A folding heading, where a session dropped goes under it. */
-const heading = (name: string) => within(region(name)).getAllByRole("heading")[0] as HTMLElement;
 
 /** Every organising command either environment was sent. */
 const organising = (app: RenderedApp) =>

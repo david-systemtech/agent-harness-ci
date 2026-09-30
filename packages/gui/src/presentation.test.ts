@@ -188,6 +188,21 @@ describe("the presentation", () => {
     expect(String(reported[0])).toContain("sidebarShown, collapsedHeadings");
   });
 
+  it("holds the sidebar's view, preset by groups, read back only when it is one this build knows", async () => {
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read().sidebarView).toBe("groups");
+    first.set("sidebarView", "repositories");
+    await first.close();
+    expect((await openPresentation(documents)).values.read().sidebarView).toBe("repositories");
+
+    const reported: unknown[] = [];
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, sidebarView: "tags" });
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read().sidebarView).toBe("groups");
+    expect(String(reported[0])).toContain("sidebarView");
+  });
+
   it("holds only keys on the organisation-state lint's presentation list", () => {
     for (const key of Object.keys(PRESENTATION_DEFAULTS)) expect(PRESENTATION_KEYS).toContain(key);
   });

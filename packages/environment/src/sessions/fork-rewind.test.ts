@@ -354,7 +354,7 @@ describe("sessions.rewind", () => {
       yield end();
     });
     const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy" }));
-    await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+    await vi.waitFor(() => expect(events(t, id).some((event) => event.type === "assistant.text" && event.payload["runId"] === busy.result?.runId)).toBe(true));
     const sent = registry["runs.send"].response.parse(await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "Also this" }));
     // The interrupt hands what the provider held back to the environment's queue, and starts nothing.
     await client.request("runs.interrupt", { commandId: randomUUID(), runId: busy.result?.runId as string });
@@ -391,7 +391,8 @@ describe("sessions.rewind", () => {
       });
       const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy" }));
       const runId = busy.result?.runId as string;
-      await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+      // Busy's own text, past its skill set and instructions (#493, #496), not an earlier run's.
+      await vi.waitFor(() => expect(events(t, id).some((event) => event.type === "assistant.text" && event.payload["runId"] === runId)).toBe(true));
       const sent = registry["runs.send"].response.parse(await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "Sent during Busy" }));
       expect(sent.result).toMatchObject({ delivery: "queued", heldBy: "provider" });
       const messageId = sent.result?.messageId as string;
@@ -518,7 +519,7 @@ describe("sessions.rewind", () => {
         yield end();
       });
       const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy" }));
-      await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+      await vi.waitFor(() => expect(events(t, id).some((event) => event.type === "assistant.text" && event.payload["runId"] === busy.result?.runId)).toBe(true));
       await client.request("runs.interrupt", { commandId: randomUUID(), runId: busy.result?.runId as string });
       busyTurn.open();
       await vi.waitFor(() => expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId: busy.result?.runId, reason: "completed" }));
@@ -603,7 +604,7 @@ describe("sessions.rewind", () => {
       const busy = registry["runs.start"].response.parse(
         await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy", mode: "bypassPermissions" }),
       );
-      await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+      await vi.waitFor(() => expect(events(t, id).some((event) => event.type === "assistant.text" && event.payload["runId"] === busy.result?.runId)).toBe(true));
       await (await t.client()).request("access.sessions.setCeiling", { commandId: randomUUID(), clientSessionId: target.clientSessionId, ceiling: "plan" });
       busyTurn.open();
       await vi.waitFor(() => expect(changed).toBeTypeOf("function"));

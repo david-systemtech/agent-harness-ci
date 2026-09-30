@@ -63,3 +63,27 @@ export const gitWith = ({ env = {}, input }: GitWith, cwd: string, ...args: stri
 
 /** Runs git in `cwd` as a test user, with no global or system configuration; answers what it printed. */
 export const git = (cwd: string, ...args: string[]): string => gitWith({}, cwd, ...args);
+
+/** A worktree as git lists it: where, its branch as a full ref (null when detached), and its lock's reason (empty for none given; null unlocked). */
+export interface ListedWorktree {
+  readonly path: string;
+  readonly branch: string | null;
+  readonly locked: string | null;
+}
+
+/** The worktrees git lists for the repository at `checkout`: the main checkout first. */
+export const worktreesOf = (checkout: string): ListedWorktree[] =>
+  git(checkout, "worktree", "list", "--porcelain", "-z")
+    .split("\0\0")
+    .filter((record) => record !== "")
+    .map((record) => {
+      const fields = record.split("\0");
+      const value = (key: string) => {
+        const field = fields.find((each) => each === key || each.startsWith(`${key} `));
+        return field === undefined ? null : field.slice(key.length + 1);
+      };
+      return { path: value("worktree") as string, branch: value("branch"), locked: value("locked") };
+    });
+
+/** The repository's local branches, by name. */
+export const branchesOf = (checkout: string): string[] => git(checkout, "for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n").filter(Boolean).sort();

@@ -164,6 +164,30 @@ describe("the notices from the environment's stream", () => {
     ]);
   });
 
+  it("say a worktree was kept at its last session's purge, naming its path, branch and session and why, once for each (#330)", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const path = "/data/worktrees/app-0123456789ab/agent-harness-7c9e6679";
+    desk.notices.event(noticeEvent(1, env, "workspace.kept", { path, branch: "agent-harness/7c9e6679", title: "Invoices", reason: "uncommitted_changes" }));
+    desk.notices.event(noticeEvent(2, env, "workspace.kept", { path, branch: null, title: "Nightly", reason: "git_filters_refused" }));
+    desk.notices.event(noticeEvent(3, env, "workspace.kept", { path, branch: "main", title: "Invoices", reason: "git_failed" }));
+    await flush();
+    expect(runtime.projections.notices.read().map(({ kind, message, action, about }) => ({ kind, message, action, about }))).toEqual([
+      {
+        kind: "workspace-kept",
+        message: `desk kept the worktree ${path} (branch agent-harness/7c9e6679) when Invoices was purged: it has uncommitted changes.`,
+        action: null,
+        about: null,
+      },
+      {
+        kind: "workspace-kept",
+        message: `desk kept the worktree ${path} when Nightly was purged: its repository configures filters the environment will not run to check it.`,
+        action: null,
+        about: null,
+      },
+      { kind: "workspace-kept", message: `desk kept the worktree ${path} (branch main) when Invoices was purged: git could not check or remove it.`, action: null, about: null },
+    ]);
+  });
+
   it("are not raised for what a replay onto an empty cache holds: that is history", async () => {
     const clock = manualClock();
     const wire = fakeWire({ clock, name: "desk" });

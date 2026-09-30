@@ -1,9 +1,10 @@
 /**
- * Fixtures for the Managed tools schemas, `tools.list` and `tools.verify`
- * (key-managers spec, "Managed tools"; ADR 0026): a valid and an invalid
- * instance of every managed-tools schema the export writes, the table's
- * entry, the row, a verify command's outcome and the notice's payload among
- * them. `fixtures.ts` folds them into the package's fixture table.
+ * Fixtures for the Managed tools schemas, `tools.list`, `tools.detail` and
+ * `tools.verify` (key-managers spec, "Managed tools"; ADR 0026): a valid
+ * and an invalid instance of every managed-tools schema the export writes,
+ * the table's entry, the row, a verify command's outcome, a doctor's report,
+ * a tool's detail and the notice's payload among them. `fixtures.ts` folds
+ * them into the package's fixture table.
  */
 
 interface Fixtures {
@@ -19,24 +20,31 @@ const gh = {
   path: "/usr/local/bin/gh",
   realpath: "/opt/homebrew/Cellar/gh/2.63.2/bin/gh",
   version: "2.63.2",
+  latest: "2.63.2",
   minimum: "2.40.0",
   method: "homebrew",
   status: "current",
   action: "update",
 };
-const missing = { tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install" };
+const missing = { tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, latest: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install" };
 const claude = {
   tool: "claude",
   label: "claude in your terminal",
   path: "/home/david/.local/bin/claude",
   realpath: "/home/david/.local/share/claude/versions/2.1.283",
   version: "2.1.283",
+  latest: "2.1.285",
   minimum: null,
   method: "native",
-  status: "current",
+  status: "update-available",
   action: "update",
 };
-const hung = { ...gh, version: null, status: "below-minimum" };
+const hung = { ...gh, version: null, latest: null, status: "below-minimum" };
+const field = { name: "Running", value: "npm-global (2.1.283)" };
+const warning = { issue: "Running native installation but config install method is 'unknown'", fix: "Run claude install to update configuration" };
+const doctorRead = { outcome: "read", method: "npm", fields: [field, { name: "Config install method", value: "unknown" }], warnings: [warning] };
+const doctorFailed = { outcome: "failed", reason: "claude doctor gave no answer within 30 s." };
+const detail = { tool: "claude", row: claude, doctor: doctorRead };
 const passed = { tool: "bao", outcome: "passed", reason: "bao looked up its run token at https://bao.systemtech.dev:8200: policies default, agent-read." };
 const sealed = { tool: "vault", outcome: "failed", reason: "OpenBao at https://bao.systemtech.dev:8200 is sealed: unseal it, then verify again." };
 const notInstalled = { tool: "gh", outcome: "not-installed", reason: "gh is not installed on this environment." };
@@ -68,6 +76,17 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   "managed-tools/verifiable-name.json": { valid: ["bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["claude", "codex", ""] },
   "managed-tools/verify-outcome.json": { valid: ["passed", "failed", "not-installed"], invalid: ["sealed", "skipped", ""] },
   "managed-tools/verification.json": { valid: [passed, sealed, notInstalled], invalid: [{ ...passed, tool: "claude" }, { ...passed, outcome: "sealed" }, { ...passed, reason: "" }, { ...sealed, reason: "sealed\nunseal it" }, { tool: "bao", outcome: "passed" }] },
+  "managed-tools/doctor-name.json": { valid: ["claude"], invalid: ["gh", "codex", ""] },
+  "managed-tools/doctor-field.json": { valid: [field, { name: "Last update attempt", value: "" }], invalid: [{ name: "", value: "x" }, { name: "Path", value: "a\nb" }, { name: "Path" }] },
+  "managed-tools/doctor-warning.json": { valid: [warning, { issue: "Multiple installations found", fix: null }], invalid: [{ issue: "", fix: null }, { issue: "x" }, { issue: "x", fix: "" }] },
+  "managed-tools/doctor-report.json": {
+    valid: [doctorRead, { ...doctorRead, method: null, warnings: [] }, doctorFailed, { outcome: "not-installed" }],
+    invalid: [{ ...doctorRead, method: "npm-global" }, { outcome: "failed" }, { outcome: "failed", reason: "a\nb" }, { outcome: "skipped" }],
+  },
+  "managed-tools/detail.json": {
+    valid: [detail, { ...detail, doctor: doctorFailed }, { tool: "claude", row: { ...missing, tool: "claude", label: "claude in your terminal", minimum: null }, doctor: { outcome: "not-installed" } }],
+    invalid: [{ ...detail, tool: "gh" }, { tool: "claude", doctor: doctorRead }, { ...detail, row: { ...claude, latest: "latest" } }],
+  },
   "managed-tools/events/tools.updated.json": { valid: [{ tools: [gh] }, { tools: [missing, claude] }], invalid: [{ tools: [] }, {}, { tools: [{ ...gh, action: "ignore" }] }] },
 };
 
@@ -78,6 +97,10 @@ export const managedToolMethodFixtures: Record<string, { params: Fixtures; resul
       valid: [{ tools: [claude, gh, missing], probedAt: at }, { tools: [], probedAt: at }],
       invalid: [{ tools: [gh] }, { tools: [{ ...gh, method: "brew" }], probedAt: at }, { probedAt: at }],
     },
+  },
+  "tools.detail": {
+    params: { valid: [{ tool: "claude" }], invalid: [{}, { tool: "gh" }, { tool: "codex" }] },
+    result: { valid: [detail, { ...detail, doctor: doctorFailed }], invalid: [{}, { ...detail, doctor: { outcome: "unknown" } }, { ...detail, row: { ...claude, status: "outdated" } }] },
   },
   "tools.verify": {
     params: { valid: [{ tool: "bao" }, { tool: "gh" }], invalid: [{}, { tool: "claude" }, { tool: "openbao" }] },

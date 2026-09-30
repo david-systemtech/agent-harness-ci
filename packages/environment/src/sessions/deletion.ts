@@ -1,4 +1,4 @@
-import { ContractError, type ProviderTranscriptOutcome, type SessionPurgedPayload } from "@agent-harness/contracts";
+import { ContractError, type ProviderTranscriptOutcome, type SessionPurgedPayload, type Workspace } from "@agent-harness/contracts";
 import { SYSTEM } from "../auth/access-log.js";
 import { formatActor, type EventEnvelope, type EventLog, type Tx } from "../event-log/event-log.js";
 import { sessionStream } from "./streams.js";
@@ -13,8 +13,11 @@ import { sessionStream } from "./streams.js";
  * adapter offers it, and appends `session.purged`, whose projection removes
  * the session's rows and tags: the tombstone is then the only event on the
  * session's stream, at stream version 1, and the command receipts are left
- * alone. Deciding whether a session may be purged is the decider's
- * (`decidePurge`); this module carries it out.
+ * alone. Once the purge commits, whoever asked is told the session's
+ * workspace and title, which the purge took from the list: the reaper
+ * (#330) removes the workspace from there, off the log's path. Deciding
+ * whether a session may be purged is the decider's (`decidePurge`); this
+ * module carries it out.
  */
 
 /**
@@ -79,12 +82,21 @@ export interface ProviderStorePurge {
   purgeSession(tx: Tx, sessionId: string): void;
 }
 
+/** A session whose purge has committed: its workspace and title as the list held them before the purge removed them. */
+export interface PurgedSession {
+  readonly sessionId: string;
+  readonly workspace: Workspace;
+  readonly title: string;
+}
+
 export interface DeletionOptions {
   readonly log: EventLog;
   /** Preset: an adapter that cannot delete a transcript. */
   readonly transcripts?: ProviderTranscripts;
   /** The SDK session store (`provider-transcripts/store.ts`); preset: none. */
   readonly providerStore?: ProviderStorePurge;
+  /** Told of each purge once it has committed, never if it rolls back (the reaper, #330); preset: nobody. */
+  readonly onPurged?: (purged: PurgedSession) => void;
 }
 
 /** The actor the sweep's purges are appended as. */
@@ -126,8 +138,8 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
   };
 
   const purgeSession = (sessionId: string, context: PurgeContext): EventEnvelope => {
-    const [row] = log.read<{ delete_provider_transcript: number }>(
-      "SELECT delete_provider_transcript FROM sessions WHERE id = ? AND deleted_at IS NOT NULL",
+    const [row] = log.read<{ delete_provider_transcript: number; workspace: string; title: string }>(
+      "SELECT delete_provider_transcript, workspace, title FROM sessions WHERE id = ? AND deleted_at IS NOT NULL",
       sessionId,
     );
     if (row === undefined) throw new Error(`The session ${sessionId} is not deleted, so it cannot be purged.`);
@@ -143,6 +155,11 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
       actor: context.actor,
       ...(context.commandId !== undefined && { commandId: context.commandId }),
     });
+    const { onPurged } = options;
+    if (onPurged !== undefined) {
+      const purged: PurgedSession = { sessionId, workspace: JSON.parse(row.workspace) as Workspace, title: row.title };
+      context.tx.afterCommit(() => onPurged(purged));
+    }
     return events[0] as EventEnvelope;
   };
 

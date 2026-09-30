@@ -371,6 +371,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // A state import ending (#581) changes no status: the request cache reads stateImport.detect again.
       case "state-import.finished":
         return data;
+      // A worktree kept at its last session's purge (#330) changes no status: the notices queue says it.
+      case "workspace.kept":
+        return data;
     }
   },
   encode: (data) => data,

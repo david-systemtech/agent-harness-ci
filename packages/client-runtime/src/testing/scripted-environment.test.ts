@@ -37,6 +37,7 @@ const launch = async (script: Script) => {
 };
 
 const GROUP_ID = "0199bb00-0000-4000-8000-000000000001";
+const COMMAND_ID = "0199bb00-0000-4000-8000-000000000002";
 
 describe("the scripted environment in a DOM", () => {
   it("runs where a renderer's tests run: in jsdom", () => {
@@ -265,6 +266,20 @@ describe("the scripted environment in a DOM", () => {
       ok: false,
       error: { code: "invalid_params", message: "The Claude adapter cannot read a subagent's transcript: it does not declare subagentTranscripts.", data: { reason: "unsupported" } },
     });
+  });
+
+  it("releases the machine's own directory when another client removes the account holding it, as accounts.remove does", async () => {
+    const { world, runtime } = await launch({
+      environments: [{ name: "desk", reach: "local", ambient: { present: true, signedIn: true } }],
+    });
+    const desk = world.environment("desk");
+    const adopted = await runtime.requests.call(desk.environmentId, "accounts.adopt", { commandId: COMMAND_ID, label: "home" });
+    expect(adopted).toMatchObject({ ok: true, result: { receipt: { status: "accepted" } } });
+    expect(desk.accounts()).toMatchObject([{ id: "account-1", label: "home", directory: { kind: "adopted", path: "/home/seth/.claude" } }]);
+    expect(await runtime.requests.call(desk.environmentId, "accounts.probe", {})).toMatchObject({ ok: true, result: { accountId: "account-1" } });
+
+    desk.changeAccount("account-1", null);
+    expect(await runtime.requests.call(desk.environmentId, "accounts.probe", {})).toMatchObject({ ok: true, result: { accountId: null } });
   });
 
   it("has discovery answer starting or nothing, and says bye with a reason", async () => {

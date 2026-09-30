@@ -277,6 +277,34 @@ describe("the run's skill set (#495)", () => {
     await bare.host.commands("acct", workspace);
     expect(bare.adapter.commandListings.at(-1)?.scope).toEqual({ trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
   });
+
+  it("holds a generation from each spawn under it until the pool lets that process go, and through each commands listing (#496)", async () => {
+    const held: string[] = [];
+    const holdGeneration = (generation: string) => {
+      held.push(generation);
+      return () => void held.splice(held.indexOf(generation), 1);
+    };
+    const fingerprints = ["3f9a", "3f9a", "7c1e"];
+    const t = await setup(fakeAdapter({ commands: [] }), { skillSet: async () => setOf(fingerprints.shift() ?? "none"), holdGeneration });
+    await untilEnded(t, startRun(t));
+    await vi.waitFor(() => expect(held).toEqual(["/data/skills/generations/3f9a"]));
+    // The kept process serves the next run: no spawn, so no second hold.
+    await untilEnded(t, startRun(t));
+    expect(held).toEqual(["/data/skills/generations/3f9a"]);
+    // A changed fingerprint spawns a fresh process, which lets the one before it go.
+    await untilEnded(t, startRun(t));
+    await vi.waitFor(() => expect(held).toEqual(["/data/skills/generations/7c1e"]));
+
+    const listed = await setup(fakeAdapter({ commands: [] }), { skillSet: async () => setOf("5b2d"), holdGeneration });
+    held.length = 0;
+    const listing = vi.spyOn(listed.adapter, "commands").mockImplementation(async () => {
+      expect(held).toEqual(["/data/skills/generations/5b2d"]);
+      return [];
+    });
+    await listed.host.commands("acct", workspace);
+    expect(listing).toHaveBeenCalledOnce();
+    expect(held).toEqual([]);
+  });
 });
 
 describe("one end per run on every exit path", () => {

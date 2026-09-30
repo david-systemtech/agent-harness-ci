@@ -86,7 +86,7 @@ describe("setup.check", () => {
 });
 
 describe("the Your machines step's health line", () => {
-  it("reports not-root from what permissions.settings.get answers as isRoot", async () => {
+  it("reports not-root from what permissions.settings.get answers as isRoot, and that the environment is ready", async () => {
     const t = await start();
     const client = await t.client();
     expect((await client.request("permissions.settings.get", {})).isRoot).toBe(false);
@@ -94,7 +94,7 @@ describe("the Your machines step's health line", () => {
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     expect(await check(client, "your-machines")).toMatchObject({
       state: "done",
-      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind. No host-side updater manages this environment's updates, or it polled in the last hour. The environment has a name, an icon and a colour.",
+      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind. No host-side updater manages this environment's updates, or it polled in the last hour. The environment has a name, an icon and a colour. The environment is ready, and not draining past its cap.",
       failing: [],
     });
   });

@@ -26,6 +26,7 @@ import {
   type ContainmentReport,
   type DiscoveryDocument,
   type DrainTrigger,
+  type EnvironmentBinding,
   type EnvironmentReadiness,
   type EnvironmentStatus,
   type HealthDocument,
@@ -126,7 +127,9 @@ import { createKeyManagerReferences } from "../key-managers/references.js";
 import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
+import type { ReleaseOrigins } from "../managed-tools/latest.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
+import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
@@ -150,6 +153,7 @@ import { createIdentityPasses } from "../workspace/identity-passes.js";
 import { setWorkspaceMethods } from "../workspace/set-workspace.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
+import { createReaper } from "../workspace/reaper.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
@@ -159,7 +163,9 @@ import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
 import { detectSource, type SourceMachine } from "../state-import/source/folders.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
+import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
+import { runSkillSets } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
@@ -172,7 +178,7 @@ import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
-import { LOOPBACK, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
+import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
@@ -274,13 +280,13 @@ export interface EnvironmentOptions {
   readonly tailnetName?: string;
   /** The environment's own IANA time zone, which a routine that names none is saved in (#521). Preset: the process's. */
   readonly timeZone?: string;
-  /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
+  /** What is found to bind beside loopback. Preset: the `tailscale` CLI and the machine's network interfaces (`tailscaleDetector`); tests pass their own. */
   readonly interfaces?: InterfaceDetector;
-  /** The tailnet setting: bind the Tailscale address. Preset: on when an address is found. The settings store (#117) will hold it. */
+  /** Bind the Tailscale address when one is found, over `network.bindTailnet` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindTailnet?: boolean;
-  /** The LAN setting: bind `lanAddress`, which must then be given. Preset: off. The settings store (#117) will hold it. */
+  /** Bind `lanAddress`, which must then be given, or no LAN address, over `network.bindLan` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindLan?: boolean;
-  /** The LAN address bound when `bindLan` is on. Never the wildcard address. */
+  /** The LAN address bound when `bindLan` is on: one the machine holds, never the wildcard address. */
   readonly lanAddress?: string;
   /** Preset: the running process's user (`processUserCheck`). */
   readonly user?: UserCheck;
@@ -437,15 +443,18 @@ export interface EnvironmentOptions {
    * How the Managed tools registry (#373) probes: where it reads the login
    * shell's PATH, which the forge's `gh` and the sign-in director's managed
    * tool are found on too; how it asks which system package owns a tool;
-   * the environment its commands, and `gh`'s, start from. Preset: the
-   * user's login shell (the machine and user Path on Windows), `dpkg -S`
-   * then `rpm -qf` on Linux, this process's environment; tests put fake
-   * tools on a PATH of their own and script the package owner.
+   * the environment its commands, and `gh`'s, start from; where it reads
+   * each tool's latest version (#374). Preset: the user's login shell (the
+   * machine and user Path on Windows), `dpkg -S` then `rpm -qf` on Linux,
+   * this process's environment, the real release sources; tests put fake
+   * tools on a PATH of their own, script the package owner and fake the
+   * release sources on loopback.
    */
   readonly managedTools?: {
     readonly readPath?: () => Promise<string>;
     readonly packageOwner?: PackageOwnerLookup;
     readonly hostEnv?: HostEnvironment;
+    readonly releaseOrigins?: Partial<ReleaseOrigins>;
   };
   /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
@@ -596,6 +605,8 @@ export interface EnvironmentHandle {
     readonly identityPass: Promise<void>;
     /** Settles once this start's availability pass (#328), run once the wire is open, has looked at every session's workspace. */
     readonly availabilityPass: Promise<void>;
+    /** Settles once every removal the reaper has taken up so far (#330), a purge's or the startup sweep's, is done: what a test waits on after a purge. */
+    reaped(): Promise<void>;
     /**
      * Marks a session missing in the open transaction `tx`, right after the
      * `session.created` that recorded it with a directory that is gone: the
@@ -699,6 +710,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let authPolicy: AuthPolicy = "local-only";
   // The name the Host check admits: set only once the tailnet address is bound.
   let tailnetName: string | undefined;
+  // What the listeners bind beside loopback, for environment.status (#574): nothing until they are bound.
+  let boundBeside: Pick<EnvironmentBinding, "tailnet" | "lan"> = { tailnet: null, lan: null };
+  // What is found to bind beside loopback: the Tailscale address and name, and the LAN addresses, read as each is asked.
+  const interfaces = options.interfaces ?? tailscaleDetector();
 
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
@@ -810,6 +825,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       environmentId: loaded.id,
+      dataDir,
       ownResources: [HARNESS_DIRECTORY, ...(bundled === null ? [] : [dirname(bundled)])],
       ...options.managedTools,
     });
@@ -886,7 +902,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
-    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all, join(dataDir, KEY_MANAGER_CLI_DIRECTORY)],
+    // And the skills a run reads (#496): the own directory, the sources' snapshots and the generations linking to them.
+    exempt: [
+      join(dataDir, CONTAINMENT_DIRECTORY),
+      ...roots.all,
+      join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
+      ownSkillsPath,
+      join(dataDir, SNAPSHOTS_DIRECTORY),
+      join(dataDir, GENERATIONS_DIRECTORY),
+    ],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
@@ -981,9 +1005,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The managed tools' verify commands (#375): each a holder of the process environment, with a run token of its own.
   const toolVerifier = createToolVerifier({ tools: managedTools, processEnvironments, connections: () => keyManagerConnections.list(), scrub, clock });
   closers.push(() => toolVerifier.close());
+  // A tool's doctor (#374), run only when a client opens its detail, or Update is clicked (#376).
+  const toolDoctor = createToolDoctor({ tools: managedTools, scrub, clock });
+  closers.push(() => toolDoctor.close());
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
+
+  // The data directory's trash (#494): what is removed of what a person wrote, kept thirty days.
+  const trash = createTrash({ dataDir, clock });
+  // The own skills directory (#494): read at each run's start and each commands listing, as the run's skill set is resolved,
+  // and on skills.get, never watched.
+  const ownSkills = createOwnDirectory({ log, environmentId: record.id, path: ownSkillsPath, trash });
+  closers.push(() => ownSkills.close());
+  // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
+  // holds it or a resolution holds it current.
+  const generations = createGenerations({ dataDir, clock });
 
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
@@ -1092,6 +1129,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
       trust: (place) => trustStore.of(place),
+      // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
+      // spawned under it (#496).
+      skillSet: runSkillSets({ own: ownSkills, generations }),
+      holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
@@ -1149,8 +1190,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
+  // The reaper (#330): a purged session's workspace inside a workspace root goes once the purge commits, off the log's path,
+  // when no other session names it; a worktree with work in it stays, noticed. Closed before the log, letting its work end.
+  const reaper = createReaper({
+    log,
+    roots,
+    stream: environmentStream,
+    ...(options.workspaces?.gitTimeoutMs !== undefined && { gitTimeoutMs: options.workspaces.gitTimeoutMs }),
+  });
+  closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, onPurged: (purged) => reaper.purged(purged) });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
   // and terminals.open's looks and what the file and diff methods find; its passes start once the wire is open.
   const availability = createAvailabilityWatcher({
@@ -1184,6 +1234,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
+    binding: () => ({ ...boundBeside, lanAddresses: [...interfaces.lanAddresses()] }),
     onDraining: () => {
       readiness = "draining";
       // New runs are refused before any process stops, so none starts on a process the drain is stopping.
@@ -1249,12 +1300,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
-  // The data directory's trash (#494): what is removed of what a person wrote, kept thirty days.
-  const trash = createTrash({ dataDir, clock });
-  // The own skills directory (#494): read at each run's start and on skills.get, never watched.
-  const ownSkills = createOwnDirectory({ log, environmentId: record.id, path: ownSkillsPath, trash });
-  closers.push(() => ownSkills.close());
-  closers.push(ownSkills.readAtRunStart());
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
   // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
   const forgeAccounts = () => verifiedOrigins(forge.list());
@@ -1271,7 +1316,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
       log,
-      accounts: () => accounts.list(),
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
       containment,
@@ -1285,6 +1329,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       managedTools,
       clock,
       look: () => look.read(),
+      accounts: () => accounts.list(),
+      status: () => lifecycle.status(),
     }),
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
@@ -1353,12 +1399,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
       orientation: async () => {
         const accountId = accounts.defaultId();
-        return accountId === null ? null : orientationSeam(host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
+        return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
       },
     }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
-    ...managedToolsMethods(managedTools, toolVerifier),
+    ...managedToolsMethods(managedTools, toolDoctor, toolVerifier),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,
@@ -1463,9 +1509,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   surface.upgrade(WIRE_PATH, wire.upgrade);
 
   const bound = await step("listen", async () => {
-    const interfaces = options.interfaces ?? tailscaleDetector();
     const tailscaleAddress = await interfaces.tailscaleAddress();
-    const binds = bindList({ tailscaleAddress, bindTailnet: options.bindTailnet, bindLan: options.bindLan, lanAddress: options.lanAddress });
+    // The binding keys as this start finds them (#574), which the start options override.
+    const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+    const choice = bindChoiceOf({ bindTailnet: values["network.bindTailnet"], bindLan: values["network.bindLan"] }, options);
+    const binds = bindList({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
     closers.push(() => surface.close());
     // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
     const listening: { address: Address; interface: BoundInterface }[] = [];
@@ -1478,6 +1526,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     address = loopback.address;
     authPolicy = listening.length > 1 ? "tailnet" : "local-only";
     if (listening.some((entry) => entry.interface === "tailnet")) tailnetName = options.tailnetName ?? (await interfaces.tailnetName());
+    const boundOn = (which: BoundInterface) => listening.find((entry) => entry.interface === which)?.address.host ?? null;
+    const tailnet = boundOn("tailnet");
+    boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
@@ -1492,6 +1543,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire serves no request,
   // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
   await step("prepared", () => launcher.prepared(harnessVersion));
+  // What the workspace roots hold that no session names (a crash between a create's `prepare` and its commit left it), read
+  // at once, past the gate and before anything can make a workspace; swept below, before the wire opens (#330).
+  const strays = reaper.strays();
   readiness = "ready";
   // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
@@ -1515,6 +1569,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // The startup sweep of the workspace roots (#330), after the removals those purges set off: each stray by the reaper's rules,
+  // a worktree it keeps logged, not noticed.
+  await reaper.sweep(strays);
   // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
   try {
     providerStore.sweepOrphans();
@@ -1533,6 +1590,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
+  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly.
+  closers.push(generations.start());
   // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
   // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
@@ -1661,6 +1720,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       checkoutIndex: createCheckoutIndex(log),
       identityPass: identityPasses.resolved,
       availabilityPass: availabilityPasses.pass,
+      reaped: () => reaper.settled(),
       markMissing: (tx, sessionId) => availability.markMissing(tx, sessionId.toLowerCase()),
     },
     close,

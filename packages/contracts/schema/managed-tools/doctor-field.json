@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolDoctorField",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "The field's name, as doctor printed it: Running, Path, Config install method, Auto-updates, ..."
+    },
+    "value": {
+      "type": "string",
+      "maxLength": 1024,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "Its value, as doctor printed it."
+    }
+  },
+  "required": [
+    "name",
+    "value"
+  ],
+  "description": "One field of doctor's summary: its name and its value, as printed."
+}

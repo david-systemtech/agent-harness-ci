@@ -1,0 +1,58 @@
+import { join } from "node:path";
+import type { SkillSetMember } from "@agent-harness/contracts";
+import type { SkillSetScope, SkillSetSeam } from "../adapter/seams.js";
+import type { Generations, PlacedMember } from "./generations.js";
+import type { OwnDirectory } from "./own-directory.js";
+import { resolveSkillSet } from "./precedence.js";
+
+/**
+ * The run's skill set, resolved at each run's start and each commands
+ * listing (skills spec, "Materialisation and the Claude mapping"; ADR
+ * 0009): what fills the host's skill-set seam. It reads the layers, the
+ * own directory's read raising `skills.updated` when it finds it changed,
+ * resolves them by precedence, places each member in the set where its
+ * files lie, and has the materialiser give the set its fingerprint and
+ * generation, current for the scope it was resolved for (the account, the
+ * workspace and the trust). The own directory is the one layer so far:
+ * sources (#498), a trusted repository's members, which may be native
+ * (#502), and the choices that hide names (#501) join as they land.
+ */
+
+export interface RunSkillSetsOptions {
+  readonly own: Pick<OwnDirectory, "path" | "read">;
+  readonly generations: Pick<Generations, "materialise">;
+}
+
+/** Whether a resolved member is in the set: valid, and shadowed by none. */
+const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly name: string } =>
+  member.name !== null && member.problems.length === 0 && member.shadowedBy === null;
+
+/** What a set is current for: the account, the workspace and the trust it was resolved under. */
+const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.accountId, scope.workspace.path, scope.trust.key, scope.trust.decision]);
+
+export const runSkillSets =
+  (options: RunSkillSetsOptions): SkillSetSeam =>
+  async (scope) => {
+    const { own, generations } = options;
+    const members = resolveSkillSet(await own.read(), []).filter(inTheSet);
+    // An own directory's member is linked live, from its folder or command file there.
+    const placed = members.map(
+      (member): PlacedMember => ({
+        name: member.name,
+        kind: member.kind,
+        target: join(own.path, ...member.path.split("/")),
+        origin: member.origin,
+        commit: null,
+        invocation: member.invocation,
+        native: false,
+      }),
+    );
+    const hiddenNativeNames: string[] = [];
+    const { fingerprint, generation } = await generations.materialise({ members: placed, hiddenNativeNames }, scopeKey(scope));
+    return {
+      generation,
+      fingerprint,
+      members: placed.map(({ name, origin, invocation, native }) => ({ name, origin, invocation, native })),
+      hiddenNativeNames,
+    };
+  };

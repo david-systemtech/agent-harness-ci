@@ -1,4 +1,4 @@
-import { EnvironmentNotice, type AutoDecider, type EventEnvelope } from "@agent-harness/contracts";
+import { EnvironmentNotice, type AutoDecider, type EventEnvelope, type WorkspaceKeptReason } from "@agent-harness/contracts";
 import type { Notice, NoticeInput, Notices } from "../notices.js";
 
 /**
@@ -27,7 +27,10 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  *   settled. A person's answer, from any client, raises none;
  * - `routine.delivered`: `routine`, "<routine> on <name>: <summary>" (#525),
  *   marked with its outcome, a success or a failure, and about the firing's
- *   session, which opening it opens; a skip's is about none.
+ *   session, which opening it opens; a skip's is about none;
+ * - `workspace.kept`: `workspace-kept`, "<name> kept the worktree <path>
+ *   (branch <branch>) when <title> was purged: <why>." (#330), about no
+ *   session, since the one it was is gone.
  *
  * `signin.updated`, `signin.executable-chosen`, `environment.started` and
  * `usage.updated` (#136) raise none: the sign-in flow shows its own state, a
@@ -67,6 +70,13 @@ export interface EnvironmentNoticeContext {
   /** A session's title as the list shows it; null for one the list does not hold. */
   readonly title: (sessionId: string) => string | null;
 }
+
+/** Why the reaper kept a worktree, as a notice says it (#330). */
+const KEPT_BECAUSE: Readonly<Record<WorkspaceKeptReason, string>> = {
+  uncommitted_changes: "it has uncommitted changes",
+  git_filters_refused: "its repository configures filters the environment will not run to check it",
+  git_failed: "git could not check or remove it",
+};
 
 /** Why a prompt was settled with nobody answering it, as a notice says it. */
 const AUTOMATIC: Readonly<Record<AutoDecider, string>> = {
@@ -226,6 +236,13 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "routine.delivered": {
           const { name: routine, sessionId, outcome, summary } = notice.payload;
           raise({ kind: "routine", message: `${routine} on ${name}: ${summary}`, action: null, about: sessionId === null ? null : { sessionId, runId: null, promptId: null }, outcome });
+          return;
+        }
+        // A worktree kept at its last session's purge (#330): where it is, on which branch, whose it was and why.
+        case "workspace.kept": {
+          const { path, branch, title, reason } = notice.payload;
+          const on = branch === null ? "" : ` (branch ${branch})`;
+          raise({ kind: "workspace-kept", message: `${name} kept the worktree ${path}${on} when ${title} was purged: ${KEPT_BECAUSE[reason]}.`, action: null });
           return;
         }
         // The routines' other notices raise none: they change what routines.list and routines.endpoints.list answer, which the

@@ -212,6 +212,7 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
   "models.list": ["account.updated", "signin.updated"],
+  "accounts.probe": ["account.updated", "signin.updated"],
   "accounts.usage": ["usage.updated", "account.updated", "signin.updated"],
   "accounts.handoff.recommend": ["usage.updated", "account.updated", "signin.updated"],
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],

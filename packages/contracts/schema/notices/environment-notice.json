@@ -4270,9 +4270,11 @@
                   "browser.internalHosts",
                   "credentials.injection",
                   "credentials.injectionByAccount",
+                  "network.bindTailnet",
+                  "network.bindLan",
                   "instructions.orientation"
                 ],
-                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, instructions.orientation."
+                "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours, appearance.theme, browser.devSites, browser.evaluateEverywhere, browser.deepReadEverywhere, browser.reach, browser.headless.allowRuns, browser.headless.endpoint, browser.headless.executable, browser.headless.limits, browser.internalHosts, credentials.injection, credentials.injectionByAccount, network.bindTailnet, network.bindLan, instructions.orientation."
               },
               "uniqueItems": true,
               "description": "The keys whose values changed, each once, in the order settings.updated names them."
@@ -4642,6 +4644,20 @@
                     ],
                     "description": "The version its --version reported within five seconds; null when it is not installed or none was read."
                   },
+                  "latest": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.+-]+)?$",
+                        "description": "A tool's version, as 2.63.2: major, minor and an optional patch, with any prerelease (-beta.1) or build (+ent) part; no leading v."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry for npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
+                  },
                   "minimum": {
                     "anyOf": [
                       {
@@ -4690,7 +4706,7 @@
                       "not-installed",
                       "method-unknown"
                     ],
-                    "description": "A managed tool's status: current; update-available (a newer version is known, a badge only); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told)."
+                    "description": "A managed tool's status: current; update-available (its version is behind the latest known, a badge only: it raises no notice and fails no check); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told). Below the minimum is said before method-unknown, and both before update-available."
                   },
                   "action": {
                     "type": "string",
@@ -4708,12 +4724,13 @@
                   "path",
                   "realpath",
                   "version",
+                  "latest",
                   "minimum",
                   "method",
                   "status",
                   "action"
                 ],
-                "description": "A managed tool as the environment's last probe found it: where, which version against its minimum, how it was installed, its status and its one action."
+                "description": "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status and its one action."
               },
               "description": "The rows that changed, as they are now, in the table's order."
             }
@@ -4721,7 +4738,7 @@
           "required": [
             "tools"
           ],
-          "description": "A probe changed managed-tool rows: those rows as they are now."
+          "description": "A probe, or a latest version fetched, changed managed-tool rows: those rows as they are now."
         }
       },
       "required": [
@@ -5131,6 +5148,63 @@
         "payload"
       ],
       "description": "A state import ended, in the transaction of what it carried: what it carried per kind, what must be entered again, what arrives in milestone 2, what never carries, and what failed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "workspace.kept"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The worktree, under the environment's worktrees root, as the environment records it."
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The branch checked out in it as git lists it, without refs/heads/; when git cannot list it, the branch the purged session recorded it was made on. Null when its HEAD is detached, or when git cannot list it and the session recorded no branch for it."
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The title of the purged session whose worktree it was, as the list showed it."
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "uncommitted_changes",
+                "git_filters_refused",
+                "git_failed"
+              ],
+              "description": "Why a worktree stayed at its last session's purge: uncommitted_changes (a tracked file changed, or an untracked file git does not ignore, a nested repository included), git_filters_refused (its repository's own config names a clean, smudge or process filter, which checking it would run) or git_failed (git could not check or remove it)."
+            }
+          },
+          "required": [
+            "path",
+            "branch",
+            "title",
+            "reason"
+          ],
+          "description": "A worktree the environment made stayed when the last session naming it was purged, unlocked, so no work is lost: where it is, its branch, whose it was and why."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A worktree the environment made stayed, unlocked, when the last session naming it was purged: its path, branch, the session's title and why."
     }
   ],
   "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."

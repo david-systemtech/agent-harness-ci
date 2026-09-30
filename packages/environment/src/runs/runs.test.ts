@@ -10,14 +10,14 @@ import {
   type ResponseOf,
   type Scope,
 } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import { end, fakeAdapter, gate, say, signedInAs, type FakeAdapter, type FakeAdapterOptions, type Gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, listStream, patchOf, purgeSession, refusal, workspace } from "../../test/sessions.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
  * Runs through the primary seam (claude-adapter spec, "Testing Decisions"):
@@ -247,6 +247,8 @@ describe("runs.start", () => {
     const client = await t.client();
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
+    // Past its skill set and instructions, and working: nothing more is appended while it is held.
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).some((event) => event.type === "assistant.text")).toBe(true), { timeout: WAIT_MS });
     const head = t.env.log.head();
     const answer = await run(client, "runs.start", { sessionId: id, text: "Again" });
     expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "run_active", sessionId: id, runId } } });
@@ -607,7 +609,7 @@ describe("runs.interrupt", () => {
     const next = await startRun(client, id, "Now");
     const [started] = await session.until("run.started", next.runId);
     expect(started?.payload).toMatchObject({ queuedMessageIds: [sent.result?.messageId], promptMessageId: next.messageId });
-    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Held by the provider", "Now"]);
+    expect((await t.adapter.reached(2)).input.prompt.map((message) => message.text)).toEqual(["Held by the provider", "Now"]);
   });
 
   it("keeps the bytes of a provider-held message it takes back, for the run that reads it", async () => {
@@ -732,6 +734,7 @@ describe("a provider-opened turn", () => {
     const { id } = await create(client);
     const session = await watch(client, id, t.env.log.head());
     const { runId } = await startRun(client, id);
+    await t.adapter.reached(1);
     const sent = await run(client, "runs.send", { sessionId: id, text: "Queued for later" });
     expect(sent.result).toMatchObject({ runId, delivery: "queued", heldBy: "provider" });
     held.open();
