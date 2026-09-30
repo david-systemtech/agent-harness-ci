@@ -78,6 +78,7 @@ export const PRESENTATION_KEYS: readonly string[] = [
   "runLocalEnvironment",
   "settingsRow",
   "sideColumns",
+  "sidebarShown",
   "sidebarWidth",
   "streamingFade",
   "textSize",

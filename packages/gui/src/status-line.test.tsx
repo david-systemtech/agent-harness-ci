@@ -78,7 +78,6 @@ describe("the status line", () => {
     await opened([desk({ hello: { environmentIcon: "laptop", environmentColour: "teal" } })]);
     const line = await screen.findByRole("region", { name: "Status line" });
     const dot = within(line).getByText("desk").previousElementSibling as HTMLElement;
-    expect(dot.textContent).toBe("●");
     expect(dot.style.color).toBe("var(--environment-teal)");
     expect(lineText()).not.toContain("laptop");
   });

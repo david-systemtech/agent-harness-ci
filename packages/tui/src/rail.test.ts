@@ -1,10 +1,10 @@
+import { presetTimes } from "@agent-harness/client-runtime";
 import type { AccountRecord, RequestFrame, Scope } from "@agent-harness/contracts";
 import { render } from "ink-testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KEY, appUnderTest, renderApp, type RenderedApp, type RenderOptions, type Script } from "../test/harness.js";
 import { resolveKeymap } from "./keys.js";
 import { inMemoryPresentation } from "./presentation.js";
-import { presetTimes } from "./rail/when.js";
 
 /**
  * The rail (docs/specs/tui.md, "The rail: a projection of the session
