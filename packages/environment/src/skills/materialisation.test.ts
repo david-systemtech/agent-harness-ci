@@ -7,7 +7,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { fakeAdapter, say, end, toolCall, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create } from "../../test/sessions.js";
+import { create, workspace } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { GENERATION_SWEEP_INTERVAL_MS } from "./generations.js";
 
@@ -145,7 +145,10 @@ describe("commands.list", () => {
 describe("the generations' sweep", () => {
   it("runs hourly on the clock, deleting a generation no live process uses and no resolution holds current, and keeping one a live process uses until it stops", async () => {
     const clock = manualClock();
-    const { t, client } = await start({}, { clock, processIdleMinutes: () => 24 * 60 });
+    const { t, client } = await start({ commands: [] }, { clock, processIdleMinutes: () => 24 * 60 });
+    // A commands listing resolves the set, and the materialiser's work runs one piece at a time: it answers once every
+    // sweep begun before it has finished.
+    const swept = () => client.request("commands.list", { workspace });
     const kept = await create(client);
     const other = await create(client);
     await createSkill(client, "tdd");
@@ -158,12 +161,14 @@ describe("the generations' sweep", () => {
     // Two hourly sweeps: the first keeps what was resolved since the one at start, the second what a process or a resolution keeps.
     clock.advance(GENERATION_SWEEP_INTERVAL_MS);
     clock.advance(GENERATION_SWEEP_INTERVAL_MS);
-    await vi.waitFor(() => expect(generationsOf(t)).toEqual([used.fingerprint, current.fingerprint].sort()), { timeout: WAIT_MS });
+    await swept();
+    expect(generationsOf(t)).toEqual([used.fingerprint, current.fingerprint].sort());
 
     await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: kept.id });
     await vi.waitFor(() => expect(t.adapter.processesOf(kept.id)[0]?.stopped).toBe(true), { timeout: WAIT_MS });
     clock.advance(GENERATION_SWEEP_INTERVAL_MS);
-    await vi.waitFor(() => expect(generationsOf(t)).toEqual([current.fingerprint]), { timeout: WAIT_MS });
+    await swept();
+    expect(generationsOf(t)).toEqual([current.fingerprint]);
     expect(existsSync(join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md"))).toBe(true);
   });
 

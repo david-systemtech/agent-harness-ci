@@ -1,10 +1,9 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SKILL_PLUGIN_NAME } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
-import { WAIT_MS } from "../../test/wire-client.js";
 import { GENERATIONS_DIRECTORY, GENERATION_SWEEP_INTERVAL_MS, createGenerations, type GenerationsOptions, type PlacedMember } from "./generations.js";
 
 /**
@@ -201,14 +200,18 @@ describe("the sweep", () => {
     const clock = manualClock();
     const { generations, tdd, review, root } = fixture({ clock });
     const stale = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "scope");
-    await generations.materialise({ members: [tdd], hiddenNativeNames: [] }, "scope");
+    const current = { members: [tdd], hiddenNativeNames: [] };
+    await generations.materialise(current, "scope");
     onCleanup(generations.start());
+    // The materialiser's work runs one piece at a time: a resolution after a sweep answers once the sweep has finished.
+    const swept = () => generations.materialise(current, "scope");
     // The sweep at start keeps what was resolved since the last one; the first hourly one deletes the stale generation.
     clock.advance(GENERATION_SWEEP_INTERVAL_MS - 1);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await swept();
     expect(listed(root)).toContain(stale.fingerprint);
     clock.advance(1);
-    await vi.waitFor(() => expect(listed(root)).not.toContain(stale.fingerprint), { timeout: WAIT_MS });
+    await swept();
+    expect(listed(root)).not.toContain(stale.fingerprint);
   });
 });
 
@@ -225,7 +228,6 @@ describe("on Windows", () => {
     expect(lstatSync(linked).ino).toBe(lstatSync(review.target).ino);
     // An editor that saves by writing a new file and renaming it over the old one leaves the hard link on the old text.
     write(`${review.target}.new`, "---\ndescription: Review the branch.\n---\nReview it twice.\n");
-    const { renameSync } = await import("node:fs");
     renameSync(`${review.target}.new`, review.target);
     const again = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "scope");
     expect(again.generation).toBe(generation);
