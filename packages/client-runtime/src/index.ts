@@ -131,6 +131,35 @@ export {
 } from "./key-managers/actions.js";
 export type { CopyOutcome, CopyReport, CopySource, CopyTarget } from "./copies.js";
 export {
+  FORGE_KIND_WORDS,
+  FORGE_PROBLEM_WORDS,
+  PULL_REQUEST_STATE_WORDS,
+  capabilitiesWords,
+  credentialWords,
+  forgeAccountName,
+  forgeCopyLine,
+  forgeIdentityWords,
+  forgeOriginWords,
+  forgeStatusWords,
+  primaryWords,
+  pullRequestNumber,
+  pullRequestWords,
+  shownPullRequest,
+  tokenPageWords,
+} from "./forges/words.js";
+export {
+  addFromGh,
+  addPastedForge,
+  detectForge,
+  removeForge,
+  setPrimaryForge,
+  verifyForge,
+  type Detection,
+  type ForgeOutcome,
+  type ForgeSender,
+  type PastedForge,
+} from "./forges/actions.js";
+export {
   pairingDeepLink,
   parsePairingInput,
   type PairingFailure,
