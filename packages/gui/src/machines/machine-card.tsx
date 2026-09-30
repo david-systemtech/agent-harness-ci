@@ -4,7 +4,7 @@ import { useId, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { Remedy } from "../connections/remedy.js";
 import { THIS_MACHINE, nameOf } from "../connections/words.js";
-import { GenericEditor, lackingLines, reachWords, writersOf } from "../settings/generic-editor.js";
+import { GenericEditor, lackingLines, readOnlyLine, writersOf } from "../settings/generic-editor.js";
 import { useRuntime } from "../window-context.js";
 import { ConnectionVerbs } from "./connection-verbs.js";
 import { ContainmentAvailability } from "./containment.js";
@@ -70,9 +70,8 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineC
       {namesake !== undefined && <p className="text-sm text-amber">Another of your machines is named {namesake.name} too: rename one to tell them apart.</p>}
       {view.phase !== "ready" && (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm text-amber">
-            {reachWords(runtime, view)}: {view.name === null ? "this window has read none of its values." : "the values this window last read, read-only."}
-          </p>
+          {/* What the card shows of it (its name, icon and colour first) was read once it had answered, which a name says. */}
+          <p className="text-sm text-amber">{readOnlyLine(runtime, view, view.name !== null)}</p>
           <Remedy view={view} />
         </div>
       )}

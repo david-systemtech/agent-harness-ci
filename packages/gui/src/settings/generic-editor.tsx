@@ -49,6 +49,10 @@ export const reachWords = (runtime: Runtime, view: EnvironmentView): string => {
   return answer.status === "absent" ? answer.message.replace(/\.$/, "") : "Not reached yet";
 };
 
+/** Why nothing shown of an environment not ready can be written, over what this window read of it, if anything. */
+export const readOnlyLine = (runtime: Runtime, view: EnvironmentView, read: boolean): string =>
+  `${reachWords(runtime, view)}: ${read ? "the values this window last read, read-only." : "this window has read none of its values."}`;
+
 /** The methods that write `keys`, each once; none for a key the environment records itself. */
 export const writersOf = (keys: readonly SettingsKey[]): readonly MethodName[] => [...new Set(keys.flatMap((key) => writerOf(key) ?? []))];
 
@@ -112,9 +116,7 @@ export const GenericEditor = ({ view, keys, saysWhyReadOnly = true }: GenericEdi
   return (
     <div className="flex flex-col gap-3">
       {!ready && saysWhyReadOnly && (
-        <p className="text-sm text-amber">
-          {reachWords(runtime, view)}: {values === null ? "this window has read none of its values." : "the values this window last read, read-only."}
-        </p>
+<p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>
       )}
       {lacking.map((line) => (
         <p key={line} className="text-sm text-amber">
