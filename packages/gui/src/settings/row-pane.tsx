@@ -1,6 +1,7 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FIRST_ROW, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ComponentType, type ReactNode } from "react";
+import { AccessPane } from "../access/access-pane.js";
 import { AccountsPane } from "../accounts/accounts-pane.js";
 import { DefaultModelPane } from "../accounts/default-model-pane.js";
 import { UsagePane } from "../accounts/usage-pane.js";
@@ -101,6 +102,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "environments.machines": YourMachines,
   "access.key-managers": KeyManagersPane,
   "access.permissions": PermissionsPane,
+  "environments.access": AccessPane,
 };
 
 /**
@@ -109,7 +111,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
  * `client` rows), About with this client's version pinned above its picker
  * as the one line that belongs to no environment, then what the row holds:
  * its built pane (Set up's checklist, the three Accounts rows, Your
- * machines' cards, Key managers, Permissions), the unbuilt row's hint, links and keys on
+ * machines' cards, Key managers, Permissions, Access), the unbuilt row's hint, links and keys on
  * the others. Opening a step's home row checks that step.
  */
 export const RowPane = ({ row }: { readonly row: SettingsRowId }) => {
