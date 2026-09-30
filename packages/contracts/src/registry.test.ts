@@ -287,6 +287,7 @@ describe("the method registry", () => {
       "routines.endpoints.remove",
       "skills.own.create",
       "skills.own.remove",
+      "skills.carryOver",
       "trust.decide",
       "trust.revoke",
       "browser.chromes.rename",
@@ -541,6 +542,7 @@ describe("the method registry", () => {
       | "skills.get"
       | "skills.own.create"
       | "skills.own.remove"
+      | "skills.carryOver"
       | "trust.get"
       | "trust.list"
       | "trust.decide"

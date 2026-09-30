@@ -67,11 +67,10 @@ const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(ta
 
 /**
  * Methods a registered step writes state through that a later ticket
- * registers, each with that ticket: Carry over's skills copy, which the
- * skills half builds (#513). A method leaves this list in the change that
- * registers it, which the test below holds it to.
+ * registers, each with that ticket; none now. A method leaves this list in
+ * the change that registers it, which the test below holds it to.
  */
-const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = { "skills.carryOver": "#513" };
+const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {};
 
 /** What is wrong with the two tables together. */
 const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep[]): string[] => {

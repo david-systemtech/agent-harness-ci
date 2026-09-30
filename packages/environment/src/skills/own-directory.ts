@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ENVIRONMENT_STREAM_KIND, type SkillLayer, type SkillMember, type SkillOrigin } from "@agent-harness/contracts";
-import { formatActor, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { formatActor, type EventInput, type EventLog, type StreamRef, type Tx } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, CommandRejection, PreparedCommand } from "../serve/methods.js";
 import type { Trash } from "../serve/trash.js";
 import { folderNameOf, resolveSkillSet } from "./precedence.js";
@@ -47,6 +47,14 @@ export interface OwnDirectory {
   readonly path: string;
   /** Reads its members; a read that finds them changed since the last one raises `skills.updated`. */
   read(): Promise<SkillMember[]>;
+  /** Reads its members as they stand, raising nothing: what a command that writes into it reads before and after. */
+  members(): Promise<SkillMember[]>;
+  /**
+   * The events a command that changed it appends with its receipt,
+   * `skills.updated`, and, once its transaction commits, `after` taken as
+   * the last read, so the next read raises no second notice for it.
+   */
+  changedIn(tx: Tx, after: readonly SkillMember[]): readonly EventInput[];
   /** `skills.own.create`: a folder with a minimal `SKILL.md`. */
   readonly create: PreparedCommand<"skills.own.create">;
   /** `skills.own.remove`: a member moved to the trash. */
@@ -79,7 +87,7 @@ const rootSkill = (name: string): CommandRejection<"conflict"> => ({
 });
 
 /** Whether anything, a link included, is at `path`. */
-const occupied = async (path: string): Promise<boolean> => {
+export const occupied = async (path: string): Promise<boolean> => {
   try {
     await lstat(path);
     return true;
@@ -128,13 +136,19 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
     return next;
   };
 
+  const changedIn = (tx: Tx, after: readonly SkillMember[]): readonly EventInput[] => {
+    tx.afterCommit(() => (seen = JSON.stringify(after)));
+    return [UPDATED];
+  };
+
   /** What a command that changed the directory answers inside its transaction: the notice with its receipt, and what it found as the last read. */
   const changed =
     (member: SkillMember, after: readonly SkillMember[]) =>
-    (_params: unknown, command: CommandContext): CommandAnswer<{ member: SkillMember }, never> => {
-      command.tx.afterCommit(() => (seen = JSON.stringify(after)));
-      return { aggregate: stream, result: { member }, events: [UPDATED] };
-    };
+    (_params: unknown, command: CommandContext): CommandAnswer<{ member: SkillMember }, never> => ({
+      aggregate: stream,
+      result: { member },
+      events: changedIn(command.tx, after),
+    });
 
   /** A command's refusal, answered as the handler it prepares. */
   const refusing =
@@ -144,6 +158,8 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
   return {
     path,
     read,
+    members: readMembers,
+    changedIn,
 
     create: {
       async prepare({ name, description }, context) {
