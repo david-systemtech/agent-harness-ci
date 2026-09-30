@@ -362,6 +362,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // An unpaired extension seen (#547) changes no status: the request cache reads browser.status again.
       case "extension.seen":
         return data;
+      // A paired Chrome's change (#548) changes no status: the request cache reads browser.chromes.list and browser.status again.
+      case "chrome.updated":
+        return data;
     }
   },
   encode: (data) => data,

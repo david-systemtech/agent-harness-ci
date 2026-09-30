@@ -190,7 +190,10 @@ const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.accoun
  * rows (`tools.updated`) the managed tools (#384) and the key-manager
  * connections, each carrying its CLI's row (#375); and an unpaired
  * extension opening its socket (`extension.seen`, #547) `browser.status`,
- * whose unpaired flag ticks the Browser card's Load sub-step.
+ * whose unpaired flag ticks the Browser card's Load sub-step; and a paired
+ * Chrome's pairing, rename, unpairing, connection, disconnection or version
+ * report (`chrome.updated`, #548) `browser.chromes.list`, and
+ * `browser.status`, whose unpaired flag a pairing clears.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -209,7 +212,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
-  "browser.status": ["extension.seen"],
+  "browser.status": ["extension.seen", "chrome.updated"],
+  "browser.chromes.list": ["chrome.updated"],
 };
 
 export interface RequestCache {

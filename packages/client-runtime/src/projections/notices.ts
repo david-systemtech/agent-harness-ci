@@ -201,6 +201,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // An unpaired extension seen (#547) raises none: the Browser card ticks its Load sub-step from browser.status.
         case "extension.seen":
           return;
+        // A paired Chrome's change (#548) raises none: the request cache reads browser.chromes.list and browser.status again.
+        case "chrome.updated":
+          return;
       }
     },
     settled(environmentId, sessionId, promptId) {
