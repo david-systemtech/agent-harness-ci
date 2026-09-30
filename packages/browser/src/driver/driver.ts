@@ -57,7 +57,7 @@ export interface CdpPageDriverOptions extends PageJudging {
 }
 
 /** How often a wait for text looks again. */
-export const WAIT_POLL_MS = 250;
+const WAIT_POLL_MS = 250;
 
 const KIND_NAMES: { readonly [K in PageDriverKind]: string } = { chrome: "Chrome", headless: "The headless browser", dock: "The browser dock" };
 
@@ -115,11 +115,11 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
 
   /** The page of `pageKey`, attached, or the sentence that says why there is none. */
   const pageFor = async (pageKey: PageKey, make: boolean): Promise<CdpPage | string> => {
-    const held = pages.get(pageKey);
-    if (held && held.gone === undefined) return held;
-    if (held) {
-      forget(pageKey, held);
-      if (!make) return goneSentence(held.gone as string);
+    const known = pages.get(pageKey);
+    if (known && known.gone === undefined) return known;
+    if (known) {
+      forget(pageKey, known);
+      if (!make) return goneSentence(known.gone as string);
     }
     let session: CdpSession | null;
     try {

@@ -37,7 +37,7 @@ export const NAVIGATION_SETTLE_MS = 15_000;
 /** How long, after the load, the driver waits for the page's network to go almost quiet (late content). */
 const NETWORK_QUIET_MS = 3_000;
 /** How long after a click the driver watches for a navigation it started. */
-export const CLICK_NAVIGATION_GRACE_MS = 250;
+const CLICK_NAVIGATION_GRACE_MS = 250;
 /** The most console lines and requests the page keeps between two reads; the oldest go first. */
 export const RECORD_LIMIT = 1_000;
 
