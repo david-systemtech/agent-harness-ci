@@ -1,4 +1,4 @@
-import { writable, type DispatchFailure, type EnvironmentView, type KnownDirectory, type Observable, type RequestAnswer, type SessionRow, type Writable } from "@agent-harness/client-runtime";
+import { whenWords, writable, type DispatchFailure, type EnvironmentView, type KnownDirectory, type Observable, type RequestAnswer, type SessionRow, type Writable } from "@agent-harness/client-runtime";
 import {
   RequestedDirectory,
   WORKSPACES_BROWSE_CAP,
@@ -13,7 +13,6 @@ import { nameOf } from "../view.js";
 import type { Badge } from "./badge.js";
 import { STAYS, pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { titleOf, whenBack, type RailActs } from "./pickers.js";
-import { whenWords } from "./when.js";
 
 /**
  * The workspace step (workspace-picker spec, "Renderers"; docs/specs/tui.md,

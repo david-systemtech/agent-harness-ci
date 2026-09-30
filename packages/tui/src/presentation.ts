@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { writable, type Observable } from "@agent-harness/client-runtime";
+import { writable, type CollapsedHeadings, type Observable } from "@agent-harness/client-runtime";
 import { readTextIfPresent, writePrivateFile } from "./platform/files.js";
 
 /**
@@ -15,8 +15,8 @@ import { readTextIfPresent, writePrivateFile } from "./platform/files.js";
  * outlives a launch; nothing about a session is kept in it.
  */
 
-/** The rail's fold state: heading name to folded. */
-export type CollapsedHeadings = Readonly<Record<string, boolean>>;
+/** The rail's fold state: heading name to folded, as the client runtime's headings read it. */
+export type { CollapsedHeadings };
 
 export interface Presentation {
   readonly collapsedHeadings: Observable<CollapsedHeadings>;

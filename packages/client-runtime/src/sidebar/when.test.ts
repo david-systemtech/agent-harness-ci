@@ -4,7 +4,7 @@ import { parseWhen, presetTimes, wakeWords, whenWords } from "./when.js";
 /**
  * The snooze picker's times (docs/specs/tui.md, "The rail"): an hour, this
  * evening, tomorrow morning, next Monday, or a typed time, each an instant
- * sent as absolute UTC. Reckoned on this terminal's calendar from the
+ * sent as absolute UTC. Reckoned on this client's calendar from the
  * environment's now, so the tests build their expectations in local time.
  */
 

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExtensionSeenPayload",
+  "type": "object",
+  "properties": {
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "The bridge protocol version the extension speaks: served when it is the environment's or the one before."
+    },
+    "extensionVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The extension's version: the harness version it was built with."
+    }
+  },
+  "required": [
+    "protocolVersion",
+    "extensionVersion"
+  ],
+  "description": "extension.seen: an extension that holds no credential opened its socket and announced these versions."
+}
