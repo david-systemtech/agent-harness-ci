@@ -1206,6 +1206,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       managedTools,
       clock,
       look: () => look.read(),
+      accounts: () => accounts.list(),
     }),
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });

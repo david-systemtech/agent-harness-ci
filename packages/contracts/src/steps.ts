@@ -207,7 +207,7 @@ export const anyValidValue =
 /**
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
- * (#120); Your machines, for the update settings (#335), whose not-root line
+ * (#120), whose accounts it checks (#574); Your machines, for the update settings (#335), whose not-root line
  * #141 adds, and the auto-settle keys (session-state spec, "Auto-settle:
  * rules and settings") and the transcript compaction window beside them
  * (#123), which sit on `environments.service`; Forges, whose forge
@@ -222,9 +222,11 @@ export const anyValidValue =
 export const STEP_REGISTRY = [
   {
     // The Account step (ADR 0018), at home on accounts.accounts beside Carry over: the default account, model family
-    // and effort (#134) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its real
-    // health, every account signed in, reads the account store rather than a setting, and its fifteen-minute cadence
-    // comes with that check (#574). An account's change and the sign-in's re-run it.
+    // and effort (#134) and the process idle time (#120), which sit on accounts.default-model (ADR 0027). Its health
+    // reads the account store's statuses (#134), never a setting: at least one account, with no action since the card's
+    // Sign in is the fix, and every account signed in, Sign in again naming each that is not (#574). Checked every
+    // fifteen minutes, as often as the store reads each account's status, since the orientation block reports it; never
+    // skipped. An account's change and the sign-in's re-run it.
     id: "account",
     home: "accounts.accounts",
     writes: ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"],
@@ -234,11 +236,17 @@ export const STEP_REGISTRY = [
       { key: "accounts.defaultEffort", check: anyValidValue("accounts.defaultEffort") },
       { key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") },
     ],
-    stateChecks: [],
+    stateChecks: [
+      { id: "account.present", holds: "At least one account is on this environment.", actions: [] },
+      { id: "account.signed-in", holds: "Every account on this environment is signed in.", actions: ["sign-in-again"] },
+    ],
     links: [{ row: "accounts.default-model" }],
     skippable: false,
     budget: "local",
-    cadence: { minutes: 60 },
+    cadence: {
+      minutes: 15,
+      reason: "The orientation block reports each account's sign-in status (ADR 0011, ADR 0018), so the step is checked as often as the account store reads it.",
+    },
     triggers: ["account.updated", "signin.updated"],
   },
   {

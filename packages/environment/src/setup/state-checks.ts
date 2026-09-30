@@ -1,4 +1,5 @@
-import { denylistPresets, type ContainmentReport, type EnvironmentLook } from "@agent-harness/contracts";
+import { denylistPresets, type AccountRecord, type ContainmentReport, type EnvironmentLook } from "@agent-harness/contracts";
+import { accountStateChecks } from "../accounts/step-checks.js";
 import { themeMeetsRules } from "../appearance/contrast.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -16,7 +17,8 @@ import type { StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
- * (#141): the Your machines step's not-root line, release channel (#346),
+ * (#141): the Account step's two, from the account store (#574), the Your
+ * machines step's not-root line, release channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348) and that the environment is named (#323), the
  * Forges step's seven (#319), the Key manager step's skip check (#367) and
@@ -24,6 +26,7 @@ import type { StateCheckers } from "./check.js";
  * Appearance step's contrast (#391), each read when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
+ * accounts from the account store (`accounts/step-checks.ts`), the
  * denylist from its read model beside the presets for this environment's
  * data directory, the release channel from its checks (`updates/checks.ts`),
  * the updates from the update coordinator (`updates/coordinator.ts`), the
@@ -51,6 +54,8 @@ export interface StateChecksOptions {
   readonly hostUpdater: () => StateCheckAnswer;
   /** The environment's name, icon and colour now (#323). */
   readonly look: () => EnvironmentLook;
+  /** The accounts the account store holds now, each with its latest status (#134). */
+  readonly accounts: () => readonly AccountRecord[];
   /** The ForgeService, whose forge accounts the Forges step checks. */
   readonly forge: ForgeService;
   /** The key-manager connections, which the Key manager step checks, verifying every one. */
@@ -66,6 +71,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
   const report = () => readPermissionsReport(reader, options.containment, options.isRoot);
   const presets = denylistPresets(options.dataDir);
   return {
+    ...accountStateChecks({ accounts: options.accounts }),
     "your-machines.not-root": () => runsAsNonRoot(report().isRoot),
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,

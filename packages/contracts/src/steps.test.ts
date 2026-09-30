@@ -499,9 +499,9 @@ describe("the step registry", () => {
     expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
   });
 
-  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, each an hourly cadence but Forges and Key manager, checked every fifteen minutes because the orientation block reports each forge account's and each connection's status", () => {
+  it("gives Account, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, each an hourly cadence but Account, Forges and Key manager, checked every fifteen minutes because the orientation block reports each account's sign-in status and each forge account's and each connection's status", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence.minutes])).toEqual([
-      ["account", "local", 60],
+      ["account", "local", 15],
       ["your-machines", "network", 60],
       ["forges", "network", 15],
       ["key-manager", "network", 15],
@@ -513,7 +513,8 @@ describe("the step registry", () => {
     expect(forges.cadence?.reason).toMatch(/orientation block reports each forge account's status/);
     expect(CHECK_BUDGET_SECONDS[keyManager.budget as keyof typeof CHECK_BUDGET_SECONDS]).toBe(10);
     expect(keyManager.cadence?.reason).toMatch(/orientation block reports each key-manager connection's status/);
-    for (const step of STEP_REGISTRY) if (step.id !== "forges" && step.id !== "key-manager") expect(step.cadence, step.id).toEqual({ minutes: 60 });
+    expect(account.cadence?.reason).toMatch(/orientation block reports each account's sign-in status/);
+    for (const step of STEP_REGISTRY) if (!["account", "forges", "key-manager"].includes(step.id)) expect(step.cadence, step.id).toEqual({ minutes: 60 });
   });
 
   it("fails an entry with no budget, a budget outside ADR 0031's three classes, no cadence, a cadence of no whole minutes, or a cadence other than the hour with no reason", () => {
@@ -589,7 +590,7 @@ describe("the step registry", () => {
 
   it("fails a step out of the order or outside it, a link to no step or to itself, state through no method, a confirmation of an unwritten key, and a misnamed, doubled or unknown state check", () => {
     expect(stepShapeProblems([appearance, account])).toEqual(["account: registered out of the milestone-1 order"]);
-    expect(stepShapeProblems([{ ...account, id: "housekeeping" }])).toEqual(["housekeeping: not a step of the milestone-1 order"]);
+    expect(stepShapeProblems([{ ...account, id: "housekeeping", stateChecks: [] }])).toEqual(["housekeeping: not a step of the milestone-1 order"]);
     expect(stepShapeProblems([{ ...permissions, links: [{ step: "settings" }, { step: "permissions" }] }])).toEqual([
       "permissions: links to settings, which is not a step",
       "permissions: links to itself",
@@ -638,6 +639,15 @@ describe("the step registry", () => {
     expect(check(presetSettings()["providers.processIdleMinutes"])).toBe(true);
     expect(check(1440)).toBe(true);
     expect(check(0)).toMatch(/providers\.processIdleMinutes/);
+  });
+
+  it("gives the Account entry account.present, with no action since the card's Sign in is the fix, and account.signed-in, with Sign in again, and never skips it (ADR 0018; #574)", () => {
+    expect(account.stateChecks).toEqual([
+      { id: "account.present", holds: "At least one account is on this environment.", actions: [] },
+      { id: "account.signed-in", holds: "Every account on this environment is signed in.", actions: ["sign-in-again"] },
+    ]);
+    expect(account.skippable).toBe(false);
+    expect(account.skip).toBeUndefined();
   });
 
   it("fails when a settings key names no entry, or no entry writes it", () => {
