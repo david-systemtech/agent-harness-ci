@@ -251,6 +251,28 @@ describe("the filter", () => {
   });
 });
 
+describe("what is typed in the filter", () => {
+  it("lasts for the life of the window: hiding the sidebar with Mod+B, or opening Settings, and showing it again keeps it", async () => {
+    const app = await settled(await two());
+    await typeIn(app, within(sidebar()).getByRole("searchbox", { name: "Filter the sessions" }), "in");
+    expect(within(sidebar()).getByRole("list", { name: "Sessions matching “in”" })).toBeDefined();
+
+    await app.user.keyboard("{Control>}b{/Control}");
+    expect(screen.queryByRole("navigation", { name: "Sessions" })).toBeNull();
+    await app.user.keyboard("{Control>}b{/Control}");
+    expect((within(sidebar()).getByRole("searchbox", { name: "Filter the sessions" }) as HTMLInputElement).value).toBe("in");
+    expect(within(sidebar()).getByRole("list", { name: "Sessions matching “in”" })).toBeDefined();
+
+    await app.user.keyboard("{Control>},{/Control}");
+    await screen.findByRole("region", { name: "Settings" });
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    expect((within(sidebar()).getByRole("searchbox", { name: "Filter the sessions" }) as HTMLInputElement).value).toBe("in");
+    // It is not presentation: a window opened again starts with none.
+    await settled(await app.remount());
+    expect((within(sidebar()).getByRole("searchbox", { name: "Filter the sessions" }) as HTMLInputElement).value).toBe("");
+  });
+});
+
 describe("the pending marker", () => {
   it("shows on a row while a command about it awaits its receipt, and its environment's heading counts the commands waiting", async () => {
     const app = await settled(await two());

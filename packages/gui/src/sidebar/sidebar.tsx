@@ -1,11 +1,12 @@
 import { keepsFold, rowKey, sessionHeadings, type HeadingRow, type SessionRow } from "@agent-harness/client-runtime";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useOpenPairing } from "../connections/pairing.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { Button, Input } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 import { EnvironmentSection, FoldingSection, type DrawRows } from "./headings.js";
 import { SessionRowView } from "./row.js";
+import { useSidebarFilter } from "./window-sidebar.js";
 
 /**
  * The sidebar (docs/specs/gui.md, "The window and the sidebar"; #397): every
@@ -16,7 +17,8 @@ import { SessionRowView } from "./row.js";
  * `projections.search`'s rows, in the sidebar's order, with no headings;
  * clearing it brings the headings back. The folds are presentation
  * (`collapsedHeadings`); what is typed in the filter lasts while the window
- * does. Pairing with another environment is at its foot.
+ * does, the sidebar hidden and shown again or not (`window-sidebar.tsx`).
+ * Pairing with another environment is at its foot.
  */
 export const Sidebar = () => {
   const runtime = useRuntime();
@@ -26,7 +28,7 @@ export const Sidebar = () => {
   const [layout] = usePresentation("paneLayout");
   const openInPane = useOpenInPane();
   const openPairing = useOpenPairing();
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useSidebarFilter();
   const query = filter.trim();
 
   const headings = useMemo(
