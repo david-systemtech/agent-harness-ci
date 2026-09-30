@@ -12,9 +12,10 @@ runs it there. Never run Electron on the shared agent box.
 
 First launch installing the service and the keychain (#395) have their
 section below, which needs a packaged desktop carrying the server artefact:
-a run from a checkout carries none. The desktop build (#423) adds its own
-sections here: notifications and their activation, the browser dock, and
-restart to update (#355). The preview scheme has its section below (#410).
+a run from a checkout carries none, and so does restart to update (#355).
+The desktop build (#423) adds its own sections here: notifications and their
+activation, and the browser dock. The preview scheme has its section below
+(#410).
 
 ## Before the first run
 
@@ -248,3 +249,57 @@ status`, from a release's shim, says `Installed: no`, or the user is new).
    in a session with no keyring: pairing still works, the file begins `v10`,
    and `desktop.log` says once that tokens are stored unprotected.
 
+## Restart to update (#355)
+
+Run on each platform with a packaged desktop (#423's artefact) of a release
+installed, and a newer release on its environment's channel that publishes
+the desktop's builds. `<data>` is the environment's data directory. The
+runtime checks at the local environment's first ready and hourly, stages the
+newer build through `updates.desktop.stage` and hands it to the shell for the
+next quit on its own; until the window shows "Restart to update", step 3
+applies it from the console. Until #788 the environment stages the build in
+the desktop's own data directory and removes the rest of it, so step 2's
+paired environments need pairing again; this section passes once #788 is
+fixed.
+
+### Every platform
+
+1. **What it runs.** `await desktopShell.update.current()` answers the
+   version installed, the platform, the architecture and the format: `zip`
+   on macOS from Applications, `nsis` on Windows, `pacman` on Arch.
+2. **At the quit.** Start the desktop, wait until `<data>/desktop/<newer>/`
+   holds the build, then quit. Start it again: `current()` answers the newer
+   version, and the paired environments connect without pairing again.
+3. **Now.** With a newer release again, once it is staged: `await
+   desktopShell.update.apply({ path: "<the staged file>", version:
+   "<newer>", sha256: "<its SHA-256>" }, "now")`. The window closes and the
+   desktop starts again at the newer version. Apply it again with one digit of
+   the SHA-256 changed: it answers `failed`, `install`, and nothing quits.
+4. **Nothing left behind.** `<data>/desktop/logs/desktop.log` holds no
+   cleanup failure after steps 2 and 3.
+
+### macOS
+
+1. **The swap.** After step 3, `/Applications` holds the bundle alone, no
+   `.agent-harness.app-update-*` folder; the new bundle opens without a
+   Gatekeeper prompt and `codesign --verify --deep --strict` passes on it.
+2. **A bundle it cannot replace.** Open the app from the unzipped download
+   without moving it (translocated), or from a disk image: `current()`
+   answers the format null, and applying answers `failed`, `install`,
+   pointing at the release page.
+
+### Windows
+
+1. **Silent.** Step 3 shows no setup window, and the desktop starts again
+   from the same Start menu shortcut; step 2 installs as it quits and does
+   not start it again.
+
+### Arch
+
+1. **pkexec.** Step 3 asks for a password in the polkit dialog; afterwards
+   `pacman -Qo <the desktop's executable>` names the newer version.
+2. **Refused.** Cancel the dialog: `apply` answers `failed`, `install`, saying
+   the authentication was refused and the installed version stays; `pacman
+   -Q` names the old version, and the desktop keeps running.
+3. **Not a package.** Run an unpacked copy of the app outside pacman's files:
+   `current()` answers the format null.

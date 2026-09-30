@@ -88,8 +88,10 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   process's modules with Electron's modules faked and the platform injected
   (`packages/desktop/test/fake-electron.ts` and `harness.ts`), the shell's
   `service` over a fake server artefact whose CLI answers the `service` verbs
-  from a file (`test/fake-artefact.ts`; no service manager is touched), and
-  build the preload bundle with Vite and evaluate it as the sandbox would; no
+  from a file (`test/fake-artefact.ts`; no service manager is touched), its
+  `update` over the OS's commands faked and Node's file calls recorded on
+  scratch folders (`test/fake-system.ts`; no `ditto`, `pkexec` or setup
+  runs), and build the preload bundle with Vite and evaluate it as the sandbox would; no
   test may import `electron` or `src/main.ts`. What only a real window can prove is the
   manual checklist in `docs/agents/desktop-checklist.md`, run (or listed as
   not run, per platform) when the shell changes. Never run Electron on the
