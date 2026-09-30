@@ -89,6 +89,7 @@ describe("the preload bundle", () => {
       "deepLinks",
       "dialogs",
       "http",
+      "installer",
       "localGrant",
       "network",
       "openExternal",
@@ -96,6 +97,7 @@ describe("the preload bundle", () => {
       "secrets",
       "service",
       "system",
+      "update",
       "window",
     ]);
     expect(Object.keys(shell["window"] ?? {}).sort()).toEqual(["focus", "setBackgroundColour", "setBadge", "setTitle"]);
@@ -103,10 +105,12 @@ describe("the preload bundle", () => {
     expect(Object.keys(shell["clipboard"] ?? {}).sort()).toEqual(["readImage", "readText", "writeText"]);
     expect(Object.keys(shell["network"] ?? {})).toEqual(["allow"]);
     expect(Object.keys(shell["deepLinks"] ?? {})).toEqual(["onOpen"]);
-    expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["delete", "get", "set"]);
+    expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["delete", "get", "protection", "set"]);
     expect(Object.keys(shell["localGrant"] ?? {})).toEqual(["read"]);
     expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["install", "start", "status"]);
     expect(Object.keys(shell["preview"] ?? {})).toEqual(["grant"]);
+    expect(Object.keys(shell["update"] ?? {}).sort()).toEqual(["apply", "current"]);
+    expect(Object.keys(shell["installer"] ?? {})).toEqual(["bundledServer"]);
     expect(shell).not.toHaveProperty("tray");
   });
 

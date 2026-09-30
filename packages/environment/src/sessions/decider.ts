@@ -12,6 +12,7 @@ import {
   type SessionDraftSetPayload,
   type SessionGroupSetPayload,
   type SessionPinReorderedPayload,
+  type SessionOrigin,
   type SessionPinnedPayload,
   type SessionUnsettledPayload,
   type SessionUnsnoozedPayload,
@@ -125,6 +126,8 @@ export interface CreateSession {
   readonly account: string | null;
   readonly model: string | null;
   readonly mode: Mode | null;
+  /** Where the session came from when no client asked for it: the Carry over import's (#578); absent for a command's. */
+  readonly origin?: SessionOrigin;
   /** The session's first browser and who chose it, recorded after its creation; null for none chosen. */
   readonly browser: FirstBrowser | null;
 }
@@ -268,6 +271,7 @@ export const decideCreate = (state: SessionState | null, command: CreateSession,
     account: command.account,
     model: command.model,
     mode: command.mode,
+    ...(command.origin !== undefined && { origin: command.origin }),
   };
   const created: EventInput = { type: "session.created", payload };
   if (command.browser === null) return { events: [created] };

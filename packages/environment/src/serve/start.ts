@@ -58,10 +58,11 @@ import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { createProcessEnvironments, type InjectionSeam, type ProcessEnvironments } from "../adapter/process-environment.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import { composeInstructions } from "../instructions/composer.js";
+import { composeInstructions, type OrientationSeam } from "../instructions/composer.js";
 import { instructionMethods } from "../instructions/methods.js";
 import { environmentSection } from "../instructions/environment-section.js";
 import { createOrientationRenderer, type OrientationSection } from "../instructions/orientation.js";
+import { createInstructionStore, instructionsProjector, ownedInstructionsLayer } from "../instructions/store.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector, listAccountStandings } from "../accounts/account-store.js";
 import { accountsSection } from "../accounts/orientation.js";
@@ -126,7 +127,9 @@ import { createKeyManagerReferences } from "../key-managers/references.js";
 import { keyManagersSection } from "../key-managers/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
+import type { ReleaseOrigins } from "../managed-tools/latest.js";
 import { createManagedTools, type ManagedTools } from "../managed-tools/registry.js";
+import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
@@ -155,6 +158,7 @@ import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { trustMethods } from "../trust/methods.js";
+import { carryOverMethods } from "../carry-over/methods.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods } from "../setup/methods.js";
@@ -382,6 +386,12 @@ export interface EnvironmentOptions {
    */
   readonly orientationSections?: readonly OrientationSection[];
   /**
+   * The orientation block in place of the OrientationRenderer's (#505): what
+   * the composer's user layer opens with and the Orientation row renders.
+   * Tests give their own. Preset: the renderer's.
+   */
+  readonly orientation?: OrientationSeam;
+  /**
    * What this environment can enforce (#133), probed once as the adapter
    * host starts: its capability flags, the containment default's preset and
    * every run's containment follow from it. Preset: the probe of the running
@@ -421,15 +431,18 @@ export interface EnvironmentOptions {
    * How the Managed tools registry (#373) probes: where it reads the login
    * shell's PATH, which the forge's `gh` and the sign-in director's managed
    * tool are found on too; how it asks which system package owns a tool;
-   * the environment its commands, and `gh`'s, start from. Preset: the
-   * user's login shell (the machine and user Path on Windows), `dpkg -S`
-   * then `rpm -qf` on Linux, this process's environment; tests put fake
-   * tools on a PATH of their own and script the package owner.
+   * the environment its commands, and `gh`'s, start from; where it reads
+   * each tool's latest version (#374). Preset: the user's login shell (the
+   * machine and user Path on Windows), `dpkg -S` then `rpm -qf` on Linux,
+   * this process's environment, the real release sources; tests put fake
+   * tools on a PATH of their own, script the package owner and fake the
+   * release sources on loopback.
    */
   readonly managedTools?: {
     readonly readPath?: () => Promise<string>;
     readonly packageOwner?: PackageOwnerLookup;
     readonly hostEnv?: HostEnvironment;
+    readonly releaseOrigins?: Partial<ReleaseOrigins>;
   };
   /** The key-manager registry's resolve seam the forge reads references through (#312). Preset: the environment's own over its connections (#370); tests may script one. */
   readonly keyManagers?: KeyManagerRegistry;
@@ -735,6 +748,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       routinesProjector,
       lookProjector,
       trustProjector,
+      instructionsProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -796,6 +810,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       environmentId: loaded.id,
+      dataDir,
       ownResources: [HARNESS_DIRECTORY, ...(bundled === null ? [] : [dirname(bundled)])],
       ...options.managedTools,
     });
@@ -952,7 +967,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
-  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientation.seam });
+  // The owned instructions (#505), after the block in the user layer while instructions.orientation is on.
+  const orientationSeam = options.orientation ?? orientation.seam;
+  const orientationOn = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["instructions.orientation"];
+  const instructionStore = createInstructionStore(log);
+  const instructions = hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore) });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
@@ -963,6 +982,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The managed tools' verify commands (#375): each a holder of the process environment, with a run token of its own.
   const toolVerifier = createToolVerifier({ tools: managedTools, processEnvironments, connections: () => keyManagerConnections.list(), scrub, clock });
   closers.push(() => toolVerifier.close());
+  // A tool's doctor (#374), run only when a client opens its detail, or Update is clicked (#376).
+  const toolDoctor = createToolDoctor({ tools: managedTools, scrub, clock });
+  closers.push(() => toolDoctor.close());
 
   // The trust gate's decisions (#500), each key read on the canonical host of a verified forge alias: what every run's trust is.
   const trustStore = createTrustStore({ log, forgeAccounts: () => verifiedOrigins(forge.list()) });
@@ -1324,10 +1346,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...setupMethods(setup),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
-    ...instructionMethods({ host }),
+    ...instructionMethods({
+      host,
+      log,
+      environmentId: record.id,
+      store: instructionStore,
+      accounts: () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null })),
+      orientationOn,
+      // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
+      orientation: async () => {
+        const accountId = accounts.defaultId();
+        return accountId === null ? null : orientationSeam(host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
+      },
+    }),
     ...forgeMethods(forge),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
-    ...managedToolsMethods(managedTools, toolVerifier),
+    ...managedToolsMethods(managedTools, toolDoctor, toolVerifier),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
     ...routineMethods({
       log,
@@ -1359,6 +1393,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       store: trustStore,
       clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
     }),
+    // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
+    // at through the availability watcher and given the identity the environment's resolver finds there.
+    ...carryOverMethods({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path) }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,

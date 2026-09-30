@@ -5,6 +5,7 @@ import {
   invalidParams,
   listEventTypes,
   type Mode,
+  type SessionOrigin,
   type SessionSummary,
   type Workspace,
 } from "@agent-harness/contracts";
@@ -97,6 +98,8 @@ export interface SessionCreation {
   readonly account?: string | null | undefined;
   readonly model?: string | null | undefined;
   readonly mode?: Mode | null | undefined;
+  /** Where the session came from when no client asked for it: the Carry over import's (#578); absent for a command's. */
+  readonly origin?: SessionOrigin | undefined;
   /** The session's first browser and who chose it; none chosen when absent. */
   readonly browser?: FirstBrowser | null | undefined;
 }
@@ -134,7 +137,17 @@ const checkCreation = (log: EventLog, creation: Omit<SessionCreation, "workspace
   const mode = asked.mode === null ? null : checks.clampMode(asked.mode, asked.account);
   const groupId = creation.groupId?.toLowerCase() ?? null;
   const state = readSessionState(reader, id) ?? (log.readStream(sessionStream(id), 0, 1).length > 0 ? PURGED_STATE : null);
-  const command = { id, title: creation.title ?? null, tags: [...(creation.tags ?? [])], groupId, account: asked.account, model: asked.model, mode, browser: creation.browser ?? null };
+  const command = {
+    id,
+    title: creation.title ?? null,
+    tags: [...(creation.tags ?? [])],
+    groupId,
+    account: asked.account,
+    model: asked.model,
+    mode,
+    ...(creation.origin !== undefined && { origin: creation.origin }),
+    browser: creation.browser ?? null,
+  };
   return { state, command, context: { groupExists: groupId !== null && groupExists(reader, groupId) } };
 };
 

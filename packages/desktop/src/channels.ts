@@ -29,11 +29,15 @@ export const ANSWERED = [
   "secrets.get",
   "secrets.set",
   "secrets.delete",
+  "secrets.protection",
   "localGrant.read",
   "service.install",
   "service.start",
   "service.status",
   "preview.grant",
+  "update.current",
+  "update.apply",
+  "installer.bundledServer",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 

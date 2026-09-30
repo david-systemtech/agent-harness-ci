@@ -55,6 +55,8 @@ export interface SessionRow {
   deleted_at: string | null;
   purge_at: string | null;
   delete_provider_transcript: number;
+  /** Where the session came from when no client asked for it (`SessionOrigin`, as JSON): an imported session's (#578); not a summary field. */
+  origin: string | null;
 }
 
 export interface GroupRow {
@@ -103,7 +105,8 @@ export const SESSION_LIST_TABLES = {
     draft TEXT,
     deleted_at TEXT,
     purge_at TEXT,
-    delete_provider_transcript INTEGER NOT NULL DEFAULT 0
+    delete_provider_transcript INTEGER NOT NULL DEFAULT 0,
+    origin TEXT
   ) STRICT`,
   session_tags: `CREATE TABLE session_tags (
     session_id TEXT NOT NULL,

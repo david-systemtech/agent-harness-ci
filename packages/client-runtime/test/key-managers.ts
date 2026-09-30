@@ -116,6 +116,7 @@ export const toolRow = (fields: Partial<ManagedToolRow> = {}): ManagedToolRow =>
     path: "/opt/homebrew/bin/bao",
     realpath: "/opt/homebrew/Cellar/openbao/2.1.1/bin/bao",
     version: "2.1.1",
+    latest: null,
     minimum: "2.1.1",
     method: "homebrew",
     status: "current",

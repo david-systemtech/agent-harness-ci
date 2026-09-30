@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "instructions.create params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase."
+    },
+    "title": {
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,118}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+      "description": "An owned instruction's title: 1 to 120 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed. A run reads it as the instruction's heading."
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 20000,
+      "description": "An owned instruction's body: Markdown, at most 20000 characters, which a run reads under its title."
+    },
+    "scope": {
+      "description": "The accounts it reaches; preset all.",
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "all",
+          "description": "Every account on the environment, those added later included."
+        },
+        {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          },
+          "description": "The accounts named, each once; an account removed since reaches nothing."
+        }
+      ]
+    },
+    "enabled": {
+      "description": "Whether runs are handed it; preset true.",
+      "type": "boolean"
+    },
+    "position": {
+      "description": "Its place in the list; preset after the last.",
+      "type": "string",
+      "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$"
+    }
+  },
+  "required": [
+    "commandId",
+    "id",
+    "title",
+    "body"
+  ]
+}

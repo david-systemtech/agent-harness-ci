@@ -19,6 +19,11 @@ export interface DesktopPlatform {
   /** This launch's command line: where Windows and Linux put the deep link the app was opened with. */
   readonly argv: readonly string[];
   /**
+   * The running app's executable (`process.execPath`): inside the bundle on
+   * macOS, the file a package manager owns on Linux.
+   */
+  readonly executable: string;
+  /**
    * How the OS starts this app again for a deep link, when that is not the
    * executable alone: an unpackaged app (`electron .`) is Electron's
    * executable and the app's folder.

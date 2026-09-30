@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverFailure",
+  "type": "object",
+  "properties": {
+    "providerSessionId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The provider session that was not imported; null when the listing itself failed and nothing could be."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What went wrong, for a person."
+    }
+  },
+  "required": [
+    "providerSessionId",
+    "message"
+  ],
+  "description": "What an import could not do: a session it could not import, or (no provider session id) the directory it could not list."
+}

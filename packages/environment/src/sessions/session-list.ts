@@ -92,24 +92,29 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   // The shelf (#117), and the fields the run, prompt and pull-request events write, which auto-settle reads.
   ...shelfProjections(organise),
   ...systemProjections(setColumns),
+  // An imported session (#578) began, and was last active, when its provider session did, as the import read them; it is
+  // idle since then. Its origin is kept for the import's deduplication by provider session id.
   "session.created": (event, db) => {
     const payload = event.payload as SessionCreatedPayload;
     const { title, source } = titleOf(payload.title, null);
+    const imported = payload.origin?.kind === "import" ? payload.origin : null;
     db.run(
-      `INSERT INTO sessions (id, created_at, updated_at, title, title_source, user_title, group_id, workspace,
-                             repository_identity, activity, mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sessions (id, created_at, updated_at, last_activity_at, title, title_source, user_title, group_id, workspace,
+                             repository_identity, activity, mode, origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       event.streamId,
+      imported?.createdAt ?? event.occurredAt,
       event.occurredAt,
-      event.occurredAt,
+      imported?.lastActivityAt ?? null,
       title,
       source,
       payload.title,
       payload.groupId,
       JSON.stringify(payload.workspace),
       payload.repositoryIdentity,
-      JSON.stringify({ state: "idle", since: event.occurredAt }),
+      JSON.stringify({ state: "idle", since: imported?.lastActivityAt ?? event.occurredAt }),
       payload.mode,
+      payload.origin === undefined ? null : JSON.stringify(payload.origin),
     );
     insertTags(db, event.streamId, payload.tags);
   },

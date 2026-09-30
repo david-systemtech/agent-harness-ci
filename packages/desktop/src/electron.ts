@@ -21,7 +21,14 @@ export interface ElectronApp {
   setAsDefaultProtocolClient(protocol: string, path?: string, args?: string[]): boolean;
   setPath(name: "userData", path: string): void;
   whenReady(): Promise<void>;
+  /** Closes the windows, then emits `will-quit`, whose listener may refuse the quit to finish something first and ask again. */
   quit(): void;
+  /** Starts the app again once this instance has quit: its executable, at the same path. */
+  relaunch(): void;
+  /** The version the app was built as: its `package.json`'s. */
+  getVersion(): string;
+  /** Whether the app runs packaged, as an install does, rather than as `electron .` from a checkout. */
+  readonly isPackaged: boolean;
   /** macOS and Linux (docks and taskbars with the LauncherEntry API). */
   setBadgeCount(count?: number): boolean;
   /** macOS only; undefined elsewhere. */
@@ -31,6 +38,8 @@ export interface ElectronApp {
   /** macOS: a deep link opened, before or after the app is ready. */
   on(name: "open-url", listener: (details: Refusable, url: string) => void): unknown;
   on(name: "window-all-closed", listener: () => void): unknown;
+  /** The windows are closed and the app is about to quit; `preventDefault` keeps it running. */
+  on(name: "will-quit", listener: (details: Refusable) => void): unknown;
 }
 
 /** A scheme's registration with Chromium, before the app is ready. */

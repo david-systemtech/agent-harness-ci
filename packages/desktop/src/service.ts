@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { ShellPlatform, ShellService } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { ARTEFACT_CLI_ENTRY, artefactNode } from "@agent-harness/contracts/launcher";
+import { lastLine, oneAtATime } from "./commands.js";
 
 /**
  * The shell's `service` (docs/specs/gui.md, "The desktop shell"): this
@@ -50,14 +51,6 @@ interface Ran {
   readonly stdout: string;
   readonly stderr: string;
 }
-
-/** The last line of what a verb printed: the one sentence the CLI says a refusal or a failure in. */
-const lastLine = (text: string): string | undefined =>
-  text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== "")
-    .at(-1);
 
 const isStatusReport = (value: unknown): value is StatusReport => {
   const report = value as Partial<StatusReport> | null;
@@ -123,12 +116,7 @@ export const bundledService = ({ os, server, wait = SERVICE_WAIT }: ServiceParts
   };
 
   /** One verb at a time, each after the one before has settled either way. */
-  let last: Promise<unknown> = Promise.resolve();
-  const inTurn = <T>(task: () => Promise<T>): Promise<T> => {
-    const next = last.then(task, task);
-    last = next.catch(() => undefined);
-    return next;
-  };
+  const inTurn = oneAtATime();
 
   return {
     install: () => inTurn(install),

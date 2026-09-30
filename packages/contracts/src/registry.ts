@@ -71,6 +71,7 @@ import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWith
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import { setupCheck } from "./methods/setup.js";
+import { carryOverInventory, carryOverRun } from "./methods/carry-over.js";
 import {
   accountsAdd,
   accountsAdopt,
@@ -89,7 +90,16 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
-import { instructionsPreview } from "./methods/instructions.js";
+import {
+  instructionsCreate,
+  instructionsEdit,
+  instructionsList,
+  instructionsMove,
+  instructionsPreview,
+  instructionsRemove,
+  instructionsSetEnabled,
+  instructionsSetScope,
+} from "./methods/instructions.js";
 import {
   forgeAccountsAdd,
   forgeAccountsList,
@@ -155,7 +165,7 @@ import {
   routinesTestPreCheck,
   routinesUpdate,
 } from "./methods/routines.js";
-import { toolsList, toolsVerify } from "./methods/tools.js";
+import { toolsDetail, toolsList, toolsVerify } from "./methods/tools.js";
 import {
   terminalsClose,
   terminalsList,
@@ -243,6 +253,13 @@ export const methods = [
   modelsList,
   commandsList,
   instructionsPreview,
+  instructionsList,
+  instructionsCreate,
+  instructionsEdit,
+  instructionsSetScope,
+  instructionsSetEnabled,
+  instructionsMove,
+  instructionsRemove,
   forgeAccountsList,
   forgeAccountsAdd,
   forgeAccountsUpdate,
@@ -272,6 +289,7 @@ export const methods = [
   keyManagersMove,
   keyManagersMoveCopyValue,
   toolsList,
+  toolsDetail,
   toolsVerify,
   settingsGet,
   settingsUpdate,
@@ -288,6 +306,8 @@ export const methods = [
   permissionsDenylistRestorePresets,
   permissionsDenylistTest,
   setupCheck,
+  carryOverInventory,
+  carryOverRun,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,

@@ -72,6 +72,7 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.openExternal": "open links in the system browser",
   "shell.localGrant.read": "read the local environment's grant",
   "shell.secrets": "keep secrets in the system keychain",
+  "shell.secrets.protection": "tell whether the system keychain protects the tokens it keeps",
   "shell.http": "reach an environment over HTTP from outside the page",
   "shell.network": "declare the addresses its window may connect to",
   "shell.system": "tell which machine and user it runs as",

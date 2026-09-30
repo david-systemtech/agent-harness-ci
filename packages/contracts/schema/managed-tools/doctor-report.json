@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolDoctorReport",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "const": "read"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "homebrew",
+                "winget",
+                "scoop",
+                "mise",
+                "asdf",
+                "npm",
+                "native",
+                "apt",
+                "dnf",
+                "manual",
+                "unknown"
+              ],
+              "description": "How a tool was installed: homebrew (a Cellar or Caskroom), winget (WinGet's packages or links), scoop, mise, asdf, npm (a node_modules path), native (claude's native installer, its versions directory), apt (a package dpkg owns), dnf (a package rpm owns), manual (nothing claims it) or unknown (the package owner could not be asked)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The install method doctor reports, in the registry's words (native; npm-global and npm-local as npm; a package manager's homebrew, winget, mise, asdf, deb as apt and rpm as dnf; unknown), to set beside the row's detected one: doctor misreports it on ordinary machines. Null when its words map to none of them (a development build, pacman, apk)."
+        },
+        "fields": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[^\\r\\n]*$",
+                "description": "The field's name, as doctor printed it: Running, Path, Config install method, Auto-updates, ..."
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^[^\\r\\n]*$",
+                "description": "Its value, as doctor printed it."
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "description": "One field of doctor's summary: its name and its value, as printed."
+          },
+          "description": "Its summary's fields, in the order it printed them."
+        },
+        "warnings": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "issue": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^[^\\r\\n]*$",
+                "description": "What doctor found, as it printed it."
+              },
+              "fix": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^[^\\r\\n]*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The fix it suggests; null when it gives none."
+              }
+            },
+            "required": [
+              "issue",
+              "fix"
+            ],
+            "description": "A warning doctor found, and the fix it suggests."
+          },
+          "description": "The warnings it found, in its order; empty when it found no installation issue."
+        }
+      },
+      "required": [
+        "outcome",
+        "method",
+        "fields",
+        "warnings"
+      ],
+      "description": "doctor ran and its summary was read."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "const": "failed"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[^\\r\\n]*$",
+          "description": "Why nothing was read: it gave no answer in time, exited with an error, or printed no summary; scrubbed."
+        }
+      },
+      "required": [
+        "outcome",
+        "reason"
+      ],
+      "description": "doctor ran, and nothing could be read from it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "const": "not-installed"
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "description": "The tool is not installed, so nothing ran."
+    }
+  ],
+  "description": "What a tool's doctor said: its fields, the install method it reports and its warnings; that it failed; or that the tool is not installed."
+}

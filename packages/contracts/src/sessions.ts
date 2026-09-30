@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AccountId } from "./accounts.js";
 import { SessionBrowser } from "./browser-choice.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
@@ -468,6 +469,32 @@ export type GroupPatch = z.infer<typeof GroupPatch>;
 
 const nullableKey = OrderKey.nullable();
 
+/**
+ * Where a session came from when no client asked for it (#578): `import`,
+ * the Carry over import (ADR 0021), which made it from a provider session
+ * in an adopted account's directory, the account and that session's id
+ * linked to it, its created-at and last activity the listing's. A session
+ * with none was created by a command (`sessions.create`, a fork, the
+ * completions surface).
+ */
+export const SessionOrigin = z
+  .discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("import"),
+        accountId: AccountId.meta({ description: "The adopted account whose directory holds the provider session." }),
+        providerSessionId: z.string().min(1).meta({ description: "The provider's own id for the session: what the import is deduplicated by, and what a run resumes." }),
+        createdAt: Timestamp.meta({ description: "When the provider session began, as the listing gives it: the summary's createdAt." }),
+        lastActivityAt: Timestamp.meta({ description: "When the provider session was last written, as the listing gives it: the summary's lastActivityAt." }),
+      })
+      .meta({ description: "The Carry over import made the session from a provider session in an adopted account's directory." }),
+  ])
+  .meta({
+    description:
+      "Where a session came from when no client asked for it: import (the Carry over import, from a provider session in an adopted account's directory, with that account, the provider's session id, and the session's created-at and last activity).",
+  });
+export type SessionOrigin = z.infer<typeof SessionOrigin>;
+
 export const SessionCreatedPayload = z
   .object({
     title: UserTitle.nullable().meta({ description: "The user's title, trimmed; null for the fallback." }),
@@ -478,8 +505,14 @@ export const SessionCreatedPayload = z
     account: z.string().min(1).nullable().meta({ description: "The account asked for, if any; the adapter workstream (#119) validates it." }),
     model: z.string().min(1).nullable().meta({ description: "The model asked for, if any; the adapter workstream (#119) validates it." }),
     mode: Mode.nullable().meta({ description: "The mode asked for, if any; clamped at each run, and changed by session.mode.set." }),
+    origin: SessionOrigin.optional().meta({
+      description: "Where the session came from when no client asked for it: import, with what the import linked and read; absent for a session a command created.",
+    }),
   })
-  .meta({ description: "session.created: a session was created; its createdAt is the event's occurredAt." });
+  .meta({
+    description:
+      "session.created: a session was created; its createdAt is the event's occurredAt, or an imported session's origin.createdAt, whose lastActivityAt is its origin's too.",
+  });
 
 export const SessionTitleSetPayload = z
   .object({

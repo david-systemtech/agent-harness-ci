@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverImportedPayload",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "sessions": {
+      "type": "object",
+      "properties": {
+        "listed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "The sessions the adapter listed, a provider session listed twice counted once."
+        },
+        "imported": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Those imported: each an imported session now, or, in a dry run, each one that would be."
+        },
+        "archived": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Of those imported, those imported archived."
+        },
+        "missingDirectory": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Of those imported, those marked missing, their working directory gone."
+        },
+        "held": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Those left alone: this environment already held them, by provider session id."
+        }
+      },
+      "required": [
+        "listed",
+        "imported",
+        "archived",
+        "missingDirectory",
+        "held"
+      ],
+      "description": "What an import did with the listed sessions: imported, archived, marked missing, or left alone as held already."
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "providerSessionId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The provider session that was not imported; null when the listing itself failed and nothing could be."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What went wrong, for a person."
+          }
+        },
+        "required": [
+          "providerSessionId",
+          "message"
+        ],
+        "description": "What an import could not do: a session it could not import, or (no provider session id) the directory it could not list."
+      },
+      "description": "What could not be imported, each with why; empty when everything was."
+    }
+  },
+  "required": [
+    "accountId",
+    "sessions",
+    "failed"
+  ],
+  "description": "carry-over.imported: an import of an adopted account's directory ended: what it did with the sessions, and what failed."
+}
