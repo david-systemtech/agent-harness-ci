@@ -1,5 +1,6 @@
 import type { Clock, Runtime, Shell } from "@agent-harness/client-runtime";
 import { useMemo, type ReactNode } from "react";
+import { WindowAttention } from "./attention/window-attention.js";
 import { LocalServiceProvider } from "./connections/local-service.js";
 import { PairingProvider } from "./connections/pairing.js";
 import { Frame } from "./frame/frame.js";
@@ -73,6 +74,7 @@ export const App = ({ runtime, presentation, clock, version, macOS, shell, stepC
                   </RunChoicesProvider>
                 </CommandPalette>
                 <StepNotices />
+                <WindowAttention />
               </ChecklistProvider>
             </StepCardsContext>
           </SettingsProvider>
