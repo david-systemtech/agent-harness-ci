@@ -97,6 +97,8 @@ describe("the method registry", () => {
       "sessions.rewind": ["command", "runs:drive"],
       // Undoing one, beside it (ADR 0022, #218).
       "sessions.undoRewind": ["command", "runs:drive"],
+      // The session's browser chooses what its next run may drive (browser spec, "The browser as a session field"; #550).
+      "sessions.setBrowser": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],

@@ -48,6 +48,14 @@ const invalidWorkspaceRequests = [
   { kind: "none" },
   { kind: "bank", path: "/work/bank" },
 ];
+const environmentId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const chromeId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+/** Every shape of a session's browser, each valid: a named Chrome, the plain My Chrome, headless, the dock and none. */
+const browsers = [{ kind: "chrome", environmentId, chromeId }, { kind: "chrome", environmentId, chromeId: null }, { kind: "headless" }, { kind: "dock" }, { kind: "none" }];
+/** Browsers no session chooses: a Chrome without its environment or its id, a kind the field does not know, a bare kind. */
+const invalidBrowsers = [{ kind: "chrome", environmentId }, { kind: "chrome", chromeId }, { kind: "chrome", environmentId: "e-1", chromeId: null }, { kind: "firefox" }, "headless"];
+const runId = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
+const resolution = { requested: null, browser: { kind: "headless" }, reason: "default", message: "The session chose no browser, so the run takes this environment's headless browser." };
 const pullRequest = { url: "https://git.systemtech.dev:5526/david/agent-harness/pulls/167", state: "open", mergedAt: null, closedAt: null };
 const mergedPullRequest = { ...pullRequest, state: "merged", mergedAt: later };
 
@@ -79,6 +87,7 @@ export const freshSummary = {
   accountId: null,
   model: null,
   mode: null,
+  browser: null,
   pullRequests: [],
   draft: null,
 };
@@ -108,6 +117,7 @@ const fullSummary = {
   accountId: "claude-max",
   model: "claude-opus-5-5",
   mode: "plan",
+  browser: { kind: "chrome", environmentId, chromeId: null },
   pullRequests: [mergedPullRequest],
   draft: "Now the retention sweep",
 };
@@ -116,6 +126,8 @@ const invalidSummaries = [
   {},
   { ...freshSummary, mode: "yolo" },
   { ...freshSummary, mode: "default" },
+  { ...freshSummary, browser: { kind: "firefox" } },
+  { ...freshSummary, browser: undefined },
   { ...freshSummary, id: "not-a-uuid" },
   { ...freshSummary, title: "" },
   { ...freshSummary, titleSource: "provider" },
@@ -171,6 +183,14 @@ const eventPayloads: Record<string, Fixtures> = {
   "session.active-reordered": { valid: [{ activeOrderKey: "c" }, { activeOrderKey: null }], invalid: [{}, { activeOrderKey: "" }] },
   "session.tagged": { valid: [{ tag: "wip" }], invalid: [{}, { tag: "" }] },
   "session.untagged": { valid: [{ tag: "Seth" }], invalid: [{ tag: 1 }, { tag: "x".repeat(41) }] },
+  "session.browser.set": {
+    valid: [...browsers.map((browser) => ({ browser, chosenBy: "person" })), { browser: null, chosenBy: "person" }, { browser: browsers[0], chosenBy: "agent" }, { browser: browsers[1], chosenBy: "reach" }, { browser: { kind: "none" }, chosenBy: "completions" }],
+    invalid: [{ browser: browsers[0] }, { browser: browsers[0], chosenBy: "routine" }, { browser: { kind: "firefox" }, chosenBy: "person" }],
+  },
+  "run.browser.resolved": {
+    valid: [{ runId, ...resolution }, { runId, ...resolution, requested: { kind: "dock" }, browser: { kind: "none" }, reason: "unattended" }],
+    invalid: [resolution, { runId: "r-1", ...resolution }, { runId, ...resolution, reason: "because" }],
+  },
   "session.draft-set": { valid: [{ draft: "Now the retention sweep" }, { draft: null }], invalid: [{}, { draft: "" }] },
   "session.group-set": { valid: [{ groupId }, { groupId: null }], invalid: [{}, { groupId: "g-1" }] },
   "session.settled": {
@@ -286,6 +306,20 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
     valid: ["/work/agent-harness", "~", "~/code", "~\\code", "C:\\Users\\david", "\\\\nas\\share"],
     invalid: ["", "work/agent-harness", "~david/code", "./a", "..", 7],
   },
+  "sessions/browser.json": { valid: browsers, invalid: [null, ...invalidBrowsers] },
+  "sessions/browser-on-create.json": {
+    valid: [{ value: browsers[0], chosenBy: "person" }, { value: browsers[1], chosenBy: "reach" }],
+    invalid: [{ value: null, chosenBy: "person" }, { value: browsers[0], chosenBy: "agent" }, { value: browsers[0] }, browsers[0]],
+  },
+  "sessions/browser-chooser.json": { valid: ["person", "agent", "reach", "completions"], invalid: ["routine", ""] },
+  "sessions/browser-resolution-reason.json": {
+    valid: ["chosen", "default", "unattended", "headless-not-allowed", "headless-unavailable"],
+    invalid: ["because", ""],
+  },
+  "sessions/run-browser-resolution.json": {
+    valid: [resolution, { ...resolution, requested: browsers[0], browser: { kind: "none" }, reason: "unattended" }],
+    invalid: [{ ...resolution, browser: null }, { ...resolution, message: "" }, { ...resolution, reason: "because" }],
+  },
   "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
   "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
@@ -344,6 +378,8 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         { commandId, id: sessionId, workspace },
         { commandId, id: sessionId, title: "Fix it", tags: ["wip", "Seth"], groupId, workspace, account: "claude-max", model: "opus", mode: "plan" },
         { commandId, id: sessionId, groupId: null, workspace },
+        ...browsers.map((value) => ({ commandId, id: sessionId, workspace, browser: { value, chosenBy: "person" } })),
+        { commandId, id: sessionId, workspace, browser: { value: browsers[1], chosenBy: "reach" } },
         ...workspaceRequests.map((request) => ({ commandId, id: sessionId, workspace: request })),
       ],
       invalid: [
@@ -356,6 +392,9 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         { commandId, id: sessionId, workspace, tags: [""] },
         ...invalidWorkspaceRequests.map((request) => ({ commandId, id: sessionId, workspace: request })),
         { commandId, id: sessionId, workspace, mode: "dontAsk" },
+        { commandId, id: sessionId, workspace, browser: browsers[2] },
+        { commandId, id: sessionId, workspace, browser: { value: null, chosenBy: "person" } },
+        { commandId, id: sessionId, workspace, browser: { value: browsers[2], chosenBy: "agent" } },
       ],
     },
     result: summaryResult,
@@ -395,6 +434,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
     params: {
       valid: [{ ...target, draft: "Now the retention sweep" }, { ...target, draft: null }, { ...target, draft: "" }],
       invalid: [target, { ...target, draft: 7 }, { ...target, draft: "x".repeat(65_537) }],
+    },
+    result: summaryResult,
+  },
+  "sessions.setBrowser": {
+    params: {
+      valid: [...browsers.map((browser) => ({ ...target, browser })), { ...target, browser: null }],
+      invalid: [target, ...invalidBrowsers.map((browser) => ({ ...target, browser })), { commandId, browser: null }],
     },
     result: summaryResult,
   },

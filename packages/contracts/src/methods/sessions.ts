@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SessionBrowser } from "../browser-choice.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Mode } from "../permissions-modes.js";
@@ -38,6 +39,20 @@ const groupResult = z.object({ group: Group });
 /** A session command on `sessionId` with no further params, answered with the summary as the command left it. */
 const sessionCommand = <const N extends `sessions.${string}`>(name: N) =>
   defineMethod({ name, scope: "sessions:write", kind: "command", params: commandParams(sessionTarget), result: summaryResult, errors: [] });
+
+/**
+ * The browser `sessions.create` records as the session's first (browser
+ * spec, "The browser as a session field"): the value, and who chose it, a
+ * person, or the reach default of the account (`browser.reach`) that the
+ * client presets a new session's browser from.
+ */
+export const BrowserOnCreate = z
+  .object({
+    value: SessionBrowser,
+    chosenBy: z.enum(["person", "reach"]).meta({ description: "Who chose it: person, or reach (the account's browser.reach default, as the client preset it)." }),
+  })
+  .meta({ description: "The session's first browser and who chose it: a person or the reach default." });
+export type BrowserOnCreate = z.infer<typeof BrowserOnCreate>;
 
 /**
  * Create a session: its client-minted id, an optional title, tags and
@@ -87,6 +102,9 @@ export const sessionsCreate = defineMethod({
     account: z.string().min(1).optional().meta({ description: "The account the session's runs use, one the environment holds and is signed in; the environment's default account at each run when absent." }),
     model: z.string().min(1).optional().meta({ description: "The model the session's runs use; the adapter workstream's to validate." }),
     mode: Mode.optional().meta({ description: "The mode the session's runs start in, clamped at each run; permissions.mode.set changes it." }),
+    browser: BrowserOnCreate.optional().meta({
+      description: "The session's first browser and who chose it, recorded as session.browser.set after session.created; none chosen (null) when absent. sessions.setBrowser changes it.",
+    }),
   }),
   result: summaryResult,
   errors: [],
@@ -196,6 +214,30 @@ export const sessionsSetDraft = defineMethod({
   params: commandParams({
     ...sessionTarget,
     draft: Draft.nullable().meta({ description: "The draft that replaces the stored one; null or an empty string clears it." }),
+  }),
+  result: summaryResult,
+  errors: [],
+});
+
+/**
+ * Set the session's browser (browser spec, "The browser as a session
+ * field"; ADR 0014): a Chrome (a null `chromeId` the plain My Chrome), the
+ * headless browser, the dock, none, or null for none chosen, which each run
+ * resolves to a default. At `runs:drive`, since it chooses what the
+ * session's next run may drive, as `sessions.rewind` and
+ * `permissions.mode.set` are. Recorded as `session.browser.set`, chosen by
+ * a person; a browser the session has already appends nothing. A live run
+ * keeps the browser it resolved at its start; the next run resolves the new
+ * one. Setting it does not move `updatedAt`. A session that is not here, or
+ * is deleted, is `not_found` (data kind `session`).
+ */
+export const sessionsSetBrowser = defineMethod({
+  name: "sessions.setBrowser",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({
+    ...sessionTarget,
+    browser: SessionBrowser.nullable().meta({ description: "The session's browser; null for none chosen." }),
   }),
   result: summaryResult,
   errors: [],

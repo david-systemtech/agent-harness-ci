@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BrowserResolutionReason",
+  "type": "string",
+  "enum": [
+    "chosen",
+    "default",
+    "unattended",
+    "headless-not-allowed",
+    "headless-unavailable"
+  ],
+  "description": "Why a run's browser resolved as it did: chosen (the session's field named it), default (the field chose none, and the run takes the environment's headless browser), unattended (nobody is present, so a Chrome or the dock the field named resolves to none), headless-not-allowed (browser.headless.allowRuns is off), or headless-unavailable (the field chose none and the environment has no headless browser)."
+}

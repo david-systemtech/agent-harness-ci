@@ -355,6 +355,26 @@
       "title": "RequestedDirectory"
     },
     {
+      "path": "sessions/browser.json",
+      "title": "SessionBrowser"
+    },
+    {
+      "path": "sessions/browser-chooser.json",
+      "title": "BrowserChooser"
+    },
+    {
+      "path": "sessions/browser-on-create.json",
+      "title": "BrowserOnCreate"
+    },
+    {
+      "path": "sessions/browser-resolution-reason.json",
+      "title": "BrowserResolutionReason"
+    },
+    {
+      "path": "sessions/run-browser-resolution.json",
+      "title": "RunBrowserResolution"
+    },
+    {
       "path": "sessions/activity-state.json",
       "title": "ActivityState"
     },
@@ -621,6 +641,14 @@
     {
       "path": "sessions/events/run.instructions.composed.json",
       "title": "RunInstructionsComposedPayload"
+    },
+    {
+      "path": "sessions/events/session.browser.set.json",
+      "title": "SessionBrowserSetPayload"
+    },
+    {
+      "path": "sessions/events/run.browser.resolved.json",
+      "title": "RunBrowserResolvedPayload"
     },
     {
       "path": "sessions/events/group.created.json",
@@ -3379,6 +3407,22 @@
       "title": "sessions.untag error"
     },
     {
+      "path": "methods/sessions.setBrowser/params.json",
+      "title": "sessions.setBrowser params"
+    },
+    {
+      "path": "methods/sessions.setBrowser/result.json",
+      "title": "sessions.setBrowser result"
+    },
+    {
+      "path": "methods/sessions.setBrowser/response.json",
+      "title": "sessions.setBrowser response"
+    },
+    {
+      "path": "methods/sessions.setBrowser/error.json",
+      "title": "sessions.setBrowser error"
+    },
+    {
       "path": "methods/sessions.setDraft/params.json",
       "title": "sessions.setDraft params"
     },
@@ -5622,6 +5666,16 @@
       "result": "methods/sessions.untag/result.json",
       "response": "methods/sessions.untag/response.json",
       "error": "methods/sessions.untag/error.json"
+    },
+    {
+      "name": "sessions.setBrowser",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setBrowser/params.json",
+      "result": "methods/sessions.setBrowser/result.json",
+      "response": "methods/sessions.setBrowser/response.json",
+      "error": "methods/sessions.setBrowser/error.json"
     },
     {
       "name": "sessions.setDraft",
