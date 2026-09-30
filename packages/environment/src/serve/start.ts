@@ -140,6 +140,7 @@ import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillsMethods } from "../skills/methods.js";
 import { trustMethods } from "../trust/methods.js";
+import { carryOverMethods } from "../carry-over/methods.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { setupMethods } from "../setup/methods.js";
@@ -1264,6 +1265,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       store: trustStore,
       clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
     }),
+    // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
+    // at through the availability watcher and given the identity the environment's resolver finds there.
+    ...carryOverMethods({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path) }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,

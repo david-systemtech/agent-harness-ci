@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   registry,
   type AccountRecord,
@@ -12,6 +12,7 @@ import {
   type ResultOf,
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { snapshotOf } from "../../test/accounts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, signedInAs, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
@@ -71,24 +72,6 @@ const statusBy =
     if (account.directory === ambient) return signedInAs(DAVID);
     return signedInAs(`${account.id}@example.com`);
   };
-
-/** Everything in a directory as it stands: each entry's path, kind, mode, size, modification time, inode and bytes. */
-const snapshotOf = (root: string): Record<string, unknown>[] => {
-  const entries: Record<string, unknown>[] = [];
-  const walk = (directory: string): void => {
-    for (const name of readdirSync(directory).sort()) {
-      const path = join(directory, name);
-      const stat = lstatSync(path);
-      const kind = stat.isSymbolicLink() ? "link" : stat.isDirectory() ? "directory" : "file";
-      entries.push({ path: relative(root, path), kind, mode: stat.mode, size: stat.size, mtimeMs: stat.mtimeMs, ino: stat.ino, ...(kind === "file" && { bytes: readFileSync(path, "utf8") }) });
-      if (kind === "directory") walk(path);
-    }
-  };
-  const top = lstatSync(root);
-  entries.push({ path: ".", mode: top.mode, ino: top.ino, mtimeMs: top.mtimeMs });
-  walk(root);
-  return entries;
-};
 
 /** Every symbolic link under `root`. */
 const linksUnder = (root: string): string[] => {

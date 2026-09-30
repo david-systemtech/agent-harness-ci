@@ -100,11 +100,29 @@ export interface ProviderCommand {
   readonly description: string;
 }
 
-/** A session the provider holds (`sessionListing`). */
+/**
+ * A session the provider holds in an account's directory, as the listing
+ * (`sessionListing`) answers it for Carry over (ADR 0021, #578): what the
+ * provider's own session info says of it. The listing leaves out orphaned
+ * and superseded transcripts, so every session here has a working
+ * directory.
+ */
 export interface ProviderSessionInfo {
   readonly providerSessionId: string;
-  readonly title: string | null;
-  readonly updatedAt: string;
+  /** The title the provider keeps for it: a person's rename, else one the provider generated; null for none. */
+  readonly customTitle: string | null;
+  /** The provider's one line for it (its summary); null for none. */
+  readonly summary: string | null;
+  /** The session's first prompt as its transcript opens; null for none. */
+  readonly firstPrompt: string | null;
+  /** The directory the session ran in, as the transcript names it. */
+  readonly workingDirectory: string;
+  /** The tag the provider keeps on it (`archived`); null for none. */
+  readonly tag: string | null;
+  /** When it began, as an ISO 8601 instant; null when the transcript does not say. */
+  readonly createdAt: string | null;
+  /** When its transcript was last written, as an ISO 8601 instant. */
+  readonly lastModified: string;
 }
 
 /** An attachment as a run is handed it: what it is, and its bytes, which never go in the log. */
@@ -857,7 +875,11 @@ export interface Adapter {
    * (`commands`); a trusted repository's own commands among them.
    */
   commands?(account: AccountRef, workspace: Workspace, scope?: { readonly trusted: boolean }): Promise<readonly ProviderCommand[]>;
-  /** The provider's sessions (`sessionListing`). */
+  /**
+   * The sessions the provider holds in the account's directory, every
+   * project of it (`sessionListing`): what Carry over imports (ADR 0021,
+   * #578). Reads, and never creates, links or deletes anything there.
+   */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
   /**
    * The title the provider generated for a session (`titleRead`), or null for
