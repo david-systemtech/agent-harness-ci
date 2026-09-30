@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunBrowserResolution",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "chrome"
+                },
+                "environmentId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "description": "The environment the Chrome is paired with."
+                },
+                "chromeId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+                }
+              },
+              "required": [
+                "kind",
+                "environmentId",
+                "chromeId"
+              ],
+              "description": "A Chrome paired with an environment."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "headless"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "The headless browser of the environment the run is on."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "dock"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "The browser dock in the desktop window."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "none"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "description": "No browser: the run reads the web with web_read alone."
+            }
+          ],
+          "description": "A browser a session chose: a Chrome (a null chromeId the plain My Chrome), headless, the dock, or none."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The session's browser field as the run read it at its start; null for none chosen."
+    },
+    "browser": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "chrome"
+            },
+            "environmentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The environment the Chrome is paired with."
+            },
+            "chromeId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The Chrome; null for the plain My Chrome, whichever of that environment's Chromes is connected."
+            }
+          },
+          "required": [
+            "kind",
+            "environmentId",
+            "chromeId"
+          ],
+          "description": "A Chrome paired with an environment."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "headless"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The headless browser of the environment the run is on."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dock"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The browser dock in the desktop window."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "No browser: the run reads the web with web_read alone."
+        }
+      ],
+      "description": "The browser the run may drive: none for no browser."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "chosen",
+        "default",
+        "unattended",
+        "headless-not-allowed",
+        "headless-unavailable"
+      ],
+      "description": "Why a run's browser resolved as it did: chosen (the session's field named it), default (the field chose none, and the run takes the environment's headless browser), unattended (nobody is present, so a Chrome or the dock the field named resolves to none), headless-not-allowed (browser.headless.allowRuns is off), or headless-unavailable (the field chose none and the environment has no headless browser)."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why, as a sentence for a person."
+    }
+  },
+  "required": [
+    "requested",
+    "browser",
+    "reason",
+    "message"
+  ],
+  "description": "A run's browser as resolved at its start: the field it read, the browser it gets, and why."
+}

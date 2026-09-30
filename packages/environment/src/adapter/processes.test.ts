@@ -510,6 +510,7 @@ describe("a parked process", () => {
       "session.created",
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       "session.title-generated",
       "run.instructions.composed",

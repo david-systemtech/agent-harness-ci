@@ -11,6 +11,8 @@ import {
   type MessageWithdrawnPayload,
   type Mode,
   type QueueHolder,
+  type RunBrowserResolution,
+  type RunBrowserResolvedPayload,
   type RunOrigin,
   type RunPolicy,
   type RunPolicyResolvedPayload,
@@ -21,6 +23,7 @@ import {
 import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, RunTarget } from "../adapter/contract.js";
 import type { ClientTool, PolicySeam } from "../adapter/seams.js";
+import type { BrowserSeam } from "../browser/run-browser.js";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import type { QueuedMessage, RunRow, SentMessageRow, SessionFacts } from "./run-reads.js";
@@ -88,6 +91,8 @@ export interface StartFacts {
   readonly actor: RunActor;
   /** The policy resolver (#129): the run's mode clamped to the ceiling and the account's modes. */
   readonly resolvePolicy: PolicySeam;
+  /** The browser resolver (#550): the session's browser as the run may drive it, by whether a person is present. */
+  readonly resolveBrowser: BrowserSeam;
   /**
    * The Account step's defaults (#134): the family whose strongest model a
    * run takes when neither it nor its session names one, and the effort it
@@ -171,6 +176,8 @@ export interface PlannedRun {
   readonly actor: RunActor;
   /** The run's policy as resolved at its start, recorded as `run.policy.resolved`: fixed for the run, whatever changes after. */
   readonly policy: RunPolicy;
+  /** The run's browser as resolved at its start, recorded as `run.browser.resolved`: fixed for the run, whatever the session's field says after. */
+  readonly browser: RunBrowserResolution;
   /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
   readonly appendedInstructions: string | null;
   /** The tools the caller runs (`StartCommand.clientTools`); empty for none. */
@@ -277,10 +284,17 @@ export const policyResolvedEvent = (runId: string, policy: RunPolicy): EventInpu
   return { type: "run.policy.resolved", payload };
 };
 
+/** A run's browser as its `run.browser.resolved` records it. */
+export const browserResolvedEvent = (runId: string, browser: RunBrowserResolution): EventInput => {
+  const payload: RunBrowserResolvedPayload = { runId, ...browser };
+  return { type: "run.browser.resolved", payload };
+};
+
 /**
  * Starts a run: `run.started`, then its policy (`run.policy.resolved`, the
  * run's one, in the same append, so it precedes every event the provider
- * reports), then a `message.delivered` for each queued message it reads,
+ * reports) and its browser (`run.browser.resolved`, resolved for whether the
+ * policy found a person present), then a `message.delivered` for each queued message it reads,
  * then `message.sent` for the message it starts with. A session not here is
  * not found; one whose workspace is missing is `workspace_missing`, with the
  * path; a live run is `run_active` (send is the way in); an account not
@@ -338,7 +352,8 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   };
   const queued: PromptMessage[] = facts.queued.map((message) => ({ messageId: message.messageId, text: message.text, attachments: [] }));
   const sent: PromptMessage[] = command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }];
-  const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy)];
+  const browser = facts.resolveBrowser({ field: session.browser, attended: policy.attended });
+  const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), browserResolvedEvent(runId, browser)];
   for (const messageId of queuedIds) {
     const delivered: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
     events.push({ type: "message.delivered", payload: delivered });
@@ -361,6 +376,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       target: facts.target,
       actor: facts.actor,
       policy,
+      browser,
       appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
       clientTools: command.clientTools ?? [],
       prompt: command.messageFirst === true ? [...sent, ...queued] : [...queued, ...sent],

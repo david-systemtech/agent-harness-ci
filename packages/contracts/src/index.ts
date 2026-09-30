@@ -6,6 +6,7 @@ export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
+export * from "./browser-choice.js";
 export * from "./browser-chromes.js";
 export * from "./browser-driver.js";
 export * from "./browser-policy.js";
@@ -105,6 +106,7 @@ export {
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
 export { DenylistedError, MAX_PRE_CHECK_OUTPUT_BYTES, OutputTooLargeError, ROUTINE_HISTORY_LIMIT, ROUTINE_HISTORY_MAX } from "./methods/routines.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
+export { BrowserOnCreate } from "./methods/sessions.js";
 export {
   MAX_PROCESS_IDLE_MINUTES,
   PROCESS_HOLD_KINDS,
@@ -124,6 +126,7 @@ export * from "./registry.js";
 export * from "./release.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";
+export * from "./session-browser.js";
 export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./settings-rows.js";

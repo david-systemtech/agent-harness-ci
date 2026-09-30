@@ -81,6 +81,7 @@ const summary = (id: string, title: string, at: string): SessionSummary => ({
   accountId: null,
   model: null,
   mode: null,
+  browser: null,
   pullRequests: [],
   draft: null,
 });

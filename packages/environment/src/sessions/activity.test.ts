@@ -105,6 +105,7 @@ describe("a run's start", () => {
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.policy.resolved",
+      "run.browser.resolved",
       "message.sent",
       "session.unarchived",
       "session.unsettled",
@@ -112,7 +113,16 @@ describe("a run's start", () => {
       "session.title-generated",
     ]);
     expectOneTransaction(events);
-    const [started, , sent, unarchived, unsettled, unsnoozed, titled] = events as [EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope];
+    const [started, , , sent, unarchived, unsettled, unsnoozed, titled] = events as [
+      EventEnvelope,
+      EventEnvelope,
+      EventEnvelope,
+      EventEnvelope,
+      EventEnvelope,
+      EventEnvelope,
+      EventEnvelope,
+      EventEnvelope,
+    ];
     expect(started).toMatchObject({ commandId, occurredAt: at(MINUTE), actor: `client_session:${client.hello.clientSessionId}` });
     expect([unarchived, unsettled, unsnoozed].map((event) => event.causationId)).toEqual([started.eventId, started.eventId, started.eventId]);
     expect(titled.causationId).toBe(sent.eventId);
@@ -159,7 +169,7 @@ describe("a run's start", () => {
       const head = t.env.log.head();
       const { sequence } = await startRun(client, id);
       const types = eventsOf(t, id, head, sequence).map((event) => event.type);
-      expect(types, name).toEqual(["run.started", "run.policy.resolved", "message.sent", ...companions, "session.title-generated"]);
+      expect(types, name).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", ...companions, "session.title-generated"]);
     }
   });
 
@@ -201,11 +211,12 @@ describe("a run's start", () => {
     expect(events.map((event) => [event.type, event.payload["reason"]])).toEqual([
       ["run.started", undefined],
       ["run.policy.resolved", undefined],
+      ["run.browser.resolved", "headless-unavailable"],
       ["message.sent", undefined],
       ["session.unsettled", "activity"],
       ["session.title-generated", undefined],
     ]);
-    expect(events[3]?.causationId).toBe(events[0]?.eventId);
+    expect(events[4]?.causationId).toBe(events[0]?.eventId);
     await list.next();
     expect(patchOf(await list.next())).toEqual({ op: "set", sessionId: id, fields: { settledOverride: null, unsettledAt: at(3 * DAY), updatedAt: at(3 * DAY) } });
     await waitForEvent(t, id, head, "run.ended", runId);
@@ -226,9 +237,9 @@ describe("a run's start", () => {
     const answer = await run(client, "runs.send", { sessionId: id, text: "Go on", commandId });
     expect(answer.result).toMatchObject({ delivery: "prompt" });
     const events = eventsOf(t, id, head, answer.receipt.sequence);
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.unarchived", "session.title-generated"]);
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "session.unarchived", "session.title-generated"]);
     expectOneTransaction(events);
-    expect(events[3]).toMatchObject({ commandId, causationId: events[0]?.eventId });
+    expect(events[4]).toMatchObject({ commandId, causationId: events[0]?.eventId });
   });
 
   it("owes its companions on a run the environment starts from its queue, in the host's transaction of that run.started", async () => {
@@ -257,11 +268,11 @@ describe("a run's start", () => {
       expect(found).toBeDefined();
       return found;
     })) as EventEnvelope;
-    const events = from(t, started, 4);
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.delivered", "session.unarchived"]);
+    const events = from(t, started, 5);
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.delivered", "session.unarchived"]);
     expectOneTransaction(events);
     expect(events[0]).toMatchObject({ actor: "system:adapter-host", commandId: null, payload: { queuedMessageIds: [queued.result?.messageId] } });
-    expect(events[3]?.causationId).toBe(started.eventId);
+    expect(events[4]?.causationId).toBe(started.eventId);
     expect((await get(client, id)).archivedAt).toBeNull();
   });
 
@@ -291,11 +302,11 @@ describe("a run's start", () => {
       expect(found).toBeDefined();
       return found;
     })) as EventEnvelope;
-    const events = from(t, started, 4);
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.delivered", "session.unsettled"]);
+    const events = from(t, started, 5);
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.delivered", "session.unsettled"]);
     expectOneTransaction(events);
     expect(events[0]).toMatchObject({ actor: "adapter:fake", payload: { origin: "provider" } });
-    expect(events[3]).toMatchObject({ causationId: started.eventId, payload: { reason: "activity" } });
+    expect(events[4]).toMatchObject({ causationId: started.eventId, payload: { reason: "activity" } });
     expect(await get(client, id)).toMatchObject({ settledAt: null, settledOverride: null });
   });
 });
@@ -509,7 +520,7 @@ describe("the generated title", () => {
     await waitForEvent(t, id, head, "run.ended", first.runId);
     const later = t.env.log.head();
     const second = await startRun(client, id, "Something else entirely");
-    expect(eventsOf(t, id, later, second.sequence).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent"]);
+    expect(eventsOf(t, id, later, second.sequence).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent"]);
     expect((await get(client, id)).title).toBe(expected);
   });
 
@@ -519,7 +530,7 @@ describe("the generated title", () => {
     const { id } = await create(client);
     const head = t.env.log.head();
     const first = await startRun(client, id, "  \n ");
-    expect(eventsOf(t, id, head, first.sequence).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent"]);
+    expect(eventsOf(t, id, head, first.sequence).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent"]);
     await waitForEvent(t, id, head, "run.ended", first.runId);
     await startRun(client, id, "Now a real one");
     expect(await get(client, id)).toMatchObject({ title: "Now a real one", titleSource: "generated" });

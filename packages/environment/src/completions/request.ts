@@ -40,6 +40,8 @@ export interface TurnExtension {
   readonly attended: boolean;
   /** Whether the request set `attended` at all, so a turn that cannot use it reports it ignored. */
   readonly attendedSet: boolean;
+  /** The browser a session the turn makes has: headless when the request asks, else none (null here). */
+  readonly browser: "headless" | null;
   readonly after: number | null;
 }
 
@@ -186,7 +188,7 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   for (const name of IGNORED_PARAMETERS) if (isSet(request[name])) ignored.push(name);
   const tools = readTools(request, tolerate, ignored);
   if (extension.alwaysOnSkills !== undefined && extension.alwaysOnSkills !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills`);
-  // A field the namespace does not know (a browser field, a later version's) is dropped, and said so.
+  // A field the namespace does not know (a later version's) is dropped, and said so.
   const known = new Set(Object.keys(ExtensionSchema.shape));
   const raw = (body as Record<string, unknown>)[COMPLETIONS_NAMESPACE];
   if (typeof raw === "object" && raw !== null) {
@@ -263,6 +265,7 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
       workspace: extension.workspace ?? null,
       attended: extension.attended === true,
       attendedSet: isSet(extension.attended),
+      browser: extension.browser ?? null,
       after: extension.after ?? null,
     },
     ignored,
