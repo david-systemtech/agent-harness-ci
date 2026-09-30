@@ -190,6 +190,28 @@ const getFirst = async (url: URL, addresses: readonly ResolvedAddress[], options
   return `${url.href} could not be reached (${failure}).`;
 };
 
+/**
+ * `promise`, or a rejection the moment `signal` aborts: a name's lookup,
+ * which the system's resolver cannot cancel, is left behind rather than
+ * waited on, so the deadline holds while a name is resolved too.
+ */
+const unlessAborted = <T>(promise: Promise<T>, signal: AbortSignal): Promise<T> =>
+  new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    if (signal.aborted) return aborted();
+    signal.addEventListener("abort", aborted, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", aborted);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", aborted);
+        reject(error);
+      },
+    );
+  });
+
 /** A scheme web_read reads. */
 const readable = (url: URL): boolean => url.protocol === "http:" || url.protocol === "https:";
 
@@ -217,7 +239,7 @@ export const fetchPage = async (first: URL, options: FetchOptions): Promise<Fetc
           };
         }
       }
-      const ruling = await checkHop(url, options.rules());
+      const ruling = await unlessAborted(checkHop(url, options.rules()), options.signal);
       if (!ruling.ok) return { kind: "refused", reason: redirects === 0 ? ruling.reason : `A redirect led to ${url.href}, which was not followed: ${ruling.reason}` };
       const response = await getFirst(url, ruling.addresses, options);
       if (typeof response === "string") return { kind: "refused", reason: response };

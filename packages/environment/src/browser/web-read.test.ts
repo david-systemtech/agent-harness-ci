@@ -256,6 +256,20 @@ describe("web_read's fetch", () => {
     expect(answers).toEqual([{ text: `${server.url("/slow")} did not finish answering within 30 seconds.`, isError: true }]);
   });
 
+  it("is bounded at 30 seconds while a name is being resolved: a lookup that never ends is left, and the model reads why", async () => {
+    let asked: () => void = () => {};
+    const lookup = new Promise<void>((resolve) => (asked = resolve));
+    const t = await start({ webRead: { resolve: () => (asked(), new Promise<never>(() => {})) } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const answers: HostToolResult[] = [];
+    const runId = await startReading(t, client, id, [{ address: "http://slow-dns.example/page" }], answers);
+    await lookup;
+    t.clock.advance(30_000);
+    await untilEnded(t, id, runId);
+    expect(answers).toEqual([{ text: "http://slow-dns.example/page did not finish answering within 30 seconds.", isError: true }]);
+  });
+
   it(
     "reads at most 20 MB of text and 50 MB of a PDF, and says a larger body was cut off",
     async () => {
