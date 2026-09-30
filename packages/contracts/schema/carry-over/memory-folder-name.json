@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarryOverMemoryFolderName",
+  "type": "string",
+  "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$",
+  "description": "A project folder's name under the adopted directory's projects/: one path segment, never . or ..; a lossy encoding of a path, which names no repository."
+}

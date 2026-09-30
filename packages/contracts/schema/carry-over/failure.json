@@ -13,7 +13,12 @@
           "type": "null"
         }
       ],
-      "description": "The provider session that was not imported; null when the listing itself failed and nothing could be."
+      "description": "The provider session that was not imported; null when the listing itself failed and nothing could be, or a memory folder failed."
+    },
+    "folder": {
+      "description": "The memory folder that was not copied, by its project folder's name; absent for a session's failure.",
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[^/\\\\\\0]+$"
     },
     "message": {
       "type": "string",
@@ -25,5 +30,5 @@
     "providerSessionId",
     "message"
   ],
-  "description": "What an import could not do: a session it could not import, or (no provider session id) the directory it could not list."
+  "description": "What an import could not do: a session it could not import, a memory folder it could not copy (its folder named), or (neither) the directory it could not list."
 }
