@@ -172,7 +172,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "environment.renamed": "The environment was renamed; a client redraws its badge.",
   "environment.icon-set": "The environment took another icon; a client redraws its badge.",
   "environment.colour-set": "The environment took another colour; a client redraws its badge.",
-  "environment.known-environments-updated": "The union of the other environments client sessions report changed; a client reads instructions.preview again.",
+  "environment.known-environments-updated": "The union of the other environments client sessions report changed; a client reads instructions.list and instructions.preview again.",
   "account.updated": "An account changed; a client refreshes what it caches of the accounts.",
   "signin.updated": "The sign-in changed state: the verification URL, the end.",
   "signin.executable-chosen": "Which executable sign-ins run, recorded once.",
