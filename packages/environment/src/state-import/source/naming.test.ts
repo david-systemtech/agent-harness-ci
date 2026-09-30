@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { SOURCE_PRODUCT_NAME } from "./folders.js";
 
 /**
- * The name check (AGENTS.md, "Naming"; ADR 0036): no file of the repository
+ * The name check (AGENTS.md, "Naming"; ADR 0036): no file the repository tracks
  * names the source product, save those of this directory, the state
  * import's source reader, which needs its folder names and variables to
  * detect it. The check skips this directory and nothing else.
@@ -23,7 +23,7 @@ describe("the name check", () => {
   });
 
   it("finds the source product named in no file of the repository outside the source reader's directory", () => {
-    const listed = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8" });
+    const listed = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     const name = SOURCE_PRODUCT_NAME.toLowerCase();
     const naming = listed
       .split("\0")

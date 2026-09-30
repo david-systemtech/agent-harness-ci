@@ -40,7 +40,7 @@ describe("the terminal client's state folder's candidates", () => {
 });
 
 describe("detection", () => {
-  it("finds the first candidate holding a file the source writes there, passing over an empty folder, and the terminal folder by its files", async () => {
+  it("finds the first candidate holding a file the source writes there, passing over a folder holding none of the source's files, and the terminal folder by its files", async () => {
     const home = tempDir();
     mkdirSync(join(home, ".config", "Artemis"), { recursive: true });
     writeFileSync(join(home, ".config", "Artemis", "Local State"), "{}");
