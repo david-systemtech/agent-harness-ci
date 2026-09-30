@@ -150,7 +150,11 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
 - `agent-harness service install|uninstall|status|start` (`packages/cli/src/service/`)
   is tested with the service manager stubbed; `scripts/install.sh` is the
   headless installer, tested by `test/install-script.test.ts` against a fake
-  `curl`. What only a real launchd, `systemd --user` or Task Scheduler can prove
+  `curl`, and `scripts/install.ps1` its Windows twin, tested by
+  `test/install-ps1-script.test.ts` under PowerShell 7 against a fake
+  `curl.exe` and `whoami.exe` (CI puts `pwsh` on the job's PATH with
+  `.forgejo/scripts/pwsh.sh`; elsewhere those tests skip without one). What
+  only a real launchd, `systemd --user` or Task Scheduler can prove
   is the manual checklist in `docs/agents/service-install-checklist.md`, run (or listed as not run, per platform)
   when either changes. The container image (`Dockerfile`) and its compose file
   (`scripts/compose.yaml`) run the environment as a non-root user and are read

@@ -410,7 +410,8 @@ printf '%s\n' "$token" | cli_verb update credential --stdin
 if [ "$running" = 1 ] && [ -n "$version" ]; then cli_verb update apply --version "$version"; fi
 
 if [ "$dry_run" = 1 ]; then
-  printf '  %s pair, or the Tailscale warning when only loopback is bound\nDry run: nothing was downloaded or changed.\n' "$(plan_word "$cli")"
+  # pair's own plan line, the options it would take included.
+  printf '%s, or the Tailscale warning when only loopback is bound\nDry run: nothing was downloaded or changed.\n' "$(cli_verb pair)"
   exit 0
 fi
 
