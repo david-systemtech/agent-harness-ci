@@ -36,11 +36,11 @@ const { onCleanup } = useCleanups();
 const ENTRY = "coding.fresh-checkout";
 const TEXTS = ["Pull before you read code.", "Pull, or clone fresh, before you read code.", "Clone fresh before you read code, and name the commit."] as const;
 
-/** This build's catalogue with the fresh-checkout entry at `version` (1 to 3), every earlier text kept. */
-const catalogueAt = (version: 1 | 2 | 3): Catalogue => {
+/** This build's catalogue with the entry `id`, the fresh-checkout one unless named, at `version` (1 to 3), every earlier text kept. */
+const catalogueAt = (version: 1 | 2 | 3, id: string = ENTRY): Catalogue => {
   const entries = CATALOGUE.instructions.entries.map(
     (entry): CatalogueInstructionEntry =>
-      entry.id === ENTRY
+      entry.id === id
         ? { ...entry, version, text: TEXTS[version - 1] ?? "", earlierVersions: TEXTS.slice(0, version - 1).map((text, index) => ({ version: index + 1, text })) }
         : entry,
   );
@@ -235,13 +235,13 @@ describe("removal", () => {
       error: { data: { kind: "instruction" } },
     });
 
-    // A newer catalogue build brings nothing back.
-    catalogue.now = catalogueAt(3);
+    // A newer catalogue build, one with a newer version of the dismissed entry, brings nothing back.
+    catalogue.now = catalogueAt(3, "working.ask-with-a-recommendation");
     expect((await list(client)).dismissed).toEqual(["working.ask-with-a-recommendation"]);
     const ticked = await tick(client, "working.ask-with-a-recommendation");
     expect((await list(client)).dismissed).toEqual([]);
     expect(payloadsOf(t).slice(-2)).toEqual([
-      ["instructions.created", expect.objectContaining({ id: ticked.id, origin: { catalogueId: "working.ask-with-a-recommendation", version: 1 } })],
+      ["instructions.created", expect.objectContaining({ id: ticked.id, origin: { catalogueId: "working.ask-with-a-recommendation", version: 3 } })],
       ["instructions.suggestion-restored", { catalogueId: "working.ask-with-a-recommendation" }],
     ]);
   });

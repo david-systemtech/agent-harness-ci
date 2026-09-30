@@ -368,7 +368,7 @@ export const InstructionDiff = z
       description: "The entry's text at fromVersion, the old side of what the catalogue changed; null when this build's catalogue does not hold that version (a copy made by a newer build).",
     }),
     to: z.string().meta({ description: "The entry's current text: the new side of both diffs, and the body Replace sets." }),
-    body: InstructionBody.meta({ description: "The copy's body as it is now, the old side of what Replace would change: equal to from while the copy is unedited." }),
+    body: InstructionBody.meta({ description: "The copy's body as it is now, the old side of what Replace would change. It need not equal from even when never edited: a Keep leaves the older text, and an import holds the file's." }),
   })
   .meta({
     description:

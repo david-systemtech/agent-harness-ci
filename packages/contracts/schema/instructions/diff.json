@@ -34,7 +34,7 @@
     "body": {
       "type": "string",
       "maxLength": 20000,
-      "description": "The copy's body as it is now, the old side of what Replace would change: equal to from while the copy is unedited."
+      "description": "The copy's body as it is now, the old side of what Replace would change. It need not equal from even when never edited: a Keep leaves the older text, and an import holds the file's."
     }
   },
   "required": [
