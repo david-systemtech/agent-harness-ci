@@ -8,7 +8,7 @@ import {
   type EventEnvelope,
   type ResultOf,
 } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { TEST_EXTENSION_VERSION, dialExtension, fakeChrome, type FakeChrome, type FakeConnection, type FakeExtension } from "../../test/fake-extension.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -74,6 +74,24 @@ const paired = async (t: TestEnvironment, name = "Work"): Promise<{ chrome: Fake
   const connection = await chrome.pair((await pairingCode(t)).code, name);
   if (connection.answer.type !== "paired") throw new Error(`The pairing was refused: ${JSON.stringify(connection.answer)}`);
   return { chrome, connection, message: connection.answer };
+};
+
+/** Makes the log's reads of `table` throw, as a disk gone bad would, until the answer is called or the test ends; its other reads go through. */
+const failReadsOf = (t: TestEnvironment, table: RegExp): (() => void) => {
+  const read = t.env.log.read.bind(t.env.log);
+  const failing = vi.spyOn(t.env.log, "read").mockImplementation(((sql: string, ...params: Parameters<typeof read>[1][]) => {
+    if (table.test(sql)) throw new Error("the disk is gone");
+    return read(sql, ...params);
+  }) as typeof read);
+  onCleanup(() => failing.mockRestore());
+  return () => failing.mockRestore();
+};
+
+/** console.error, quiet until the test ends. */
+const quietErrors = () => {
+  const said = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => said.mockRestore());
+  return said;
 };
 
 /** Every event the log holds, on every stream. */
@@ -353,6 +371,19 @@ describe("a disconnection", () => {
     expect(await chromes(t)).toEqual([expect.objectContaining({ id: message.chromeId, connected: false })]);
   });
 
+  it("that cannot be recorded is logged, and the environment carries on", async () => {
+    const t = await start();
+    const { connection, message } = await paired(t);
+    const said = quietErrors();
+    const mend = failReadsOf(t, /FROM chromes\b/);
+
+    await connection.extension.close();
+
+    await vi.waitFor(() => expect(said).toHaveBeenCalledWith(`Recording that the Chrome ${message.chromeId} disconnected failed:`, expect.any(Error)), { timeout: WAIT_MS });
+    mend();
+    expect(await chromes(t)).toEqual([expect.objectContaining({ id: message.chromeId, connected: false })]);
+  });
+
   it("is not raised for a socket a newer one of the same Chrome replaced", async () => {
     const t = await start();
     const { chrome, connection, message } = await paired(t);
@@ -478,6 +509,19 @@ describe("the page policy", () => {
       sections: { browserDomains: [{ pattern: "*.bank.example", enabled: false }, { pattern: "*.pay.example" }, { pattern: "*.off.example", enabled: false }] },
     });
     expect(browserDomains(await extension.next((m) => m.type === "policy"))).toEqual(["*.pay.example"]);
+  });
+
+  it("is the one last read, so a Chrome pairs and connects while the settings and the denylist cannot be read", async () => {
+    const t = await start();
+    const { code } = await pairingCode(t);
+    failReadsOf(t, /FROM (settings|denylist_sections)\b/);
+    const chrome = chromeOf(t);
+
+    const pairing = await chrome.pair(code, "Work");
+    expect(pairing.answer).toMatchObject({ type: "paired", policy: { devSites: [], evaluateEverywhere: false, deepReadEverywhere: false } });
+    const { policy } = pairing.answer as Extract<BridgeFromEnvironment, { type: "paired" }>;
+    await pairing.extension.close();
+    expect((await chrome.connect()).answer).toEqual({ type: "ready", policy });
   });
 
   it("reaches the socket a Chrome paired on, and is not sent for a change that leaves it as it was", async () => {

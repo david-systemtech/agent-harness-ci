@@ -68,18 +68,19 @@ export type PairAnswer = { readonly ok: true; readonly chromeId: string; readonl
 /**
  * Where the listener takes what its sockets ask of the environment's paired
  * Chromes (#548): a pairing, a proof, a Chrome that connected or went, and
- * the page policy it sends.
+ * the page policy it sends. A failure of `pair` or `prove` is answered on the
+ * socket; `connected`, `disconnected` and `policy` never throw.
  */
 export interface ChromeDesk {
   /** A `pair` on a socket that announced `announce`; `open` says whether the socket is still there to hear the answer. */
   pair(pair: { readonly code: string; readonly name: string }, announce: Announce, open: () => boolean): Promise<PairAnswer>;
   /** The proof `mac` of the hello's Chrome on `nonce`: true, or the sentence the socket is refused with. */
   prove(hello: Hello, nonce: string, mac: string): Promise<true | string>;
-  /** The hello's Chrome proved itself and holds this socket now. */
+  /** The hello's Chrome proved itself and holds this socket now; a failure to record it is logged. */
   connected(hello: Hello): void;
-  /** A Chrome's proved socket closed, and no newer one replaced it. */
+  /** A Chrome's proved socket closed, and no newer one replaced it; a failure to record it is logged. */
   disconnected(chromeId: string): void;
-  /** The page policy as it is now. */
+  /** The page policy last sent to the proved sockets, held rather than read. */
   policy(): PagePolicy;
 }
 

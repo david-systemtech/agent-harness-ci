@@ -98,6 +98,12 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
       browserDomains: readDenylist(reader).browserDomains.filter((entry) => entry.enabled),
     };
   };
+  /**
+   * The page policy last read: when the service is made, then at each `settings.updated` and `denylist.changed`, a
+   * change that alters it being sent to every proved socket. A socket going live is sent the one held, so nothing is
+   * read on a socket's way and a failing read cannot fail it.
+   */
+  let heldPolicy = policy();
 
   const notice = (chromeId: string, name: string, change: ChromeChange): EventInput => ({ type: "chrome.updated", payload: { chromeId, name, change } });
 
@@ -113,12 +119,22 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
     log.append(stream, changes.map((change) => notice(chrome.id, chrome.name, change)), attribution);
   };
 
-  /** Records what no client asked for, in a transaction of its own; a failure is logged, never thrown at a socket. */
-  const recordBySystem = (chrome: { readonly id: string; readonly name: string }, events: readonly EventInput[], changes: readonly ChromeChange[]): void => {
+  /**
+   * Records what no client asked for about the Chrome `chromeId`, in a transaction of its own, and nothing when it is
+   * not paired. A failure, of the read or the append, is logged, never thrown at a socket.
+   */
+  const recordBySystem = (
+    chromeId: string,
+    what: string,
+    entries: (chrome: ChromeRecord) => { readonly events: readonly EventInput[]; readonly changes: readonly ChromeChange[] },
+  ): void => {
     try {
+      const chrome = readChrome(reader, chromeId);
+      if (chrome === undefined) return;
+      const { events, changes } = entries(chrome);
       log.atomically((tx) => record(chrome, events, changes, { tx, actor: BROWSER_ACTOR }));
     } catch (error) {
-      console.error(`Recording that the Chrome ${chrome.id} ${changes.join(" and ")} failed:`, error);
+      console.error(`Recording that the Chrome ${chromeId.toLowerCase()} ${what} failed:`, error);
     }
   };
 
@@ -167,22 +183,18 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
     },
 
     connected(hello) {
-      const chrome = readChrome(reader, hello.chromeId);
-      if (chrome === undefined) return;
-      const reported = hello.extensionVersion !== chrome.lastReportedVersion;
-      recordBySystem(
-        chrome,
-        reported ? [{ type: "chrome.version-reported", payload: { extensionVersion: hello.extensionVersion } }] : [],
-        reported ? ["version", "connected"] : ["connected"],
+      recordBySystem(hello.chromeId, "connected", (chrome) =>
+        hello.extensionVersion === chrome.lastReportedVersion
+          ? { events: [], changes: ["connected"] }
+          : { events: [{ type: "chrome.version-reported", payload: { extensionVersion: hello.extensionVersion } }], changes: ["version", "connected"] },
       );
     },
 
     disconnected(chromeId) {
-      const chrome = readChrome(reader, chromeId);
-      if (chrome !== undefined) recordBySystem(chrome, [], ["disconnected"]);
+      recordBySystem(chromeId, "disconnected", () => ({ events: [], changes: ["disconnected"] }));
     },
 
-    policy,
+    policy: () => heldPolicy,
   };
 
   const listener = createExtensionListener({
@@ -234,14 +246,13 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
   });
 
   // The port file names the environment as it is now: a rename writes it again. The page policy follows the settings and
-  // the denylist: a change that alters it is sent to every proved socket.
-  let sentPolicy = JSON.stringify(policy());
+  // the denylist: a change that alters it is held, and sent to every proved socket.
   const stopFollowing = log.subscribe((event) => {
     if (event.streamKind === stream.kind && event.streamId === stream.id && event.type === "environment.renamed") void ensure();
     if (event.type !== "settings.updated" && event.type !== "denylist.changed") return;
     const next = policy();
-    if (JSON.stringify(next) === sentPolicy) return;
-    sentPolicy = JSON.stringify(next);
+    if (JSON.stringify(next) === JSON.stringify(heldPolicy)) return;
+    heldPolicy = next;
     listener.sendPolicy(next);
   });
 
