@@ -9,9 +9,9 @@
 # version's `service install` (the Task Scheduler logon task) and `service
 # start`, waits for the environment's health URL to say ready, sets the channel
 # with `update settings`, hands its token to the environment with `update
-# credential --stdin`, and ends with `pair`'s link, QR and code on the tailnet
-# address (or the Tailscale warning when only loopback is bound) and the shim's
-# Path line.
+# credential --stdin`, and ends with the link, QR and code of `pair --preset
+# own-client` (my own client's grant) on the tailnet address (or the Tailscale
+# warning when only loopback is bound) and the shim's Path line.
 #
 # Run again over a running service it downloads and unpacks nothing, since the
 # launcher alone writes the versions directory while it runs: the active
@@ -462,7 +462,7 @@ function Invoke-Install {
   if ($running -and $Version) { Invoke-Verb $cli @('update', 'apply', '--version', $Version) -WithTarget }
 
   if ($dry) {
-    Write-Host ((Format-PlanLine $cli (@('pair') + $targetOptions)) + ', or the Tailscale warning when only loopback is bound')
+    Write-Host ((Format-PlanLine $cli (@('pair', '--preset', 'own-client') + $targetOptions)) + ', or the Tailscale warning when only loopback is bound')
     Write-Host 'Dry run: nothing was downloaded or changed.'
     return
   }
@@ -470,8 +470,8 @@ function Invoke-Install {
   # A pairing on the tailnet address, which `pair` builds its link on; with only loopback bound no other machine could use one.
   $discovery = Get-EnvironmentJson "$environmentUrl/.well-known/$ProductName/environment"
   if ($null -ne $discovery -and $discovery.authPolicy -eq 'tailnet') {
-    # `pair`'s own grant: every scope, and the ceiling the environment's permissions.defaultCeiling names.
-    Invoke-Verb $cli @('pair') -WithTarget
+    # My own client's grant (ADR 0025): every scope and the top ceiling, since every client paired is the same person.
+    Invoke-Verb $cli @('pair', '--preset', 'own-client') -WithTarget
   } else {
     Write-Host ''
     Write-Host 'No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.'
