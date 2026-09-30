@@ -77,7 +77,9 @@ export const computerGh = ({ os, process, environment }: GhParts): { readonly to
   const places = GH_PLACES[os];
   const path = [...new Set([...(environment["PATH"] ?? "").split(":").filter((part) => part !== ""), ...places])].join(":");
   // Windows names its PATH as it likes and puts gh on it at install: it is left as it is.
-  const env = { ...Object.fromEntries(Object.entries(environment).filter(([name]) => !TOKEN_VARIABLES.includes(name))), ...(places.length > 0 && { PATH: path }) };
+  // Windows reads a variable's name in any casing, so a token one is known there by its name upper-cased.
+  const tokenVariable = (name: string) => TOKEN_VARIABLES.includes(os === "win32" ? name.toUpperCase() : name);
+  const env = { ...Object.fromEntries(Object.entries(environment).filter(([name]) => !tokenVariable(name))), ...(places.length > 0 && { PATH: path }) };
   return {
     token: async (given) => {
       const host = hostOf(given);

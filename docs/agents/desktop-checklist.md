@@ -326,6 +326,8 @@ offering `forge` with `admin`:
    github.com, and nothing is added.
 3. **Not installed.** Uninstall `gh` (or rename it), and press it again: the
    same line, and the desktop's log shows no error.
-4. **The token variables.** Start the desktop with `GH_TOKEN` set to
-   another token (`GH_TOKEN=token-for-tests open -a …` on macOS): the token
-   handed over is the one `gh` stores, not `GH_TOKEN`'s.
+4. **The token variables.** Start the desktop from a terminal with `GH_TOKEN`
+   set to another token, running its binary so it inherits the terminal's
+   variables (on macOS the app bundle's `Contents/MacOS` executable, not
+   `open -a`, whose launch does not pass them on): the token handed over is
+   the one `gh` stores, not `GH_TOKEN`'s.

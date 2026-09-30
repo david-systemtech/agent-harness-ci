@@ -72,4 +72,12 @@ describe("gh", () => {
     await shell().gh.token("github.com");
     expect(gh.runs[0]?.env["PATH"]?.split(":")).toEqual(["/usr/bin", "/bin", "/opt/homebrew/bin", "/usr/local/bin"]);
   });
+
+  it("runs without the token variables in any casing on Windows, whose variable names are case-insensitive, and leaves its Path as it is", async () => {
+    const gh = fakeGh(() => ({ code: 0, stdout: "token-for-tests\n" }));
+    const environment = { Path: "C:\\Program Files\\GitHub CLI", gh_token: "env-token-for-tests", Github_Token: "env-token-for-tests", USERPROFILE: "C:\\Users\\seth" };
+    const { shell } = await start({ electron: fakeElectron({ os: "win32" }), platform: platformOn("win32"), gh: gh.process, environment });
+    expect(await shell().gh.token("github.com")).toBe("token-for-tests");
+    expect(gh.runs[0]?.env).toEqual({ Path: "C:\\Program Files\\GitHub CLI", USERPROFILE: "C:\\Users\\seth" });
+  });
 });
