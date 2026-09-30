@@ -87,6 +87,14 @@ describe("the recording fake shell", () => {
     expect(await shell.secrets.get("0199aa00-0000-7000-8000-000000000001")).toBeUndefined();
   });
 
+  it("keeps them under a key the OS keeps, until the test scripts them stored unprotected", async () => {
+    const shell = fakeShell();
+    expect(await shell.secrets.protection()).toBe("os");
+    shell.answer("secrets.protection", async () => "unprotected");
+    expect(await shell.secrets.protection()).toBe("unprotected");
+    expect(shell.calls).toEqual([["secrets.protection"], ["secrets.protection"]]);
+  });
+
   it("opens a deep link on demand to every listener onOpen holds, and to none that has unsubscribed", () => {
     const shell = fakeShell();
     const first: string[] = [];

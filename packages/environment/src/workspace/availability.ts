@@ -16,7 +16,10 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * decide (`check`, before their transaction), before the resolved
  * identity pass asks git in a workspace (`check`, #699), and before the
  * update settle marks each run an update cut (`check`, #691); and it takes what
- * the `files.*` methods and `diffs.workingTree` found (`found`). While a
+ * the `files.*` methods and `diffs.workingTree` found (`found`). The Carry
+ * over import looks through it too, at a transcript's working directory
+ * before the session exists (`look`, #578), and marks the session it then
+ * records with a gone directory (`markMissing`). While a
  * session is marked, its runs cannot start, take a message or read now
  * (`runs/run-decider.ts`), and no terminal opens on it
  * (`terminals/service.ts`); `sessions.setWorkspace` gives it a new
@@ -99,6 +102,12 @@ export interface AvailabilityWatcher {
    * marked is left as it is.
    */
   markMissing(tx: Tx, sessionId: string): void;
+  /**
+   * Looks at the directory `path` within the time bound and the gate, as a
+   * session's look does, and marks nothing: the Carry over import's look at
+   * a transcript's working directory before its session exists (#578).
+   */
+  look(path: string): Promise<Finding>;
   /** Runs a pass now, in the background, then hourly on the clock. */
   start(): RunningWatcher;
 }
@@ -244,6 +253,7 @@ export const createAvailabilityWatcher = (options: AvailabilityOptions): Availab
   return {
     check,
     found: (sessionId, path, status) => record(sessionId, path, status),
+    look,
     markMissing(tx, sessionId) {
       const row = sessionRow(sessionId);
       if (row === undefined || row.deleted_at !== null) throw new Error(`No session ${sessionId} is on this environment to mark missing.`);

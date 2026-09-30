@@ -17,8 +17,11 @@ import { projectParts } from "./project-layer.js";
  * general to specific:
  *
  * 1. the user layer: the orientation block (its seam, which the
- *    OrientationRenderer fills, `orientation.ts`), then owned instructions
- *    (#505);
+ *    OrientationRenderer fills, `orientation.ts`) while the
+ *    `instructions.orientation` key is on, then the account's enabled owned
+ *    instructions in list order (its seam, which the instruction store
+ *    fills, `store.ts`; #505), under `# Standing instructions`, each as
+ *    `## <title>` over its body;
  * 2. the team bank's (its seam, which #90's renderer fills);
  * 3. the project's, which Claude loads natively under trust beside the
  *    appended text, so nothing is added for it; an adapter without native
@@ -36,6 +39,10 @@ import { projectParts } from "./project-layer.js";
  *
  * An account whose adapter's instruction channel is `none` is handed no
  * text: every part is listed in the manifest as left out, `channel-none`.
+ * Under a channel's character cap, owned instructions are left out last
+ * first until the text fits, each listed as left out, `over-cap`; a text
+ * still over the cap with none left is handed as it is, since nothing else
+ * is cut here (always-on skills, which go first, are #507's).
  * Beside the text, the answer holds its parts and the manifest: per layer
  * its parts' ids, versions and characters, the always-on skills, the skill
  * set's fingerprint, the registries the orientation block could not read,
@@ -64,6 +71,10 @@ export type LayerSeam = (scope: InstructionScope) => readonly LayerPart[] | Prom
 export interface InstructionLayers {
   /** The orientation block, first in the user layer (the OrientationRenderer's seam, `orientation.ts`). */
   readonly orientation?: OrientationSeam;
+  /** Whether the orientation block is composed: the `instructions.orientation` key, read at each composition; preset on. */
+  readonly orientationOn?: () => boolean;
+  /** The owned instructions a run's account is handed, in list order, each with its title and its body as its text (#505). */
+  readonly owned?: LayerSeam;
   /** The team bank's lines (#90's renderer). */
   readonly teamBank?: LayerSeam;
   /** The session's own instructions (#506). */
@@ -71,6 +82,9 @@ export interface InstructionLayers {
   /** A bot's persona (milestone 2, #92). */
   readonly persona?: LayerSeam;
 }
+
+/** The heading over the owned instructions, which the first of them handed carries. */
+const STANDING_HEADING = "# Standing instructions";
 
 /** The orientation block's part: its id in the manifest and its title in a preview. */
 const ORIENTATION_PART = { id: "orientation", title: "Orientation" } as const;
@@ -85,6 +99,15 @@ const noOrientation = (): OrientationAnswer => ({ text: "", unreadRegistries: []
 /** The orientation block as the user layer's first part; none while it is blank. */
 const orientationParts = ({ text }: OrientationAnswer): readonly LayerPart[] =>
   text.trim() === "" ? [] : [{ id: ORIENTATION_PART.id, version: null, title: ORIENTATION_PART.title, text }];
+
+/** An owned instruction's part as the text holds it: its title as a heading over its body. */
+const ownedPart = (part: LayerPart): LayerPart => ({ ...part, text: part.text.trim() === "" ? `## ${part.title}` : `## ${part.title}${PART_SEPARATOR}${part.text}` });
+
+/** The owned instructions a text holds: the heading over the first of them. */
+const standing = (parts: readonly LayerPart[]): LayerPart[] =>
+  parts.map((part, index) => (index === 0 ? { ...part, text: `${STANDING_HEADING}${PART_SEPARATOR}${part.text}` } : part));
+
+const joined = (parts: readonly InstructionPart[]): string => parts.map((part) => part.text).join(PART_SEPARATOR);
 
 /** The manifest's entry for each layer the handed parts come from, in the layers' order. */
 const manifestLayers = (parts: readonly InstructionPart[]): InstructionManifestLayer[] =>
@@ -104,27 +127,41 @@ const manifestLayers = (parts: readonly InstructionPart[]): InstructionManifestL
 export const composeInstructions =
   (layers: InstructionLayers = {}): InstructionComposer =>
   async (scope) => {
-    const [orientation, teamBank, project, session, persona] = await Promise.all([
-      (layers.orientation ?? noOrientation)(scope),
+    const orientationOn = layers.orientationOn ?? (() => true);
+    const [orientation, owned, teamBank, project, session, persona] = await Promise.all([
+      orientationOn() ? (layers.orientation ?? noOrientation)(scope) : noOrientation(),
+      (layers.owned ?? nothing)(scope),
       (layers.teamBank ?? nothing)(scope),
       projectParts(scope),
       (layers.session ?? nothing)(scope),
       (layers.persona ?? nothing)(scope),
     ]);
-    const given: Readonly<Record<InstructionLayer, readonly LayerPart[]>> = {
-      user: orientationParts(orientation),
-      "team-bank": teamBank,
-      project,
-      session,
-      persona,
-      "always-on": [],
+    const ownedParts = owned.map(ownedPart);
+    /** The parts in the layers' order with the first `kept` owned instructions, the blank ones left out. */
+    const composedWith = (kept: number): InstructionPart[] => {
+      const given: Readonly<Record<InstructionLayer, readonly LayerPart[]>> = {
+        user: [...orientationParts(orientation), ...standing(ownedParts.slice(0, kept))],
+        "team-bank": teamBank,
+        project,
+        session,
+        persona,
+        "always-on": [],
+      };
+      return INSTRUCTION_LAYERS.flatMap((layer) => given[layer].filter((part) => part.text.trim() !== "").map((part) => ({ ...part, layer })));
     };
-    const composed: InstructionPart[] = INSTRUCTION_LAYERS.flatMap((layer) =>
-      given[layer].filter((part) => part.text.trim() !== "").map((part) => ({ ...part, layer })),
-    );
-    const channelNone = scope.channel.kind === "none";
-    const parts = channelNone ? [] : composed;
-    const leftOut: InstructionLeftOut[] = channelNone ? composed.map(({ layer, id }) => ({ layer, id, reason: "channel-none" })) : [];
+    let parts: InstructionPart[];
+    let leftOut: InstructionLeftOut[];
+    if (scope.channel.kind === "none") {
+      parts = [];
+      leftOut = composedWith(ownedParts.length).map(({ layer, id }) => ({ layer, id, reason: "channel-none" }));
+    } else {
+      // Under the cap, owned instructions are left out last first until the text fits.
+      const cap = scope.channel.maxCharacters;
+      let kept = ownedParts.length;
+      while (cap !== null && kept > 0 && joined(composedWith(kept)).length > cap) kept -= 1;
+      parts = composedWith(kept);
+      leftOut = ownedParts.slice(kept).map(({ id }) => ({ layer: "user", id, reason: "over-cap" }));
+    }
     const manifest: InstructionManifest = {
       channel: scope.channel.kind,
       layers: manifestLayers(parts),
@@ -133,7 +170,7 @@ export const composeInstructions =
       unreadRegistries: [...orientation.unreadRegistries],
       leftOut,
     };
-    return { text: parts.map((part) => part.text).join(PART_SEPARATOR), parts, manifest } satisfies ComposedInstructions;
+    return { text: joined(parts), parts, manifest } satisfies ComposedInstructions;
   };
 
 /** The digest `run.instructions.composed` carries in place of the text: its SHA-256 as UTF-8, in lowercase hex. */

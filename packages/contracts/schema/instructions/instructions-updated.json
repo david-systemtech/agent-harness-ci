@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionsUpdatedPayload",
+  "type": "object",
+  "properties": {},
+  "description": "instructions.updated: an owned instruction changed and has committed; a client reads instructions.list and instructions.preview again."
+}

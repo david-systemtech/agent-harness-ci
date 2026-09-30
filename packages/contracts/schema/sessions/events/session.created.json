@@ -190,6 +190,51 @@
         }
       ],
       "description": "The mode asked for, if any; clamped at each run, and changed by session.mode.set."
+    },
+    "origin": {
+      "description": "Where the session came from when no client asked for it: import, with what the import linked and read; absent for a session a command created.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "import"
+            },
+            "accountId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "The adopted account whose directory holds the provider session."
+            },
+            "providerSessionId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The provider's own id for the session: what the import is deduplicated by, and what a run resumes."
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When the provider session began, as the listing gives it: the summary's createdAt."
+            },
+            "lastActivityAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When the provider session was last written, as the listing gives it: the summary's lastActivityAt."
+            }
+          },
+          "required": [
+            "kind",
+            "accountId",
+            "providerSessionId",
+            "createdAt",
+            "lastActivityAt"
+          ],
+          "description": "The Carry over import made the session from a provider session in an adopted account's directory."
+        }
+      ]
     }
   },
   "required": [
@@ -202,5 +247,5 @@
     "model",
     "mode"
   ],
-  "description": "session.created: a session was created; its createdAt is the event's occurredAt."
+  "description": "session.created: a session was created; its createdAt is the event's occurredAt, or an imported session's origin.createdAt, whose lastActivityAt is its origin's too."
 }

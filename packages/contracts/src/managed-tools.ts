@@ -138,14 +138,16 @@ export type ManagedToolInstallMethod = z.infer<typeof ManagedToolInstallMethod>;
 
 /**
  * A row's status (ADR 0026): `current`; `update-available`, a badge only,
- * when a newer version is known (#374); `below-minimum`, a version under the
- * tool's minimum or one that could not be read; `not-installed`;
- * `method-unknown`, installed but not known how.
+ * when its version is behind the latest known (#374), which raises no
+ * notice and fails no check; `below-minimum`, a version under the tool's
+ * minimum or one that could not be read; `not-installed`; `method-unknown`,
+ * installed but not known how. One holds, in the order `not-installed`,
+ * `below-minimum`, `method-unknown`, `update-available`, `current`.
  */
 export const MANAGED_TOOL_STATUSES = ["current", "update-available", "below-minimum", "not-installed", "method-unknown"] as const;
 export const ManagedToolStatus = z.enum(MANAGED_TOOL_STATUSES).meta({
   description:
-    "A managed tool's status: current; update-available (a newer version is known, a badge only); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told).",
+    "A managed tool's status: current; update-available (its version is behind the latest known, a badge only: it raises no notice and fails no check); below-minimum (its version is under the tool's minimum, or could not be read against one); not-installed; method-unknown (installed, but how could not be told). Below the minimum is said before method-unknown, and both before update-available.",
 });
 export type ManagedToolStatus = z.infer<typeof ManagedToolStatus>;
 
@@ -165,12 +167,16 @@ export const ManagedToolRow = z
     path: z.string().min(1).nullable().meta({ description: "Where the name resolved on the login shell's PATH (on Windows, the machine and user Path a new logon composes); null when it is not installed." }),
     realpath: z.string().min(1).nullable().meta({ description: "The path with every link resolved, which the install method is read from; null when it is not installed." }),
     version: ManagedToolVersion.nullable().meta({ description: "The version its --version reported within five seconds; null when it is not installed or none was read." }),
+    latest: ManagedToolVersion.nullable().meta({
+      description:
+        "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry for npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
+    }),
     minimum: ManagedToolVersion.nullable().meta({ description: "The tool's declared minimum; null for one that is never required." }),
     method: ManagedToolInstallMethod.nullable().meta({ description: "How it was installed; null when it is not installed." }),
     status: ManagedToolStatus,
     action: ManagedToolAction,
   })
-  .meta({ description: "A managed tool as the environment's last probe found it: where, which version against its minimum, how it was installed, its status and its one action." });
+  .meta({ description: "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status and its one action." });
 export type ManagedToolRow = z.infer<typeof ManagedToolRow>;
 
 /** The tools that serve a key-manager provider, in the table's order: bao and vault for OpenBao, doppler, op and bws for the others. */
@@ -227,8 +233,82 @@ export const ManagedToolVerification = z
   .meta({ description: "A managed tool's verify command, as it came out: the tool, passed, failed or not installed, and one line saying why." });
 export type ManagedToolVerification = z.infer<typeof ManagedToolVerification>;
 
-/** `tools.updated`'s payload: the rows a probe changed, as they are now. */
+/** The tools with a `doctor` command, which `tools.detail` runs (#374): claude's; Codex's arrives with its milestone-2 adapter. */
+export const DoctorToolName = ManagedToolName.extract(["claude"]).meta({
+  description: "A managed tool with a doctor command, which tools.detail runs: claude.",
+});
+export type DoctorToolName = z.infer<typeof DoctorToolName>;
+
+/** One line of text as `doctor` printed it, scrubbed. */
+const doctorText = z
+  .string()
+  .max(1024)
+  .regex(/^[^\r\n]*$/);
+
+/** One field of `doctor`'s summary, as it printed it: `Running: native (2.1.283)` is the name `Running` and the value `native (2.1.283)`. */
+export const ToolDoctorField = z
+  .object({
+    name: doctorText.min(1).max(64).meta({ description: "The field's name, as doctor printed it: Running, Path, Config install method, Auto-updates, ..." }),
+    value: doctorText.meta({ description: "Its value, as doctor printed it." }),
+  })
+  .meta({ description: "One field of doctor's summary: its name and its value, as printed." });
+export type ToolDoctorField = z.infer<typeof ToolDoctorField>;
+
+/** One warning `doctor` found, with the fix it suggests when it gives one. */
+export const ToolDoctorWarning = z
+  .object({
+    issue: doctorText.min(1).meta({ description: "What doctor found, as it printed it." }),
+    fix: doctorText.min(1).nullable().meta({ description: "The fix it suggests; null when it gives none." }),
+  })
+  .meta({ description: "A warning doctor found, and the fix it suggests." });
+export type ToolDoctorWarning = z.infer<typeof ToolDoctorWarning>;
+
+/**
+ * What the tool's `doctor` said (#374): its fields, the install method it
+ * reports in the registry's words, and its warnings; that it failed, and
+ * why; or that the tool is not installed, so nothing ran.
+ */
+export const ToolDoctorReport = z
+  .discriminatedUnion("outcome", [
+    z
+      .object({
+        outcome: z.literal("read"),
+        method: ManagedToolInstallMethod.nullable().meta({
+          description:
+            "The install method doctor reports, in the registry's words (native; npm-global and npm-local as npm; a package manager's homebrew, winget, mise, asdf, deb as apt and rpm as dnf; unknown), to set beside the row's detected one: doctor misreports it on ordinary machines. Null when its words map to none of them (a development build, pacman, apk).",
+        }),
+        fields: z.array(ToolDoctorField).max(64).meta({ description: "Its summary's fields, in the order it printed them." }),
+        warnings: z.array(ToolDoctorWarning).max(32).meta({ description: "The warnings it found, in its order; empty when it found no installation issue." }),
+      })
+      .meta({ description: "doctor ran and its summary was read." }),
+    z
+      .object({
+        outcome: z.literal("failed"),
+        reason: doctorText.min(1).meta({ description: "Why nothing was read: it gave no answer in time, exited with an error, or printed no summary; scrubbed." }),
+      })
+      .meta({ description: "doctor ran, and nothing could be read from it." }),
+    z.object({ outcome: z.literal("not-installed") }).meta({ description: "The tool is not installed, so nothing ran." }),
+  ])
+  .meta({ description: "What a tool's doctor said: its fields, the install method it reports and its warnings; that it failed; or that the tool is not installed." });
+export type ToolDoctorReport = z.infer<typeof ToolDoctorReport>;
+
+/**
+ * What `tools.detail` answers (key-managers spec, "Wire methods"; ADR 0026;
+ * #374): the tool's row, whose method is the one the registry detected
+ * from where the tool is, beside what its `doctor` said, so a difference
+ * between the two methods shows.
+ */
+export const ManagedToolDetail = z
+  .object({
+    tool: DoctorToolName,
+    row: ManagedToolRow.meta({ description: "The tool's row, as the registry holds it: its method is the one detected from where the tool is." }),
+    doctor: ToolDoctorReport,
+  })
+  .meta({ description: "A managed tool's detail: its row, with the install method detected, and what its doctor said, with the install method it reports." });
+export type ManagedToolDetail = z.infer<typeof ManagedToolDetail>;
+
+/** `tools.updated`'s payload: the rows a probe, or a latest version fetched (#374), changed, as they are now. */
 export const ToolsUpdatedPayload = z
   .object({ tools: z.array(ManagedToolRow).min(1).meta({ description: "The rows that changed, as they are now, in the table's order." }) })
-  .meta({ description: "A probe changed managed-tool rows: those rows as they are now." });
+  .meta({ description: "A probe, or a latest version fetched, changed managed-tool rows: those rows as they are now." });
 export type ToolsUpdatedPayload = z.infer<typeof ToolsUpdatedPayload>;

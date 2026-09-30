@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { InstructionChannelKind, RunId } from "./adapter.js";
+import { AccountId, AccountLabel } from "./accounts.js";
+import { InstructionChannel, InstructionChannelKind, RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { OrderKey } from "./ordering.js";
+import { normaliseTrimmedName, trimmedNamePattern } from "./primitives.js";
 import { Sha256 } from "./release.js";
 import { SkillName } from "./skill-rules.js";
 import { GitCommit, SkillOrigin, SkillSetFingerprint } from "./skills.js";
@@ -81,10 +84,15 @@ export const InstructionAlwaysOnSkill = z
   .meta({ description: "An always-on skill the composition appended: its name, its origin and the commit it was read at." });
 export type InstructionAlwaysOnSkill = z.infer<typeof InstructionAlwaysOnSkill>;
 
-/** Why a composed part is not in the text a run is handed: its account's instruction channel is `none`. */
-export const INSTRUCTION_LEFT_OUT_REASONS = ["channel-none"] as const;
+/**
+ * Why a composed part is not in the text a run is handed: its account's
+ * instruction channel is `none`; or the text was over the channel's
+ * character cap, which leaves owned instructions out last first (#505).
+ */
+export const INSTRUCTION_LEFT_OUT_REASONS = ["channel-none", "over-cap"] as const;
 export const InstructionLeftOutReason = z.enum(INSTRUCTION_LEFT_OUT_REASONS).meta({
-  description: "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text).",
+  description:
+    "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and owned instructions are left out last first until it fits).",
 });
 export type InstructionLeftOutReason = z.infer<typeof InstructionLeftOutReason>;
 
@@ -149,3 +157,148 @@ export type RunInstructionsComposedPayload = z.infer<typeof RunInstructionsCompo
 export const INSTRUCTION_SESSION_EVENT_TYPES = {
   "run.instructions.composed": { list: false, payload: RunInstructionsComposedPayload },
 } as const satisfies Record<string, EventTypeEntry>;
+
+// Owned instructions ------------------------------------------------------------------
+
+/**
+ * Owned instructions (skills spec, "Owned instructions"; ADR 0030; #505):
+ * David's standing instructions, environment state on the `instructions`
+ * stream, one stream whose id is the environment's, with one command per
+ * field (ADR 0003). Each reaches the runs of the accounts its scope names,
+ * `all` reaching accounts added later too, while it is enabled, in the
+ * order of its position, after the orientation block in the user layer.
+ */
+
+/** The stream kind of the owned instructions; its one stream's id is the environment's. */
+export const INSTRUCTIONS_STREAM_KIND = "instructions";
+
+export const InstructionId = z.uuidv4().meta({ description: "An owned instruction's id: a version 4 UUID the creating client mints, kept in lowercase." });
+export type InstructionId = z.infer<typeof InstructionId>;
+
+export const InstructionTitle = z
+  .string()
+  .regex(trimmedNamePattern(MAX_INSTRUCTION_TITLE))
+  .meta({
+    description: `An owned instruction's title: 1 to ${MAX_INSTRUCTION_TITLE} characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed. A run reads it as the instruction's heading.`,
+  });
+export type InstructionTitle = z.infer<typeof InstructionTitle>;
+
+/** An owned instruction's title as the environment keeps it: trimmed, every run of white space one space. */
+export const normaliseInstructionTitle = normaliseTrimmedName;
+
+export const InstructionBody = z
+  .string()
+  .max(MAX_INSTRUCTION_BODY)
+  .meta({ description: `An owned instruction's body: Markdown, at most ${MAX_INSTRUCTION_BODY} characters, which a run reads under its title.` });
+export type InstructionBody = z.infer<typeof InstructionBody>;
+
+/** Where a copy came from: the catalogue entry and the version it copied (ADR 0030). */
+export const InstructionOrigin = z
+  .object({
+    catalogueId: z.string().min(1).meta({ description: "The catalogue entry it was copied from." }),
+    version: z.int().positive().meta({ description: "The entry's version it holds." }),
+  })
+  .meta({ description: "The catalogue entry an owned instruction was copied from, and the version it holds." });
+export type InstructionOrigin = z.infer<typeof InstructionOrigin>;
+
+/** The accounts an owned instruction reaches: every one, those added later included, or the ones named. */
+export const InstructionReach = z
+  .union([
+    z.literal("all").meta({ description: "Every account on the environment, those added later included." }),
+    z.array(AccountId).min(1).meta({ description: "The accounts named, each once; an account removed since reaches nothing." }),
+  ])
+  .refine((reach) => reach === "all" || new Set(reach).size === reach.length, { message: "Name each account once." })
+  .meta({ description: "The accounts an owned instruction reaches: all (every account, those added later included), or the account ids named, each once." });
+export type InstructionReach = z.infer<typeof InstructionReach>;
+
+/**
+ * An owned instruction (ADR 0030): its id, title and body, its origin (null
+ * for Custom), the accounts it reaches, whether it is enabled, and its
+ * position, a fractional key (session-state's ordering).
+ */
+export const OwnedInstruction = z
+  .object({
+    id: InstructionId,
+    title: InstructionTitle,
+    body: InstructionBody,
+    origin: InstructionOrigin.nullable().meta({ description: "The catalogue entry it was copied from; null for one written here (Custom)." }),
+    scope: InstructionReach,
+    enabled: z.boolean().meta({ description: "Whether runs are handed it; switched off it stays listed." }),
+    position: OrderKey.meta({ description: "Its place in the list: runs are handed the instructions in ascending order of it, then of id." }),
+  })
+  .meta({ description: "An owned instruction: its id, title, body, origin, the accounts it reaches, whether it is enabled, and its position." });
+export type OwnedInstruction = z.infer<typeof OwnedInstruction>;
+
+const instructionRef = { id: InstructionId };
+
+export const InstructionCreatedPayload = OwnedInstruction.meta({ description: "instructions.created: an owned instruction was made, as it now is." });
+export const InstructionEditedPayload = z
+  .object({ ...instructionRef, title: InstructionTitle, body: InstructionBody })
+  .meta({ description: "instructions.edited: an owned instruction's title and body are now these." });
+export const InstructionScopeSetPayload = z.object({ ...instructionRef, scope: InstructionReach }).meta({ description: "instructions.scope-set: an owned instruction now reaches these accounts." });
+export const InstructionEnabledSetPayload = z
+  .object({ ...instructionRef, enabled: z.boolean() })
+  .meta({ description: "instructions.enabled-set: an owned instruction was switched on or off." });
+export const InstructionMovedPayload = z.object({ ...instructionRef, position: OrderKey }).meta({ description: "instructions.moved: an owned instruction has this position now." });
+export const InstructionRemovedPayload = z.object(instructionRef).meta({ description: "instructions.removed: an owned instruction was removed; its id is not used again." });
+
+/** The event types of the instructions stream. */
+export const INSTRUCTIONS_EVENT_TYPES = {
+  "instructions.created": { list: false, payload: InstructionCreatedPayload },
+  "instructions.edited": { list: false, payload: InstructionEditedPayload },
+  "instructions.scope-set": { list: false, payload: InstructionScopeSetPayload },
+  "instructions.enabled-set": { list: false, payload: InstructionEnabledSetPayload },
+  "instructions.moved": { list: false, payload: InstructionMovedPayload },
+  "instructions.removed": { list: false, payload: InstructionRemovedPayload },
+} as const satisfies Record<string, EventTypeEntry>;
+
+export type InstructionsEventType = keyof typeof INSTRUCTIONS_EVENT_TYPES;
+export const InstructionsEventType = z
+  .enum(Object.keys(INSTRUCTIONS_EVENT_TYPES) as [InstructionsEventType, ...InstructionsEventType[]])
+  .meta({ description: `The event types of the instructions stream: ${Object.keys(INSTRUCTIONS_EVENT_TYPES).join(", ")}.` });
+
+/** The `instructions.updated` notice's payload: nothing beyond the notice. */
+export const InstructionsUpdatedPayload = z.object({}).meta({
+  description: "instructions.updated: an owned instruction changed and has committed; a client reads instructions.list and instructions.preview again.",
+});
+export type InstructionsUpdatedPayload = z.infer<typeof InstructionsUpdatedPayload>;
+
+/**
+ * An account as every row of `instructions.list` carries it (ADR 0030): its
+ * adapter's instruction channel, and, for one with none, why its runs are
+ * handed nothing, so a client shows it dim with the reason.
+ */
+export const InstructionAccount = z
+  .object({
+    accountId: AccountId,
+    label: AccountLabel,
+    channel: InstructionChannel.meta({ description: "Its adapter's instruction channel: none is handed no standing instructions." }),
+    reason: z.string().min(1).nullable().meta({ description: "Why its runs are handed no standing instructions; null while its adapter has an instruction channel." }),
+  })
+  .meta({ description: "An account of the environment, with its adapter's instruction channel and, without one, why its runs are handed no standing instructions." });
+export type InstructionAccount = z.infer<typeof InstructionAccount>;
+
+const rowAccounts = z.array(InstructionAccount).meta({ description: "The environment's accounts, in the account list's order." });
+
+/**
+ * The Orientation row (ADR 0030): read-only and never edited or removed, so
+ * it has no id a command takes. The `instructions.orientation` key, and the
+ * block as a run receives it while the key is on.
+ */
+export const OrientationRow = z
+  .strictObject({
+    enabled: z.boolean().meta({ description: "The instructions.orientation key: whether runs are handed the block." }),
+    text: z.string().nullable().meta({
+      description:
+        "The block as the first run of a new session of the default account, started from a client, is handed it while the key is on, verification lines included; null while the environment holds no account.",
+    }),
+    unreadRegistries: z.array(z.string().min(1)).meta({ description: "The registries the block could not read in time, each rendered as could not be read." }),
+    accounts: rowAccounts,
+  })
+  .meta({ description: "The read-only Orientation row: the instructions.orientation key, the block as a run receives it, and the environment's accounts." });
+export type OrientationRow = z.infer<typeof OrientationRow>;
+
+export const OwnedInstructionRow = z
+  .object({ ...OwnedInstruction.shape, accounts: rowAccounts })
+  .meta({ description: "An owned instruction as instructions.list rows it, with the environment's accounts." });
+export type OwnedInstructionRow = z.infer<typeof OwnedInstructionRow>;

@@ -61,6 +61,7 @@ const presets = {
   "appearance.theme": DEFAULT_THEME,
   ...browserPresets,
   ...credentialPresets,
+  "instructions.orientation": true,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -75,6 +76,7 @@ const changed = {
   "browser.reach": { "claude-max": { chrome: { environmentId: commandId, chromeId: null } } },
   "credentials.injection": "deny",
   "credentials.injectionByAccount": { "claude-max": "allow" },
+  "instructions.orientation": false,
 };
 
 const idleSpans: Fixtures = {
@@ -121,6 +123,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
       "appearance.theme",
       "credentials.injection",
       "credentials.injectionByAccount",
+      "instructions.orientation",
     ],
     invalid: ["theme", "updates.theme", "appearance.mode", "credentials.injectionByRoutine", ""],
   },
@@ -130,6 +133,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
   "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
   "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
+  "settings/keys/instructions.orientation.json": { valid: [true, false], invalid: [null, "on", 1] },
   "settings/keys/credentials.injection.json": { valid: ["allow", "deny"], invalid: ["inherit", "Allow", null, true] },
   "settings/keys/credentials.injectionByAccount.json": {
     valid: [{}, { "claude-max": "deny", [commandId]: "allow" }],

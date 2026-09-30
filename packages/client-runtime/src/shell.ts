@@ -28,7 +28,7 @@ export interface Shell {
   readonly openExternal?: (url: string) => Promise<void>;
   readonly localGrant?: GrantReader;
   /** The OS keychain: where the runtime keeps client session tokens on a desktop. */
-  readonly secrets?: SecretStore;
+  readonly secrets?: ShellSecrets;
   /**
    * HTTP made by the desktop's main process rather than the page, so an
    * environment needs no cross-origin headers: discovery, the pairing and
@@ -63,6 +63,7 @@ export const SHELL_MEMBERS = [
   "shell.openExternal",
   "shell.localGrant.read",
   "shell.secrets",
+  "shell.secrets.protection",
   "shell.http",
   "shell.network",
   "shell.system",
@@ -79,6 +80,22 @@ export const hasShellMember = (shell: Shell | undefined, member: ShellMember): b
   }
   return at !== undefined && at !== null;
 };
+
+/**
+ * How the shell's `secrets` keeps a token now (docs/specs/gui.md, "The
+ * desktop shell"): `os`, encrypted under a key the OS keeps for the app (the
+ * macOS Keychain, Windows' DPAPI, a Linux secret service); `unprotected`,
+ * encrypted under a fixed key anyone can read, where no secret service
+ * answers on Linux, so a token is as safe as its file's permissions; `none`,
+ * where the OS keeps no key for the app now and no token can be kept.
+ */
+export type SecretProtection = "os" | "unprotected" | "none";
+
+/** The OS keychain as the shell gives it: the platform's `SecretStore`, and how what it keeps is protected. */
+export interface ShellSecrets extends SecretStore {
+  /** How a token kept now is protected, which the Your machines card says when it is unprotected (#416). */
+  readonly protection?: () => Promise<SecretProtection>;
+}
 
 export interface FileFilter {
   readonly name: string;

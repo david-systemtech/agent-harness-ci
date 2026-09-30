@@ -1,24 +1,26 @@
 import type {
   GrantReader,
   HttpFetch,
-  SecretStore,
   Shell,
   ShellClipboard,
   ShellDeepLinks,
   ShellDialogs,
+  ShellInstaller,
   ShellNetwork,
   ShellPreview,
+  ShellSecrets,
   ShellService,
   ShellSystem,
+  ShellUpdate,
   ShellWindow,
 } from "@agent-harness/client-runtime";
 import { channelOf, DEEP_LINK_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
- * surface needs, and the platform's own (`secrets`, `localGrant`, `service`).
- * `notifications`, `webView`, `update` and `installer` join as their tickets
- * build them; there is no `tray` in milestone 1.
+ * surface needs, and the platform's own (`secrets`, `localGrant`, `service`,
+ * `update`, `installer`). `notifications` and `webView` join as their
+ * tickets build them; there is no `tray` in milestone 1.
  */
 export interface DesktopShell extends Shell {
   readonly window: ShellWindow;
@@ -29,10 +31,12 @@ export interface DesktopShell extends Shell {
   readonly http: HttpFetch;
   readonly network: ShellNetwork;
   readonly deepLinks: Required<ShellDeepLinks>;
-  readonly secrets: SecretStore;
+  readonly secrets: Required<ShellSecrets>;
   readonly localGrant: GrantReader;
   readonly service: ShellService;
   readonly preview: ShellPreview;
+  readonly update: ShellUpdate;
+  readonly installer: ShellInstaller;
 }
 
 /** `ipcRenderer`, as the preload uses it. */
@@ -101,9 +105,12 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
       get: (name) => ask("secrets.get", name),
       set: (name, secret) => ask("secrets.set", name, secret),
       delete: (name) => ask("secrets.delete", name),
+      protection: () => ask("secrets.protection"),
     },
     localGrant: { read: () => ask("localGrant.read") },
     service: { install: () => ask("service.install"), start: () => ask("service.start"), status: () => ask("service.status") },
     preview: { grant: (content) => ask("preview.grant", content) },
+    update: { current: () => ask("update.current"), apply: (staged, when) => ask("update.apply", staged, when) },
+    installer: { bundledServer: () => ask("installer.bundledServer") },
   };
 };

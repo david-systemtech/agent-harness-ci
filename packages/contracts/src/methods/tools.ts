@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ManagedToolRow, ManagedToolVerification, VerifiableToolName } from "../managed-tools.js";
+import { DoctorToolName, ManagedToolDetail, ManagedToolRow, ManagedToolVerification, VerifiableToolName } from "../managed-tools.js";
 import { defineMethod } from "../method.js";
 import { Timestamp } from "../primitives.js";
 
@@ -7,15 +7,19 @@ import { Timestamp } from "../primitives.js";
  * The Managed tools methods (key-managers spec, "Wire methods"; ADR 0026).
  * `tools.list` reads the registry's rows, which the environment probes: at
  * its start, and on a `refresh` (Set up or About opening) at most every
- * fifteen minutes. A client never probes a tool itself. `tools.verify`
- * runs a tool's verify command on the environment (#375).
+ * fifteen minutes. A client never probes a tool itself, nor fetches its
+ * latest version. `tools.detail` runs a tool's `doctor` (#374);
+ * `tools.verify` runs a tool's verify command on the environment (#375).
  */
 
 /**
  * The managed tools' rows, one per tool in the table's order, as the last
- * probe found them. With `refresh`, a probe runs first unless one began in
- * the last fifteen minutes; either way the answer waits for a probe under
- * way.
+ * probe found them, each with the latest version cached on the environment.
+ * With `refresh`, a probe runs first unless one began in the last fifteen
+ * minutes; either way the answer waits for a probe under way. A `refresh`
+ * also has the environment fetch the latest version of each installed tool
+ * whose last fetch was a day or more ago (#374): the answer never waits for
+ * it, and a latest that changes a row is heard as `tools.updated`.
  */
 export const toolsList = defineMethod({
   name: "tools.list",
@@ -28,6 +32,24 @@ export const toolsList = defineMethod({
     tools: z.array(ManagedToolRow).meta({ description: "One row per managed tool, in the table's order." }),
     probedAt: Timestamp.meta({ description: "When the probe the rows come from began." }),
   }),
+  errors: [],
+});
+
+/**
+ * A tool's detail (#374): its row beside what its `doctor` says, which runs
+ * now, on this call (and when Update is clicked, #376), never on a probe,
+ * since it is slow. `claude doctor` runs where the row found `claude`,
+ * never the bundled binary; its summary's fields are read, with the install
+ * method it reports set beside the one the registry detected, since doctor
+ * misreports it on ordinary machines. A tool not installed answers
+ * `not-installed` and nothing runs.
+ */
+export const toolsDetail = defineMethod({
+  name: "tools.detail",
+  scope: "read",
+  kind: "query",
+  params: z.object({ tool: DoctorToolName }),
+  result: ManagedToolDetail,
   errors: [],
 });
 

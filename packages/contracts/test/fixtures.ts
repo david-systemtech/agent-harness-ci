@@ -28,6 +28,7 @@ import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
+import { carryOverMethodFixtures, carryOverSchemaFixtures } from "./carry-over-fixtures.js";
 import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 import { workspaceKept, workspaceMethodFixtures, workspaceSchemaFixtures } from "./workspace-fixtures.js";
@@ -550,6 +551,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...skillMethodFixtures,
   ...trustMethodFixtures,
   ...browserMethodFixtures,
+  ...carryOverMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -772,7 +774,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "instructions.updated",
       "extension.seen",
+      "carry-over.imported",
       "workspace.kept",
     ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", "settings.updated", "setup.checked", "skills.source-added", "trust.granted", ""],
@@ -815,6 +819,11 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
       { type: "trust.updated", payload: {} },
+      { type: "instructions.updated", payload: {} },
+      {
+        type: "carry-over.imported",
+        payload: { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] },
+      },
       toolsUpdatedNotice.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
       { type: "workspace.kept", payload: workspaceKept },
@@ -846,6 +855,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "settings.changed", payload: { values: { "appearance.theme": null } } },
       { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
       { type: "setup.result-changed", payload: { step: "forges" } },
+      { type: "carry-over.imported", payload: { accountId: "claude-max", sessions: { listed: 1, imported: 1, archived: 0, missingDirectory: 0, held: 0 } } },
       toolsUpdatedNotice.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
       { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
@@ -957,6 +967,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...skillSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
+  ...carryOverSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,
   ...usageSchemaFixtures,

@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' and Move's (#365, #366, #371, #372), the routines' (#519), settings changed (#391), a Set up step's result changed (#569), the skill set changed (#494), the Managed tools registry's (#373), an unpaired extension seen (#547) and a worktree the reaper kept (#330), on the environment stream", () => {
+  it("are started, updated and draining, an update's pending, started, failed and cancelled (#335), an account updated (#134), the sign-in's state and executable (#135), a prompt parked and resolved (#130), an account's usage updated (#136), the forge's events (#310), the key-manager connections' and Move's (#365, #366, #371, #372), the routines' (#519), settings changed (#391), a Set up step's result changed (#569), the skill set changed (#494), the Managed tools registry's (#373), an unpaired extension seen (#547) an import of an adopted account's directory ended (#578) and a worktree the reaper kept (#330), on the environment stream", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toEqual([
       "environment.started",
       "environment.updated",
@@ -61,8 +61,10 @@ describe("environment notices", () => {
       "setup.result-changed",
       "skills.updated",
       "trust.updated",
+      "instructions.updated",
       "tools.updated",
       "extension.seen",
+      "carry-over.imported",
       "workspace.kept",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");

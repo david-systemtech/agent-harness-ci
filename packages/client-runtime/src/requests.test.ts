@@ -3,6 +3,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntimeWithSeams } from "./internal.js";
 import { noticeEvent } from "../test/events.js";
 import { forgeEventPayload, forgeRecord } from "../test/forges.js";
+import { keyManagerEventPayload, keyManagerRecord, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
 import { subscription } from "../test/scripted.js";
 import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
 import { writable } from "./observable.js";
@@ -416,6 +417,77 @@ describe("the request cache", () => {
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
     expect(status.read()).toMatchObject({ result: { unpairedConnected: true }, error: null });
+  });
+
+  it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    wire.answer("carryOver.inventory", () => {
+      reads++;
+      return { result: { accountId: "claude-max", sessions: { total: 3, archived: 1, missingDirectory: 1, new: reads > 1 ? 0 : 2 } } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const inventory = runtime.requests.cached(id, "carryOver.inventory", { accountId: "claude-max" });
+    inventory.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    const imported = { accountId: "claude-max", sessions: { listed: 3, imported: 2, archived: 1, missingDirectory: 1, held: 1 }, failed: [] };
+    environment?.event(noticeEvent(1, wire.environmentId, "carry-over.imported", imported));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(inventory.read()).toMatchObject({ result: { sessions: { new: 0 } }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+  });
+
+  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection or the managed tools changing, and no other query (#505)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const reads = { list: 0, preview: 0 };
+    const accounts = [{ accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null }];
+    const manifest = { channel: "system-prompt-append", layers: [], alwaysOn: [], skillSetFingerprint: null, unreadRegistries: [], leftOut: [] };
+    wire.answer("instructions.list", () => {
+      reads.list++;
+      return { result: { orientation: { enabled: reads.list === 1, text: "# Orientation", unreadRegistries: [], accounts }, instructions: [] } };
+    });
+    wire.answer("instructions.preview", () => {
+      reads.preview++;
+      return { result: { parts: [], text: "", manifest } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const listed = runtime.requests.cached(id, "instructions.list", {});
+    listed.subscribe(() => undefined);
+    runtime.requests.cached(id, "instructions.preview", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" }).subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 1, 1]);
+
+    environment?.event(noticeEvent(1, wire.environmentId, "instructions.updated", {}));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 2, 2]);
+    expect(listed.read()).toMatchObject({ result: { orientation: { enabled: false } }, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 2, 2]);
+    // The orientation switch is a setting.
+    environment?.event(noticeEvent(3, wire.environmentId, "settings.changed", { keys: ["instructions.orientation"] }));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 3, 3]);
+    // Every row carries the accounts, and the block names them.
+    environment?.event(noticeEvent(4, wire.environmentId, "account.updated", { accountId: "claude-max", change: "added", warning: null }));
+    await flush();
+    expect(reads.list).toBe(4);
+    expect(reads.preview).toBe(4);
+    // The block's forges and key managers sections: a forge account, a key-manager connection and its CLI's row.
+    environment?.event(noticeEvent(5, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([reads.list, reads.preview]).toEqual([5, 5]);
+    environment?.event(noticeEvent(6, wire.environmentId, "key-manager.connection.added", keyManagerEventPayload("key-manager.connection.added", keyManagerRecord())));
+    await flush();
+    expect([reads.list, reads.preview]).toEqual([6, 6]);
+    environment?.event(noticeEvent(7, wire.environmentId, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
