@@ -16,6 +16,14 @@ import { GitCommit, SkillOrigin, SkillSetFingerprint } from "./skills.js";
  */
 
 /**
+ * An owned instruction's bounds (skills spec, "Owned instructions"): its
+ * title at most 120 characters, its Markdown body at most 20,000. A
+ * catalogue entry's title and text keep them, so a ticked copy always fits.
+ */
+export const MAX_INSTRUCTION_TITLE = 120;
+export const MAX_INSTRUCTION_BODY = 20_000;
+
+/**
  * The layers, from general to specific, in the order the text holds them:
  * the user layer (the orientation block, then owned instructions), the team
  * bank's, the project's (which Claude loads natively, so nothing is added

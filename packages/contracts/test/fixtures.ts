@@ -9,6 +9,7 @@
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
+import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
@@ -950,6 +951,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...keyManagerSchemaFixtures,
   ...managedToolSchemaFixtures,
   ...skillSchemaFixtures,
+  ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogueInstructionVersionNumber",
+  "type": "integer",
+  "exclusiveMinimum": 0,
+  "maximum": 9007199254740991,
+  "description": "An instruction entry's version: 1 for its first text, then one more each time the text changes."
+}

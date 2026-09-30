@@ -255,6 +255,16 @@ Chosen in the adapter contract's build (#495), for review:
 - **A commands listing** is handed the workspace's trust read with no repository identity, as `instructions.preview` reads a new session's, until `commands.list` takes a session (#503); and its control query hides the hidden native names as a run does, so the listing shows what a run would offer.
 - **The invocation text** is a required member of the adapter contract, since every optional one pairs with a flag.
 
+Chosen in the catalogue's build (#508), for review:
+
+- **The data** is `catalogue-data.ts` in contracts, its schemas `catalogue.ts`, and the export publishes both: the schemas under `catalogue/` and the entries as data tables (`data/catalogue-skills.json`, `data/catalogue-instruction-groups.json`, `data/catalogue-instructions.json`). The rules the export cannot state (a count equal to the members, hints among them, rising versions, unique ids and places, the Setup group holding one entry and Custom none) are the schemas' refinements, so the contract test and a catalogue a test swaps in are held alike.
+- **The members** were read on 2026-09-30 through the environment's reader, not copied from the 2026-09-22 research: `skills/engineering` now yields 20 (`implement-spec`, `pr` and `retro` moved in; `resolving-merge-conflicts` is gone from the repository), so the overlay's `resolving-merge-conflicts` entry (#510) keys a folder upstream no longer has. Their descriptions are written for the card. `skills/misc` and `in-progress` stay out, as the prototype's review left them.
+- **The licence's `where`** is `{kind: file, path}` or `{kind: frontmatter | readme | none}`, so a file named like a keyword is never misread; `spdx` is null exactly when nothing declares one, and a note is required whenever there is no file or no holder. Unslop reads `frontmatter` with its note.
+- **Versions** are integers from 1, and `earlierVersions` holds versions 1 up to the current one's predecessor, oldest first, each text unlike the next. An instruction id is its group, a dot and a name; titles and texts keep an owned instruction's bounds (`MAX_INSTRUCTION_TITLE`, `MAX_INSTRUCTION_BODY` in contracts). The groups' ids are `setup`, `coding`, `working` and `custom`.
+- **The seed**, `setup.about-my-setup` (`CATALOGUE_SEED_INSTRUCTION_ID`, the one entry the Setup group may hold), asks the model to read the orientation block before looking for a machine, forge, key or bank and to ask when it names none. The prototype's "Which model runs your subagents" is left out: its placeholders need a field the entry does not have.
+- **Fast-moving** marks the repositories the research found busiest (the Pocock set and `cursor/plugins`), not Superpowers or unslop. Only unslop carries an always-on hint, at the reader's measure of its body.
+- **Tick state** reads an entry's identity by the repository identity rule with no forge accounts (a catalogue URL names a forge's own host, which no alias rewrites), and of two matching sources names the first given.
+
 Verify first, on the pinned SDK and its bundled CLI:
 
 1. A local plugin whose `skills/` entries are symbolic links loads each one, and junctions do on Windows (links were measured on Linux and Windows junctions fixed previously; re-check on this CLI).
