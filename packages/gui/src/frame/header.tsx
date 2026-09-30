@@ -8,14 +8,13 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
 /**
  * The focused pane's environment: its name, and its icon in its colour
  * (docs/specs/gui.md, "The window and the sidebar"); nothing while the pane
- * shows no session.
+ * shows no session, or one of an environment no longer listed.
  */
 const FocusedEnvironment = () => {
   const environments = useObservable(useRuntime().projections.environments);
   const [layout] = usePresentation("paneLayout");
-  const environmentId = layout.session?.environmentId;
-  if (environmentId === undefined) return null;
-  return <EnvironmentBadge view={environments.find((view) => view.environmentId === environmentId)} />;
+  const view = environments.find((environment) => environment.environmentId === layout.session?.environmentId);
+  return view === undefined ? null : <EnvironmentBadge view={view} />;
 };
 
 /**

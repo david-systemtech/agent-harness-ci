@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { keepsFold, uuidv4, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
+import { isFolded, keepsFold, rowKey, uuidv4, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
 import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
 import { messageOf, nameOf } from "../view.js";
 import { badgesOf } from "./badge.js";
 import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
-import { headingOver, isFolded, isSelectable, railLines, rowKey, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
+import { headingOver, isSelectable, railLines, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
 import { newSessionCard, type CardOpening } from "./new-session.js";
 import { groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";

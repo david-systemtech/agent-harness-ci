@@ -1,8 +1,7 @@
-import { WHEN_EXAMPLES, parseWhen, presetTimes, whenWords, writable, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow, type StartSessionChoice } from "@agent-harness/client-runtime";
+import { WHEN_EXAMPLES, isReachable, parseWhen, presetTimes, rowKey, whenWords, writable, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow, type StartSessionChoice } from "@agent-harness/client-runtime";
 import { groupNameKey, shelfOf, type CommandMethodName, type DeletedSessionSummary } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import type { Badge } from "./badge.js";
-import { isReachable, rowKey } from "./model.js";
 import { pickerOf, type Picker, type PickerRow } from "./picker.js";
 
 /**

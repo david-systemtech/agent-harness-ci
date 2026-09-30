@@ -4,7 +4,6 @@ import {
   type HeadingKind,
   type HeadingRow,
   type HeadingsInput,
-  type SessionBlock,
   type SessionHeading,
 } from "@agent-harness/client-runtime";
 import { headingState, nameOf } from "../view.js";
@@ -18,23 +17,6 @@ import { glyphOf, type Badge, type Glyph } from "./badge.js";
  * glyph, and an environment's heading is followed by its notes: its state
  * ("unreachable since"), a list that failed, "no sessions".
  */
-
-export {
-  ARCHIVE_HEADING,
-  PINNED_HEADING,
-  SETTLED_HEADING,
-  SNOOZED_HEADING,
-  environmentHeading,
-  groupHeading,
-  isFolded,
-  isReachable,
-  rowKey,
-  type BlockKind,
-  type HeadingKind,
-} from "@agent-harness/client-runtime";
-
-/** The rows under one heading, which a row's `Shift+↑` and `Shift+↓` move it among. */
-export type RailBlock = SessionBlock;
 
 export interface RailHeading {
   readonly kind: "heading";

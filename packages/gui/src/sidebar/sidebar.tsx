@@ -86,11 +86,11 @@ const Matches = ({ query, rows }: { readonly query: string; readonly rows: DrawR
   const list = useObservable(runtime.projections.sessionList);
   const found = useObservable(useMemo(() => runtime.projections.search(query), [runtime, query]));
   // Each row as the headings draw it, every heading open: its activity, its marker, a snoozed one's wake time, dim or not.
-  const drawn = useMemo(() => {
+  const lineOf = useMemo(() => {
     const all = sessionHeadings({ list, environments, folded: {}, matches: null, open: true, now: (environmentId) => runtime.environmentNow(environmentId) });
     return new Map(all.flatMap((heading) => heading.rows).map((line) => [line.key, line]));
   }, [runtime, list, environments]);
-  const lines = found.flatMap((row: SessionRow) => drawn.get(rowKey(row)) ?? []);
+  const lines = found.flatMap((row: SessionRow) => lineOf.get(rowKey(row)) ?? []);
   return lines.length === 0 ? (
     <p className="text-sm text-ink-faint">No session matches “{query}”.</p>
   ) : (
