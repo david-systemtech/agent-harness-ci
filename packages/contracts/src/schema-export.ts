@@ -400,6 +400,7 @@ import {
   TranscriptItem,
   UpdateInterruptOutcome,
   UpdateInterruptReason,
+  HistoryImportOutcome,
 } from "./transcript.js";
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
@@ -1049,6 +1050,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
   { path: "transcript/update-interrupt-outcome.json", title: "UpdateInterruptOutcome", schema: UpdateInterruptOutcome },
   { path: "transcript/update-interrupt-reason.json", title: "UpdateInterruptReason", schema: UpdateInterruptReason },
+  { path: "transcript/history-import-outcome.json", title: "HistoryImportOutcome", schema: HistoryImportOutcome },
   { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
   { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
   { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },

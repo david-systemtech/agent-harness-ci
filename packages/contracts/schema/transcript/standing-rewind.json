@@ -1106,8 +1106,34 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt)$).+$",
-                    "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt), which must match their own schema."
+                    "const": "history-unreadable"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "The sequence of the event that opened the item."
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Why it could not be read, as its session.history-imported says."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sequence",
+                  "message"
+                ],
+                "description": "The line an imported session shows where its history could not be read from the account's directory (session.history-imported, outcome unreadable)."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable)$).+$",
+                    "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable), which must match their own schema."
                   },
                   "sequence": {
                     "type": "integer",
@@ -1124,7 +1150,7 @@
                 "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
               }
             ],
-            "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, or an item of a kind the reader does not know, kept opaque."
+            "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, or an item of a kind the reader does not know, kept opaque."
           },
           "description": "The settled items it hid, in order, as they stand now; those a rewind nested in it hid are that rewind's."
         },

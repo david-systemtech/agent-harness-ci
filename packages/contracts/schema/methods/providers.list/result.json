@@ -48,7 +48,7 @@
           },
           "sessionListing": {
             "type": "boolean",
-            "description": "The provider's sessions can be listed."
+            "description": "The provider's sessions in an account's directory can be listed, and a listed session's history read."
           },
           "subagents": {
             "type": "boolean",

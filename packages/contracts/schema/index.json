@@ -627,6 +627,10 @@
       "title": "SessionRewindUndonePayload"
     },
     {
+      "path": "sessions/events/session.history-imported.json",
+      "title": "SessionHistoryImportedPayload"
+    },
+    {
       "path": "sessions/events/run.ended.json",
       "title": "RunEndedPayload"
     },
@@ -1705,6 +1709,10 @@
     {
       "path": "transcript/update-interrupt-reason.json",
       "title": "UpdateInterruptReason"
+    },
+    {
+      "path": "transcript/history-import-outcome.json",
+      "title": "HistoryImportOutcome"
     },
     {
       "path": "transcript/attachment-kind.json",

@@ -120,7 +120,7 @@ export const AdapterCapabilities = z
     resume: flag("A session's next run resumes the provider's own session."),
     fork: flag("A session can be forked, from its end or from a user message."),
     rewind: flag("A session can be rewound to a user message."),
-    sessionListing: flag("The provider's sessions can be listed."),
+    sessionListing: flag("The provider's sessions in an account's directory can be listed, and a listed session's history read."),
     subagents: flag("A run delegates work to subagents and background tasks, reported by tasks.changed and stopped by runs.stopTask."),
     subagentTranscripts: flag("A subagent's own transcript can be read on demand."),
     titleRead: flag("The provider generates a session title the environment can read."),
