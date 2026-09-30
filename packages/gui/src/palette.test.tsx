@@ -111,6 +111,8 @@ describe("its entries", () => {
       "Find in the conversationCtrl+F",
       "Show or hide the sidebarCtrl+B",
       "Show or hide the terminalCtrl+J",
+      "Split the focused pane to the rightCtrl+\\",
+      "Split the focused pane downwardsCtrl+Shift+\\",
       "Open or close SettingsCtrl+,",
       "Show or hide the run's detailsCtrl+I",
     ]);
@@ -149,9 +151,14 @@ describe("its entries", () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
     await screen.findByText("No session is open. Choose one from the sidebar.");
     await app.user.keyboard("{Control>}k{/Control}");
-    expect(entriesUnder("Anywhere")).toEqual(["Show or hide the sidebarCtrl+B", "Open or close SettingsCtrl+,"]);
+    expect(entriesUnder("Anywhere")).toEqual([
+      "Show or hide the sidebarCtrl+B",
+      "Split the focused pane to the rightCtrl+\\",
+      "Split the focused pane downwardsCtrl+Shift+\\",
+      "Open or close SettingsCtrl+,",
+    ]);
     expect(entriesUnder("Settings")).toHaveLength(19);
-    expect(entries()).toHaveLength(22);
+    expect(entries()).toHaveLength(24);
     expect(entries().at(-1)).toBe("Sessions on every environment…");
   });
 
@@ -260,13 +267,13 @@ describe("choosing an entry", () => {
     expect(highlighted()).toBe("Show or hide the sidebarCtrl+B");
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
-    await app.user.keyboard("{ArrowDown}");
+    await app.user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
     expect(highlighted()).toBe("Open or close SettingsCtrl+,");
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });
@@ -317,7 +324,7 @@ describe("the sessions page", () => {
     await app.user.keyboard("{Enter}");
     expect(palette()).toBeNull();
     const lab = app.environment("lab");
-    await waitFor(() => expect(app.presentation.values.read().paneLayout.session).toEqual({ environmentId: lab.environmentId, sessionId: lab.sessionId(0) }));
+    await waitFor(() => expect(app.shown()).toEqual({ environmentId: lab.environmentId, sessionId: lab.sessionId(0) }));
   });
 
   it("is one Enter away from a session's title typed on the first page, which it carries", async () => {

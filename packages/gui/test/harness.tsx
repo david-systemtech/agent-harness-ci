@@ -16,8 +16,9 @@ import {
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { onTestFinished } from "vitest";
 import { App } from "../src/app.js";
+import { focusedPane, showSession } from "../src/grid/layout.js";
 import { desktopPlatform, type DesktopPlatform } from "../src/platform/desktop-platform.js";
-import { openPresentation, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
+import { openPresentation, type PaneSession, type Presentation, type PresentationKey, type PresentationValues } from "../src/presentation.js";
 import type { StepCards } from "../src/setup/cards.js";
 
 export {
@@ -80,8 +81,10 @@ export interface RenderedApp {
   readonly user: UserEvent;
   readonly view: RenderResult;
   environment(name: string): EnvironmentHandle;
-  /** Opens the `index`th session the script lists on `name` (from 0) in the pane, as presentation holds it. */
+  /** Opens the `index`th session the script lists on `name` (from 0) in the focused pane, as presentation holds it. */
   open(name: string, index?: number): void;
+  /** The session the focused pane shows, as presentation holds it; null while it shows none. */
+  shown(): PaneSession | null;
   /**
    * Closes the window, then opens it again on the same storage, as a
    * relaunch does: a new runtime and presentation over the same documents
@@ -139,8 +142,10 @@ const mount = async ({ world, clock, shell, macOS, documents, protocolVersion, s
     environment: (name) => world.environment(name),
     open(name, index = 0) {
       const environment = world.environment(name);
-      act(() => presentation.set("paneLayout", { session: { environmentId: environment.environmentId, sessionId: environment.sessionId(index) } }));
+      const layout = presentation.values.read().paneLayout;
+      act(() => presentation.set("paneLayout", showSession(layout, layout.focused, { environmentId: environment.environmentId, sessionId: environment.sessionId(index) })));
     },
+    shown: () => focusedPane(presentation.values.read().paneLayout).session,
     async remount() {
       view.unmount();
       await presentation.close();
