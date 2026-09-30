@@ -162,6 +162,7 @@ export {
   type ClaudeAdapterOptions,
 } from "./adapters/claude/index.js";
 export { claudeFallback, claudeSignInProgram, claudeVerificationUrl, type ClaudeSignInOptions } from "./adapters/claude/signin.js";
+export { bundledExecutable } from "./adapters/claude/executable.js";
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
 export {
   ATTENDED_DEFAULT_MODE,
