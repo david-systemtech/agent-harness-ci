@@ -173,6 +173,60 @@ export const ManagedToolRow = z
   .meta({ description: "A managed tool as the environment's last probe found it: where, which version against its minimum, how it was installed, its status and its one action." });
 export type ManagedToolRow = z.infer<typeof ManagedToolRow>;
 
+/** The tools that serve a key-manager provider, in the table's order: bao and vault for OpenBao, doppler, op and bws for the others. */
+export const keyManagerClis = (provider: KeyManagerProvider): ManagedToolName[] =>
+  MANAGED_TOOLS.filter(({ requiredFor }) => requiredFor.kind === "key-manager" && requiredFor.provider === provider).map(({ name }) => name);
+
+/**
+ * A key-manager connection's CLI row among `rows` (key-managers spec, "Wire
+ * methods"; #375): the first installed of the tools that serve its
+ * provider, so `bao`, else `vault` for OpenBao; else the first's, not
+ * installed, whose action installs it (never `vault`'s).
+ */
+export const keyManagerCliRow = (provider: KeyManagerProvider, rows: readonly ManagedToolRow[]): ManagedToolRow => {
+  const serving = keyManagerClis(provider).map((name) => rows.find((row) => row.tool === name));
+  const row = serving.find((candidate) => candidate !== undefined && candidate.status !== "not-installed") ?? serving[0];
+  if (row === undefined) throw new Error(`No managed-tool row serves ${provider}.`);
+  return row;
+};
+
+/** The tools a verify command proves: every one with a verify command, which `claude` has not. */
+export const VerifiableToolName = ManagedToolName.exclude(["claude"]).meta({
+  description: "A managed tool with a verify command: bao, vault, doppler, op, bws or gh; claude has none.",
+});
+export type VerifiableToolName = z.infer<typeof VerifiableToolName>;
+
+/** How a verify command came out: it `passed`, it `failed`, or the tool is `not-installed`, so nothing ran. */
+export const MANAGED_TOOL_VERIFY_OUTCOMES = ["passed", "failed", "not-installed"] as const;
+export const ManagedToolVerifyOutcome = z.enum(MANAGED_TOOL_VERIFY_OUTCOMES).meta({
+  description: "How a verify command came out: passed; failed; or not-installed, the tool not found where its row says, so nothing ran.",
+});
+export type ManagedToolVerifyOutcome = z.infer<typeof ManagedToolVerifyOutcome>;
+
+/**
+ * What `tools.verify` answers (key-managers spec, "Managed tools"; #375):
+ * the tool, how its verify command came out, and one line saying why, read
+ * from only the fields the harness wants of what it printed, never the
+ * output itself; what it keeps of standard error has passed the scrub
+ * registry.
+ */
+export const ManagedToolVerification = z
+  .object({
+    tool: VerifiableToolName,
+    outcome: ManagedToolVerifyOutcome,
+    reason: z
+      .string()
+      .min(1)
+      .max(1024)
+      .regex(/^[^\r\n]+$/)
+      .meta({
+        description:
+          "One line saying why: what passed (for bao or vault, the run token's policies; for gh, the hosts and logins it is signed in to), or what failed (OpenBao sealed, unreachable, a lookup refused, no connection injecting for the tool's provider), scrubbed of every secret.",
+      }),
+  })
+  .meta({ description: "A managed tool's verify command, as it came out: the tool, passed, failed or not installed, and one line saying why." });
+export type ManagedToolVerification = z.infer<typeof ManagedToolVerification>;
+
 /** `tools.updated`'s payload: the rows a probe changed, as they are now. */
 export const ToolsUpdatedPayload = z
   .object({ tools: z.array(ManagedToolRow).min(1).meta({ description: "The rows that changed, as they are now, in the table's order." }) })

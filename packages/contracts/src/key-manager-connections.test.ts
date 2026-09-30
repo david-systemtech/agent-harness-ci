@@ -10,6 +10,7 @@ import {
   KeyManagerLoginPolicy,
   KeyManagerCredential,
   KeyManagerTokenInformation,
+  ListedKeyManagerConnection,
   eventTypeEntry,
   httpOriginOf,
   methods,
@@ -59,6 +60,12 @@ describe("the key-manager connection methods", () => {
     expect(Object.keys(registry["keyManagers.certificate.preview"].params.shape)).toEqual(["address"]);
     expect(Object.keys(KeyManagerCertificate.shape)).toEqual(["pem", "sha256Fingerprint", "subject", "names", "expiresAt", "selfSigned"]);
     expect(registry["keyManagers.certificate.preview"].errors.map((member) => member.shape.code.value)).toEqual(["unreachable"]);
+  });
+
+  it("list answers each connection's record with its CLI row, where the other methods answer the record alone (#375)", () => {
+    expect(registry["keyManagers.list"].result.shape.connections.element).toBe(ListedKeyManagerConnection);
+    expect(Object.keys(ListedKeyManagerConnection.shape)).toEqual([...Object.keys(KeyManagerConnectionRecord.shape), "cli"]);
+    expect(registry["keyManagers.connections.verify"].result.shape.connections.element).toBe(KeyManagerConnectionRecord);
   });
 
   it("setInjected takes the connection alone and answers its record (#368)", () => {
