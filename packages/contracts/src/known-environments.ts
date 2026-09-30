@@ -18,8 +18,12 @@ export const KNOWN_ENVIRONMENT_NAME_MAX = 200;
 /** The most environments one report holds. */
 export const KNOWN_ENVIRONMENTS_MAX = 100;
 
-/** An http or https origin, as a connection keeps its address: no white space, path, query, fragment or credentials. */
-const ORIGIN = /^https?:\/\/[^\s/?#@]+$/;
+/**
+ * An http or https origin, as a connection keeps its address: no white space,
+ * path, query, fragment or credentials, no backslash (a URL parser reads it as
+ * a path separator) and no control or format (zero-width, bidi) character.
+ */
+const ORIGIN = /^https?:\/\/[^\s/\\?#@\p{Cc}\p{Cf}]+$/u;
 
 /** A known environment's name: one line once white space is collapsed, no control or format character. */
 const KnownEnvironmentName = z

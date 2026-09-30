@@ -22,9 +22,20 @@ export const knownEnvironmentsNotice = {
 export const knownEnvironmentSchemaFixtures: Record<string, Fixtures> = {
   "environment/known-environment.json": {
     valid: [laptop, { ...laptop, name: " two  words ", address: "https://[fd7a::1]:7433" }],
-    invalid: [{ ...laptop, id: "laptop" }, { ...laptop, name: "" }, { ...laptop, name: "a\u0000b" }, { ...laptop, address: "http://laptop:7433/ws" }, listed],
+    invalid: [
+      { ...laptop, id: "laptop" },
+      { ...laptop, name: "" },
+      { ...laptop, name: "a\u0000b" },
+      { ...laptop, address: "http://laptop:7433/ws" },
+      { ...laptop, address: "http://laptop:7433\\ws" },
+      { ...laptop, address: "http://lap​top:7433" },
+      listed,
+    ],
   },
-  "environment/listed-environment.json": { valid: [listed], invalid: [{ name: "laptop" }, { ...listed, address: "laptop:7433" }] },
+  "environment/listed-environment.json": {
+    valid: [listed],
+    invalid: [{ name: "laptop" }, { ...listed, address: "laptop:7433" }, { ...listed, address: "http://laptop\u0000:7433" }, { ...listed, address: "http://laptop‮:7433" }],
+  },
   "environment/known-environments-updated.json": {
     valid: [knownEnvironmentsNotice.valid.payload, { environments: [] }],
     invalid: [knownEnvironmentsNotice.invalid.payload, {}],

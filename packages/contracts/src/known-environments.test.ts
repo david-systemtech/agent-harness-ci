@@ -61,11 +61,14 @@ describe("environment.knownEnvironments.report", () => {
     expect(params.safeParse({ environments: many }).success).toBe(false);
   });
 
-  it("takes an address as a connection keeps it, an http or https origin, and nothing with white space, a path, a query or credentials in it", () => {
+  it("takes an address as a connection keeps it, an http or https origin, and nothing with white space, a path, a query, credentials or a control or format character in it", () => {
     for (const address of ["http://desk:7433", "https://desk.example.com:443", "http://100.64.0.7:7433", "http://[fd7a::1]:7433"]) {
       expect(KnownEnvironment.safeParse({ ...laptop, address }).success, address).toBe(true);
     }
-    for (const address of ["desk:7433", "ftp://desk:21", "http://desk:7433/ws", "http://desk:7433?x=1", "http://user@desk:7433", "http://desk\n:7433", "http:// desk", ""]) {
+    const invalid = ["desk:7433", "ftp://desk:21", "http://desk:7433/ws", "http://desk:7433?x=1", "http://user@desk:7433", "http://desk\n:7433", "http:// desk", ""];
+    // A backslash is a path separator to a URL parser; control and format (zero-width, bidi) characters render unseen.
+    invalid.push("http://desk:7433\\ws", "http://desk\u0000:7433", "http://de​sk:7433", "http://desk‮:7433", "http://desk\u007f:7433");
+    for (const address of invalid) {
       expect(KnownEnvironment.safeParse({ ...laptop, address }).success, JSON.stringify(address)).toBe(false);
     }
   });

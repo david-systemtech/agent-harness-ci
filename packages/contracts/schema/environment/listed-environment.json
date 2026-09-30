@@ -11,7 +11,7 @@
     "address": {
       "type": "string",
       "maxLength": 300,
-      "pattern": "^https?:\\/\\/[^\\s/?#@]+$",
+      "pattern": "^https?:\\/\\/[^\\s/\\\\?#@\\p{Cc}\\p{Cf}]+$",
       "description": "The address the client uses for the environment, as its connection keeps it: an http or https origin, http://host:port."
     }
   },
