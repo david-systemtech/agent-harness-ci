@@ -170,11 +170,23 @@ const READ_ONLY_RULE =
 /** The whole section with no connection, the standing rule's form for it. */
 const NONE_CONNECTED = "No key manager is connected here; ask the user for a credential rather than searching files for one.";
 
-/** Whether every policy ticked for the connection's run tokens is known not to write; false for a connection with no ticks, whose token is not scoped by them. */
-const readOnly = ({ ticks, policies }: KeyManagerConnectionRecord): boolean =>
-  ticks !== null && ticks.every((tick) => policies?.find((policy) => policy.name === tick)?.writes === "no");
+/** Whether runs get a token from the connection: it is signed in, and no verification found that its login cannot mint. */
+const givesToken = ({ status, canMint }: KeyManagerConnectionRecord): boolean => status.kind === "signed-in" && canMint !== false;
 
-/** The standing rule for a run given `injected`: read-only when each of them is, else its first form, a run given none included (#728 asks David whether it should read otherwise). */
+/**
+ * Whether the token the connection gives runs is read-only: it gives one,
+ * and every policy ticked for it is known not to write; false for a
+ * connection with no ticks, whose token is not scoped by them.
+ */
+const readOnly = (record: KeyManagerConnectionRecord): boolean =>
+  givesToken(record) && record.ticks !== null && record.ticks.every((tick) => record.policies?.find((policy) => policy.name === tick)?.writes === "no");
+
+/**
+ * The standing rule for a run given `injected`: read-only when each of them
+ * gives it a read-only token, else its first form, which a run given no
+ * token gets too, denied, given no connection or given one that gives none
+ * (#728 asks David whether it should read otherwise).
+ */
 const standingRule = (injected: readonly KeyManagerConnectionRecord[]): string =>
   injected.length > 0 && injected.every(readOnly) ? READ_ONLY_RULE : STANDING_RULE;
 

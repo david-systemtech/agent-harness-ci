@@ -239,12 +239,14 @@ posix("the key managers section", () => {
   });
 });
 
+/** The standing rule's three forms, verbatim (ADR 0011; key-managers spec, "The orientation block"). */
+const RULE =
+  "Before saying you have no key or token, check the key manager above. When you are given a key, save it into the key manager under this project's folder, never into a file. Never print a secret's value.";
+const READ_ONLY =
+  "Before saying you have no key or token, check the key manager above. When you are given a key, ask the user to save it into the key manager; your token here is read-only; never write it into a file. Never print a secret's value.";
+const NONE = "No key manager is connected here; ask the user for a credential rather than searching files for one.";
+
 posix("the standing rule", () => {
-  const RULE =
-    "Before saying you have no key or token, check the key manager above. When you are given a key, save it into the key manager under this project's folder, never into a file. Never print a secret's value.";
-  const READ_ONLY =
-    "Before saying you have no key or token, check the key manager above. When you are given a key, ask the user to save it into the key manager; your token here is read-only; never write it into a file. Never print a secret's value.";
-  const NONE = "No key manager is connected here; ask the user for a credential rather than searching files for one.";
 
   it("ends the section verbatim; once every ticked policy is known not to write its second sentence says the token is read-only, and the next run gets a fresh process", async () => {
     const { t, bao, client } = await withOpenBao();
@@ -306,6 +308,9 @@ posix("why a run has no token", () => {
       "Runs get no token from it: its login cannot mint one, lacking update on auth/token/create, so BAO_TOKEN and VAULT_TOKEN are empty.",
     ]);
     expect(keyManagersOf(withRole)[2]).toBe("Runs get no token from it: its login cannot mint one, lacking update on auth/token/create/runs, so BAO_TOKEN and VAULT_TOKEN are empty.");
+    // Every tick is known not to write, but the run has no token to be read-only: the rule keeps its first form.
+    expect(keyManagersOf(withoutRole)).toContain("Policies ticked for its run tokens: default (does not write) and reader (does not write).");
+    expect(keyManagersOf(withoutRole).at(-1)).toBe(RULE);
   });
 
   it("says of a connection still signing in that a run spawned now gets no token from it, and once signed in the next run gets a fresh process", async () => {
