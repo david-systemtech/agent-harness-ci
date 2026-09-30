@@ -47,7 +47,7 @@ export interface SessionRowProps {
 }
 
 /** The longest title a session takes (`UserTitle`'s 200 characters). */
-const TITLE_MOST = 200;
+export const TITLE_MOST = 200;
 
 export const SessionRowView = ({ line, environment, current, drop, open }: SessionRowProps) => {
   const { row } = line;

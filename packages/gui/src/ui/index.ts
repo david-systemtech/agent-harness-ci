@@ -19,6 +19,7 @@ export { Fold, type FoldProps } from "./fold.js";
 export { Input } from "./input.js";
 export { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "./menu.js";
 export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./popover.js";
+export { Select } from "./select.js";
 export { Switch } from "./switch.js";
 export { Toast, Toasts, type ToastProps } from "./toast.js";
 export { TOOLTIP_DELAY_MS, Tooltip } from "./tooltip.js";

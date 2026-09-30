@@ -31,6 +31,10 @@ import { chordOfEvent, chordOfKey, type PressedKey } from "./chords.js";
  * The window also lists every action wired in it, a key's and a slash
  * command's alike, with whether it can be done now (`useWindowAction`,
  * `useEveryWiredAction`): what the command palette lists and runs.
+ *
+ * A session pane the grid is not focused on wires none of its actions
+ * (`KeysAnswered`), so the window's keys and the palette reach the focused
+ * pane's alone (the pane grid, #407).
  */
 
 /** An action the GUI column wires to keys in its context. */
@@ -109,6 +113,16 @@ interface Dispatch {
 
 const DispatchContext = createContext<Dispatch | null>(null);
 const RegionContext = createContext<Region | null>(null);
+
+/** Whether the actions wired below are wired now: false in a session pane the grid is not focused on. */
+const AnsweredContext = createContext(true);
+
+/**
+ * A part of the window whose actions are wired only while `answered`: a
+ * session pane of the grid, answered while it is the focused one. Its keys,
+ * its palette entries and its slash commands' entries come and go with it.
+ */
+export const KeysAnswered = ({ answered, children }: { readonly answered: boolean; readonly children: ReactNode }) => <AnsweredContext value={answered}>{children}</AnsweredContext>;
 
 /** Runs the action `region` has wired for the key `event` is, and says whether one took it. */
 const offer = (dispatch: Dispatch, region: Region, event: PressedKey): boolean => {
@@ -192,12 +206,14 @@ const ALWAYS = () => true;
  */
 export const useWindowAction = (id: ActionId, run: () => void, offer: Offer = PRESENT, holds: () => boolean = ALWAYS): void => {
   const { wired } = useDispatch();
+  const answered = use(AnsweredContext);
   const latest = useRef({ run, holds });
   useLayoutEffect(() => {
     latest.current = { run, holds };
   });
   const absent = offer.status === "absent" ? offer.message : undefined;
   useEffect(() => {
+    if (!answered) return;
     const action: WiredAction = {
       id,
       offer: absent === undefined ? PRESENT : { status: "absent", message: absent },
@@ -206,7 +222,7 @@ export const useWindowAction = (id: ActionId, run: () => void, offer: Offer = PR
     };
     wired.update((list) => [...list, action]);
     return () => wired.update((list) => list.filter((other) => other !== action));
-  }, [wired, id, absent]);
+  }, [wired, id, absent, answered]);
 };
 
 /** Every action wired in the window now, in the order wired, followed. */
@@ -234,24 +250,27 @@ export const useIsKeyOf = (id: KeyActionId): ((event: PressedKey) => boolean) =>
  * column binds there, and `run` may decline a key (`false`). It is listed
  * among the window's wired actions too, with `offer` (`useWindowAction`),
  * its condition asked of that region. Throws when no region of that context
- * holds the component, since then no key could reach it.
+ * holds the component, since then no key could reach it. In a part of the
+ * window not answered now (`KeysAnswered`), it is wired once that part is.
  */
 export const useKeyAction = (id: KeyActionId, run: KeyActionRun, offer?: Offer): void => {
   const action = actionById(id);
   let region = use(RegionContext);
   while (region !== null && region.context !== action?.context) region = region.parent;
   if (region === null) throw new Error(`${id} is answered in the ${action?.context ?? "unknown"} context, and no region of it holds this component.`);
+  const answered = use(AnsweredContext);
   const latest = useRef(run);
   useLayoutEffect(() => {
     latest.current = run;
   });
   useEffect(() => {
+    if (!answered) return;
     const wired: KeyActionRun = (key) => latest.current(key);
     region.wired.set(id, wired);
     return () => {
       if (region.wired.get(id) === wired) region.wired.delete(id);
     };
-  }, [region, id]);
+  }, [region, id, answered]);
   const when = action?.gui.status === "wired" ? action.gui.when : undefined;
   useWindowAction(id, () => void latest.current(0), offer, () => when === undefined || region.conditions.current[when]?.() === true);
 };

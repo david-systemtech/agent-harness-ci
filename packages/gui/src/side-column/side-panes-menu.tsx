@@ -1,3 +1,4 @@
+import { focusedPane } from "../grid/layout.js";
 import { SIDE_PANES, type PaneSession } from "../presentation.js";
 import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
@@ -14,7 +15,8 @@ import { PANES, paneCapability } from "./panes.js";
  */
 export const SidePanesMenu = () => {
   const [layout] = usePresentation("paneLayout");
-  return layout.session === null ? null : <MenuFor session={layout.session} />;
+  const { session } = focusedPane(layout);
+  return session === null ? null : <MenuFor session={session} />;
 };
 
 const MenuFor = ({ session }: { readonly session: PaneSession }) => {

@@ -8,11 +8,14 @@ import { ToolStatus } from "./transcript.js";
  * Terminals, files and diffs (tui spec, "Terminals, files and diffs: the
  * vocabulary this workstream fixes"; #124). Every method takes the `terminal`
  * scope. A terminal is an environment-owned pseudo-terminal attached to a
- * session's workspace, outliving any connection; its output never enters the
- * event log (ADR 0002 keeps the log for transcripts): each terminal keeps a
- * bounded scrollback of its own, and `terminals.subscribe` reads that and
- * nothing else. Files and diffs are read-only in phase A. The GUI (#84)
- * reuses this vocabulary and may add optional fields, never rename.
+ * session's workspace, outliving any connection, or since #362 a tool
+ * terminal, owned by the Managed tools registry and attached to no session,
+ * whose writes, resizes and close also take `admin`; its output never
+ * enters the event log (ADR 0002 keeps the log for transcripts): each
+ * terminal keeps a bounded scrollback of its own, and `terminals.subscribe`
+ * reads that and nothing else. Files and diffs are read-only in phase A.
+ * The GUI (#84) reuses this vocabulary and may add optional fields, never
+ * rename.
  */
 
 /**
@@ -37,6 +40,9 @@ export const MAX_TERMINALS_PER_SESSION = 16;
 
 /** How long an exited terminal keeps its scrollback; it stays listed with its exit code until it is closed. */
 export const EXITED_SCROLLBACK_MS = 10 * 60 * 1000;
+
+/** How long a tool terminal (#362) stays open, its scrollback kept, after its command exits; then it closes. */
+export const TOOL_TERMINAL_KEPT_MS = 30 * 60 * 1000;
 
 /** The most entries `files.list` answers. */
 export const FILES_LIST_CAP = 20_000;
@@ -101,18 +107,45 @@ export const TerminalExitCause = z.enum(TERMINAL_EXIT_CAUSES).meta({
 });
 export type TerminalExitCause = z.infer<typeof TerminalExitCause>;
 
-/** A terminal as `terminals.list` and a subscription's snapshot describe it. */
+/** What a terminal record says of it besides its id and owner. */
+const terminalFields = {
+  openedAt: Timestamp,
+  cols: TerminalColumns,
+  rows: TerminalRows,
+  exitCode: z.int().nullable().meta({ description: "The shell's exit code once it has exited; null while it runs." }),
+  signal: z.int().nullable().meta({ description: "The signal that ended the shell, when one did; null otherwise or while it runs." }),
+};
+
+/**
+ * A terminal as `terminals.list` and a subscription's snapshot describe it,
+ * with its owner (#362): a session, whose workspace it opened in, under
+ * which it is listed and counted, and with which it closes; or the Managed
+ * tools registry, whose tool terminal runs one install or update command
+ * and names no session.
+ */
 export const TerminalInfo = z
-  .object({
-    id: TerminalId,
-    sessionId: SessionId,
-    openedAt: Timestamp,
-    cols: TerminalColumns,
-    rows: TerminalRows,
-    exitCode: z.int().nullable().meta({ description: "The shell's exit code once it has exited; null while it runs." }),
-    signal: z.int().nullable().meta({ description: "The signal that ended the shell, when one did; null otherwise or while it runs." }),
-  })
-  .meta({ description: "A terminal: its id, session, when it opened, its size, and its exit code once it has exited." });
+  .discriminatedUnion("owner", [
+    z
+      .object({
+        id: TerminalId,
+        owner: z.literal("session").meta({ description: "A session's terminal: listed and counted under it, closed with it." }),
+        sessionId: SessionId,
+        ...terminalFields,
+      })
+      .meta({ description: "A session's terminal: the user's login shell in the session's workspace." }),
+    z
+      .object({
+        id: TerminalId,
+        owner: z.literal("managed-tools").meta({ description: "A tool terminal: the Managed tools registry's, listed under no session." }),
+        sessionId: z.null().meta({ description: "Null: a tool terminal names no session." }),
+        ...terminalFields,
+      })
+      .meta({ description: "A tool terminal: one install or update command the Managed tools registry runs through the user's login shell." }),
+  ])
+  .meta({
+    description:
+      "A terminal: its id, its owner (a session, or the Managed tools registry for a tool terminal, which names no session), when it opened, its size, and its exit code once it has exited.",
+  });
 export type TerminalInfo = z.infer<typeof TerminalInfo>;
 
 /** One chunk of a terminal's output, the payload of a `terminal.output` event. */
