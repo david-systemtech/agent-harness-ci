@@ -175,6 +175,14 @@ is a Forgejo token with `read:repository`.
 8. With lingering off, `agent-harness service status` says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
 9. `agent-harness service uninstall` leaves no unit behind.
 
+Then the headless path from a client, as the Set up spec gives it (#577), on a
+fresh box or after step 9:
+
+10. Install by the script: on a desktop client, Settings, Your machines, Add a machine, Install on another machine: type the name "Checklist headless" and Copy the macOS and Linux line. It names this client's machine's channel and its release. With `AGENT_HARNESS_TOKEN` exported on the headless box, paste the line there: it installs as step 2 does and ends with a pairing whose lines read `Preset: My own client`, every scope and `Ceiling: bypassPermissions`.
+11. Pair from a client as My own client: paste that link into Add a machine's Pair with it. The machine becomes a card, "Checklist headless", saying "Paired with Checklist headless: set it up now?", and its Access row lists this client's session with every scope, up to bypassPermissions.
+12. Set up this machine, on that card: the full checklist opens on the new machine, its picker naming it, at its first step needing attention (its first step when none does).
+13. Quit every client for over an hour, then open one: the Set up pane on the new machine shows each step checked within the last hour, so its checks ran hourly with no client connected; `/setup` in a terminal UI on that machine reads the same results.
+
 On macOS, steps 1 to 5 run the same from a logged-in user's Terminal, with the
 versions under `~/Library/Application Support/agent-harness/versions`.
 
@@ -228,7 +236,7 @@ verbs, or list the section as not run.
 1. `docker build -t agent-harness .` from the checkout succeeds: `node-pty` compiles in the build stage, the `--prod` reinstall drops the devDependencies without asking, and `docker run --rm agent-harness --version` prints the version.
 2. `docker compose up -d` on fresh volumes, then `docker compose exec environment id`: uid and gid 10001, not 0. `docker compose logs environment` shows the discovery address, not the root refusal, and after it a pairing link, an ASCII QR and a code, since no client has paired yet.
 3. `docker compose exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
-4. `docker compose exec environment agent-harness pair --data-dir /data` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`. After that exchange, `docker compose restart` and `docker compose logs environment`: the new start prints the discovery address and no pairing.
+4. `docker compose exec environment agent-harness pair --preset own-client --data-dir /data` prints a link and a code, every scope up to bypassPermissions, as the start's print in step 2 grants; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`. After that exchange, `docker compose restart` and `docker compose logs environment`: the new start prints the discovery address and no pairing.
 5. `setup.check` from that client answers Permissions and Your machines done (under Docker's default seccomp profile only `off` is offered, and the containment default's preset is `off`).
 6. `docker compose exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
 7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
