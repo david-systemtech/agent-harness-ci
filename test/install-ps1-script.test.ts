@@ -584,6 +584,17 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(readdirSync(f.temp)).toEqual([]);
   });
 
+  it("gives pair's plan line the -DataDir and -Port that the run passes it", async () => {
+    const f = fixture();
+    const dataDir = join(f.root, "data");
+    const result = await install(f, ["-DryRun", "-DataDir", dataDir, "-Port", "7500"]);
+    expect(result.code).toBe(0);
+    const { node, entry } = cliOf(dataDir, "0.1.0");
+    expect(result.stdout).toContain(
+      `  & ${node} ${entry} pair --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`,
+    );
+  });
+
   it("prints the plan of a re-run over a running service for -DryRun, changing nothing", async () => {
     const f = fixture([{ tag: "v0.1.0" }, { tag: "v0.2.0" }]);
     expect((await install(f, ["-Version", "0.1.0"])).code).toBe(0);

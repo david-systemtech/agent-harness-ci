@@ -495,6 +495,15 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     });
   }
 
+  it("gives pair's plan line the --data-dir and --port that the run passes it", async () => {
+    const f = await fixture();
+    const dataDir = join(f.home, "data");
+    const result = await install(f, ["--dry-run", "--data-dir", dataDir, "--port", "7500"]);
+    expect(result.code).toBe(0);
+    const bin = join(dataDir, "versions", "0.1.0", "bin", "agent-harness");
+    expect(result.stdout).toContain(`  ${bin} pair --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`);
+  });
+
   it("prints the plan of a re-run over a running service for --dry-run, changing nothing", async () => {
     const f = await fixture([{ tag: "v0.1.0" }, { tag: "v0.2.0" }]);
     expect((await install(f, ["--version", "0.1.0"])).code).toBe(0);

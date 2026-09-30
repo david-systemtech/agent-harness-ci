@@ -200,6 +200,11 @@ function Format-PlanWord([string]$Word) {
   return "'" + ($Word -replace "'", "''") + "'"
 }
 
+# A line of the printed plan: $Cli's verb $Words, as PowerShell would call it.
+function Format-PlanLine([hashtable]$Cli, [string[]]$Words) {
+  return '  & ' + ((@($Cli.Node, $Cli.Entry) + $Words | ForEach-Object { Format-PlanWord $_ }) -join ' ')
+}
+
 # The version in the folder $Folder, run as the launcher runs one: its own Node on its CLI's entry.
 function New-Cli([string]$Folder) {
   return @{
@@ -216,7 +221,7 @@ function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget,
   $words = @($Arguments)
   if ($WithTarget) { $words += $targetOptions }
   if ($dry) {
-    Write-Host ('  & ' + ((@($Cli.Node, $Cli.Entry) + $words | ForEach-Object { Format-PlanWord $_ }) -join ' '))
+    Write-Host (Format-PlanLine $Cli $words)
     return
   }
   if ($PSBoundParameters.ContainsKey('Stdin')) { $Stdin | & $Cli.Node $Cli.Entry @words } else { & $Cli.Node $Cli.Entry @words }
@@ -457,7 +462,7 @@ function Invoke-Install {
   if ($running -and $Version) { Invoke-Verb $cli @('update', 'apply', '--version', $Version) -WithTarget }
 
   if ($dry) {
-    Write-Host ('  & ' + ((@($cli.Node, $cli.Entry) | ForEach-Object { Format-PlanWord $_ }) -join ' ') + ' pair, or the Tailscale warning when only loopback is bound')
+    Write-Host ((Format-PlanLine $cli (@('pair') + $targetOptions)) + ', or the Tailscale warning when only loopback is bound')
     Write-Host 'Dry run: nothing was downloaded or changed.'
     return
   }
