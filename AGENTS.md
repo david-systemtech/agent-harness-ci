@@ -107,26 +107,33 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   the release workflow does. What only a machine of each platform proves is the Server
   artefacts section of `docs/agents/service-install-checklist.md`. The release workflow
   (`.forgejo/workflows/release.yml`, #358) runs the build on the `ci-x64` label. Its asset
-  list passes the release's other assets as `--asset <kind>=<path>`. Its last step publishes
-  the build's folder with `pnpm --filter agent-harness publish-release`
-  (`scripts/release/publish.ts`), which is tested against a fake Forgejo
-  (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts` runs the
-  workflow's steps against a fake `pnpm`. A tag's real run is the checklist's Release
-  section.
+  list passes the release's other assets as `--asset <kind>=<path>`, a desktop build as
+  `--asset desktop:<platform>:<format>=<path>` (#359). Its publish step puts the build's
+  folder on the release with `pnpm --filter agent-harness publish-release`
+  (`scripts/release/publish.ts`, the notes from `notes.ts`), which is tested against a fake
+  Forgejo (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts`
+  runs the workflow's steps against a fake `pnpm`. A tag's real run is the checklist's
+  Release section.
 - The desktop build, `pnpm --filter @agent-harness/desktop build-desktop --platform <p>
   --tag v<version> --server <that platform's server artefact> --out <folder>`
   (`packages/desktop/scripts/desktop-build/`, #423), builds one platform's desktop on
-  that platform: the macOS zip (darwin-arm64), the Windows NSIS setup (win32-x64) or the
-  Arch package (linux-x64). It bundles the main process and the preload, builds the `gui`
+  that platform (the Windows setup on an x86_64 Linux with Wine too): the macOS zip
+  (darwin-arm64), the Windows NSIS setup (win32-x64) or the Arch package (linux-x64). It bundles the main process and the preload, builds the `gui`
   stamped with the version, checks that the server artefact is that platform's and
   version's, and has electron-builder (a dev dependency of the desktop) pack them, the
   artefact into the app's resources. Its tests fake electron-builder and the compile and
   read what they are handed; `bundle.test.ts` bundles the main process and the `gui`
   build with Vite, running neither. Never run electron-builder's packaging on the shared
   agent box. The `desktop` workflow (`.forgejo/workflows/desktop.yml`) runs it by hand:
-  the Arch package on `ci-x64`, the zip on the Mac's `macos` runner. No runner has
-  Windows, so the setup is built by hand; building and installing each is the desktop
-  checklist's "Building a desktop" and "The packaged desktop".
+  the Arch package on `ci-x64`, the zip on the Mac's `macos` runner, and the Windows
+  setup on `ci-x64` in electron-builder's Wine image (#359), since no runner has Windows
+  and electron-builder on Linux runs the setup under Wine to write its uninstaller. A
+  tag's release builds each in a job of its own with the same steps, which
+  `packages/desktop/scripts/desktop-build/workflow.test.ts` holds the two workflows to,
+  and hands it to the release job through the generic package registry
+  (`.forgejo/scripts/desktop-builds.sh`, tested by `test/desktop-builds-script.test.ts`
+  against a fake registry). Building and installing each is the desktop checklist's
+  "Building a desktop" and "The packaged desktop".
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
