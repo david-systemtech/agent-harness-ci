@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { carryMemory } from "./carry-memory.js";
+import { carryMemory, type CarryOutcome, type MemorySource } from "./carry-memory.js";
 import { hashedName } from "./directory-names.js";
 import { repositoryKey, type RepositoryPlace } from "./repository-key.js";
 
@@ -17,7 +17,9 @@ import { repositoryKey, type RepositoryPlace } from "./repository-key.js";
  * When a session's key changes (an identity pass gives it an identity or
  * moves its host, #329; `sessions.setWorkspace` gives it a new workspace,
  * #328), its old directory is copied into the new one by ADR 0021's
- * carry-over rule (`carry-memory.ts`) and left where it is.
+ * carry-over rule (`carry-memory.ts`) and left where it is. Carry over's
+ * import copies an adopted directory's memory folders in by the same rule
+ * (#580), in the same queue.
  */
 
 /** A session's place, as the key reads it. */
@@ -61,11 +63,29 @@ export interface AutoMemory {
    * once this one has run.
    */
   carry(before: MemoryPlace, after: MemoryPlace): Promise<void>;
+  /**
+   * Copies the memory directory `source`, from outside the root (an
+   * adopted directory's, #580), into the directory of the repository key
+   * `key` (its value: an identity, a main checkout or a workspace path) by
+   * the carry-over rule, in the queue the key changes use; answers what the
+   * copy did, or with `dryRun` would do, writing nothing. Rejects when the
+   * copy fails; the queue goes on.
+   */
+  carryIn(source: MemorySource, key: string, options?: { readonly dryRun?: boolean }): Promise<CarryOutcome>;
 }
 
 /** The environment's auto memory, whose directories live under `root` (`<data dir>/auto-memory`). */
 export const createAutoMemory = (root: string): AutoMemory => {
   let queue: Promise<void> = Promise.resolve();
+  /** Runs `work` once every carry asked before it has run; what it answers, or its rejection, is its own, and the queue goes on. */
+  const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
+    const done = queue.then(work);
+    queue = done.then(
+      () => undefined,
+      () => undefined,
+    );
+    return done;
+  };
   const carryNow = async (before: MemoryPlace, after: MemoryPlace): Promise<void> => {
     const to = autoMemoryName(after);
     for (const source of sourcesOf(before)) {
@@ -73,11 +93,10 @@ export const createAutoMemory = (root: string): AutoMemory => {
     }
   };
   return {
-    carry: (before, after) => {
-      queue = queue.then(() =>
+    carry: (before, after) =>
+      inTurn(() =>
         carryNow(before, after).catch((error: unknown) => console.error("Copying a session's auto memory to its new key failed; the old directory stays:", error)),
-      );
-      return queue;
-    },
+      ),
+    carryIn: (source, key, options = {}) => inTurn(() => carryMemory(source, join(root, nameOf(key)), options)),
   };
 };

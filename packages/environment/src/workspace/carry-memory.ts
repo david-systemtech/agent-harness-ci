@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { appendFile, copyFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -21,7 +22,8 @@ import { dirname, join } from "node:path";
  *   its pointer line if a carry cut short left it without one.
  *
  * Only regular files are copied: a link, and anything else that is not a
- * file or a directory, stays behind. The source is only read.
+ * file or a directory, stays behind. The source is only read. A dry run
+ * answers what the carry would do, and writes nothing.
  */
 
 /** What a carry did: nothing to carry, the files copied into an empty target, nothing since the target holds them, or a second source put under `carried/`. */
@@ -121,12 +123,13 @@ const pointTo = async (target: string, under: string, label: string, hasIndex: b
   await appendFile(index, held === "" || held.endsWith("\n") ? line : `\n${line}`);
 };
 
-/** Carries the memory directory `source` into `target` by the rule: see the module comment. */
-export const carryMemory = async (source: MemorySource, target: string): Promise<CarryOutcome> => {
+/** Carries the memory directory `source` into `target` by the rule, or with `dryRun` answers what it would do: see the module comment. */
+export const carryMemory = async (source: MemorySource, target: string, options: { readonly dryRun?: boolean } = {}): Promise<CarryOutcome> => {
+  const write = options.dryRun !== true;
   const files = await filesIn(source.directory);
   if (files.length === 0) return { outcome: "empty" };
   if (!(await holdsAnything(target))) {
-    await copyInto(source.directory, target, files);
+    if (write) await copyInto(source.directory, target, files);
     return { outcome: "copied" };
   }
   if (await holdsAll(target, source.directory, files)) return { outcome: "held" };
@@ -136,11 +139,30 @@ export const carryMemory = async (source: MemorySource, target: string): Promise
     const directory = join(target, ...under.split("/"));
     if (await holdsAnything(directory)) {
       if (!(await holdsAll(directory, source.directory, files))) continue;
-      await pointTo(target, under, source.label, hasIndex);
+      if (write) await pointTo(target, under, source.label, hasIndex);
       return { outcome: "held" };
     }
-    await copyInto(source.directory, directory, files);
-    await pointTo(target, under, source.label, hasIndex);
+    if (write) {
+      await copyInto(source.directory, directory, files);
+      await pointTo(target, under, source.label, hasIndex);
+    }
     return { outcome: "carried", under };
   }
+};
+
+/**
+ * A digest of the memory directory `directory` as a carry reads it: the
+ * SHA-256 of each regular file's path and bytes, in the order `filesIn`
+ * gives them, as `sha256:<hex>`; null when it holds no file, so nothing
+ * would be carried.
+ */
+export const memoryDigest = async (directory: string): Promise<string | null> => {
+  const files = await filesIn(directory);
+  if (files.length === 0) return null;
+  const hash = createHash("sha256");
+  for (const file of files) {
+    const bytes = await readFile(join(directory, ...file));
+    hash.update(`${file.join("/")}\0${bytes.length}\0`).update(bytes);
+  }
+  return `sha256:${hash.digest("hex")}`;
 };
