@@ -30,12 +30,6 @@ export const AccessPane = () => {
   return picked === undefined ? null : <AccessOn key={picked.environmentId} view={picked} />;
 };
 
-/** What the last verb did, or why not. */
-interface Said {
-  readonly text: string;
-  readonly refused: boolean;
-}
-
 const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
   const clock = useClock();
@@ -43,7 +37,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
   const answer = useObservable(useMemo(() => runtime.requests.cached(environmentId, "access.sessions.list", { live: true }), [runtime, environmentId]));
   const [reread, write] = useWrittenOver<readonly ClientSessionSummary[]>(answer.fetchedAt);
   const connection = useObservable(runtime.connections.list).find((record) => record.environmentId === environmentId);
-  const [said, setSaid] = useState<Said | undefined>(undefined);
+  const [said, setSaid] = useState<AccessOutcome | undefined>(undefined);
   const [revoking, setRevoking] = useState<ClientSessionSummary | undefined>(undefined);
   const [verbs, setVerbs] = useState(0);
 
@@ -51,11 +45,12 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
   const admin = runtime.capability(environmentId, "access.sessions.list");
   const writable = ready && admin.status === "present";
   const sessions = reread ?? answer.result?.sessions ?? null;
+  const programs = sessions?.filter((session) => session.kind === "program") ?? [];
   const own = connection?.clientSessionId ?? null;
 
   /** Says what a verb did and, once it did something, reads the client sessions again, shown over the cached ones. */
   const done = async (outcome: AccessOutcome) => {
-    setSaid({ text: outcome.line, refused: !outcome.ok });
+    setSaid(outcome);
     if (!outcome.ok) return;
     setVerbs((now) => now + 1);
     const again = await runtime.requests.call(environmentId, "access.sessions.list", { live: true });
@@ -83,7 +78,7 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
       {ready && admin.status === "present" && sessions === null && (
         <p className="text-sm text-ink-faint">{answer.error === null ? "Reading the client sessions…" : `The client sessions could not be read: ${answer.error.message}`}</p>
       )}
-      {said !== undefined && <p className={`text-sm ${said.refused ? "text-signal" : "text-ink-muted"}`}>{said.text}</p>}
+      {said !== undefined && <p className={`text-sm ${said.ok ? "text-ink-muted" : "text-signal"}`}>{said.line}</p>}
       {sessions !== null && (
         <>
           <Part title="Client sessions">
@@ -91,8 +86,8 @@ const AccessOn = ({ view }: { readonly view: EnvironmentView }) => {
           </Part>
           <Part title="Program pairings">
             <p className="text-sm text-ink-muted">Scripts and bots paired with {nameOf(view)}, each with the scopes its pairing code granted.</p>
-            {sessions.some((session) => session.kind === "program") ? (
-              <SessionList name="Programs" sessions={sessions.filter((session) => session.kind === "program")} {...lists} />
+            {programs.length > 0 ? (
+              <SessionList name="Programs" sessions={programs} {...lists} />
             ) : (
               <p className="text-sm text-ink-faint">No program is paired.</p>
             )}
