@@ -344,6 +344,10 @@ _Avoid_: prompt library, house rules, system prompt (the whole thing the provide
 A standing instruction David holds on one environment: a title and a Markdown body, the accounts it reaches (all, which includes accounts added later, or those named), whether it is on, and its place in the list; a copy of a catalogue entry remembers that entry and its version, and one written here has no origin. Runs of the accounts it reaches are handed it after the orientation block, under `# Standing instructions`, its title as a heading. The read-only Orientation row that opens the list is not one.
 _Avoid_: prompt, custom instruction, rule, note
 
+**Session instructions**:
+One session's own text for its runs, so a one-off constraint does not become a habit: set from a client that drives runs, empty to clear, handed to the session's next runs under `# Instructions for this session` after the user, team-bank and project layers, carried by the session's snapshot and copied into a fork. A run already live keeps what it began with.
+_Avoid_: session prompt, session note, one-off instruction
+
 **Trust gate**:
 The one-time, per-repository decision that lets a repository's own skills, instructions and hooks load into runs on this environment.
 _Avoid_: allowlist, safe mode, workspace trust

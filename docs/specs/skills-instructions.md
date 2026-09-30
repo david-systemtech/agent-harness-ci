@@ -273,6 +273,14 @@ Chosen in the owned instructions' build (#505), for review:
 - **The Instructions step's entry** registers the key with `settings.update` as its writer and its six commands as state writes, never skipped, with no state check (#514's `instructions.orientation-renders`) and no triggers (#588).
 - **The client runtime** refreshes `instructions.list` and `instructions.preview` on `instructions.updated`, `settings.changed` (the switch), `account.updated` (the rows' accounts, and the block's accounts section), every `forge.account.*` and key-manager event and `tools.updated` (what the block's forges and key managers sections read).
 
+Chosen in the session instructions' build (#506), for review:
+
+- **The text** is kept as given, not trimmed: at most 20,000 characters, empty clearing it. Text of white space alone is recorded but hands nothing, as a blank part is left out. The text the session has already appends nothing (`changed: false`); a session deleted or not on the environment is `not_found`, kind `session`. A deleted session keeps its text for a restore; a purge takes it. The result is `{sessionId, text}`, as `permissions.containment.set` answers the event's payload with the session.
+- **The part**: one part of the session layer, its id the session's, no version, titled `Instructions for this session`, its text the heading, a blank line, then the session's text.
+- **The snapshot's `instructions`** is read at the head, as the summary is, for a compacted session replayed from its fold too; the wire defaults it to empty, so an environment from before it reads as a session with none.
+- **A fork** is made with `session.instructions-set` in its creation's append, before `session.forked`, when its source has instructions, and with none otherwise; the copy is the fork's own, so a later change to either reaches only that session.
+- **No notice**: setting a session's instructions raises no `instructions.updated`; a client holding the session hears `session.instructions-set` on its stream. The client runtime's session reduction holds them (`instructions`), the snapshot's then each event heard; a cached session from before them does not read, as one from before the rewinds field. A cached `instructions.preview` of the session is not refreshed by the event.
+
 Verify first, on the pinned SDK and its bundled CLI:
 
 1. A local plugin whose `skills/` entries are symbolic links loads each one, and junctions do on Windows (links were measured on Linux and Windows junctions fixed previously; re-check on this CLI).
