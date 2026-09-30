@@ -1193,6 +1193,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     managedOutside: updatesManagedOutside,
     runs: host.runs,
     host,
+    availability,
     activity: () => lifecycle.status().activity,
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
     settings: channelSettings,
@@ -1443,8 +1444,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     throw new StartupError("prepared", error);
   }
   // The settle (#344, #345): the update that began last gets its outcome from the version this start runs, and each run it cut
-  // its mark and, where it can go on, its continuation, before any client can read the stream.
-  updates.settle();
+  // its mark and, where it can go on, its continuation, before any client can read the stream. Each cut run's workspace is
+  // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
+  // opening two bounds at most, never the event loop.
+  await updates.settle();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());
