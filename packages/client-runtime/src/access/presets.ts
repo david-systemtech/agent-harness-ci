@@ -1,5 +1,5 @@
-import { PAIRING_PRESETS, compareModes, pairingPreset, type Ceiling, type PairingPreset } from "@agent-harness/contracts";
-import { grantWords, scopesListed } from "./words.js";
+import { PAIRING_PRESETS, compareModes, pairingPreset, scopesInWords, type Ceiling, type PairingPreset } from "@agent-harness/contracts";
+import { grantWords } from "./words.js";
 
 /**
  * The pairing presets as a client offers them when it mints a code on an
@@ -37,7 +37,7 @@ const presetWords = (preset: PairingPreset): string => {
     case "nothing":
       return grantWords(preset.scopes, preset.ceiling);
     case "ceiling":
-      return `Grants ${scopesListed(preset.scopes)}, up to the ceiling picked, preset ${preset.ceiling}.`;
+      return `Grants ${scopesInWords(preset.scopes)}, up to the ceiling picked, preset ${preset.ceiling}.`;
     case "scopes-and-ceiling":
       return "Grants the scopes ticked, up to the ceiling picked.";
   }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Ceiling, SCOPES, ScopeSet, type Scope } from "./scopes.js";
+import { Ceiling, SCOPES, ScopeSet, scopesInWords, type Scope } from "./scopes.js";
 
 /**
  * Pairing presets (ADR 0025; the Set up spec, "Pairing codes"; #577): what a
@@ -58,12 +58,6 @@ export const pairingPreset = (id: PairingPresetId): PairingPreset => {
   return preset;
 };
 
-/** Scopes in words: "every scope", "read", "read and terminal", "read, sessions:write and runs:drive". */
-const scopesWords = (scopes: readonly Scope[]): string => {
-  if (scopes.length === SCOPES.length) return "every scope";
-  return scopes.length === 1 ? scopes.join("") : `${scopes.slice(0, -1).join(", ")} and ${scopes.at(-1) ?? ""}`;
-};
-
 /** What a code asks for: the scopes, in the contracts' order, and the ceiling. */
 export type PresetGrant = { readonly ok: true; readonly scopes: readonly Scope[]; readonly ceiling: Ceiling } | { readonly ok: false; readonly message: string };
 
@@ -77,10 +71,10 @@ export const presetGrant = (preset: PairingPreset, changed: { readonly scopes?: 
   const scopes = changed.scopes === undefined ? preset.scopes : SCOPES.filter((scope) => changed.scopes?.includes(scope));
   const ceiling = changed.ceiling ?? preset.ceiling;
   if (preset.chooses === "nothing" && (changed.scopes !== undefined || changed.ceiling !== undefined)) {
-    return { ok: false, message: `${preset.name} grants ${scopesWords(preset.scopes)}, up to ${preset.ceiling}: it takes no other scopes or ceiling.` };
+    return { ok: false, message: `${preset.name} grants ${scopesInWords(preset.scopes)}, up to ${preset.ceiling}: it takes no other scopes or ceiling.` };
   }
   if (preset.chooses === "ceiling" && changed.scopes !== undefined) {
-    return { ok: false, message: `${preset.name} grants ${scopesWords(preset.scopes)}: only its ceiling may be picked.` };
+    return { ok: false, message: `${preset.name} grants ${scopesInWords(preset.scopes)}: only its ceiling may be picked.` };
   }
   if (scopes.length === 0) return { ok: false, message: "A pairing code grants at least one scope." };
   return { ok: true, scopes, ceiling };

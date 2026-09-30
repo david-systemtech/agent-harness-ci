@@ -20,6 +20,12 @@ export const Scope = z.enum(SCOPES).meta({
 });
 export type Scope = z.infer<typeof Scope>;
 
+/** Scopes as a sentence lists them, in this order: `every scope`, `read`, `read, sessions:write and runs:drive`. */
+export const scopesInWords = (scopes: readonly Scope[]): string => {
+  const held = SCOPES.filter((scope) => scopes.includes(scope));
+  return held.length === SCOPES.length ? "every scope" : held.length === 1 ? held.join("") : `${held.slice(0, -1).join(", ")} and ${held.at(-1) ?? ""}`;
+};
+
 /** The scopes a client session holds: chosen at pairing, never empty. */
 export const ScopeSet = setOf(Scope)
   .min(1)
