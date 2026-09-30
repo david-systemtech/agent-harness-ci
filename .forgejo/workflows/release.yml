@@ -75,6 +75,13 @@ jobs:
 
       - run: pnpm typecheck
       - run: pnpm lint
+      # PowerShell 7 for the install.ps1 tests, as ci.yml puts it on the PATH.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/agent-harness-pwsh
+          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
+      - name: PowerShell 7 for the install.ps1 tests
+        run: bash .forgejo/scripts/pwsh.sh
       # ci.yml's worker count, for the same shared daemon.
       - run: pnpm test --maxWorkers=4
       - name: The JSON Schema export is current
@@ -140,8 +147,8 @@ jobs:
       # in release.json (kinds: the contracts' RELEASE_ASSET_KINDS). A file is
       # published under its own name, the compose file with this release's
       # image in place of its unreleased placeholder; a folder as
-      # agent-harness-<kind>.tar.gz. Adding an asset (install.ps1, a desktop
-      # build) is one more line here.
+      # agent-harness-<kind>.tar.gz. Adding an asset (a desktop build) is one
+      # more line here.
       - name: Build the server artefacts and the release's assets
         env:
           IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
@@ -151,6 +158,7 @@ jobs:
             --image-reference "$IMAGE_REFERENCE" --image-digest "$IMAGE_DIGEST" \
             --asset schema=packages/contracts/schema \
             --asset install-script=scripts/install.sh \
+            --asset install-script=scripts/install.ps1 \
             --asset compose=scripts/compose.yaml \
             --asset host-updater=scripts/host-updater.sh
 
