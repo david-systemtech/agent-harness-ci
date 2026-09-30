@@ -123,6 +123,7 @@ import {
   PairingUsedError,
   ProtocolMismatchError,
 } from "./pairing.js";
+import { PAIRING_PRESETS, PairingPreset, PairingPresetChoice, PairingPresetId } from "./pairing-presets.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import {
   DoctorToolName,
@@ -756,6 +757,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
   { path: "pair/request.json", title: "PairRequest", schema: PairRequest },
   { path: "pair/error.json", title: "PairError", schema: PairError },
+  { path: "pair/preset-id.json", title: "PairingPresetId", schema: PairingPresetId },
+  { path: "pair/preset-choice.json", title: "PairingPresetChoice", schema: PairingPresetChoice },
+  { path: "pair/preset.json", title: "PairingPreset", schema: PairingPreset },
   { path: "update/request.json", title: "UpdateRequest", schema: UpdateRequest },
   { path: "update/answer.json", title: "UpdateAnswer", schema: UpdateAnswer },
   { path: "update/error.json", title: "UpdateError", schema: UpdateError },
@@ -1575,6 +1579,17 @@ export const publishedData = (): PublishedData[] => [
     ].join(" "),
     schema: "settings/address-row.json",
     entries: SETTINGS_ADDRESSES.map((address) => ({ address, row: ADDRESS_ROWS[address] })),
+  },
+  {
+    path: "data/pairing-presets.json",
+    title: "Pairing presets",
+    description: [
+      "The pairing presets (ADR 0025; #577) in the order a client offers them, my own client preset: what a pairing code minted for another client grants, and what a person may change of it before minting.",
+      "A client resolves a preset to its scopes and ceiling, with the ceiling picked or the scopes ticked where the preset lets them change, and sends both explicit in access.pairings.create; the environment knows nothing of presets, and refuses a ceiling above the minter's own.",
+      "A code carries no label: the client that exchanges it names its client session, a program with its own name.",
+    ].join(" "),
+    schema: "pair/preset.json",
+    entries: PAIRING_PRESETS,
   },
   {
     path: "data/managed-tools.json",

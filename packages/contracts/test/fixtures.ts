@@ -699,6 +699,20 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: [...Object.values(pairErrors), sharedErrors.invalid_params, sharedErrors.unavailable, sharedErrors.internal, validRateLimited],
     invalid: [sharedErrors.unauthorized, sharedErrors.not_found, { code: "pairing_used", message: "m" }],
   },
+  "pair/preset-id.json": { valid: ["own-client", "program", "custom"], invalid: ["own", "Custom", ""] },
+  "pair/preset-choice.json": { valid: ["nothing", "ceiling", "scopes-and-ceiling"], invalid: ["scopes", ""] },
+  "pair/preset.json": {
+    valid: [
+      { id: "own-client", name: "My own client", scopes: ["read", "sessions:write", "runs:drive", "terminal", "admin"], ceiling: "bypassPermissions", chooses: "nothing" },
+      { id: "custom", name: "Custom", scopes: ["read"], ceiling: "plan", chooses: "scopes-and-ceiling" },
+    ],
+    invalid: [
+      { id: "program", name: "", scopes: ["read"], ceiling: "acceptEdits", chooses: "ceiling" },
+      { id: "program", name: "A program", scopes: [], ceiling: "acceptEdits", chooses: "ceiling" },
+      { id: "program", name: "A program", scopes: ["read"], ceiling: "dontAsk", chooses: "ceiling" },
+      { id: "program", name: "A program", scopes: ["read"], ceiling: "acceptEdits" },
+    ],
+  },
   ...Object.fromEntries(
     Object.entries(pairErrors).map(([code, error]): [string, Fixtures] => [
       `errors/${code}.json`,

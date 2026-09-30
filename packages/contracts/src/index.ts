@@ -45,6 +45,7 @@ export * from "./notices.js";
 export * from "./one-off.js";
 export * from "./ordering.js";
 export * from "./pairing.js";
+export * from "./pairing-presets.js";
 export * from "./parity.js";
 export * from "./permissions.js";
 export * from "./permissions-modes.js";
