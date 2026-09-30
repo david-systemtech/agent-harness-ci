@@ -110,7 +110,7 @@ export type WorkspaceKeptReason = z.infer<typeof WorkspaceKeptReason>;
 export const WorkspaceKeptPayload = z
   .object({
     path: AbsolutePath.meta({ description: "The worktree, under the environment's worktrees root, as the environment records it." }),
-    branch: z.string().min(1).nullable().meta({ description: "The branch checked out in it, without refs/heads/; null when its HEAD is detached or git could not say." }),
+    branch: z.string().min(1).nullable().meta({ description: "The branch checked out in it as git lists it, without refs/heads/; when git cannot list it, the branch the purged session recorded it was made on. Null when its HEAD is detached, or when git cannot list it and the session recorded no branch for it." }),
     title: z.string().min(1).meta({ description: "The title of the purged session whose worktree it was, as the list showed it." }),
     reason: WorkspaceKeptReason,
   })

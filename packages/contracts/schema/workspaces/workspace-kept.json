@@ -18,7 +18,7 @@
           "type": "null"
         }
       ],
-      "description": "The branch checked out in it, without refs/heads/; null when its HEAD is detached or git could not say."
+      "description": "The branch checked out in it as git lists it, without refs/heads/; when git cannot list it, the branch the purged session recorded it was made on. Null when its HEAD is detached, or when git cannot list it and the session recorded no branch for it."
     },
     "title": {
       "type": "string",
