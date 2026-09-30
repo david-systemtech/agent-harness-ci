@@ -4,10 +4,15 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import {
+  EMPTY_RUN_SKILL_SET,
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
+  NativeSkillRoot,
+  PRODUCT_NAME,
   REPOSITORY_IDENTITY_CASES,
   RepositoryIdentity,
+  RunSkillSet,
+  SKILL_PLUGIN_NAME,
   SkillChoice,
   SkillMember,
   SkillsView,
@@ -20,6 +25,7 @@ import {
   methods,
   readSkillMember,
   registry,
+  type RunSkillSet as RunSkillSetType,
   type SkillMember as SkillMemberType,
   type SkillSource as SkillSourceType,
   type SkillsView as SkillsViewType,
@@ -141,6 +147,38 @@ describe("a source record", () => {
   it("pins only a full commit name", () => {
     expect(SkillSourceFollow.safeParse({ kind: "pinned", commit: "d".repeat(64) }).success).toBe(true);
     for (const pinned of ["74ca5fe", "C".repeat(40), "d".repeat(41), "main"]) expect(SkillSourceFollow.safeParse({ kind: "pinned", commit: pinned }).success, pinned).toBe(false);
+  });
+});
+
+describe("a run's skill set", () => {
+  const set: RunSkillSetType = {
+    generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
+    fingerprint: "3f9a",
+    members: [
+      { name: "tdd", origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" }, invocation: "model+slash", native: false },
+      { name: "release", origin: null, invocation: "slash-only", native: true },
+    ],
+    hiddenNativeNames: ["triage"],
+  };
+
+  it("hands an adapter the generation, the fingerprint, every member with its name, origin, invocation and whether it is native, and the native names to hide, through the wire and the published schema", () => {
+    const validate = published("skills/run-skill-set.json");
+    for (const value of [set, EMPTY_RUN_SKILL_SET]) {
+      expect(roundTrip(RunSkillSet, value)).toEqual(value);
+      expect(validate(JSON.parse(JSON.stringify(value))), JSON.stringify(validate.errors)).toBe(true);
+    }
+    expect(EMPTY_RUN_SKILL_SET).toEqual({ generation: null, fingerprint: null, members: [], hiddenNativeNames: [] });
+    expect(RunSkillSet.safeParse({ ...set, generation: "skills/generations/3f9a" }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, fingerprint: "" }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, hiddenNativeNames: ["Triage"] }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], native: undefined }] }).success).toBe(false);
+  });
+
+  it("names the plugin a generation is after the product, and knows the roots an adapter may load itself: a repository's two skill roots and its commands", () => {
+    expect(SKILL_PLUGIN_NAME).toBe(PRODUCT_NAME);
+    for (const root of [".claude/skills", ".agents/skills", ".claude/commands"]) expect(NativeSkillRoot.safeParse(root).success, root).toBe(true);
+    for (const root of [".claude/agents", ".codex/skills", "skills", ""]) expect(NativeSkillRoot.safeParse(root).success, root).toBe(false);
+    expect(published("skills/native-root.json")(".claude/commands")).toBe(true);
   });
 });
 

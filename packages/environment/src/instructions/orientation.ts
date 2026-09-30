@@ -1,3 +1,4 @@
+import type { InjectionLevel } from "../adapter/process-environment.js";
 import type { InstructionScope } from "../adapter/seams.js";
 import type { Clock } from "../serve/clock.js";
 import type { OrientationAnswer, OrientationSeam } from "./composer.js";
@@ -7,9 +8,9 @@ import type { OrientationAnswer, OrientationSeam } from "./composer.js";
  * 0011; #380): what fills the composer's orientation seam. The block's
  * sections are rendered by providers the owning services register with it,
  * one per section, and it puts them in their fixed order (this environment,
- * key managers, forges, banks, other environments) under the block's
- * heading, each under its own; a section with no provider registered is
- * left out.
+ * accounts, key managers, forges, banks, other environments) under the
+ * block's heading, each under its own; a section with no provider
+ * registered is left out.
  *
  * A provider renders its section from state, never from a clock: for
  * unchanged state the text is byte-identical, since it is in a provider
@@ -20,7 +21,7 @@ import type { OrientationAnswer, OrientationSeam } from "./composer.js";
  */
 
 /** The block's sections, in the order it holds them. */
-export const ORIENTATION_SECTIONS = ["environment", "key-managers", "forges", "banks", "other-environments"] as const;
+export const ORIENTATION_SECTIONS = ["environment", "accounts", "key-managers", "forges", "banks", "other-environments"] as const;
 export type OrientationSectionName = (typeof ORIENTATION_SECTIONS)[number];
 
 /** A list in a section: its heading line, if it has one, over one line per item. A list with no item is left out, its heading with it. */
@@ -48,6 +49,21 @@ export interface OrientationRenderer {
   /** The composer's orientation seam: the block for a run, and the sections it could not read. */
   readonly seam: OrientationSeam;
 }
+
+/**
+ * An instant as the block states it (key-managers spec, "The orientation
+ * block"): in UTC to the minute, `2026-09-28 09:14 UTC`, the time a status
+ * last changed and never when it was last verified.
+ */
+export const utcMinute = (at: string): string => `${at.slice(0, 10)} ${at.slice(11, 16)} UTC`;
+
+/**
+ * Who denied a run injection, as every deny line in the block names them
+ * (#714, #381): this environment's setting, or the account, routine or bot
+ * by the id the run's instruction scope carries. #722 asks David whether a
+ * label or name should replace the id; this is the one place that changes.
+ */
+export const injectionDenier = (level: InjectionLevel): string => (level.kind === "environment" ? "this environment's setting" : `the ${level.kind} ${level.id}`);
 
 /** The block's heading, over its sections. */
 const BLOCK_HEADING = "# Orientation";

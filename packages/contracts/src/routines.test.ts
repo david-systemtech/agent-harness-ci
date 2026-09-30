@@ -490,10 +490,8 @@ describe("the routines methods", () => {
     });
   });
 
-  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands)", () => {
+  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history)", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
-      "routines.history": "#523",
-      "routines.runNow": "#523",
       "routines.testPreCheck": "#526",
       "routines.scripts.list": "#526",
       "routines.export": "#528",

@@ -21,6 +21,7 @@ import {
   DENYLIST_SECTIONS,
   denylistPresets,
   type Denylist,
+  type DenylistSection,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
   UPDATE_SETTINGS_KEYS,
@@ -155,7 +156,7 @@ export interface ScriptedEnvironment {
   readonly containment?: Partial<ContainmentReport>;
   /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
   readonly settings?: Partial<SettingsValues>;
-  /** The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back: preset none. */
+  /** The ids of the denylist's presets it has lost, which `permissions.denylist.restorePresets` puts back, of the sections it names: preset none. */
   readonly lostPresets?: readonly string[];
   /** What `permissions.review.list` lists: preset nothing. */
   readonly review?: readonly Partial<ReviewRun>[];
@@ -481,6 +482,7 @@ const providerOf = (changes: Partial<AdapterCapabilities> = {}): AdapterCapabili
     containment: false,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
     nativeProjectInstructions: true,
+    nativeSkillRoots: [".claude/skills", ".claude/commands"],
     modes: MODES.map((mode) => ({ mode, available: true as const, reason: null })),
     ...changes,
   });
@@ -1489,7 +1491,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   // The denylist: the presets, but those the script says it lost, which restorePresets puts back in their sections.
   const presets = denylistPresets(`${SCRIPTED_HOME}/.agent-harness`);
-  let lost = new Set(spec.lostPresets ?? []);
+  const lost = new Set(spec.lostPresets ?? []);
   const kept = (entry: { readonly id: string }) => !lost.has(entry.id);
   const denylistNow = (): Denylist => ({
     browserDomains: presets.browserDomains.filter(kept),
@@ -1497,11 +1499,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     commandPatterns: presets.commandPatterns.filter(kept),
     hosts: presets.hosts.filter(kept),
   });
-  wire.answer("permissions.denylist.restorePresets", () => {
+  wire.answer("permissions.denylist.restorePresets", (params) => {
     const refused = rejection("permissions.denylist.restorePresets");
     if (refused) return refused;
-    const restored = DENYLIST_SECTIONS.flatMap((section) => presets[section].filter((entry) => lost.has(entry.id)).map((entry) => ({ section, entry })));
-    lost = new Set();
+    const named = params["sections"] as readonly DenylistSection[] | undefined;
+    const restored = DENYLIST_SECTIONS.filter((section) => named === undefined || named.includes(section)).flatMap((section) =>
+      presets[section].filter((entry) => lost.has(entry.id)).map((entry) => ({ section, entry })),
+    );
+    for (const { entry } of restored) lost.delete(entry.id);
     return acceptedWith({ restored, denylist: denylistNow() });
   });
   // The update keys (#335), which only updates.settings.set writes.
@@ -1837,6 +1842,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     setSetup: setup.setSetup,
     ...keyManagers,
     holdSetupChecks: setup.holdSetupChecks,
+    passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
     terminal(id) {
       const found = terminals.get(id.toLowerCase());
