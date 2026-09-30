@@ -5,7 +5,8 @@ import { LocalEnvironmentPane } from "../connections/local-environment.js";
 import { PairingPane } from "../connections/pairing-pane.js";
 import { RewoundStrip } from "../fork-rewind/rewound.js";
 import { SessionForkRewindProvider } from "../fork-rewind/session-fork-rewind.js";
-import type { PaneSession } from "../presentation.js";
+import { NewSessionSurface } from "../new-session/surface.js";
+import type { PaneNewSession, PaneSession } from "../presentation.js";
 import { PromptCard } from "../prompt-card/prompt-card.js";
 import { QueueStrip } from "../queue/queued.js";
 import { SessionQueueProvider } from "../queue/session-queue.js";
@@ -16,7 +17,7 @@ import { PaneDialogs } from "../status/pane-dialogs.js";
 import { StatusLine } from "../status/status-line.js";
 import { Transcript } from "../transcript/transcript.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
-import { EmptyCaption, SessionCaption, type CaptionProps } from "./caption.js";
+import { EmptyCaption, NewSessionCaption, SessionCaption, type CaptionProps } from "./caption.js";
 
 /** What a pane's contents take from the grid: whether it is the focused pane, marked, and its close. */
 export interface PaneContentsProps extends CaptionProps {
@@ -68,6 +69,17 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
     </div>
   );
 };
+
+/**
+ * A pane holding the new-session surface (docs/specs/gui.md, "A new
+ * session"; #420) until its first send: its caption, and the surface.
+ */
+export const NewSessionPane = ({ focused, surface, ...caption }: PaneContentsProps & { readonly surface: PaneNewSession }) => (
+  <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 flex-1 flex-col">
+    <NewSessionCaption {...caption} />
+    <NewSessionSurface key={surface.id} surface={surface} />
+  </section>
+);
 
 /**
  * A pane with no session open (docs/specs/gui.md, "The local environment,

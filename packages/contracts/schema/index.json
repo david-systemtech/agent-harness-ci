@@ -1459,6 +1459,26 @@
       "title": "SkillChoice"
     },
     {
+      "path": "skills/event-type.json",
+      "title": "SkillsEventType"
+    },
+    {
+      "path": "skills/events/skills.enabled-set.json",
+      "title": "SkillsEnabledSetPayload"
+    },
+    {
+      "path": "skills/events/skills.always-on-set.json",
+      "title": "SkillsAlwaysOnSetPayload"
+    },
+    {
+      "path": "skills/view-member.json",
+      "title": "SkillsViewMember"
+    },
+    {
+      "path": "skills/view-account.json",
+      "title": "SkillsViewAccount"
+    },
+    {
       "path": "skills/view.json",
       "title": "SkillsView"
     },
@@ -5927,6 +5947,38 @@
       "title": "skills.carryOver error"
     },
     {
+      "path": "methods/skills.setAlwaysOn/params.json",
+      "title": "skills.setAlwaysOn params"
+    },
+    {
+      "path": "methods/skills.setAlwaysOn/result.json",
+      "title": "skills.setAlwaysOn result"
+    },
+    {
+      "path": "methods/skills.setAlwaysOn/response.json",
+      "title": "skills.setAlwaysOn response"
+    },
+    {
+      "path": "methods/skills.setAlwaysOn/error.json",
+      "title": "skills.setAlwaysOn error"
+    },
+    {
+      "path": "methods/skills.setEnabled/params.json",
+      "title": "skills.setEnabled params"
+    },
+    {
+      "path": "methods/skills.setEnabled/result.json",
+      "title": "skills.setEnabled result"
+    },
+    {
+      "path": "methods/skills.setEnabled/response.json",
+      "title": "skills.setEnabled response"
+    },
+    {
+      "path": "methods/skills.setEnabled/error.json",
+      "title": "skills.setEnabled error"
+    },
+    {
       "path": "methods/trust.get/params.json",
       "title": "trust.get params"
     },
@@ -7821,6 +7873,26 @@
       "result": "methods/skills.carryOver/result.json",
       "response": "methods/skills.carryOver/response.json",
       "error": "methods/skills.carryOver/error.json"
+    },
+    {
+      "name": "skills.setAlwaysOn",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.setAlwaysOn/params.json",
+      "result": "methods/skills.setAlwaysOn/result.json",
+      "response": "methods/skills.setAlwaysOn/response.json",
+      "error": "methods/skills.setAlwaysOn/error.json"
+    },
+    {
+      "name": "skills.setEnabled",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.setEnabled/params.json",
+      "result": "methods/skills.setEnabled/result.json",
+      "response": "methods/skills.setEnabled/response.json",
+      "error": "methods/skills.setEnabled/error.json"
     },
     {
       "name": "trust.get",

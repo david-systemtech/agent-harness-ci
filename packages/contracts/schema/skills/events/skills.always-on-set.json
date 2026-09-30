@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsAlwaysOnSetPayload",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "The account whose runs append the member."
+    },
+    "on": {
+      "type": "boolean",
+      "description": "Whether every run of the account appends the member's body."
+    }
+  },
+  "required": [
+    "name",
+    "accountId",
+    "on"
+  ],
+  "description": "skills.always-on-set: a name made always-on, or not, for one account. It replaces the choice held for that name and account."
+}

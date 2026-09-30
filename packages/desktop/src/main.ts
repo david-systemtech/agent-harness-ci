@@ -7,6 +7,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, protocol, 
 import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
 import { desktopLog } from "./log.js";
+import { PACKAGED_RENDERER, PACKAGED_SERVER } from "./packaged.js";
 
 /**
  * The desktop's entry, which Electron runs (`package.json`'s `main`): the
@@ -22,8 +23,13 @@ const os = ((): ShellPlatform => {
 })();
 
 const here = dirname(fileURLToPath(import.meta.url));
-/** The `gui` build this desktop carries: the package's `dist`, beside its manifest. */
-const renderer = join(dirname(createRequire(import.meta.url).resolve("@agent-harness/gui/package.json")), "dist");
+/**
+ * The `gui` build this desktop carries: packaged, in the app's folder (#423);
+ * run from a checkout, the package's `dist`, beside its manifest.
+ */
+const renderer = app.isPackaged
+  ? join(app.getAppPath(), PACKAGED_RENDERER)
+  : join(dirname(createRequire(import.meta.url).resolve("@agent-harness/gui/package.json")), "dist");
 
 const machine = { os, env: process.env, homedir: homedir() };
 const data = desktopDataDirectory(machine);
@@ -44,7 +50,7 @@ startDesktop(
       renderer,
       preload: join(here, "preload.cjs"),
       // A packaged desktop carries the server artefact in its resources (#423 puts it there); one run from a checkout carries none.
-      ...(app.isPackaged && { server: join(process.resourcesPath, "server") }),
+      ...(app.isPackaged && { server: join(process.resourcesPath, PACKAGED_SERVER) }),
     },
     // Unpackaged (`electron .`), the OS starts the app again as Electron's executable and the app's folder.
     ...(process.defaultApp && { relaunch: { executable: process.execPath, args: [resolve(process.argv[1] ?? ".")] } }),

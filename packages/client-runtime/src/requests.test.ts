@@ -341,10 +341,11 @@ describe("the request cache", () => {
     expect(cached.read()).toMatchObject({ result: { values: { "sessions.autoSettleOnMerge": true } }, error: null });
   });
 
-  it("fetches skills.get again on skills.updated, and no other query (#494)", async () => {
+  it("fetches skills.get again on skills.updated and on an account changing, and no other query (#494, #501)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
-    const view = { ownDirectory: "/home/david/.local/state/agent-harness/skills/own", sources: [], choices: [], accountId: "claude-max", members: [] };
+    const accounts = [{ accountId: "claude-max", channel: "system-prompt-append", reason: null }];
+    const view = { ownDirectory: "/home/david/.local/state/agent-harness/skills/own", sources: [], choices: [], accountId: "claude-max", accounts, members: [] };
     wire.answer("skills.get", () => {
       reads++;
       return { result: view };
@@ -358,6 +359,10 @@ describe("the request cache", () => {
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
     expect(skills.read()).toMatchObject({ result: view, error: null });
+    // The view lists the accounts, and an account's removal drops the choices naming it.
+    environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
   });
 
   it("fetches trust.get and trust.list again on trust.updated and on a forge account's aliases changing, and no other query (#500)", async () => {

@@ -189,8 +189,9 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * `settings.updated`, #391) the settings, read through `settings.get` and,
  * for the permission keys and the containment the status line shows,
  * `permissions.settings.get`; and the skill set changing
- * (`skills.updated`, a command or a read of the own directory, #494)
- * `skills.get`; a trust decision recorded or revoked (`trust.updated`,
+ * (`skills.updated`, a command or a read of the own directory, #494) or an
+ * account (the view lists the accounts, and a removal drops the choices
+ * naming one, #501) `skills.get`; a trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; an owned instruction changing
@@ -227,7 +228,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
-  "skills.get": ["skills.updated"],
+  "skills.get": ["skills.updated", "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
   "instructions.list": INSTRUCTION_REFRESH_NOTICES,

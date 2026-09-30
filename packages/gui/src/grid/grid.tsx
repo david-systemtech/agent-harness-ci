@@ -1,16 +1,32 @@
+import { uuidv4, type NewSessionChips } from "@agent-harness/client-runtime";
 import { createContext, use, useMemo, useState, type ReactNode } from "react";
 import type { Offer } from "../keys/key-dispatch.js";
 import type { GridPane, PaneLayout, PaneSession } from "../presentation.js";
 import { usePresentation } from "../window-context.js";
-import { GRID_FULL, addPane, focusPane, focusedPane, isFull, openBeside, paneShowing, removePane, showSession, type SplitDirection } from "./layout.js";
+import {
+  GRID_FULL,
+  addNewSession,
+  addPane,
+  chooseChips,
+  focusPane,
+  focusedPane,
+  isFull,
+  openBeside,
+  paneShowing,
+  removePane,
+  showNewSession,
+  showSession,
+  type SplitDirection,
+} from "./layout.js";
 
 /**
  * The pane grid's gestures (docs/specs/gui.md, "The seven panes and the
  * grid"; #407), over the layout presentation keeps (`paneLayout`, changed as
  * `layout.ts` says): what the header's split actions, a pane's caption, a
- * drop on the grid and the sidebar's Open in a new pane do. A way of adding
- * a pane to a grid of eight is refused, and the grid's line in the header
- * says why; the next gesture that does something clears it.
+ * drop on the grid and the sidebar's Open in a new pane do, and the New
+ * session controls (#420). A way of adding a pane to a grid of eight is
+ * refused, and the grid's line in the header says why; the next gesture that
+ * does something clears it.
  */
 
 const PRESENT: Offer = { status: "present" };
@@ -73,8 +89,22 @@ export interface PaneGrid {
   close(paneId: string): void;
   /** Focuses the pane `paneId`. */
   focus(paneId: string): void;
-  /** Says the grid is full: a gesture that would add a pane was refused. */
-  refuse(): void;
+  /**
+   * Shows a new-session surface in the focused pane for the environment
+   * `carried` (null: the focused pane's), preset beside that pane
+   * (`showNewSession`); answers its id.
+   */
+  newSession(carried: string | null): string;
+  /**
+   * Adds a pane beside the pane `paneId` holding a new-session surface for
+   * the environment `carried`, preset beside that pane (`addNewSession`);
+   * answers its id, or undefined when the grid is full, and says so.
+   */
+  newSessionBeside(paneId: string, direction: SplitDirection, carried: string | null): string | undefined;
+  /** Changes the chips chosen on the new-session surface `id`. */
+  chooseChips(id: string, change: (chips: NewSessionChips) => NewSessionChips): void;
+  /** Says why a gesture that would add a pane was refused: preset, that the grid is full. */
+  refuse(line?: string): void;
 }
 
 /** The grid as presentation holds it, and its gestures. */
@@ -82,8 +112,8 @@ export const usePaneGrid = (): PaneGrid => {
   const [layout, setLayout] = usePresentation("paneLayout");
   const [, say] = useLine();
   return useMemo<PaneGrid>(() => {
-    /** Makes the change, saying the grid is full when it cannot be made. */
-    const add = (change: (held: PaneLayout) => PaneLayout | undefined) => {
+    /** Makes the change, saying the grid is full when it cannot be made; answers whether it was made. */
+    const add = (change: (held: PaneLayout) => PaneLayout | undefined): boolean => {
       let refused = false;
       setLayout((held) => {
         const next = change(held);
@@ -91,6 +121,7 @@ export const usePaneGrid = (): PaneGrid => {
         return next ?? held;
       });
       say(refused ? GRID_FULL : undefined);
+      return !refused;
     };
     const change = (step: (held: PaneLayout) => PaneLayout) => {
       say(undefined);
@@ -106,7 +137,22 @@ export const usePaneGrid = (): PaneGrid => {
       show: (paneId, session) => change((held) => showSession(held, paneId, session)),
       close: (paneId) => change((held) => removePane(held, paneId)),
       focus: (paneId) => setLayout((held) => focusPane(held, paneId)),
-      refuse: () => say(GRID_FULL),
+      newSession: (carried) => {
+        const id = uuidv4();
+        let shown = id;
+        change((held) => {
+          const next = showNewSession(held, held.focused, carried, id);
+          shown = focusedPane(next).newSession?.id ?? id;
+          return next;
+        });
+        return shown;
+      },
+      newSessionBeside: (paneId, direction, carried) => {
+        const id = uuidv4();
+        return add((held) => addNewSession(held, paneId, direction, carried, id)) ? id : undefined;
+      },
+      chooseChips: (id, choose) => setLayout((held) => chooseChips(held, id, choose)),
+      refuse: (line = GRID_FULL) => say(line),
     };
   }, [layout, setLayout, say]);
 };

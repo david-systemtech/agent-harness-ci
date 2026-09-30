@@ -1,5 +1,14 @@
-import { SIDEBAR_VIEWS, writable, type CollapsedHeadings, type DocumentStore, type Observable, type SidebarView } from "@agent-harness/client-runtime";
-import { Theme } from "@agent-harness/contracts";
+import {
+  SIDEBAR_VIEWS,
+  writable,
+  type CollapsedHeadings,
+  type DocumentStore,
+  type NewSessionChips,
+  type NewSessionFocus,
+  type Observable,
+  type SidebarView,
+} from "@agent-harness/client-runtime";
+import { Theme, WorkspaceRequest } from "@agent-harness/contracts";
 import { readRemaps, type KeyRemaps } from "./keys/key-map.js";
 
 /**
@@ -23,10 +32,24 @@ export interface PaneSession {
   readonly sessionId: string;
 }
 
+/**
+ * The new-session surface a pane holds until its first send (docs/specs/gui.md, "A new session"; #420): the id its
+ * session is created under, minted as it opened; what its chips preset from, as the client runtime's
+ * `projections.newSession` takes it; and the chips chosen on it since. What is typed on it is not kept here: it lasts
+ * while the window does.
+ */
+export interface PaneNewSession {
+  readonly id: string;
+  readonly focus: NewSessionFocus;
+  readonly chips: NewSessionChips;
+}
+
 /** One session pane of the grid: its id, which its divider's place is kept by, and the session it shows, null while it shows none. */
 export interface GridPane {
   readonly id: string;
   readonly session: PaneSession | null;
+  /** The new-session surface it holds while it shows no session; none while it shows a session or the word to choose one. */
+  readonly newSession?: PaneNewSession;
   /** Its width, as a share of its row in percent. */
   readonly width: number;
 }
@@ -226,6 +249,51 @@ const readPaneSession = (stored: unknown): PaneSession | null | undefined => {
   return typeof ids?.environmentId === "string" && typeof ids.sessionId === "string" ? { environmentId: ids.environmentId, sessionId: ids.sessionId } : undefined;
 };
 
+/** A stored object's field that is a string; undefined when it is not. */
+const stringIn = (stored: unknown, field: string): string | undefined => {
+  const value = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>)[field] : undefined;
+  return typeof value === "string" ? value : undefined;
+};
+
+/** A new-session surface's focus as stored: nothing, an environment, or a session on one; undefined for anything else. */
+const readFocus = (stored: unknown): NewSessionFocus | undefined => {
+  const environmentId = stringIn(stored, "environmentId");
+  const sessionId = stringIn(stored, "sessionId");
+  switch (stringIn(stored, "kind")) {
+    case "none":
+      return { kind: "none" };
+    case "environment":
+      return environmentId === undefined ? undefined : { kind: "environment", environmentId };
+    case "session":
+      return environmentId === undefined || sessionId === undefined ? undefined : { kind: "session", environmentId, sessionId };
+    default:
+      return undefined;
+  }
+};
+
+/** A new-session surface's chips as stored, each one this build cannot read left unset. */
+const readChips = (stored: unknown): NewSessionChips => {
+  const held = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  const environmentId = stringIn(held, "environmentId");
+  const model = stringIn(held, "model");
+  const account = { environmentId: stringIn(held["account"], "environmentId"), accountId: stringIn(held["account"], "accountId") };
+  const workspaceOn = stringIn(held["workspace"], "environmentId");
+  const request = WorkspaceRequest.safeParse((held["workspace"] as Record<string, unknown> | undefined)?.["request"]).data;
+  return {
+    ...(environmentId !== undefined && { environmentId }),
+    ...(account.environmentId !== undefined && account.accountId !== undefined && { account: { environmentId: account.environmentId, accountId: account.accountId } }),
+    ...(model !== undefined && { model }),
+    ...(workspaceOn !== undefined && request !== undefined && { workspace: { environmentId: workspaceOn, request } }),
+  };
+};
+
+/** A new-session surface as stored: its id and a focus this build reads, with its chips; undefined for anything else. */
+const readNewSession = (stored: unknown): PaneNewSession | undefined => {
+  const id = stringIn(stored, "id");
+  const focus = readFocus((stored as Record<string, unknown> | undefined)?.["focus"]);
+  return id === undefined || focus === undefined ? undefined : { id, focus, chips: readChips((stored as Record<string, unknown>)["chips"]) };
+};
+
 /** A pane or a row as stored: an object with a string id and a share. */
 const readPart = (stored: unknown, share: "width" | "height"): { readonly id: string; readonly share: number; readonly held: Record<string, unknown> } | undefined => {
   if (typeof stored !== "object" || stored === null) return undefined;
@@ -237,8 +305,9 @@ const readPart = (stored: unknown, share: "width" | "height"): { readonly id: st
  * The grid as stored: rows of panes, one to eight panes in all, every id
  * once, each share a number, scaled so a row's widths and the rows' heights
  * each fill the whole. A session shown twice is kept in its first pane
- * only; a focused pane the grid does not hold is its first. Undefined for
- * anything else.
+ * only; a focused pane the grid does not hold is its first. A pane showing
+ * no session keeps its new-session surface when it can be read, and shows
+ * none otherwise. Undefined for anything else.
  */
 const readPaneLayout = (stored: unknown): PaneLayout | undefined => {
   if (typeof stored !== "object" || stored === null) return undefined;
@@ -259,7 +328,8 @@ const readPaneLayout = (stored: unknown): PaneLayout | undefined => {
       if (pane === undefined || ids.has(pane.id) || session === undefined) return undefined;
       ids.add(pane.id);
       const key = session === null ? null : sideColumnKey(session);
-      panes.push({ id: pane.id, session: key === null || shown.has(key) ? null : session, width: pane.share });
+      const newSession = session === null ? readNewSession(pane.held["newSession"]) : undefined;
+      panes.push({ id: pane.id, session: key === null || shown.has(key) ? null : session, width: pane.share, ...(newSession !== undefined && { newSession }) });
       if (key !== null) shown.add(key);
     }
     const widths = toWhole(panes.map((pane) => pane.width));

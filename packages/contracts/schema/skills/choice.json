@@ -27,7 +27,7 @@
               "type": "null"
             }
           ],
-          "description": "The account the choice is for; null for the whole environment, which outranks an account's choice."
+          "description": "The account the choice is for; null for the whole environment, whose choice outranks an account's."
         },
         "enabled": {
           "type": "boolean",
@@ -75,5 +75,5 @@
       "description": "A name made always-on, or not, for one account."
     }
   ],
-  "description": "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, which outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert."
+  "description": "A choice made about a skill's name: enabled (on or off for an account, or for the whole environment with a null account, whose choice outranks an account's), or always-on for an account. Keyed by name; a choice for a name not in the set is inert."
 }

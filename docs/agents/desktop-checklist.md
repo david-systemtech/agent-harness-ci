@@ -13,9 +13,9 @@ runs it there. Never run Electron on the shared agent box.
 First launch installing the service and the keychain (#395) have their
 section below, which needs a packaged desktop carrying the server artefact:
 a run from a checkout carries none, and so does restart to update (#355).
-The desktop build (#423) adds its own sections here: notifications and their
-activation, and the browser dock. The preview scheme has its section below
-(#410).
+The packaged desktop (#423) has its own section, per platform, as do
+notifications and their activation (#405) and the browser dock (#411), which
+need their members built. The preview scheme has its section below (#410).
 
 ## Before the first run
 
@@ -38,6 +38,36 @@ The steps below run in the window's DevTools console (View, Toggle Developer
 Tools) unless they say otherwise. `desktopShell` there is the shell the
 preload exposes, and a member named bare is on it: `setBadge(3)` is
 `desktopShell.window.setBadge(3)`.
+
+## Building a desktop
+
+The sections that need a packaged desktop take the build of their platform
+(#423): `build-desktop` builds one platform's desktop on that platform, for a
+release's version, from that platform's server artefact of the same version.
+The macOS zip and the Arch package come from the `desktop` workflow, run by
+hand (Actions, desktop, Run workflow; the `macos` job waits while the Mac
+sleeps, the `arch` job for a `ci-x64` runner), which keeps no file: run the
+same commands on the machine to keep one. No runner has Windows, so the setup
+is built by hand. On a machine of the platform, from a checkout, after
+`pnpm install`:
+
+1. **The server artefact.** On macOS or an x86_64 Linux, the release build
+   makes the machine's own: `pnpm --filter agent-harness build-artefacts
+   --tag v0.0.0-check.1 --out server --platform <darwin-arm64 or linux-x64>
+   --image-reference ci.invalid/agent-harness:0.0.0-check.1 --image-digest
+   sha256:<64 zeros>`. The Windows artefact is built on the x86_64 Linux
+   machine beside its own (`--platform linux-x64 --platform win32-x64`) and
+   copied to the Windows machine, or taken from a release.
+2. **The desktop.** `pnpm --filter @agent-harness/desktop build-desktop
+   --platform <platform> --tag v0.0.0-check.1 --server
+   server/agent-harness-<platform>.<tar.gz, or zip on Windows> --out desktop`
+   writes `desktop/agent-harness-desktop-darwin-arm64.zip`,
+   `agent-harness-desktop-win32-x64-setup.exe` or
+   `agent-harness-desktop-linux-x64.pacman`. On Linux, electron-builder's
+   fpm needs `bsdtar` (Debian's `libarchive-tools`, Arch's `libarchive`). A
+   server artefact of another version or platform is refused before anything
+   is packed. Use a later tag (`v0.0.0-check.2`) for the build that a
+   restart-to-update section applies.
 
 ## Every platform
 
@@ -178,6 +208,109 @@ session open in the pane whose workspace you can write to:
    Dock), `setBadge(3)` shows 3 and `setBadge(undefined)` clears it. The
    badge follows the app's `.desktop` file, so an unpackaged run may show
    none; record which.
+
+## The packaged desktop (#423)
+
+Run on each platform with the build of "Building a desktop", installed as an
+ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
+1, so each OS warns once when one is first opened from a download.
+
+### Every platform
+
+1. **Its version.** In the console, `await desktopShell.update.current()`
+   answers the version it was built as (`0.0.0-check.1`), the platform and
+   architecture, and its format; `await desktopShell.installer.bundledServer()`
+   answers the same version and the `server` folder in the app's resources.
+2. **The scheme from the install.** Before the app's first start (on
+   Windows, install with `/S`, which starts nothing), open
+   `agent-harness://pair?code=CHECKLIST` from a terminal (`open`, `start` or
+   `xdg-open`): the app starts, and a
+   `desktopShell.deepLinks.onOpen(console.log)` listener added once its
+   window is up is handed the link. So the install registered the scheme,
+   not the app as it starts.
+
+### macOS
+
+1. **One bundle.** The zip unpacks to `agent-harness.app` alone. Move it to
+   Applications and open it: Gatekeeper refuses an unsigned download once;
+   System Settings, Privacy & Security, Open Anyway opens it, and it opens
+   without asking after that. `codesign -dv /Applications/agent-harness.app`
+   says `Signature=adhoc`, and `codesign --verify --deep --strict` passes.
+2. **Its resources.** `Contents/Resources/server/node/bin/node --version`
+   runs the artefact's Node, and `Contents/Info.plist` lists `agent-harness`
+   under `CFBundleURLTypes`.
+
+### Windows
+
+1. **Silent, per user.** On a machine it was never installed on, as an
+   ordinary user, run `<setup> /S` from a command prompt: no window and no
+   administrator prompt; it installs into
+   `%LOCALAPPDATA%\Programs\agent-harness` with a Start menu shortcut and
+   starts nothing. `reg query HKCU\Software\Classes\agent-harness\shell\open\command`
+   names `"<the install directory>\agent-harness.exe" "%1"`.
+2. **From a download.** Uninstall it, then open the setup from Explorer:
+   SmartScreen warns once for the unsigned setup (More info, Run anyway), it
+   installs as step 1 did with its progress shown, and starts the app.
+3. **The hand-over.** With the app running, run
+   `<setup> /S --updated --force-run`: the setup waits for the app to exit
+   (quit it), installs over it with no window and starts it again.
+4. **Uninstalled.** Uninstall it from Settings, Apps: the install directory
+   and the scheme's registry key are gone; `%LOCALAPPDATA%\agent-harness`,
+   the environment's and the desktop's data, is left.
+
+### Arch
+
+1. **Installed.** `sudo pacman -U agent-harness-desktop-linux-x64.pacman`
+   installs it with its dependencies from Arch's repositories, into
+   `/opt/agent-harness`. `pacman -Qqo /opt/agent-harness/agent-harness-desktop`
+   names `agent-harness-desktop`; `agent-harness-desktop` starts it from a
+   terminal, and `agent-harness` there is still the CLI's command, not the
+   desktop's.
+2. **The desktop entry.** The launcher lists agent-harness, and
+   `xdg-mime query default x-scheme-handler/agent-harness` names
+   `agent-harness-desktop.desktop`.
+3. **Replaced.** Build the same platform again as `v0.0.0-check.2` and
+   `sudo pacman -U` it over the first: pacman upgrades
+   `agent-harness-desktop` in place with no file conflict, `pacman -Q
+   agent-harness-desktop` names the new version, and the app starts from the
+   launcher.
+
+## Notifications and their activation (#405)
+
+Needs the shell's `notifications`, which #405 builds: until it lands, record
+this section as not run. On each platform, with a packaged desktop (the
+notification's sender is the installed app) connected to an environment:
+
+1. **Only while unfocused.** With the window focused, park a prompt in a
+   session: no OS notification. Focus another app and park another: one OS
+   notification, naming the session.
+2. **Activation.** Click it: the window comes to the front with that
+   session open in the focused pane.
+3. **macOS.** The first notification asks for permission once; record
+   whether it did, and that the Dock badge follows (see macOS step 3 above).
+4. **Windows.** The notification names the app, not Electron: the setup's
+   Start menu shortcut carries the app's id (`dev.systemtech.agent-harness`),
+   which the app must set as its AppUserModelID to send any. Record which.
+5. **Linux.** Under a notification daemon (GNOME, KDE Plasma), the same as
+   step 1 and 2.
+
+## The browser dock (#411)
+
+Needs the shell's `webView`, which #411 builds: until it lands, record this
+section as not run. On each platform, with a session open in the pane:
+
+1. **A page per session pane.** Open the browser dock and load
+   `https://example.org`: the page draws in the side column. A second
+   session pane's dock opens a page of its own.
+2. **A partition of its own.** Sign in to a site in the dock: the app's
+   own page sees none of its cookies or storage, and the dock keeps them
+   when the app is started again.
+3. **Hidden, not closed.** Hide the side column and show it again, or
+   switch to another pane and back: the dock's page is as it was left, not
+   reloaded.
+4. **The lockdown stands.** A link in the dock's page opens in the dock;
+   the app's own page stays on `agent-harness://app/`, and the console shows
+   no content-policy error from it.
 
 ## First launch and the keychain (#395)
 
