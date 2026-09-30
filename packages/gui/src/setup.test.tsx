@@ -150,7 +150,7 @@ describe("the Set up pane", () => {
     expect(pickedIn(pane)).toBe("desk");
     expect(await within(pane).findByText("On desk: 4 done, 1 needs attention, 1 skipped; 5 not checked yet.")).toBeDefined();
     expect(paneSteps(pane)).toEqual([
-      ["Account", "done", "Every setting it writes holds a valid value."],
+      ["Account", "done", "At least one account is on this environment. Every account on this environment is signed in."],
       ["Carry over", null, "Not checked yet."],
       ["Your machines", "done", expect.stringMatching(/^The environment runs as a non-root user\. /)],
       ["Forges", "done", expect.stringMatching(/^At least one forge account is on this environment\. /)],
@@ -322,7 +322,7 @@ describe("a check's time", () => {
     expect(await within(pane).findAllByText("Checking…")).toHaveLength(11);
 
     release();
-    expect(await within(pane).findByText("Every setting it writes holds a valid value. (checked 3 h ago)")).toBeDefined();
+    expect(await within(pane).findByText("At least one account is on this environment. Every account on this environment is signed in. (checked 3 h ago)")).toBeDefined();
     expect(within(pane).queryByText("Checking…")).toBeNull();
     expect(within(pane).getByText("The containment default can be enforced here. Each denylist section holds its presets, or was emptied on purpose. The environment runs as a non-root user.")).toBeDefined();
   });
