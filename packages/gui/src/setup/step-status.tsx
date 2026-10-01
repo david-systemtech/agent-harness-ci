@@ -11,7 +11,7 @@ import {
   type NamedItem,
   type SetupActionPlan,
 } from "@agent-harness/client-runtime";
-import { settingsRow } from "@agent-harness/contracts";
+import { settingsRow, type SetupAction, type SetupTarget } from "@agent-harness/contracts";
 import { useState } from "react";
 import { SignInCard } from "../accounts/sign-in-card.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -82,6 +82,8 @@ const useSetupActions = (environmentId: string, say: (line: string) => void, sig
 interface StepStatusProps extends StepCardProps {
   /** The card's own restore, in place of the client runtime's. */
   readonly restore?: CardRestore;
+  /** A registered card's commands for named health actions. */
+  readonly actions?: Readonly<Partial<Record<SetupAction, { readonly disabled: boolean; readonly run: (targets: readonly SetupTarget[]) => void }>>>;
 }
 
 /**
@@ -94,7 +96,7 @@ interface StepStatusProps extends StepCardProps {
  * calls, whose line the card says. Sign in again opens the sign-in card over
  * it. It is the whole of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, actions }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const [line, say] = useState<string | undefined>(undefined);
@@ -110,7 +112,16 @@ export const StepStatus = ({ environmentId, step, restore }: StepStatusProps) =>
       {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, runtime.environmentNow(environmentId))}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (
-          <Button key={action.key} tone="primary" disabled={!may(action.plan)} onClick={() => void act(action.plan)}>
+          <Button
+            key={action.key}
+            tone="primary"
+            disabled={actions?.[action.action]?.disabled ?? !may(action.plan)}
+            onClick={() => {
+              const own = actions?.[action.action];
+              if (own !== undefined) own.run(action.targets);
+              else void act(action.plan);
+            }}
+          >
             {action.words}
           </Button>
         ))}

@@ -147,6 +147,8 @@ export interface OfferedSetupAction {
   readonly action: SetupAction;
   /** Its name: the verb's words, and the item it acts on after a colon. */
   readonly words: string;
+  /** The items this individual button acts on. */
+  readonly targets: readonly SetupTarget[];
   readonly plan: SetupActionPlan;
 }
 
@@ -166,7 +168,7 @@ export const setupActions = (step: ActingStep, result: { readonly actions: reado
     const offer = (key: string, targets: readonly SetupTarget[]): OfferedSetupAction => {
       const plan = planSetupAction(step, action, targets);
       const verb = plan.kind === "update" ? "Update now" : SETUP_ACTION_WORDS[action];
-      return { key, action, words: targets.length === 0 ? verb : `${verb}: ${targets.map((target) => target.label).join(", ")}`, plan };
+      return { key, action, targets, words: targets.length === 0 ? verb : `${verb}: ${targets.map((target) => target.label).join(", ")}`, plan };
     };
     const targets = (result.targets ?? []).filter((target) => target.action === action);
     if (targets.length === 0 || ALL_AT_ONCE.includes(action)) return [offer(action, targets)];
