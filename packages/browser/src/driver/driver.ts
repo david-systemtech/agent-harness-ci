@@ -5,6 +5,7 @@ import {
   addressOf,
   hostOf,
   waitBoundMs,
+  type ChallengeKind,
   type CookieEntry,
   type PageArgs,
   type PageArrival,
@@ -12,6 +13,7 @@ import {
   type PageDriverKind,
   type PageKey,
   type PageLocation,
+  type PageReading,
   type PageRefusal,
   type PageResult,
   type PageSnapshot,
@@ -20,6 +22,8 @@ import {
   type OneTimeAllowance,
 } from "@agent-harness/contracts";
 import type { CdpSession } from "../cdp/session.js";
+import { pageText } from "../paging.js";
+import { installReader, pageChallenge, readPage, type PageReadOptions } from "../reader-in-page.js";
 import { frameOwnerKey, installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
 import { refGone } from "../snapshot/refs.js";
 import { serialiseSnapshot } from "../snapshot/serialiser.js";
@@ -175,6 +179,58 @@ const snapshotOf = async (page: CdpPage, args: PageArgs<"snapshot">): Promise<{ 
   return { snapshot: { text, totalChars, truncated }, notice: joined([...unread, nothing]) };
 };
 
+/** What challenge detection found on the page: the challenge, or null for none; and a notice when it could not look. */
+interface ChallengeCheck {
+  readonly challenge: ChallengeKind | null;
+  readonly notice?: string;
+}
+
+/**
+ * Runs #542's challenge detection on the top frame's rendered document, in
+ * its isolated world. A check that fails leaves the result as it is, with a
+ * notice saying the page could not be checked.
+ */
+const checkChallenge = async (page: CdpPage): Promise<ChallengeCheck> => {
+  try {
+    return { challenge: (await page.callInFrame(page.mainFrame(), pageChallenge)) ?? null };
+  } catch (error) {
+    return { challenge: null, notice: `The browser could not check the page for a challenge: ${error instanceof Error ? error.message : String(error)}.` };
+  }
+};
+
+/** A check's finding as a result carries it: the challenge's kind, and nothing for a page with none. */
+const finding = (check: ChallengeCheck): { readonly challenge?: ChallengeKind } => (check.challenge === null ? {} : { challenge: check.challenge });
+
+/** The snapshot a reading gives where the page has no article: every element, uncut, since the reading pages it. */
+const READ_SNAPSHOT: PageArgs<"snapshot"> = { filter: "all", maxChars: Number.POSITIVE_INFINITY };
+
+/** The page's article as Markdown, the reader sent to the top frame's world first when the world has none; null where it finds none. */
+const pageArticle = async (page: CdpPage, options: PageReadOptions): Promise<string | null> => {
+  const main = page.mainFrame();
+  const read = await page.callInFrame(main, readPage, options);
+  if (read !== null) return read.article;
+  await page.callInFrame(main, installReader);
+  const installed = await page.callInFrame(main, readPage, options);
+  if (installed === null) throw new Error("The reader could not be set up in the page.");
+  return installed.article;
+};
+
+/**
+ * The page's readable text: its article as Markdown, or, where Readability
+ * judges the page not readerable or finds no article (an app, a result
+ * page), its snapshot's text with every element, and the snapshot's notice.
+ */
+const readableText = async (
+  page: CdpPage,
+  options: PageReadOptions,
+): Promise<{ readonly source: PageReading["source"]; readonly text: string; readonly notice?: string | undefined } | PageRefusal> => {
+  const article = await pageArticle(page, options);
+  if (article !== null) return { source: "article", text: article };
+  const taken = await snapshotOf(page, READ_SNAPSHOT);
+  if ("ok" in taken) return taken;
+  return { source: "snapshot", text: taken.snapshot.text, notice: taken.notice };
+};
+
 /**
  * Where a frame's viewport starts in the page's: the sum of where each frame's owner iframe holds it, up to the top frame.
  * Throws when the frame or one holding it leaves the page during the walk, which a partial sum would hide.
@@ -248,11 +304,12 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
   const arrival = async (page: CdpPage, args: { readonly snapshot?: PageArgs<"snapshot"> | undefined }, load?: LoadOutcome): Promise<PageResult<"open">> => {
     if (load?.kind === "failed") return refused(`The browser could not load the page: ${load.errorText}.`);
     const location = await page.location();
+    const check = await checkChallenge(page);
     const taken = args.snapshot === undefined ? undefined : await snapshotOf(page, args.snapshot);
     const snapshot = taken === undefined || "ok" in taken ? undefined : taken.snapshot;
-    const value: PageArrival = { ...location, ...(snapshot !== undefined && { snapshot }) };
+    const value: PageArrival = { ...location, ...(snapshot !== undefined && { snapshot }), ...finding(check) };
     const snapshotNotice = taken === undefined ? undefined : "ok" in taken ? `No snapshot came with this answer: ${taken.reason}` : taken.notice;
-    const notice = joined([load?.kind === "slow" ? SLOW : undefined, snapshotNotice]);
+    const notice = joined([load?.kind === "slow" ? SLOW : undefined, check.notice, snapshotNotice]);
     return { ok: true, value, ...(notice !== undefined && { notice }) };
   };
 
@@ -326,11 +383,27 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     open: (page, args, allowance) => (args.url === undefined ? arrival(page, args) : goTo(page, args.url, args, allowance)),
     navigate: (page, args, allowance) => goTo(page, args.url, args, allowance),
     snapshot: async (page, args) => {
+      const check = await checkChallenge(page);
       const taken = await snapshotOf(page, args);
       if ("ok" in taken) return taken;
-      return { ok: true, value: { ...(await page.location()), ...taken.snapshot }, ...(taken.notice !== undefined && { notice: taken.notice }) };
+      const notice = joined([check.notice, taken.notice]);
+      return { ok: true, value: { ...(await page.location()), ...taken.snapshot, ...finding(check) }, ...(notice !== undefined && { notice }) };
     },
-    read: async () => refused("This browser cannot read a page as text yet. Take a screenshot to see the page."),
+    read: async (page, args) => {
+      const check = await checkChallenge(page);
+      const readable = await readableText(page, { links: args.links ?? false });
+      if ("ok" in readable) return readable;
+      const location = await page.location();
+      // A challenge page may show nothing else; its finding is the answer then.
+      if (readable.text === "" && check.challenge === null) {
+        return refused(`${location.url} has no text to read: the reader found no article on it, and its snapshot is empty. Take a screenshot to see what it shows.`);
+      }
+      const paged = pageText(readable.text, args.offset ?? 0);
+      if (!paged.ok) return paged;
+      const { text, offset, totalChars, nextOffset } = paged.value;
+      const notice = joined([check.notice, readable.notice]);
+      return { ok: true, value: { ...location, source: readable.source, text, offset, totalChars, nextOffset, ...finding(check) }, ...(notice !== undefined && { notice }) };
+    },
     click: async (page, args) => {
       const element = await located(page, args.target);
       if ("ok" in element) return element;
