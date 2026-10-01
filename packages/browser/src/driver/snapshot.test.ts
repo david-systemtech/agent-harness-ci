@@ -155,6 +155,20 @@ describe("the snapshot", () => {
     });
   });
 
+  it("sends the vendored snapshot to a world once, when the world answers it has none, and asks it again", async () => {
+    const page = await driven();
+    page.peer.document(SHOP, { title: "Checkout" });
+    const installedIn = new Set<string>();
+    page.peer.inPage("installSnapshot", ({ frame }) => void installedIn.add(frame.loaderId));
+    const record = recorded({ [SHOP]: [{ role: "button", name: "Pay", ref: "e1" }] });
+    page.peer.inPage("snapshotFrame", (call) => (installedIn.has(call.frame.loaderId) ? record(call) : null));
+    await page.perform("open", { url: SHOP });
+    expect(await page.perform("snapshot", {})).toMatchObject({ ok: true, value: { text: `- button "Pay" [ref=e1]` } });
+    expect(await page.perform("snapshot", {})).toMatchObject({ ok: true });
+    const sent = page.peer.sentOf("Runtime.callFunctionOn").map(({ params }) => /^function (\w+)/.exec(String(params.functionDeclaration))?.[1]);
+    expect(sent).toEqual(["snapshotFrame", "installSnapshot", "snapshotFrame", "snapshotFrame"]);
+  });
+
   it("asks each frame's next snapshot to number past the refs it gave, so no ref an older snapshot gave names another element", async () => {
     const { peer, perform } = await atCheckout();
     await perform("snapshot", {});

@@ -8,11 +8,13 @@ import { installSnapshotWorld, snapshotWorld, type FieldMarkers, type FrameSnaps
 
 /**
  * The snapshot's in-page functions (browser spec, "The tools"): what the
- * driver runs in each frame's isolated world. `snapshotFrame` is composed
+ * driver runs in each frame's isolated world. `installSnapshot` is composed
  * from several functions' source texts, the vendored aria snapshot's among
  * them, into one function declaration, since `Runtime.callFunctionOn` sends
  * one; each part reaches nothing outside itself but its arguments, so the
- * declaration runs alone in the page as it runs in a test's jsdom.
+ * declaration runs alone in the page as it runs in a test's jsdom. It is
+ * sent once per document, the first time `snapshotFrame` finds the world
+ * without it.
  */
 
 /** The value written for each kind of field whose value is never read. */
@@ -22,19 +24,24 @@ const FIELD_MARKERS: FieldMarkers = {
   "one-time-code": redactedFieldValue("one-time-code"),
 };
 
+/** Makes the world's snapshot state, once for its document: the vendored aria snapshot and the map of the refs it gives. */
+export const installSnapshot: InPageSource<[], void> = {
+  declaration: `function installSnapshot() {
+  (${snapshotWorld})(() => (${installSnapshotWorld})(${secretField}, ${JSON.stringify(FIELD_MARKERS)}, ${playwrightCssTokenizer}, ${playwrightDomUtils}, ${playwrightRoleUtils}, ${playwrightAriaSnapshot}));
+}`,
+};
+
 /**
  * Snapshots the frame's document: its elements as Playwright's aria
  * snapshot reads them in its `ai` mode, a ref (with the frame's prefix) on
  * each element that can be acted on, iframes marked with their place among
  * the frame owners, and the refs kept in the world's map for the verbs that
- * act by them. The world's snapshot state is made on its first call.
+ * act by them. Null while the world has no snapshot state: send
+ * `installSnapshot` first.
  */
-export const snapshotFrame: InPageSource<[FrameSnapshotOptions], FrameSnapshot> = {
-  declaration: `function snapshotFrame(options) {
-  const install = () => (${installSnapshotWorld})(${secretField}, ${JSON.stringify(FIELD_MARKERS)}, ${playwrightCssTokenizer}, ${playwrightDomUtils}, ${playwrightRoleUtils}, ${playwrightAriaSnapshot});
-  return (${snapshotWorld})(install).snapshot(options);
-}`,
-};
+export function snapshotFrame(options: FrameSnapshotOptions): FrameSnapshot | null {
+  return (globalThis as SnapshotGlobal).agentHarnessSnapshot?.snapshot(options) ?? null;
+}
 
 /** Called on an iframe element (`this`): its place among the frame owners the latest snapshot of its document met, or null. */
 export function frameOwnerKey(this: Element): number | null {

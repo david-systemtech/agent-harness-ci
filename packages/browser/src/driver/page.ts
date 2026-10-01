@@ -355,18 +355,22 @@ export class CdpPage {
    * frame id, in document order, a frame's failure its own entry.
    */
   callInEveryFrame<A extends unknown[], R>(fn: InPageFunction<A, R>, ...args: A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
-    return this.callInEachFrame(fn, () => args);
+    return this.inEveryFrame((frame) => this.callInFrame(frame, fn, ...args));
   }
 
-  /** As `callInEveryFrame`, with each frame's own arguments. */
-  async callInEachFrame<A extends unknown[], R>(fn: InPageFunction<A, R>, argsOf: (frame: PageFrame) => A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
+  /**
+   * Does `work` for every frame at once, its own frames and its cross-site
+   * frames' child targets once they are set up: the answers keyed by frame
+   * id, in document order, a frame's failure its own entry.
+   */
+  async inEveryFrame<R>(work: (frame: PageFrame) => Promise<R>): Promise<ReadonlyMap<string, FrameOutcome<R>>> {
     await Promise.all([...this.setups]);
     const frames = this.framesInOrder();
     const outcomes = await Promise.all(
-      frames.map(async (frame): Promise<FrameOutcome<Awaited<R>>> => {
+      frames.map(async (frame): Promise<FrameOutcome<R>> => {
         const shownFrame = publicFrame(frame);
         try {
-          return { frame: shownFrame, ok: true, value: await this.callInFrame(frame, fn, ...argsOf(shownFrame)) };
+          return { frame: shownFrame, ok: true, value: await work(shownFrame) };
         } catch (error) {
           return { frame: shownFrame, ok: false, error: error instanceof Error ? error.message : String(error) };
         }

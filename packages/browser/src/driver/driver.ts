@@ -20,11 +20,11 @@ import {
   type OneTimeAllowance,
 } from "@agent-harness/contracts";
 import type { CdpSession } from "../cdp/session.js";
-import { frameOwnerKey, snapshotFrame } from "../snapshot/in-page.js";
+import { frameOwnerKey, installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
 import { refGone } from "../snapshot/refs.js";
 import { serialiseSnapshot } from "../snapshot/serialiser.js";
 import { stitchFrames, type FrameTree } from "../snapshot/stitch.js";
-import type { FrameSnapshotOptions } from "../snapshot/world.js";
+import type { FrameSnapshot, FrameSnapshotOptions } from "../snapshot/world.js";
 import { elementShows, frameOwnerOrigin, locateElement, readStorage, scrollToElement, selectFieldContents, showsText, type ElementTarget } from "./in-page.js";
 import {
   CdpPage,
@@ -118,6 +118,16 @@ const refFrame = (page: CdpPage, ref: string): PageFrame | undefined => {
   return frameId === undefined ? undefined : page.frame(frameId);
 };
 
+/** One frame's snapshot, the vendored snapshot sent to its world first when the world has none. */
+const frameSnapshot = async (page: CdpPage, frame: PageFrame, options: FrameSnapshotOptions): Promise<FrameSnapshot> => {
+  const taken = await page.callInFrame(frame, snapshotFrame, options);
+  if (taken !== null) return taken;
+  await page.callInFrame(frame, installSnapshot);
+  const installed = await page.callInFrame(frame, snapshotFrame, options);
+  if (installed === null) throw new Error("The snapshot could not be set up in the frame.");
+  return installed;
+};
+
 /**
  * The page as a snapshot reads it: every frame in its own isolated world,
  * each numbering its refs past those it gave before, stitched under the
@@ -127,9 +137,9 @@ const refFrame = (page: CdpPage, ref: string): PageFrame | undefined => {
  */
 const snapshotOf = async (page: CdpPage, args: PageArgs<"snapshot">): Promise<{ readonly snapshot: SnapshotText; readonly notice: string | undefined } | PageRefusal> => {
   const main = page.mainFrame();
-  const outcomes = await page.callInEachFrame(snapshotFrame, (frame): [FrameSnapshotOptions] => [
-    { prefix: page.refs.prefixOf(frame.id, frame.id === main.id), firstRef: page.refs.firstRefOf(frame.id) },
-  ]);
+  const outcomes = await page.inEveryFrame((frame) =>
+    frameSnapshot(page, frame, { prefix: page.refs.prefixOf(frame.id, frame.id === main.id), firstRef: page.refs.firstRefOf(frame.id) }),
+  );
   const top = outcomes.get(main.id);
   if (!top?.ok) return refused(`The browser could not read the page: ${top ? top.error : "its document is gone"}.`);
   const unread: string[] = [];
@@ -283,7 +293,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
   };
 
   /** A named address opened in the top frame, once the policy has read it. */
-  const goTo = async (page: CdpPage, address: string, args: { readonly snapshot?: object | undefined }, allowance: OneTimeAllowance | undefined): Promise<PageResult<"open">> => {
+  const goTo = async (page: CdpPage, address: string, args: { readonly snapshot?: PageArgs<"snapshot"> | undefined }, allowance: OneTimeAllowance | undefined): Promise<PageResult<"open">> => {
     const url = urlOf(address);
     const standing = page.standing(url, allowance);
     if (standing.kind === "unsupported") return refused(`The browser opens http and https addresses only, and ${address} is neither.`);

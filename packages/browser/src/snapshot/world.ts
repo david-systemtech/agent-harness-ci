@@ -89,9 +89,7 @@ export function installSnapshotWorld(
   };
 }
 
-/** The world's snapshot state, made by `install` the first time the world asks for it. */
-export function snapshotWorld(install: () => SnapshotWorld): SnapshotWorld {
-  const global = globalThis as SnapshotGlobal;
-  global.agentHarnessSnapshot ??= install();
-  return global.agentHarnessSnapshot;
+/** Puts the snapshot state `install` makes on the world's global, unless the world has it already. */
+export function snapshotWorld(install: () => SnapshotWorld): void {
+  (globalThis as SnapshotGlobal).agentHarnessSnapshot ??= install();
 }

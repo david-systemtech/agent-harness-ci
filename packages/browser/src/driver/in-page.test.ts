@@ -1,6 +1,6 @@
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
-import { snapshotFrame } from "../snapshot/in-page.js";
+import { installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
 import { elementShows, frameOwnerOrigin, locateElement, readStorage, scrollToElement, selectFieldContents, showsText } from "./in-page.js";
 
 /**
@@ -28,7 +28,9 @@ const snapshotted = (window: Window & typeof globalThis): void => {
   const computed = window.getComputedStyle.bind(window);
   window.getComputedStyle = (element: Element) => computed(element);
   window.Element.prototype.getBoundingClientRect = () => ({ left: 10, top: 10, right: 110, bottom: 30, width: 100, height: 20, x: 10, y: 10, toJSON: () => ({}) });
-  (window as unknown as { eval(source: string): (options: object) => unknown }).eval(`(${snapshotFrame.declaration})`)({ prefix: "", firstRef: 1 });
+  const run = (source: string): ((options?: object) => unknown) => (window as unknown as { eval(source: string): (options?: object) => unknown }).eval(`(${source})`);
+  run(installSnapshot.declaration)();
+  run(snapshotFrame.toString())({ prefix: "", firstRef: 1 });
 };
 
 /** Gives an element a box in the viewport (jsdom's is 1024 by 768). */
