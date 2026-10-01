@@ -224,6 +224,17 @@ describe("the JSON Schema export", () => {
     expect(tables["data/settings-addresses.json"]).toEqual(contracts.SETTINGS_ADDRESSES.map((address) => ({ address, row: contracts.rowOfAddress(address) })));
   });
 
+  it("exports numeric-only entry refusal on denylist input while preserving browser host-list compatibility", () => {
+    const ajv = validator();
+    const schemas = ["permissions/denylist-input.json", "settings/keys/browser.devSites.json", "settings/keys/browser.internalHosts.json"];
+    for (const path of schemas) ajv.addSchema(readJson(path), path);
+    for (const pattern of ["1.2.3.4.5", "1.2.3.256", "2852039166", "0xa9fea9fe", "0251.0376.0251.0376", "123.example"]) {
+      const accepted = !["1.2.3.4.5", "1.2.3.256"].includes(pattern);
+      for (const section of ["hosts", "browserDomains"]) expect(ajv.validate(schemas[0]!, { [section]: [{ pattern }] }), pattern).toBe(accepted);
+      for (const schema of schemas.slice(1)) expect(ajv.validate(schema, [pattern]), pattern).toBe(true);
+    }
+  });
+
   it("publishes the Managed tools table as data, each tool valid against the tool schema", () => {
     const ajv = validator();
     for (const path of filesOnDisk().filter((p) => p !== "index.json" && !p.startsWith("data/"))) ajv.addSchema(readJson(path), path);
