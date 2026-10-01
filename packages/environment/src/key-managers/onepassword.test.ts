@@ -72,7 +72,7 @@ const browse = (client: WireClient, params: ParamsOf<"keyManagers.references.bro
 /** Resolves `reference` in process, as a holder's spawn and the forge's verification do. */
 const resolve = (t: TestEnvironment, reference: OnePasswordReference) => t.env.keyManagers.resolve({ reference, owner: "forge:test", purpose: "verify" });
 
-/** The calls the double saw after the first `from` of them. */
+/** The calls the double saw after its first `from`. */
 const callsSince = (onePassword: FakeOnePassword, from: number) => onePassword.calls().slice(from);
 
 const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
