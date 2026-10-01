@@ -904,16 +904,18 @@ describe("a submodule's git directory under the repository's, whose hooks and co
     expect(decisionsOf(t, id, runId).map((event) => event.payload.decidedBy)).toEqual(closed.map(() => "containment"));
   });
 
-  it("is read again at each run start, so a submodule added between runs is closed at the next, and a link under modules/ back into the git directory is listed once", async () => {
+  it("is read again at each run start, so a submodule added between runs is closed at the next; a link back into the git directory is walked once, and a damaged git directory's objects not at all", async () => {
     const checkout = repository();
     const gitDirectory = join(checkout, ".git");
-    mkdirSync(join(gitDirectory, "modules"));
+    const damaged = join(gitDirectory, "modules", "damaged");
+    mkdirSync(join(damaged, "objects", "ab"), { recursive: true });
+    writeFileSync(join(damaged, "objects", "ab", "HEAD"), "");
     symlinkSync(gitDirectory, join(gitDirectory, "modules", "loop"));
     const { t, client, id, adapter } = await sessionIn(checkout, "workspace");
     await runScript(t, client, id, calling());
-    expect(adapter.lastRun().input.containment.readOnly).toEqual(closedIn(gitDirectory));
+    expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(damaged)]);
     addSubmodule(checkout, repository(), "library");
     await runScript(t, client, id, calling());
-    expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(join(gitDirectory, "modules", "library"))]);
+    expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(damaged), ...closedIn(join(gitDirectory, "modules", "library"))]);
   });
 });

@@ -143,9 +143,10 @@ const subdirectories = (directory: string): string[] => {
 /**
  * The git directories of the submodules the git directory `gitDirectory`
  * keeps under its `modules` (#933), as they are now: a directory there
- * with a `HEAD` is one, as git takes it, and one without is a component
- * of a name (a submodule's name may hold slashes, `modules/vendor/lib`),
- * walked through. A submodule's own submodules are under its `modules`,
+ * with a `HEAD` is one, as git takes it, and so is one with `objects`, so
+ * the walk never goes through a damaged one's objects. One with neither is
+ * a component of a name (a submodule's name may hold slashes,
+ * `modules/vendor/lib`), walked through. A submodule's own submodules are under its `modules`,
  * found when it is closed. `seen` holds the real paths already walked, so
  * a link back up is walked once.
  */
@@ -155,7 +156,7 @@ const submoduleGitDirectories = (gitDirectory: string, seen: Set<string>): strin
     const real = realPathOf(directory);
     if (real === null || seen.has(real)) return;
     seen.add(real);
-    if (existsSync(join(directory, "HEAD"))) found.push(directory);
+    if (existsSync(join(directory, "HEAD")) || existsSync(join(directory, "objects"))) found.push(directory);
     else for (const name of subdirectories(directory)) walk(join(directory, name));
   };
   for (const name of subdirectories(join(gitDirectory, "modules"))) walk(join(gitDirectory, "modules", name));
