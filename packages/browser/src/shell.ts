@@ -1,4 +1,4 @@
-import { shownText } from "./page-text.js";
+import { pageBody, shownText } from "./page-text.js";
 
 /**
  * The shell rule `web_read` uses (browser spec, "`web_read`"; #292): a
@@ -32,7 +32,7 @@ const emptyAppElement = (root: Element): boolean =>
  * short real page, with none of the three, is read as it is.
  */
 export const isShell = (document: Document): boolean => {
-  const body = document.body ?? document.documentElement;
+  const body = pageBody(document);
   const text = shownText(body);
   if (text.length >= SHELL_TEXT_CHARS) return false;
   return document.querySelector("noscript") !== null || ENABLE_JAVASCRIPT.test(text) || emptyAppElement(body);

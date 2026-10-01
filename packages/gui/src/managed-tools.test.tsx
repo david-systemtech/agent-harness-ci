@@ -403,15 +403,15 @@ describe("About's Managed tools", () => {
     expect(await within(claude).findByRole("region", { name: "What claude doctor says" })).toBeDefined();
   });
 
-  it("is where the Key manager step's Install of a tool goes: About opens with its Managed tools taking the focus", async () => {
+  it("is where the Key manager step's Install of a tool this build does not know goes: About opens with its Managed tools taking the focus", async () => {
     const app = await opened({
       setup: {
         "key-manager": {
           state: "needs-attention",
-          reason: "OpenBao injects, and no OpenBao CLI is installed.",
+          reason: "A tool this build does not know needs installing.",
           failing: ["key-manager.cli"],
           actions: ["install"],
-          targets: [{ action: "install", kind: "tool", id: "bao", label: "bao" }],
+          targets: [{ action: "install", kind: "tool", id: "future-tool", label: "future-tool" }],
         },
       },
     });
@@ -420,7 +420,7 @@ describe("About's Managed tools", () => {
     await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
-    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: bao" }));
+    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
 
     await waitFor(() => expect(document.activeElement).toBe(section()));
     expect(await row("OpenBao CLI")).toBeDefined();

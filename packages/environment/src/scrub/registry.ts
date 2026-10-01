@@ -17,7 +17,7 @@ export type ScrubRelease = () => void;
 /**
  * Output scrubbed as it comes, a chunk at a time, with a tail held back while
  * it could be the start of a registered value (key-managers spec, "Where it
- * applies": terminal output). Registered values only, as they stand at each
+ * applies": terminal output and assistant deltas). Registered values only, as they stand at each
  * call: one registered or released while a tail is held counts from the next.
  */
 export interface ScrubStream {
@@ -42,7 +42,7 @@ export interface ScrubStream {
  * registered values only (`scrub`): a secret the model or the user handles
  * on their own is content, outside the registry. The logger, captured output
  * the harness keeps and error text scrub both (`scrubOutput`); terminal
- * output scrubs registered values as it comes (`stream`); and a text the
+ * output and assistant deltas scrub registered values as they come (`stream`); and a text the
  * harness would send out is refused `secret_shaped` on either (`check`).
  */
 export interface ScrubRegistry {

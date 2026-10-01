@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,7 +7,7 @@ import { installVersion } from "../../test/launcher-fixtures.js";
 import { makeTempDir } from "../../test/service-helpers.js";
 import { writeServiceState } from "../launch/state.js";
 import { VERSION_SENTINEL, versionDirectory } from "../launch/versions.js";
-import { pathLine, renderShim, SHIM_DIRECTORY, SHIM_FILES } from "./shim.js";
+import { pathLine, renderShim, SHIM_DIRECTORY, SHIM_FILES, shimReads } from "./shim.js";
 
 /**
  * The shim (#338): the `agent-harness` in the data directory's `bin` folder,
@@ -51,6 +51,10 @@ describe("the shim", () => {
     expect(SHIM_FILES).toEqual({ sh: "agent-harness", cmd: "agent-harness.cmd" });
   });
 
+  it("reads the service state and the versions directory of its data directory, which a contained run's sandbox must let it read (#705)", () => {
+    expect(shimReads("/data")).toEqual([join("/data", "service-state.json"), join("/data", "versions")]);
+  });
+
   it("renders for sh as the fixture: the service state's active version, its own Node, the arguments as given", () => {
     expect(renderShim("sh", "/home/david/.local/state/agent-harness")).toBe(fixture("agent-harness-shim"));
   });
@@ -88,6 +92,20 @@ describe.runIf(posix)("the shim, run by sh", () => {
     expect(ran.stderr).toBe("");
     expect(ran.code).toBe(0);
     expect(JSON.parse(ran.stdout)).toEqual({ version: "0.6.0-beta.1", args: ["tui", "--cwd", "a dir with 'quotes' and $HOME", ""] });
+  });
+
+  it("reads nothing of its data directory but its own folder and what shimReads names: it runs with only those, and fails without either", () => {
+    const dataDir = tempDataDir();
+    installVersion(dataDir, "0.5.0", ECHO_CHILD);
+    writeServiceState(dataDir, state("0.5.0"));
+
+    expect(runShim(dataDir, ["status"]).code).toBe(0);
+    expect(readdirSync(dataDir).map((name) => join(dataDir, name)).sort()).toEqual([join(dataDir, SHIM_DIRECTORY), ...shimReads(dataDir)].sort());
+    for (const read of shimReads(dataDir)) {
+      renameSync(read, `${read}.hidden`);
+      expect(runShim(dataDir, ["status"]).code).toBe(1);
+      renameSync(`${read}.hidden`, read);
+    }
   });
 
   it("exits with the version's exit code", () => {

@@ -88,7 +88,7 @@ it("pulls the sources named by the health result without leaving Set up", async 
   await app.user.click(pull);
   expect(await within(card()).findByText("d".repeat(40))).toBeDefined();
   expect(screen.getByRole("navigation", { name: "Set up steps" })).toBeDefined();
-  expect(await within(card()).findByText("Sources pulled.")).toBeDefined();
+  expect(await within(card()).findByText("Unslop: Source pulled.")).toBeDefined();
   await app.user.click(within(card()).getByRole("button", { name: "Pull now" }));
   await waitFor(() => expect(desk.requests("skills.sources.pull")).toHaveLength(2));
 });

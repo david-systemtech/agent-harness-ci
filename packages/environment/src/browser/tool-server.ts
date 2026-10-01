@@ -1,4 +1,4 @@
-import { pageKeyOf, type OneTimeAllowance, type PageDriver, type PageDriverKind, type PageKey, type RunBrowserResolution, type SessionBrowser } from "@agent-harness/contracts";
+import { pageKeyOf, type OneTimeAllowance, type PageDriver, type PageDriverKind, type RunBrowserResolution, type SessionBrowser } from "@agent-harness/contracts";
 import type { HostToolCall, InProcessToolServer, ToolGate } from "../adapter/contract.js";
 import type { ChromeChoice } from "./chrome-choice.js";
 import { pageTools, type ChosenBrowser, type LiveBrowser } from "./page-tools.js";
@@ -124,8 +124,6 @@ export const CHOICES_KEPT = 1_000;
 export const createBrowserToolServers = (options: BrowserToolServerOptions): ((scope: BrowserServerScope) => InProcessToolServer) => {
   const webRead = webReadTool(options.reader);
   const readerOnly: InProcessToolServer = { name: BROWSER_TOOL_SERVER, external: false, tools: [webRead] };
-  /** The address each session's page last reported, across its runs. */
-  const addresses = new Map<PageKey, string>();
   /** The Chrome the agent chose, by session, for the run it chose it in. */
   const chosen = new Map<string, Chosen>();
 
@@ -162,7 +160,6 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
     if (browser.kind === "none") return readerOnly;
     const tools = pageTools(browser.kind, {
       pageKey: pageKeyOf(options.environmentId, sessionId),
-      addresses,
       ...(options.gate !== undefined && { gate: () => options.gate?.(sessionId) ?? null }),
       environmentId: () => {
         const resolved = options.live(sessionId)?.browser.browser;

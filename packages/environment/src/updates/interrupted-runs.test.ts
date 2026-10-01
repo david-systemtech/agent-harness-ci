@@ -24,6 +24,9 @@ import type { EventEnvelope } from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import type { ActorRunRequest } from "../serve/start.js";
 import { presetInjection, type RunInjectionOverride } from "../adapter/process-environment.js";
+import type { InstructionScope } from "../adapter/seams.js";
+import { composeInstructions } from "../instructions/composer.js";
+import { created, ranNow, routineCommand, untilStarted, written } from "../../test/routines.js";
 
 /**
  * The runs an update cut (launcher-update spec, "Interrupted runs and parked
@@ -311,6 +314,30 @@ describe("a run the update cut that its provider can resume", () => {
     await untilEnded(again, id, continuation);
     // Unattended: the provider is handed the denylist to project, as every unattended run is.
     expect(again.adapter.lastRun().input.denylist).not.toBeNull();
+  });
+
+  it("of a routine's firing carries the skills that firing started with, read back from its record, as the continuation's extra always-on names (#531)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const t = await start(dataDir, { adapter: fakeAdapter({ script: working() }) });
+    const client = await t.client();
+    await client.request("skills.own.create", { commandId: randomUUID(), name: "tdd", description: "Test first." });
+    const { state } = await created(client, written({ schedule: { kind: "manual" }, skills: ["tdd"] }));
+    const firingId = await ranNow(client, state.id);
+    const { sessionId } = (await untilStarted(t, state.id, firingId)).payload as { sessionId: string };
+    await untilWorking(t, sessionId);
+    // Edited meanwhile: the firing's runs keep the skills it started with.
+    await routineCommand(client, "routines.update", { routineId: state.id, fields: { skills: [] } });
+    await update(t, client);
+
+    const scopes: InstructionScope[] = [];
+    const compose = composeInstructions();
+    const observed = (scope: InstructionScope) => (scopes.push(scope), compose(scope));
+    const again = await start(dataDir, { clock: t.clock, harnessVersion: TARGET, adapterSeams: { instructions: observed } });
+
+    const continuation = continuationOf(again, sessionId);
+    await untilEnded(again, sessionId, continuation);
+    expect(policyOf(again, sessionId, continuation)).toMatchObject({ actorKind: "routine" });
+    expect(scopes.map((scope) => ({ sessionId: scope.sessionId, origin: scope.origin, alwaysOn: scope.alwaysOn }))).toEqual([{ sessionId, origin: "routine", alwaysOn: ["tdd"] }]);
   });
 
   it("of a routine's firing with its own injection is continued under it, read back from the cut run's policy (#367)", async () => {

@@ -35,6 +35,13 @@ describe.each(["web-socket", "pipe"] as const)("the page driver over %s", (wire)
 });
 
 describe("lazy domains", () => {
+  it.each(["console", "network", "cookies", "evaluate", "screenshot"] as const)("answers %s with the top frame's address after the page navigated on its own", async (verb) => {
+    const { perform, page } = await driven({ kind: "headless" });
+    await perform("open", { url: "https://example.com/before" });
+    page().navigate("https://example.com/redirected");
+    expect(await perform(verb, (verb === "evaluate" ? { expression: "1" } : {}) as never)).toMatchObject({ ok: true, value: { url: "https://example.com/redirected" } });
+  });
+
   it.each(["console", "network", "cookies", "storage", "evaluate"] as const)("turn on Runtime, Log and Network with the first %s verb, and only once", async (verb) => {
     const { peer, perform } = await driven({ kind: "headless" });
     await perform("open", { url: "https://example.com/" });
@@ -165,7 +172,7 @@ describe("open, navigate and screenshot", () => {
     const { peer, perform } = await driven();
     await perform("open", {});
     expect(peer.sentOf("Emulation.setDeviceMetricsOverride")[0]?.params).toEqual({ width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    expect(await perform("screenshot", {})).toEqual({ ok: true, value: { mimeType: "image/jpeg", data: SCRIPTED_SCREENSHOT } });
+    expect(await perform("screenshot", {})).toEqual({ ok: true, value: { url: "about:blank", mimeType: "image/jpeg", data: SCRIPTED_SCREENSHOT } });
     expect(peer.sentOf("Page.captureScreenshot")[0]?.params).toEqual({ format: "jpeg", quality: 70 });
   });
 
@@ -472,13 +479,16 @@ describe("the deep verbs under the host's policy", () => {
     });
     expect(await perform("console", {})).toEqual({
       ok: true,
-      value: [
-        { level: "warn", text: "cart is 3 Object", source: "https://example.com/app.js:42", at: "2026-09-30T08:00:00.000Z" },
-        { level: "exception", text: "TypeError: x is undefined", source: "https://example.com/app.js:10", at: "2026-09-30T08:00:00.001Z" },
-        { level: "error", text: "Failed to load resource: 404", source: "https://example.com/missing.png:?", at: "2026-09-30T08:00:00.002Z" },
-      ],
+      value: {
+        url: "https://example.com/",
+        entries: [
+          { level: "warn", text: "cart is 3 Object", source: "https://example.com/app.js:42", at: "2026-09-30T08:00:00.000Z" },
+          { level: "exception", text: "TypeError: x is undefined", source: "https://example.com/app.js:10", at: "2026-09-30T08:00:00.001Z" },
+          { level: "error", text: "Failed to load resource: 404", source: "https://example.com/missing.png:?", at: "2026-09-30T08:00:00.002Z" },
+        ],
+      },
     });
-    expect(await perform("console", {})).toEqual({ ok: true, value: [] });
+    expect(await perform("console", {})).toEqual({ ok: true, value: { url: "https://example.com/", entries: [] } });
   });
 
   it("keeps the latest 1,000 console lines between two reads, and says how many older ones went", async () => {
@@ -490,8 +500,8 @@ describe("the deep verbs under the host's policy", () => {
     });
     const answer = await perform("console", {});
     if (!answer.ok) throw new Error(answer.reason);
-    expect(answer.value).toHaveLength(1_000);
-    expect(answer.value[0]?.text).toBe("line 6");
+    expect(answer.value.entries).toHaveLength(1_000);
+    expect(answer.value.entries[0]?.text).toBe("line 6");
     expect(answer.notice).toBe("The 5 oldest lines were dropped: the browser keeps the latest 1,000 between two reads.");
   });
 
@@ -506,7 +516,7 @@ describe("the deep verbs under the host's policy", () => {
     await perform("screenshot", {});
     const answer = await perform("network", {});
     if (!answer.ok) throw new Error(answer.reason);
-    expect([answer.value.length, answer.value[0]?.url, answer.notice]).toEqual([
+    expect([answer.value.entries.length, answer.value.entries[0]?.url, answer.notice]).toEqual([
       1_000,
       "https://example.com/4",
       "The 3 oldest requests were dropped: the browser keeps the latest 1,000 between two reads.",
@@ -518,7 +528,7 @@ describe("the deep verbs under the host's policy", () => {
     await perform("open", { url: "https://example.com/" });
     expect(await perform("network", {})).toEqual({
       ok: true,
-      value: [],
+      value: { url: "https://example.com/", entries: [] },
       notice: "The network is recorded from this call on: ask again after the page has done what you want to see.",
     });
     await perform("navigate", { url: "https://example.com/next" });
@@ -531,7 +541,7 @@ describe("the deep verbs under the host's policy", () => {
     peer.emit("Network.loadingFailed", { requestId: "r2", timestamp: 10.1, errorText: "net::ERR_BLOCKED_BY_CLIENT", blockedReason: "inspector" }, session);
     request("r3", "https://example.com/ok.css");
     peer.emit("Network.responseReceived", { requestId: "r3", timestamp: 10, type: "Stylesheet", response: { url: "https://example.com/ok.css", status: 200 } }, session);
-    await expect.poll(async () => ((await perform("network", { failedOnly: true })) as { value: unknown[] }).value, { timeout: 30_000 }).toEqual([
+    await expect.poll(async () => ((await perform("network", { failedOnly: true })) as { value: { entries: unknown[] } }).value.entries, { timeout: 30_000 }).toEqual([
       { method: "GET", url: "https://example.com/api/cart", resourceType: "xhr", status: 500, durationMs: 500, at: "2026-09-30T08:00:00.000Z" },
       { method: "GET", url: "https://tracker.example/pixel", resourceType: "xhr", durationMs: expect.closeTo(100, 5), failure: "net::ERR_BLOCKED_BY_CLIENT (blocked: inspector)", at: "2026-09-30T08:00:00.000Z" },
     ]);
@@ -548,17 +558,20 @@ describe("the deep verbs under the host's policy", () => {
     await perform("open", { url: "https://shop.example/" });
     expect(await perform("cookies", {})).toEqual({
       ok: true,
-      value: [
-        { name: "sid", domain: "shop.example", path: "/", httpOnly: true, secure: true, sameSite: "Lax" },
-        { name: "pref", domain: ".shop.example", path: "/", expires: "2026-09-30T08:00:00.000Z", httpOnly: false, secure: false },
-      ],
+      value: {
+        url: "https://shop.example/",
+        entries: [
+          { name: "sid", domain: "shop.example", path: "/", httpOnly: true, secure: true, sameSite: "Lax" },
+          { name: "pref", domain: ".shop.example", path: "/", expires: "2026-09-30T08:00:00.000Z", httpOnly: false, secure: false },
+        ],
+      },
       notice: "Cookie values are left out: shop.example is not a dev site. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read them.",
     });
     expect(peer.sentOf("Network.getCookies")[0]?.params).toEqual({ urls: ["https://shop.example/"] });
     setPolicy({ ...plainPolicy, devSites: ["shop.example"] });
-    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: [{ name: "sid", value: "value-for-tests" }, { name: "pref", value: "dark" }] });
+    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: { url: "https://shop.example/", entries: [{ name: "sid", value: "value-for-tests" }, { name: "pref", value: "dark" }] } });
     setPolicy({ ...plainPolicy, deepReadEverywhere: true });
-    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: [{ value: "value-for-tests" }, { value: "dark" }] });
+    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: { url: "https://shop.example/", entries: [{ value: "value-for-tests" }, { value: "dark" }] } });
   });
 
   it("reads storage only where deep reads are allowed, else answers a sentence naming the settings", async () => {
@@ -588,7 +601,7 @@ describe("the deep verbs under the host's policy", () => {
         ? { result: { type: "object" }, exceptionDetails: { text: "Uncaught", exception: { description: "ReferenceError: boom is not defined" } } }
         : { result: { type: "object", value: { items: 3 } } },
     );
-    expect(await perform("evaluate", { expression: "window.store.cart" })).toEqual({ ok: true, value: { result: { items: 3 } } });
+    expect(await perform("evaluate", { expression: "window.store.cart" })).toEqual({ ok: true, value: { url: "https://shop.example/", result: { items: 3 } } });
     expect(peer.sentOf("Runtime.evaluate")[0]?.params).toEqual({ expression: "window.store.cart", returnByValue: true, awaitPromise: true });
     expect(peer.sentOf("Runtime.evaluate")[0]?.params).not.toHaveProperty("contextId");
     expect(await perform("evaluate", { expression: "boom()" })).toEqual({ ok: false, reason: "The expression threw: ReferenceError: boom is not defined" });
@@ -598,7 +611,7 @@ describe("the deep verbs under the host's policy", () => {
     const { peer, perform } = await driven({ kind: "headless" });
     peer.answer("Network.getCookies", () => ({ cookies: [{ name: "sid", value: "value-for-tests", domain: "shop.example", path: "/", expires: -1, httpOnly: true, secure: true, session: true }] }));
     await perform("open", { url: "https://shop.example/" });
-    expect(await perform("cookies", {})).toEqual({ ok: true, value: [{ name: "sid", value: "value-for-tests", domain: "shop.example", path: "/", httpOnly: true, secure: true }] });
+    expect(await perform("cookies", {})).toEqual({ ok: true, value: { url: "https://shop.example/", entries: [{ name: "sid", value: "value-for-tests", domain: "shop.example", path: "/", httpOnly: true, secure: true }] } });
     expect(await perform("storage", {})).toMatchObject({ ok: true });
     expect(await perform("evaluate", { expression: "1" })).toMatchObject({ ok: true });
   });

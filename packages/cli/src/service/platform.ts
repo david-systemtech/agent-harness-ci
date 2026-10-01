@@ -13,6 +13,12 @@ import { taskSchedulerPlatform } from "./task-scheduler.js";
  */
 export interface ServicePlatform {
   readonly kind: "launchd" | "systemd" | "task-scheduler";
+  /**
+   * Whether stopping the service lets its running runs finish first: the
+   * service manager sends the launcher a SIGTERM, the launcher drains its
+   * child, and the command that stops it waits (launchd, systemd).
+   */
+  readonly drainsOnStop: boolean;
   /** Where the definition lives: a file for launchd and systemd, the task's path in Task Scheduler on Windows. */
   definitionPath(): string;
   /**

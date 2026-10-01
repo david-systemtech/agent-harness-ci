@@ -59,6 +59,7 @@ import {
   type QueuedMessage,
 } from "../runs/run-reads.js";
 import {
+  carriedAlwaysOn,
   decideStart,
   originOfActor,
   policyResolvedEvent,
@@ -102,10 +103,12 @@ import { composeInstructions, instructionsDigest } from "../instructions/compose
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import { createProcessEnvironments, runOverrideOf, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
-import type { ToolGate } from "./contract.js";
+import type { ToolGate, TranscriptEvent } from "./contract.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
-import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
+import { createScopedAppend } from "./scoped-append.js";
+import { createDeltaAppend } from "./delta-scrub.js";
+import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import {
   holdNothing,
   noAutoAnswer,
@@ -203,6 +206,8 @@ const NOTHING_TO_PROJECT: RunDenylist = { paths: [], exempt: [], commandPatterns
 export interface AdapterHostOptions {
   readonly log: EventLog;
   readonly clock: Clock;
+  /** The environment's shared registry, consulted before assistant deltas reach the log. */
+  readonly scrub?: ScrubRegistry;
   /** The run registry the lifecycle reads; preset: a fresh one on `clock`. */
   readonly runs?: MemoryRunRegistry;
   readonly adapters?: readonly Adapter[];
@@ -290,6 +295,13 @@ export interface AdapterHostOptions {
    * client session is revoked or expired, and such a run is not started.
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
+  /**
+   * The skills a routine's firing made the session with (#531): the extra
+   * always-on names a run the environment starts for the routine takes when
+   * the run before it is known only from the log, after a restart. Preset:
+   * none.
+   */
+  readonly routineSkills?: (sessionId: string) => readonly string[];
   /**
    * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
    * read each time a wait begins. Preset: the setting's preset; the
@@ -568,7 +580,8 @@ interface LiveRun {
   readonly descriptor: AdapterDescriptor;
   readonly plan: PlannedRun;
   readonly actor: string;
-  readonly append: ScopedAppend;
+  readonly append: (event: TranscriptEvent) => void;
+  readonly flushDeltas: () => void;
   readonly startedAt: number;
   /** The mode the provider runs it in now: its policy's, until a live change (`setMode`) takes. */
   mode: Mode;
@@ -667,6 +680,7 @@ const safely = (work: () => unknown, onError: (error: unknown) => void): Promise
 
 export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const { log, clock } = options;
+  const scrub = options.scrub ?? createScrubRegistry();
   const adapters = createAdapterRegistry(options.adapters ?? []);
   const registry = options.runs ?? createRunRegistry({ clock });
   const toolServers = options.toolServers ?? noToolServers;
@@ -675,6 +689,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const identityAt = options.identityAt ?? (() => Promise.resolve(null));
   const skillSetOf = options.skillSet ?? noSkillSet;
   const holdGeneration = options.holdGeneration ?? holdNothing;
+  const routineSkills = options.routineSkills ?? (() => []);
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -943,7 +958,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
     pending.started = true;
     // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
-    startFromQueue({ ...entry.plan, actor: pending.actor });
+    startFromQueue({ ...entry.plan, actor: pending.actor, alwaysOn: carriedAlwaysOn(entry.plan, pending.actor) });
   };
 
   /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
@@ -1096,6 +1111,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       });
     let recorded: EventEnvelope | undefined;
     try {
+      try {
+        entry.flushDeltas();
+      } catch (error) {
+        // A failed transcript append must not prevent the run's end from being recorded.
+        console.error(`Flushing assistant deltas for run ${entry.runId} failed:`, error);
+      }
       try {
         recorded = record();
       } catch (first) {
@@ -1364,13 +1385,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean): LiveRun => {
     const { descriptor } = plan.account;
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
+    const deltas = createDeltaAppend({
+      scrub, clock, runId: plan.runId,
+      append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
+      onError: (error) => finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, { by: "host", stop: "failed" }),
+    });
     const entry: LiveRun = {
       runId: plan.runId,
       sessionId: plan.sessionId,
       descriptor,
       plan,
       actor,
-      append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
+      append: deltas.append,
+      flushDeltas: deltas.flush,
       startedAt: clock.now().getTime(),
       mode: plan.mode,
       containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
@@ -1687,8 +1714,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * last ended it, else as the log records it (after a restart), for the
    * actor its policy names, under the ceiling it was resolved under (the
    * client session behind it is not in the log, so a ceiling lowered since
-   * is not read), in its model with the model's own effort. Null when the
-   * session has never run.
+   * is not read), in its model with the model's own effort, with no extra
+   * always-on names but a routine's skills, which its firing recorded
+   * (#531). Null when the session has never run.
    */
   const basisOf = (sessionId: string): NextRunBasis | null => {
     const held = lastPlans.get(sessionId);
@@ -1696,7 +1724,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, alwaysOn: [], clientTools: [] };
+    const actor = actorOfPolicy(policy);
+    const alwaysOn = actor.kind === "routine" ? routineSkills(sessionId) : [];
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, alwaysOn, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
