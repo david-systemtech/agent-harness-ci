@@ -22,7 +22,7 @@ import { createSessionIn } from "../sessions/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
-import { routineAccount, unknownSkills, type RoutineAccounts, type SkillSetNames } from "./listing.js";
+import { readSkillSetFor, routineAccount, unknownSkills, type RoutineAccounts, type SkillSetReader } from "./listing.js";
 import { preCheckBlock, type BlockBaseline } from "./pre-check-block.js";
 import type { PreCheckRunner } from "./pre-check.js";
 import { appendRoutineRecord, routineActor, routineStream } from "./records.js";
@@ -119,8 +119,8 @@ export interface FiringStarterOptions {
   readonly resolver: WorkspaceResolver;
   /** What runs a routine's pre-check (#526). */
   readonly preChecks: PreCheckRunner;
-  /** The names in an account's skill set, which a firing's skills are checked against (#531). */
-  readonly skillSetNames: SkillSetNames;
+  /** Reads the skill set, which a firing's skills are checked against (#531). */
+  readonly readSkillSet: SkillSetReader;
 }
 
 export interface FiringStarter {
@@ -389,7 +389,8 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     if (observation === "stop") return;
     const check = checked(firing.definition, routineAccount(firing.definition.account, { reader, accounts: options.accounts }));
     if ("refused" in check) return cannotStart(firing, check.refused, observation);
-    const unknown = await unknownSkills(firing.definition.skills, check.account.id, options.skillSetNames);
+    const { skills } = firing.definition;
+    const unknown = unknownSkills(skills, await readSkillSetFor(skills, options.readSkillSet), check.account.id);
     if (unknown.length > 0) {
       return cannotStart(firing, { reason: "skill_unknown", detail: `The skill set of the account ${check.account.id} does not hold: ${unknown.join(", ")}.` }, observation);
     }

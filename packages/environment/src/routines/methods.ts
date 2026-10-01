@@ -29,7 +29,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { endFiring, firingText } from "./firing-end.js";
 import type { FiringStart, FiringStarter } from "./firing-start.js";
 import { heldBy, nameHolders, nameTakenIssue, oneDocumentIssue, readImport, type ImportDocument } from "./import-documents.js";
-import { listRoutine, routineAttention, type RoutineAccounts, type RoutineSurroundings } from "./listing.js";
+import { listRoutine, readSkillSetFor, routineNeeds, type RoutineAccounts, type RoutineSurroundings, type SkillSetHolds, type SkillSetReader } from "./listing.js";
 import { appendRoutineRecord, routineStream } from "./records.js";
 import { entryPosition, listStoredRoutines, liveFiringOfRoutine, liveRoutine, routineEntries, routineEver, routineNamed, type StoredRoutine } from "./routine-store.js";
 import type { ScriptsDirectory } from "./scripts-directory.js";
@@ -79,6 +79,8 @@ export interface RoutineMethodsOptions {
   readonly scripts: Pick<ScriptsDirectory, "present">;
   /** Whether the host `url` reaches is on the denylist's hosts, as the denylist is now: a URL pre-check's, at a save (#526). */
   readonly denylisted: (url: string) => boolean;
+  /** Reads the skill set, which the attention of a routine with skills reads (#531). */
+  readonly readSkillSet: SkillSetReader;
 }
 
 type RoutineMethodName =
@@ -100,7 +102,7 @@ type Decision<Code extends string = "not_found" | "conflict"> =
   | { readonly rejected: CommandRejection<Code> };
 
 /** `then` over a value a seam answers at once or later: at once when it is there, so a command keeps its place among its socket's requests. */
-const whenReady = <T, R>(value: T | Promise<T>, then: (ready: T) => R): R | Promise<R> => (value instanceof Promise ? value.then(then) : then(value));
+const whenReady = <T, R>(value: T | Promise<T>, then: (ready: T) => R | Promise<R>): R | Promise<R> => (value instanceof Promise ? value.then(then) : then(value));
 
 /** Whether a document read with no issue, so it holds its definition. */
 const isRead = (document: ImportDocument): document is ImportDocument & { readonly definition: RoutineDefinition } => document.definition !== null;
@@ -135,9 +137,22 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
   const { log, clock, environmentId } = options;
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  const where: RoutineSurroundings = { reader, accounts: options.accounts, scriptPresent: (path) => options.scripts.present(path) };
+  /** What a routine's attention reads, the skill set as read for it (#531). */
+  const where = (skillSet: SkillSetHolds | null): RoutineSurroundings => ({ reader, accounts: options.accounts, scriptPresent: (path) => options.scripts.present(path), skillSet });
 
-  const listed = (routine: StoredRoutine): ListedRoutine => listRoutine(routine, where, readSettings(reader)["permissions.unattended.mode"], clock());
+  const listed = (routine: StoredRoutine, skillSet: SkillSetHolds | null): ListedRoutine =>
+    listRoutine(routine, where(skillSet), readSettings(reader)["permissions.unattended.mode"], clock());
+
+  /**
+   * `then` over the skill set as read now when `skills` names any, else over
+   * null at once, since no name is then checked: a command whose routines
+   * name no skill keeps its place among its socket's requests (#531).
+   */
+  const withSkillSet = <R>(skills: readonly string[], then: (skillSet: SkillSetHolds | null) => R | Promise<R>): R | Promise<R> =>
+    whenReady(readSkillSetFor(skills, options.readSkillSet), then);
+
+  /** The skills of the routine `routineId` as stored; none when it is not here. */
+  const storedSkills = (routineId: string): readonly string[] => liveRoutine(reader, routineId.toLowerCase())?.definition.skills ?? [];
 
   const ceilingOf = (clientSession: VerifiedClientSession): Ceiling => currentCeiling(options.ceilingOf, clientSession);
 
@@ -198,11 +213,11 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
     return { aggregate, result: answer(id) };
   };
 
-  /** The routine a command leaves, read after it appended. */
-  const listedAfter = (id: string): { routine: ListedRoutine } => {
+  /** The routine a command leaves, read after it appended, its attention against `skillSet`. */
+  const listedAfter = (id: string, skillSet: SkillSetHolds | null): { routine: ListedRoutine } => {
     const routine = liveRoutine(reader, id);
     if (routine === null) throw new Error(`The routine ${id} is not in the store after a command applied to it.`);
-    return { routine: listed(routine) };
+    return { routine: listed(routine, skillSet) };
   };
 
   /**
@@ -221,7 +236,11 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
   };
 
   return {
-    "routines.list": () => ({ routines: listStoredRoutines(reader).map(listed) }),
+    "routines.list": () =>
+      withSkillSet(
+        listStoredRoutines(reader).flatMap((routine) => routine.definition.skills),
+        (skillSet) => ({ routines: listStoredRoutines(reader).map((routine) => listed(routine, skillSet)) }),
+      ),
 
     /**
      * What importing the YAML would do, per document, saving nothing (#528):
@@ -239,6 +258,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
       const holders = nameHolders(reader, documents, replacing);
       const saved = { savedUnderCeiling: ceilingOf(context.clientSession), failureStreak: target?.state.failureStreak ?? 0 };
       const unattendedMode = readSettings(reader)["permissions.unattended.mode"];
+      const skillSet = await readSkillSetFor(documents.flatMap(({ definition }) => definition?.skills ?? []), options.readSkillSet);
       return {
         documents: documents.map(({ index, definition, issues, reresolved }, at) => {
           const holder = holders[at] ?? null;
@@ -246,7 +266,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
             index,
             definition,
             issues: [...issues, ...(holder === null ? [] : [nameTakenIssue(holder)]), ...(replacing !== null && documents.length > 1 ? [oneDocumentIssue(documents.length)] : [])],
-            warnings: { attention: definition === null ? [] : routineAttention({ definition, state: saved }, where, unattendedMode), workspace: reresolved },
+            warnings: { ...(definition === null ? { attention: [], unknownSkills: [] } : routineNeeds({ definition, state: saved }, where(skillSet), unattendedMode)), workspace: reresolved },
           };
         }),
       };
@@ -267,12 +287,12 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      */
     "routines.import": {
       prepare: (params) =>
-        whenReady(readImport(params.yaml, options.timeZone, options.workspaces), (documents): MethodHandler<"routines.import"> => {
+        whenReady(readImport(params.yaml, options.timeZone, options.workspaces), (documents) => {
           const replacing = params.routineId === undefined ? null : params.routineId.toLowerCase();
           const issues = unreadable(documents, params.routineIds, replacing !== null);
           if (issues.length > 0) throw new ContractError(invalidParams(issues, "The YAML cannot be imported as it is."));
           const read = documents.filter(isRead);
-          return (_params, context) => {
+          return withSkillSet(read.flatMap((document) => document.definition.skills), (skillSet): MethodHandler<"routines.import"> => (_params, context) => {
             const at = clock().toISOString();
             const holders = nameHolders(reader, read, replacing);
             /** The refusal of the document at `index` when a routine or an earlier document holds its name; null when none does. */
@@ -283,7 +303,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
               const held = holder.kind === "routine" ? { routineId: holder.routineId } : { heldByDocument: holder.document };
               return { code: "conflict", message: `Document ${index} names its routine ${JSON.stringify(name)}. ${heldBy(holder)}.`, data: { reason: "name_taken", document: index, name, heldName: holder.heldName, ...held } };
             };
-            const warningsOf = (document: ImportDocument, routine: ListedRoutine) => ({ attention: routine.attention, workspace: document.reresolved });
+            const warningsOf = (document: ImportDocument, { attention, unknownSkills }: ListedRoutine) => ({ attention, unknownSkills, workspace: document.reresolved });
 
             const [replacement] = read;
             if (replacing !== null && replacement !== undefined) {
@@ -297,7 +317,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
                   return { event: { type: "routine.edited", payload }, change: "edited" };
                 },
                 (id) => {
-                  const { routine } = listedAfter(id);
+                  const { routine } = listedAfter(id, skillSet);
                   return { routines: [routine], warnings: [warningsOf(replacement, routine)] };
                 },
               );
@@ -313,13 +333,13 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
             const link = movedFrom === undefined ? null : { environmentId: movedFrom.environmentId, routineId: movedFrom.routineId.toLowerCase(), at };
             const listedMade = made.map(({ document, id }) => {
               appendCreated(id, document.definition, link, context, at);
-              return { document, routine: listedAfter(id).routine };
+              return { document, routine: listedAfter(id, skillSet).routine };
             });
             return {
               aggregate,
               result: { routines: listedMade.map(({ routine }) => routine), warnings: listedMade.map(({ document, routine }) => warningsOf(document, routine)) },
             };
-          };
+          });
         }),
     },
 
@@ -386,15 +406,15 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      */
     "routines.create": {
       prepare: (params) =>
-        placed(params.definition.workspace, ({ workspace }): MethodHandler<"routines.create"> => (_params, context) => {
+        withSkillSet(params.definition.skills, (skillSet) => placed(params.definition.workspace, ({ workspace }): MethodHandler<"routines.create"> => (_params, context) => {
           const id = params.routineId.toLowerCase();
           const { timezone, ...written } = params.definition;
           const definition: RoutineDefinition = { ...written, workspace, name: written.name.trim(), timezone: timezone ?? options.timeZone };
           const refused = usedId(id) ?? nameTaken(definition.name, id) ?? deniedPreCheck(definition.preCheck);
           if (refused !== null) return { aggregate: routineStream(id), rejected: refused };
           appendCreated(id, definition, null, context, clock().toISOString());
-          return { aggregate: routineStream(id), result: listedAfter(id) };
-        }),
+          return { aggregate: routineStream(id), result: listedAfter(id, skillSet) };
+        })),
     },
 
     /**
@@ -404,7 +424,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      * transaction.
      */
     "routines.update": {
-      prepare: (params) => {
+      prepare: (params) => withSkillSet(params.fields.skills ?? storedSkills(params.routineId), (skillSet) => {
         const edit = (workspace: RoutineWorkspace | undefined): MethodHandler<"routines.update"> => (_params, context) =>
           onRoutine(
             params.routineId,
@@ -417,37 +437,45 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
               const payload: RoutineEditedPayload = { fields, savedUnderCeiling: ceilingOf(context.clientSession) };
               return { event: { type: "routine.edited", payload }, change: "edited" };
             },
-            listedAfter,
+            (id) => listedAfter(id, skillSet),
           );
         return params.fields.workspace === undefined ? edit(undefined) : placed(params.fields.workspace, (placement) => edit(placement.workspace));
-      },
+      }),
     },
 
-    "routines.enable": (params, context) =>
-      onRoutine(
-        params.routineId,
-        context,
-        () => {
-          const payload: RoutineEnabledPayload = { savedUnderCeiling: ceilingOf(context.clientSession) };
-          return { event: { type: "routine.enabled", payload }, change: "enabled" };
-        },
-        listedAfter,
-      ),
+    "routines.enable": {
+      prepare: (params) =>
+        withSkillSet(storedSkills(params.routineId), (skillSet): MethodHandler<"routines.enable"> => (_params, context) =>
+          onRoutine(
+            params.routineId,
+            context,
+            () => {
+              const payload: RoutineEnabledPayload = { savedUnderCeiling: ceilingOf(context.clientSession) };
+              return { event: { type: "routine.enabled", payload }, change: "enabled" };
+            },
+            (id) => listedAfter(id, skillSet),
+          ),
+        ),
+    },
 
     /** Disables the routine, linking the copy a move made when one is named, as recorded now. */
-    "routines.disable": (params, context) =>
-      onRoutine(
-        params.routineId,
-        context,
-        (_id, at) => {
-          const { movedTo } = params;
-          const payload: RoutineDisabledPayload = {
-            movedTo: movedTo === undefined ? null : { environmentId: movedTo.environmentId, routineId: movedTo.routineId.toLowerCase(), at },
-          };
-          return { event: { type: "routine.disabled", payload }, change: "disabled" };
-        },
-        listedAfter,
-      ),
+    "routines.disable": {
+      prepare: (params) =>
+        withSkillSet(storedSkills(params.routineId), (skillSet): MethodHandler<"routines.disable"> => (_params, context) =>
+          onRoutine(
+            params.routineId,
+            context,
+            (_id, at) => {
+              const { movedTo } = params;
+              const payload: RoutineDisabledPayload = {
+                movedTo: movedTo === undefined ? null : { environmentId: movedTo.environmentId, routineId: movedTo.routineId.toLowerCase(), at },
+              };
+              return { event: { type: "routine.disabled", payload }, change: "disabled" };
+            },
+            (id) => listedAfter(id, skillSet),
+          ),
+        ),
+    },
 
     /** Deletes the routine, ending its live firing `cancelled` first, in the same transaction. */
     "routines.delete": (params, context) =>

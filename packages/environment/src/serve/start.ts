@@ -204,7 +204,7 @@ import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { skillReadinessMethods } from "../skills/readiness.js";
-import { placeSkillSet, runSkillSets, skillSetNames } from "../skills/run-skill-set.js";
+import { placeSkillSet, runSkillSets, skillSetReader } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { mintMethods } from "../setup/mint.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
@@ -1191,8 +1191,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
-  // The names in an account's skill set, which a routine's skills are checked against at its firing's start (#531).
-  const routineSkillNames = skillSetNames({ own: ownSkills, sources: skillSources, log });
+  // The skill set as it is now, which a routine's skills are checked against: its attention, and its firing's start (#531).
+  const readSkillSet = skillSetReader({ own: ownSkills, sources: skillSources, log });
 
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
@@ -1534,7 +1534,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accounts,
     resolver: workspaceResolver,
     preChecks,
-    skillSetNames: routineSkillNames,
+    readSkillSet,
   });
   closers.push(() => firings.close());
   // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
@@ -1705,6 +1705,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
       scripts,
       denylisted: denylistedHost,
+      readSkillSet,
     }),
     ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,

@@ -52,3 +52,33 @@ describe("a routine's skills at its firing's start", () => {
     expect(t.adapter.runs).toHaveLength(0);
   });
 });
+
+describe("a routine's skill attention", () => {
+  it("shows skill_unknown naming each name the skill set of the account it resolves to lacks, in the list, a command's answer and an import's warnings, and follows the skill set", async () => {
+    const t = await start({ accounts: [{ id: "work", provider: "fake" }, { id: "home", provider: "fake" }] });
+    const client = await t.client();
+    await ownSkill(t, client, "tdd");
+    const home = { provider: "fake", email: "home@example.com", organisation: null };
+    const answered = await created(client, routine({ name: "On home", account: home, skills: ["tdd", "grilling"] }));
+    const onDefault = await created(client, routine({ name: "On the default", skills: ["tdd"] }));
+    const bare = await created(client, routine({ name: "No skills" }));
+    expect(answered).toMatchObject({ attention: ["skill_unknown"], unknownSkills: ["grilling"] });
+    expect(await listed(client, answered.state.id)).toMatchObject({ attention: ["skill_unknown"], unknownSkills: ["grilling"] });
+    expect(await listed(client, onDefault.state.id)).toMatchObject({ attention: [], unknownSkills: [] });
+    expect(await listed(client, bare.state.id)).toMatchObject({ attention: [], unknownSkills: [] });
+    // An import's warnings name them as the list does.
+    const { yaml } = await client.request("routines.export", { routineIds: [answered.state.id] });
+    const [checked] = (await client.request("routines.checkImport", { yaml })).documents;
+    expect(checked?.warnings).toMatchObject({ attention: ["skill_unknown"], unknownSkills: ["grilling"] });
+
+    // The skill set gains the name: nothing is saved, and the attention goes.
+    await ownSkill(t, client, "grilling");
+    expect(await listed(client, answered.state.id)).toMatchObject({ attention: [], unknownSkills: [] });
+
+    // Switched off for the routine's account alone: that routine's set lacks it, the default account's does not.
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "tdd", accountId: "home", enabled: false });
+    expect(await listed(client, answered.state.id)).toMatchObject({ attention: ["skill_unknown"], unknownSkills: ["tdd"] });
+    expect(await listed(client, onDefault.state.id)).toMatchObject({ attention: [], unknownSkills: [] });
+  });
+});
+
