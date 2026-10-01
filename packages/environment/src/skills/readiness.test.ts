@@ -127,10 +127,14 @@ describe("skills.readiness", () => {
     expect(await readiness(client, at(tempDir(), ["notes", "absent"]))).toEqual([{ name: "notes", state: "ready", declaredBy: null }]);
   });
 
-  it("matches a vendored Pocock copy to the overlay through its provenance manifest: setup-needed with every failing check and the first one's why and fix, then ready once the files are there", async () => {
+  it("matches a vendored Pocock copy to the overlay through its provenance manifest: setup-needed with every failing check and the first one's why and fix, then the Forges step once the files are there, then ready", async () => {
     const { t, client } = await start();
+    const forge = await fakeForge();
+    forge.user(TOKEN, DAVID);
+    forge.repositories(TOKEN, []);
     vendored(t, { "to-spec": "skills/engineering/to-spec", tdd: "skills/engineering/tdd", "codebase-design": "skills/engineering/codebase-design" });
-    const workspace = tempDir();
+    const workspace = repository();
+    git(workspace, "remote", "add", "origin", `${forge.origin}/david/agent-harness.git`);
 
     const before = await one(client, workspace, "to-spec");
     expect(before).toMatchObject({ name: "to-spec", state: "setup-needed", declaredBy: "overlay", fix: SETUP });
@@ -138,10 +142,12 @@ describe("skills.readiness", () => {
     expect(before.state !== "ready" && before.failing.map((failure) => failure.check)).toEqual([
       expect.objectContaining({ kind: "file", paths: ["docs/agents/issue-tracker.md"] }),
       expect.objectContaining({ kind: "file", paths: ["CLAUDE.md", "AGENTS.md"], headings: ["Agent skills"] }),
+      expect.objectContaining({ kind: "git", condition: "forge-account", fix: "forges" }),
     ]);
     expect(failures(before)).toEqual([
-      ["failed", "docs/agents/issue-tracker.md is not in the workspace."],
-      ["failed", 'No CLAUDE.md or AGENTS.md in the workspace holds the heading "Agent skills" with content under it.'],
+      ["failed", "docs/agents/issue-tracker.md is not in the repository."],
+      ["failed", 'No CLAUDE.md or AGENTS.md in the repository holds the heading "Agent skills" with content under it.'],
+      ["failed", `No forge account on this environment serves ${forge.origin}, where the repository's remote is.`],
     ]);
     // tdd's callee is in the set; the overlay has nothing for codebase-design.
     expect(await readiness(client, at(workspace, ["tdd", "codebase-design"]))).toEqual([
@@ -151,6 +157,10 @@ describe("skills.readiness", () => {
 
     write(join(workspace, "docs", "agents", "issue-tracker.md"), "Issues live on the forge.\n");
     write(join(workspace, "AGENTS.md"), "# The repository\n\n## Agent skills\n\n### Issue tracker\n\nSee docs/agents/issue-tracker.md.\n");
+    const files = await one(client, workspace, "to-spec");
+    expect(files).toMatchObject({ state: "setup-needed", fix: "forges" });
+    expect(files.state !== "ready" && files.why).toMatch(/forge account/);
+    await added(client, { url: forge.origin, kind: "forgejo" });
     expect(await one(client, workspace, "to-spec")).toEqual({ name: "to-spec", state: "ready", declaredBy: "overlay" });
   });
 
