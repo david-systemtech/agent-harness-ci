@@ -158,6 +158,7 @@ describe("the Memory bank step's describe prompt (#586)", () => {
       for (const part of [
         "- name: david-memory,",
         "a lower-case slug of 1 to 40 characters",
+        "folder: naming the scope folder a match expands, relative to projects/",
         "projects/**/memories/**/*.md",
         "projects/{org}/{project}[/{area}]/",
         "projects/{org}/{project}[/{area}]/memories/[{topic}/]{name}.md",

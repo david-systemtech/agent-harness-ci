@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { BANK_KINDS, BANK_VALIDATOR, ORIENTATION_CAPS } from "./banks.js";
+import { sharedManifestYaml } from "./bank-templates.js";
+import { BANK_CAPS, BANK_KINDS, BANK_LAYOUT, BANK_VALIDATOR, ORIENTATION_CAPS, REVIEWED_CLASSES } from "./banks.js";
 
 /**
  * The prompts of the LLM steps (ADR 0019; the Set up specification, "The
@@ -96,15 +97,24 @@ const homeFolder = ({ kind, scopes }: DescribeBankFacts): string => {
   return org === undefined ? "projects/<its first org>/bank/" : `projects/${org}/bank/`;
 };
 
-/** What `BANK.md` must hold to pass the validator, as a list for the model: a team bank's owners too. */
+/**
+ * What `BANK.md` must hold to pass the validator, as a list for the model: a
+ * team bank's owners too, and the keys every bank shares as the templates
+ * write them, which a `BANK.md` written from nothing copies (#1078).
+ */
 const manifestRules = (facts: DescribeBankFacts): string => {
   const entities = facts.entities.map(({ name, aliases }) => (aliases.length === 0 ? name : `${name} (${aliases.join(", ")})`));
   return [
+    `- name: ${facts.name}, the bank's name: a lower-case slug of 1 to ${BANK_CAPS.bankName} characters, letters, digits and single hyphens between them.`,
     `- kind: ${facts.kind}.`,
-    "- purpose: one line of at most 160 characters saying what the bank is for.",
-    `- entities: what the bank holds facts about, each with its name, its aliases, and folder: naming the scope folder a match expands. ${entities.length === 0 ? "It names no entity yet." : `It names ${listed(entities)} so far.`}`,
+    `- purpose: one line of at most ${BANK_CAPS.purpose} characters saying what the bank is for.`,
+    `- entities: what the bank holds facts about, at least one, each with its name, its aliases (at least one), and folder: naming the scope folder a match expands, relative to projects/ (org/project/ for projects/org/project/). ${entities.length === 0 ? "It names no entity yet." : `It names ${listed(entities)} so far.`}`,
     `- orientation: at most ${ORIENTATION_CAPS.names} memory names every session always sees, each memory at most ${ORIENTATION_CAPS.bytesEach} bytes and ${ORIENTATION_CAPS.bytesInAll.toLocaleString("en-US")} bytes in all, kept in the bank's home folder, ${homeFolder(facts)}.`,
     ...(facts.kind === "team" ? ["- owners: the forge logins that review the bank's reviewed changes, at least one."] : []),
+    `- memories, docs and write: as below when you write BANK.md from nothing. ${listed(Object.keys(BANK_LAYOUT))} are every bank's one folder structure, and reviewed names the classes of change that always wait for an owner's review, every one of ${listed(REVIEWED_CLASSES)}. land is commit instead for a bank that lives on this machine only, with no forge, and memories is review when the bank's memories wait for an owner too.`,
+    "```yaml",
+    sharedManifestYaml("pull-request"),
+    "```",
   ].join("\n");
 };
 
