@@ -19,7 +19,9 @@ import { HOST_ACTOR, requeuedEvents, type StagedAttachments } from "./host.js";
  * just before it (ADR 0022: nothing is lost), the end is appended through
  * `appendRunEvents` with the companions it owes (a snoozed session wakes,
  * session-state spec, #122), and its prompts stay raised, so they are there
- * again for a client to answer (ADR 0007). Then the attachment bytes of the
+ * again for a client to answer (ADR 0007). Provider-held messages of ended
+ * runs are taken back too, without another end: no process survives startup.
+ * Then the attachment bytes of the
  * queued messages are read back from the stage on disk
  * (`recoverStagedAttachments`), so a message handed back keeps them.
  */
@@ -32,7 +34,8 @@ interface OpenRun {
 }
 
 /**
- * Ends every run the log left without an end; returns their ids, oldest
+ * Ends every run the log left without an end and takes back messages of
+ * ended runs that their provider still held; returns the newly ended ids, oldest
  * first. A run whose end cannot be appended is logged loudly and left for
  * the next start's sweep; the others are ended regardless.
  */
@@ -62,6 +65,17 @@ export const recoverCutRuns = (options: { readonly log: EventLog; readonly clock
       ended.push(run.run_id);
     } catch (error) {
       console.error(`THE RECOVERY SWEEP COULD NOT END RUN ${run.run_id} OF SESSION ${run.session_id}; the next start tries again:`, error);
+    }
+  }
+  // No provider process survives startup, even when its last turn completed.
+  const heldAfterEnd = reader.all<{ run_id: string; session_id: string; message_id: string }>(
+    "SELECT m.run_id, m.session_id, m.message_id FROM run_messages m JOIN runs r ON r.run_id = m.run_id WHERE m.held_by = 'provider' AND r.state = 'ended' ORDER BY m.sequence",
+  );
+  for (const row of heldAfterEnd) {
+    try {
+      log.append(sessionStream(row.session_id), requeuedEvents(row.run_id, [row.message_id]), { actor: HOST_ACTOR, correlationId: row.run_id });
+    } catch (error) {
+      console.error(`THE RECOVERY SWEEP COULD NOT TAKE BACK MESSAGE ${row.message_id} OF SESSION ${row.session_id}; the next start tries again:`, error);
     }
   }
   return ended;
