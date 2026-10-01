@@ -288,17 +288,21 @@ describe("the idle stop", () => {
 
     t.clock.advance(3 * 60 * MINUTE);
     expect(await processOf(client, id)).toMatchObject({ state: "idle", stopsAt: null });
+    // backgroundTask registered its unhold continuation before these gate waits.
     task.open();
-    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ holds: [{ kind: "schedule", id: "cron_1" }], stopsAt: null }));
+    await task.opened;
+    expect(await processOf(client, id)).toMatchObject({ holds: [{ kind: "schedule", id: "cron_1" }], stopsAt: null });
 
     t.clock.advance(60 * MINUTE);
     schedule.open();
+    await schedule.opened;
     const releasedAt = 4 * 60 * MINUTE;
-    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ holds: [], stopsAt: at(releasedAt + IDLE) }));
+    expect(await processOf(client, id)).toMatchObject({ holds: [], stopsAt: at(releasedAt + IDLE) });
     t.clock.advance(IDLE - 1);
     expect(await processOf(client, id)).toMatchObject({ state: "idle" });
     t.clock.advance(1);
-    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "idle", stoppedAt: at(releasedAt + IDLE) }));
+    // The fake stop settles in microtasks before the wire handles this query.
+    expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "idle", stoppedAt: at(releasedAt + IDLE) });
     expect(t.adapter.processesOf(id)[0]?.stopped).toBe(true);
   });
 });
