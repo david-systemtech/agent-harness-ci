@@ -1,4 +1,5 @@
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import { TrustQuestion } from "../skills/trust.js";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
@@ -54,6 +55,7 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
                 <SessionForkRewindProvider environmentId={environmentId} sessionId={sessionId}>
                   <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <SessionCaption session={session} {...caption} />
+                    <TrustQuestion environmentId={environmentId} sessionId={sessionId} />
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
                     <QueueStrip />
                     <PromptCard environmentId={environmentId} sessionId={sessionId} />

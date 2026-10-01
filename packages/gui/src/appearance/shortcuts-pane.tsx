@@ -3,6 +3,7 @@ import { useId, useState, type KeyboardEvent } from "react";
 import { chordOfEvent, keyLabel } from "../keys/chords.js";
 import { useMacOS } from "../keys/key-dispatch.js";
 import { clashOf, defaultGuiKeys, guiKeysOf, isRemappable, isWrittenOff, keyRefusal, withKey, withoutRemap, type KeyRemaps } from "../keys/key-map.js";
+import { matchingSkillsActions, SkillsKeyboardHelp } from "../skills/keyboard-help.js";
 import { Button, Input, Switch } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
 
@@ -70,7 +71,8 @@ export const ShortcutsPane = () => {
           Reset every key
         </Button>
       </div>
-      {found.length === 0 ? (
+      <SkillsKeyboardHelp query={query} />
+      {found.length === 0 && matchingSkillsActions(query).length === 0 ? (
         <p className="text-sm text-ink-faint">No action matches “{query}”.</p>
       ) : (
         found.map((part) => (
