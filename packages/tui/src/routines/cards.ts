@@ -72,15 +72,23 @@ const ATTENTION_WORDS: Readonly<Record<Exclude<RoutineAttention, "failing" | "cl
   delivery_failing: "a delivery failed",
 };
 
-/** How the routine's latest entry ended. */
-export const lastOutcomeWords = (last: RoutineLastOutcome | null, now: Date): string => {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** A time gone by, short, on this client's clock: its time on the day it is `now`, else its date and time. */
+const pastWords = (iso: string, now: Date): string => {
+  const at = new Date(iso);
+  return at.toDateString() === now.toDateString() ? clockTime(iso) : `${at.getDate()} ${MONTHS[at.getMonth()] ?? ""} ${clockTime(iso)}`;
+};
+
+/** How the routine's latest entry ended, and when. */
+const lastOutcomeWords = (last: RoutineLastOutcome | null, now: Date): string => {
   if (last === null) return "never fired";
-  const when = wakeWords(new Date(last.at), now);
+  const when = pastWords(last.at, now);
   if (last.kind === "skip") return `last skipped ${when}: ${SKIP_WORDS[last.reason]}`;
   return last.reason === null ? `last ${last.outcome} ${when}` : `last ${last.outcome}: ${FAILURE_WORDS[last.reason]} ${when}`;
 };
 
-/** The line under a routine: what needs attention, its streak, then its live firing or last outcome; the first in sight on a narrow card. */
+/** What the line under a routine says after its next firing: what needs attention, its streak, then its live firing or last outcome, the first in sight on a narrow card. */
 const stateWords = (row: RoutineRow, now: Date): readonly string[] => {
   const { listed } = row;
   if (listed === null) return ["waiting to be created"];
@@ -88,7 +96,7 @@ const stateWords = (row: RoutineRow, now: Date): readonly string[] => {
   return [
     ...attention.flatMap((code) => (code === "failing" ? [] : code === "clamped" ? [`its mode clamped to ${mode.effective}`] : [ATTENTION_WORDS[code]])),
     ...(state.failureStreak > 0 ? [`${state.failureStreak} failed in a row`] : []),
-    state.liveFiring !== null ? `firing since ${clockTime(state.liveFiring.startedAt)}` : lastOutcomeWords(state.lastOutcome, now),
+    state.liveFiring !== null ? `firing since ${pastWords(state.liveFiring.startedAt, now)}` : lastOutcomeWords(state.lastOutcome, now),
   ];
 };
 
@@ -108,7 +116,7 @@ const entryWords = (entry: RoutineEntry): string => {
 /** The history's rows, newest first: when, how it ended, then how it was triggered, the due times it stands for and how long it ran. */
 export const historyRows = (view: RoutineHistoryView, now: Date): readonly PanelRow[] =>
   view.entries.map((entry) => {
-    const when = wakeWords(new Date(entry.kind === "firing" ? entry.startedAt : entry.at), now);
+    const when = pastWords(entry.kind === "firing" ? entry.startedAt : entry.at, now);
     const failed = entry.kind === "skip" ? entry.reason === "pre-check-failed" || entry.reason === "cannot-start" : entry.outcome === "failed";
     return {
       key: entry.id,
@@ -187,7 +195,7 @@ const headingOf = (group: RoutineGroup): string => {
   return `${group.name} · ${count}${stale}${failed}${reading}`;
 };
 
-/** The list's rows, each environment's under its heading: name, schedule in words, next firing; under it, its state. */
+/** The list's rows, each environment's under its heading: name, a command waiting and the schedule in words; under it, its next firing and its state. */
 export const listRows = (view: RoutinesView, now: Date): readonly ListRow[] => {
   const names = Math.max(0, ...view.groups.flatMap((group) => group.routines.map((row) => [...row.definition.name].length))) + 2;
   return view.groups.flatMap((group): ListRow[] => {
@@ -205,10 +213,13 @@ export const listRows = (view: RoutinesView, now: Date): readonly ListRow[] => {
         row,
         panel: {
           key: `${row.environmentId} ${row.routineId}`,
-          cells: [{ text: pad(definition.name, names), bold: true }, { text: describeSchedule({ schedule: definition.schedule, timezone: definition.timezone ?? "its environment's zone" }) }],
+          cells: [
+            { text: pad(definition.name, names), bold: true },
+            ...(row.pending ? [{ text: "pending ", color: TERMINAL_ROLES.warning }] : []),
+            { text: describeSchedule({ schedule: definition.schedule, timezone: definition.timezone ?? "its environment's zone" }) },
+          ],
           dim: group.stale,
-          note: { text: [next, ...(row.pending ? ["pending"] : [])].join(" · "), dim: !row.pending },
-          under: { text: `    ${words.join(" · ")}`, ...(attention ? { color: TERMINAL_ROLES.warning } : { dim: true }) },
+          under: { text: `    ${[next, ...words].join(" · ")}`, ...(attention ? { color: TERMINAL_ROLES.warning } : { dim: true }) },
           ...(at === 0 && { heading }),
         },
       };

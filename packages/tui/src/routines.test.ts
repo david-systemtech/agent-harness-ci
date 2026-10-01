@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { BYPASS_SENTENCE } from "@agent-harness/contracts";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExternalEditResult } from "./composer/external-editor.js";
@@ -70,21 +71,25 @@ const rowWith = (app: RenderedApp, text: string): number => {
 
 describe("/routines: the list", () => {
   it("lists every environment's routines under its heading in the connection list's order, each with its schedule in words, its next firing, its last outcome, its streak and its attention", async () => {
-    const { app } = await launch({
-      desk: {
-        routines: [
-          listedRoutine(WATCH, {
-            state: { lastOutcome: { kind: "firing", entryId: "0199dd00-0000-4000-8000-0000000000e1", outcome: "succeeded", reason: null, at: "2026-09-23T19:04:00.000Z" } },
-          }),
-          listedRoutine(DIGEST, {
-            definition: { name: "Morning digest", schedule: { kind: "weekdays", at: "08:30" }, timezone: "Europe/London", enabled: false },
-            state: { lastOutcome: { kind: "firing", entryId: "0199dd00-0000-4000-8000-0000000000e2", outcome: "failed", reason: "timed_out", at: "2026-09-23T07:40:00.000Z" }, failureStreak: 3 },
-            attention: ["failing", "account_signed_out"],
-          }),
-        ],
+    const { app } = await launch(
+      {
+        desk: {
+          routines: [
+            listedRoutine(WATCH, {
+              state: { lastOutcome: { kind: "firing", entryId: "0199dd00-0000-4000-8000-0000000000e1", outcome: "succeeded", reason: null, at: "2026-09-23T19:04:00.000Z" } },
+            }),
+            listedRoutine(DIGEST, {
+              definition: { name: "Morning digest", schedule: { kind: "weekdays", at: "08:30" }, timezone: "Europe/London", enabled: false },
+              state: { lastOutcome: { kind: "firing", entryId: "0199dd00-0000-4000-8000-0000000000e2", outcome: "failed", reason: "timed_out", at: "2026-09-23T07:40:00.000Z" }, failureStreak: 3 },
+              attention: ["failing", "account_signed_out"],
+            }),
+          ],
+        },
+        laptop: { routines: [listedRoutine(BACKUP, { definition: { name: "Backup check", schedule: { kind: "manual" } }, nextDueAt: null })] },
       },
-      laptop: { routines: [listedRoutine(BACKUP, { definition: { name: "Backup check", schedule: { kind: "manual" } }, nextDueAt: null })] },
-    });
+      // Under 100 columns the rail gives the card its room, so each line is read whole.
+      { size: { columns: 99, rows: 30 } },
+    );
     await openRoutines(app);
     await app.waitFor("Backup check");
 
@@ -92,12 +97,12 @@ describe("/routines: the list", () => {
     expect(rowWith(app, "Upstream watch")).toBeLessThan(rowWith(app, "Morning digest"));
     expect(rowWith(app, "Morning digest")).toBeLessThan(rowWith(app, "laptop · 1 routine"));
     expect(rowWith(app, "laptop · 1 routine")).toBeLessThan(rowWith(app, "Backup check"));
-    const watch = app.rows()[rowWith(app, "Upstream watch")] ?? "";
-    expect(watch).toContain("Every Monday at 03:00 (Asia/Manila)");
-    expect(watch).toMatch(/next \S+/);
-    const digest = app.rows()[rowWith(app, "Morning digest")] ?? "";
-    expect(digest).toContain("Monday to Friday at 08:30 (Europe/London)");
-    expect(digest).toContain("disabled");
+    // Each routine's row, and the line under it.
+    const row = (name: string, under = 0) => app.rows()[rowWith(app, name) + under] ?? "";
+    expect(row("Upstream watch")).toContain("Every Monday at 03:00 (Asia/Manila)");
+    expect(row("Upstream watch", 1)).toMatch(/next \S+/);
+    expect(row("Morning digest")).toContain("Monday to Friday at 08:30 (Europe/London)");
+    expect(row("Morning digest", 1)).toContain("disabled · account signed out");
     expect(app.frame()).toMatch(/last succeeded/);
     expect(app.frame()).toContain("last failed: timed out");
     expect(app.frame()).toContain("3 failed in a row");
@@ -183,10 +188,10 @@ describe("/routines: the row verbs", () => {
     await openRoutines(app);
     await app.waitFor("Upstream watch");
     await app.press(KEY.space);
-    await app.waitUntil(() => (app.rows().find((row) => row.includes("Upstream watch")) ?? "").includes("disabled"), "the routine shown disabled");
+    await app.waitFor("disabled · never fired");
     expect(deskRoutines.definitionOf(WATCH).enabled).toBe(false);
     await app.press(KEY.space);
-    await app.waitUntil(() => (app.rows().find((row) => row.includes("Upstream watch")) ?? "").includes("next"), "the routine shown enabled");
+    await app.waitFor(/next .+ · never fired/);
     expect(deskRoutines.heard().filter((h) => h.method === "routines.enable" || h.method === "routines.disable").map((h) => h.method)).toEqual(["routines.disable", "routines.enable"]);
   });
 
@@ -350,5 +355,52 @@ describe("/routines: editing a routine in the editor", () => {
     expect(third.filter((line) => line.includes("# refused:"))).toHaveLength(1);
     expect(deskRoutines.heard("routines.import")).toHaveLength(2);
     expect(deskRoutines.definitionOf(WATCH)).toMatchObject({ schedule: { kind: "weekly", day: "tuesday", at: "03:00" }, instructions: "Read every source and file a digest." });
+  });
+});
+
+describe("/routines: what an edit asks and where it waits", () => {
+  it("shows the bypass sentence for a document whose mode is bypassPermissions, and applies it only once confirmed", async () => {
+    const bypass = changing("mode: acceptEdits", "mode: bypassPermissions");
+    const editor = fakeEditor(bypass, bypass);
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } }, { editRoutine: editor.editRoutine });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("e");
+    await app.waitFor(`Upstream watch asks for bypassPermissions. ${BYPASS_SENTENCE} Apply it? y/n`);
+    await app.press("n");
+    await app.waitFor("Not applied: Upstream watch on desk is as it was.");
+    expect(deskRoutines.heard("routines.import")).toEqual([]);
+
+    await app.press("e");
+    await app.waitFor("Apply it? y/n");
+    await app.press("y");
+    await app.waitFor("Saved Upstream watch on desk.");
+    expect(deskRoutines.definitionOf(WATCH).mode).toBe("bypassPermissions");
+  });
+
+  it("queues an edit saved while its environment cannot be reached, showing its routine pending until it is sent", async () => {
+    let laptopHandle: EnvironmentHandle | undefined;
+    const editor = fakeEditor((handed) => {
+      // The laptop goes away while the routine is being edited.
+      laptopHandle?.autoAccept(false);
+      laptopHandle?.discovery("nothing");
+      laptopHandle?.server.drop();
+      return { ok: true, text: handed.replace("Read the sources and file a digest.", "Check the backups.") };
+    });
+    const { app, laptop, laptopRoutines } = await launch({ laptop: { routines: [listedRoutine(BACKUP, { definition: { name: "Backup check" } })] } }, { editRoutine: editor.editRoutine });
+    laptopHandle = laptop;
+    await openRoutines(app);
+    await app.waitFor("Backup check");
+    await app.press(KEY.down, "e");
+    await app.waitFor("Queued: Backup check is saved once laptop can be reached; until then it shows pending.");
+    await app.waitUntil(() => (app.rows().find((row) => row.includes("Backup check")) ?? "").includes("pending"), "the routine shown pending");
+    expect(laptopRoutines.heard("routines.import")).toEqual([]);
+
+    laptop.discovery("ready");
+    laptop.autoAccept(true);
+    await app.jump(40_000);
+    await app.waitUntil(() => laptopRoutines.heard("routines.import").length === 1, "the import sent once the laptop is back", 400);
+    await app.waitUntil(() => !(app.rows().find((row) => row.includes("Backup check")) ?? "").includes("pending"), "the routine no longer pending", 400);
+    expect(laptopRoutines.definitionOf(BACKUP).instructions).toBe("Check the backups.");
   });
 });
