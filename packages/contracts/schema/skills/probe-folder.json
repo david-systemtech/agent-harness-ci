@@ -109,7 +109,7 @@
           "type": "null"
         }
       ],
-      "description": "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, any extension, in any case), from the repository's root; null when it holds none."
+      "description": "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case), from the repository's root; null when it holds none."
     }
   },
   "required": [

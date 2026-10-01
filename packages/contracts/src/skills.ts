@@ -410,7 +410,7 @@ export const SkillProbeFolder = z
     members: z.array(SkillProbeMember).meta({ description: "Its members as the reader reads them: the folder itself when it holds SKILL.md, else each child folder holding SKILL.md, in name order." }),
     count: z.int().nonnegative().meta({ description: "How many of its members are valid: the skills a source on the folder would yield." }),
     licence: SkillSourceFolder.nullable().meta({
-      description: "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, any extension, in any case), from the repository's root; null when it holds none.",
+      description: "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case), from the repository's root; null when it holds none.",
     }),
   })
   .meta({
