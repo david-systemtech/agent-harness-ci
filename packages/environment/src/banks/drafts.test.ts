@@ -256,3 +256,19 @@ it("validates against preceding drafts in the queue and keeps distinct banks' qu
   h.t.env.log.rebuildProjections();
   expect((await h.client.request("banks.drafts.list", { sessionId: id })).queues).toHaveLength(2);
 });
+
+it("consumes only the landed queue snapshot and preserves a later replacement across restart", async () => {
+  const dataDir = tempDir("consumed-drafts-");
+  const h = await start(dataDir);
+  const bankId = await register(h, bank());
+  const { id } = await create(h.client);
+  await call(h, id, tool("draft", draft));
+  const old = (await h.client.request("banks.drafts.list", { sessionId: id, bankId })).queues[0]!.drafts;
+  await call(h, id, tool("draft", { ...draft, body: "The newer fact stays queued." }));
+  h.t.env.log.atomically((tx) => h.t.env.log.append({ kind: "environment", id: h.t.env.id }, [{ type: "bank.drafts-consumed", payload: { sessionId: id, bankId, changes: old } }], { tx, actor: "system:banks" }));
+  const remaining = await h.client.request("banks.drafts.list", { sessionId: id, bankId });
+  expect(remaining).toMatchObject({ queues: [{ drafts: [{ content: expect.stringContaining("The newer fact stays queued.") }] }] });
+  await h.t.close();
+  const restarted = await start(dataDir);
+  expect(await restarted.client.request("banks.drafts.list", { sessionId: id, bankId })).toEqual(remaining);
+});

@@ -1,4 +1,4 @@
-import { BankDraftQueuedPayload } from "./memory-drafts.js";
+import { BankDraftQueuedPayload, BankDraftsConsumedPayload } from "./memory-drafts.js";
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import {
@@ -129,6 +129,7 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // refreshes banks.list and banks.get on.
   "bank.added",
   "bank.draft-queued",
+  "bank.drafts-consumed",
   "bank.updated",
   "bank.pinned",
   "bank.forgotten",
@@ -224,6 +225,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.git-rejected": "git refused a forge account's credential; a client refreshes what it caches of the forge accounts.",
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
+  "bank.drafts-consumed": "A landing consumed its queue snapshot; clients refresh banks.drafts.list.",
   "bank.draft-queued": "A session queued a validated draft or retirement; clients refresh banks.drafts.list.",
   "bank.added": "A bank was registered, created or joined; a client refreshes what it caches of the banks.",
   "bank.updated": "A bank's registry settings, sync status or what its BANK.md names changed; a client refreshes what it caches of the banks.",
@@ -578,6 +580,7 @@ export const EnvironmentNotice = z
     ForgeAccountGitRejected,
     ForgeAccountRemoved,
     ForgeOriginMissing,
+    describedNotice("bank.drafts-consumed", BankDraftsConsumedPayload, "A landing consumed the queued changes it verified on main."),
     describedNotice("bank.draft-queued", BankDraftQueuedPayload, "A session queued a validated draft or retirement for its bank."),
     BankAdded,
     BankUpdated,

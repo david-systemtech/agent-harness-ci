@@ -149,6 +149,11 @@
     },
     {
       "type": "string",
+      "const": "bank.drafts-consumed",
+      "description": "A landing consumed its queue snapshot; clients refresh banks.drafts.list."
+    },
+    {
+      "type": "string",
       "const": "bank.updated",
       "description": "A bank's registry settings, sync status or what its BANK.md names changed; a client refreshes what it caches of the banks."
     },

@@ -1,8 +1,8 @@
 import { stringify } from "yaml";
 import { z } from "zod";
 import {
-  ContractError, ENVIRONMENT_STREAM_KIND, MemoryDraftInput, MemoryRetireInput,
-  type BankDraft, type BankEntry, type BankFinding,
+  ContractError, ENVIRONMENT_STREAM_KIND, MemoryDraftInput, MemoryRetireInput, MemoryPromoteInput,
+  type BankDraft, type BankEntry, type BankFinding, type MemoryPromoteResult,
 } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/contracts/bank-validator";
 import type { InProcessToolServer } from "../adapter/contract.js";
@@ -35,7 +35,7 @@ const pathOfName = (files: BankFiles, name: string): string | undefined => bankT
 })?.path;
 
 /** Tools queue changes only; promotion owns all checkout writes and queue consumption. */
-export const createMemoryToolServers = ({ log, environmentId, scrub }: { log: EventLog; environmentId: string; scrub: ScrubRegistry }): ToolServerFactory => {
+export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: { log: EventLog; environmentId: string; scrub: ScrubRegistry; promote: (bank: BankEntry, sessionId: string, drafts: readonly BankDraft[]) => Promise<MemoryPromoteResult> }): ToolServerFactory => {
   const reader = { all: <T>(sql: string, ...params: readonly (string | number | null)[]) => log.read<T>(sql, ...params) };
   // Reading git is asynchronous: serialize changes to the same queue so each validator sees the preceding write.
   const pending = new Map<string, Promise<unknown>>();
@@ -83,6 +83,29 @@ export const createMemoryToolServers = ({ log, environmentId, scrub }: { log: Ev
     const server: InProcessToolServer = {
       name: "memory", external: false,
       tools: [
+        {
+          name: "promote", description: "Land this session's queued drafts and removals in a bank, returning each file's state on main or the review pull request.",
+          inputSchema: z.toJSONSchema(MemoryPromoteInput),
+          call: async (input) => {
+            try {
+              const parsed = MemoryPromoteInput.safeParse(input);
+              if (!parsed.success) return refuse("invalid_params", "The promote input does not match its published schema.");
+              const bank = target(parsed.data.bank);
+              const key = `${scope.sessionId}:${bank.id}`;
+              const earlier = pending.get(key) ?? Promise.resolve();
+              const work = earlier.catch(() => undefined).then(async () => {
+                const current = target(bank.name);
+                const drafts = listBankDrafts(reader, scope.sessionId, bank.id)[0]?.drafts ?? [];
+                return promote(current, scope.sessionId, drafts);
+              });
+              pending.set(key, work);
+              try {
+                const answer = await work;
+                return { text: JSON.stringify(answer), isError: answer.state === "failed" };
+              } finally { if (pending.get(key) === work) pending.delete(key); }
+            } catch (error) { return answerError(error); }
+          },
+        },
         {
           name: "draft", description: "Validate and queue one memory for this session. Name a bank when several are writable; use org, project and optional area scope.",
           inputSchema: z.toJSONSchema(MemoryDraftInput),

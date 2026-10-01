@@ -5,6 +5,11 @@ const input = { scope: { org: "personal", project: "homelab" }, name: "fact", de
 export const memoryDraftSchemaFixtures = {
   "banks/scope-segment.json": { valid: ["personal"], invalid: ["../secret", ""] },
   "banks/draft-scope.json": { valid: [input.scope, { ...input.scope, area: "deploy" }], invalid: [{ org: "personal" }, { ...input.scope, area: "../secret" }] },
+  "banks/tools/search.json": { valid: [{ query: "backup" }, { query: "backup", bank: "maya-memory", scope: { org: "personal" }, limit: 10 }, { query: "backup", scope: input.scope }], invalid: [{ query: "" }, { query: "fact", bank: "../secret" }, { query: "fact", scope: { org: "personal", area: "nas" } }] },
+  "banks/tools/read.json": { valid: [{}, { pointer: "maya-memory:personal/homelab/" }, { pointer: "maya-memory:fact" }], invalid: [{ pointer: "" }, { pointer: 1 }] },
+  "banks/tools/promote.json": { valid: [{}, { bank: "maya-memory" }], invalid: [{ bank: "../secret" }, { bank: 2 }] },
+  "banks/promote-result.json": { valid: [{ state: "landed", bank: "maya-memory", pullRequest: null, files: [{ path: change.path, state: "present" }] }, { state: "awaiting-review", bank: "maya-memory", pullRequest: "https://git.example.test/maya/memory/pulls/1", files: [{ path: change.path, state: "pending" }] }, { state: "failed", bank: "maya-memory", step: "validate-check", reason: "Failed." }], invalid: [{ state: "landed", bank: "maya-memory", pullRequest: null, files: [{ path: change.path, state: "pending" }] }, { state: "failed", bank: "maya-memory" }] },
+  "banks/events/bank.drafts-consumed.json": { valid: [{ sessionId, bankId, changes: [change] }], invalid: [{ bankId, changes: [] }, { sessionId, bankId, changes: [{}] }] },
   "banks/tools/draft.json": { valid: [input, { ...input, bank: "maya-memory", topic: "deploy", appliesTo: ["https://git.example.test/maya/homelab"] }], invalid: [{ ...input, type: "status" }, { ...input, scope: {} }] },
   "banks/tools/retire.json": { valid: [{ bank: "maya-memory", name: "fact", reason: "Replaced." }], invalid: [{ name: "fact", reason: "Replaced." }, { bank: "maya-memory", name: "fact", reason: "" }] },
   "banks/draft.json": { valid: [change, { kind: "retire", name: "fact", path: change.path, reason: "Replaced." }], invalid: [{ ...change, kind: "promote" }, { ...change, content: 1 }] },

@@ -336,6 +336,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return data;
       // A queued memory change (#1030) changes no status; the request cache refreshes `banks.drafts.list`.
       case "bank.draft-queued":
+      case "bank.drafts-consumed":
         return data;
       // The BankService's events (#1025) change no status: the request cache refreshes `banks.list` and `banks.get` on them.
       case "bank.added":
