@@ -371,8 +371,8 @@ finish_update() {
 # again as it was, a stop under way waited out first; after the snapshot and
 # before the target said ready, it rolls back as a failed trial; a rollback
 # cut short is finished, from its restore or after it; and after the target
-# said ready, its watch goes on to the end it had, ending at once when that
-# has passed.
+# said ready, it must say ready again, and its watch goes on to the end it
+# had, ending there when that has passed.
 finish_cut_short() {
   read_record
   if ! record_readable; then
@@ -394,6 +394,9 @@ finish_cut_short() {
       restarts_now=$(restart_count)
       # A count below the one the watch began with is another container's, which counts from now.
       [ "$restarts_now" -ge "$restarts_before" ] || restarts_before=$restarts_now
+      # The target says ready first, as before the first watch: a watch whose end passed unwatched ends at once.
+      wait_ready "$to_version" ||
+        roll_back crash-loop not-ready "$to_version did not say ready at $health_url within $READY_WAIT_SECONDS seconds as its watch resumed"
       watch_target || roll_back crash-loop "$reason" "$why"
       finish_update ;;
   esac

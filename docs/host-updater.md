@@ -72,7 +72,7 @@ container anything, logs that it does, and ends; the tick after it asks again.
 | --- | --- |
 | At `update begin`, in the stop or in the snapshot | Waits out a stop that was under way, then starts the old image's container again as it was: `abandoned`. An update the environment had begun is settled as failed by the old version as it next starts. |
 | After the snapshot, before the target said `ready` | Rolls back as a failed trial, at stage `trial` for the reason `interrupted`, as a failed health wait does: `rolled-back`. |
-| In the watch, or after it | Watches the target on to the end the watch had, ten minutes from when it said `ready`, counting its restarts from the watch's start; an end that passed while no tick ran ends the watch at once. Then `updated`, or a crash loop's rollback. |
+| In the watch, or after it | Waits up to 120 seconds for the target to say `ready` again, then watches it on to the end the watch had, ten minutes from when it first said `ready`, counting its restarts from the watch's start; an end that passed while no tick ran ends the watch there. Then `updated`, or a crash loop's rollback: `rolled-back`, at stage `crash-loop`, for the reason `not-ready` when the target did not say `ready` again. |
 | In a rollback | Runs the restore again with the stage and reason it had, which finishes a restore cut short; once the restore had finished, it only puts the previous image back and starts it: `rolled-back`. |
 
 A record that cannot be written keeps an update from beginning (`not-begun`),

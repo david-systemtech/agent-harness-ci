@@ -716,7 +716,7 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
       }
     });
 
-    describe("after the target said ready, it resumes the watch to the end it had, then discards the snapshot and removes the older images, or rolls back a crash loop", () => {
+    describe("after the target said ready, it waits for the target to say ready again and resumes the watch to the end it had, then discards the snapshot and removes the older images, or rolls back a crash loop", () => {
       const updated = `Updated from 0.5.0 to 0.6.0 (update ${UPDATE_ID}): the snapshot is discarded, and images older than ${OLD} are removed.`;
 
       it("cut short in the watch", async () => {
@@ -746,7 +746,7 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
           const before = clock(f);
           const next = await tick(f);
           expect(next.code).toBe(0);
-          expect(f.calls()).toEqual(["flock -n 9", CONTAINER, RESTARTS, DISCARD, LIST_IMAGES, `docker image rm ${OLDER}`]);
+          expect(f.calls()).toEqual(["flock -n 9", CONTAINER, RESTARTS, PROBE, DISCARD, LIST_IMAGES, `docker image rm ${OLDER}`]);
           expect(clock(f)).toBe(before);
           expect(f.running()).toBe(NEW);
           expect(f.images().sort()).toEqual([OLD, NEW]);
@@ -754,6 +754,24 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
           expect(logged(next).at(-1)).toBe(updated);
         });
       }
+
+      it("rolls back a target that does not say ready again when the watch's end passed before the next tick, rather than call it updated", async () => {
+        const f = fixture();
+        await cutShort(f, { FAKE_CUT: RESTARTS, FAKE_CUT_AT: "3" });
+        write(join(f.state, "clock"), `${clock(f) + 3600}\n`);
+        const next = await tick(f, { FAKE_TARGET_DOWN_FROM: "600", AGENT_HARNESS_NOTIFY_COMMAND: NOTIFY });
+        expect(next.code).toBe(1);
+        expect(folded(f.calls())).toEqual(["flock -n 9", CONTAINER, RESTARTS, PROBE, ...ROLLED_BACK_TO_THE_OLD("crash-loop", "not-ready")]);
+        expect(f.running()).toBe(OLD);
+        expect(f.envFile()).toBe(`AGENT_HARNESS_IMAGE=${OLD}\n`);
+        expect(record(f)).toBeNull();
+        expect(logged(next)).toEqual([
+          resumed("watch"),
+          `0.6.0 did not say ready at ${HEALTH} within 120 seconds as its watch resumed; rolling back to ${OLD}.`,
+          rolledBack("crash-loop: not-ready"),
+        ]);
+        expect(notified(f)).toEqual([`rolled-back|${rolledBack("crash-loop: not-ready")}`]);
+      });
 
       it("rolls back a crash loop, counting the restarts since the watch began, before the cut too", async () => {
         const f = fixture();
