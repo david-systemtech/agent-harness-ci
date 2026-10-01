@@ -50,6 +50,7 @@ import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
 import { banksProjector, listBanks } from "../banks/bank-store.js";
 import { bankMethods } from "../banks/methods.js";
 import { banksSection } from "../banks/orientation.js";
+import { createBankSyncer } from "../banks/syncer.js";
 import { bankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
@@ -514,6 +515,8 @@ export interface EnvironmentOptions {
    * stopped at its time (skills spec, "Testing Decisions"). Preset none.
    */
   readonly skillsGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
+  /** Test boundary for observing or holding the BankService's harness git fetches. */
+  readonly banksGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
   /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
@@ -1029,12 +1032,26 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     };
   });
 
+  const user = passwdName();
+  const bankService = createBankService({
+    log, clock, environmentId: record.id, forge,
+    creation: {
+      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
+      keyManager: () => {
+        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
+        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
+      },
+    },
+  });
+  const bankSyncer = createBankSyncer({ banks: bankService, clock, git: (request) => options.banksGit?.(request, forge.git) ?? forge.git(request) });
+  // The host closes first, ending runs waiting on this syncer before its close releases their deadlines.
+  closers.push(() => bankSyncer.close());
+
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
   // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
   // configuration, which an injected CLI reads (#368, David's decision on it).
-  const user = passwdName();
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
@@ -1364,6 +1381,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
+      beforeRun: bankSyncer.beforeRun,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
     });
@@ -1619,16 +1637,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
-  const bankService = createBankService({
-    log, clock, environmentId: record.id, forge,
-    creation: {
-      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
-      keyManager: () => {
-        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
-        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
-      },
-    },
-  });
   capabilities.push("banks");
   const banks = bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.
@@ -1751,7 +1759,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
-    ...bankMethods(bankService),
+    ...bankMethods(bankService, bankSyncer),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
       const session = readSessionFacts(log, reader, sessionId);
@@ -2021,6 +2029,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await browser.start();
   // The vault entries of webhook endpoints that are gone deleted (#522), before a client can set one again.
   await endpoints.start();
+  // The helper can answer startup fetches only after the internal listener is ready.
+  bankSyncer.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
