@@ -335,6 +335,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "forge.origin-missing":
         return data;
       // The BankService's events (#1025) change no status: the request cache refreshes `banks.list` and `banks.get` on them.
+      case "bank.draft-queued":
       case "bank.added":
       case "bank.updated":
       case "bank.pinned":

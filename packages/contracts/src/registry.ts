@@ -1,3 +1,4 @@
+import { banksDraftsList } from "./memory-drafts.js";
 import type { z } from "zod";
 import {
   accessLogList,
@@ -304,6 +305,7 @@ export const methods = [
   forgePullRequestsUnlink,
   forgePullRequestsRefresh,
   banksList,
+  banksDraftsList,
   banksGet,
   banksRegister,
   banksVerify,

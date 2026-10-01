@@ -1,3 +1,5 @@
+import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
+import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
 import { dirname, isAbsolute, join, resolve as absolutePath } from "node:path";
@@ -878,6 +880,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       banksProjector,
+      bankDraftsProjector,
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
@@ -1146,7 +1149,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const seamServers = hostSeams.toolServers ?? noToolServers;
   // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
   // check asks this (#511), since the caller's tools are its request's alone.
-  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...seamServers(scope)];
+  const memoryTools = createMemoryToolServers({ log, environmentId: record.id, scrub });
+  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
   closers.push(() => knownEnvironments.close());
@@ -1735,6 +1739,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...bankMethods(bankService),
+    "banks.drafts.list": async ({ sessionId, bankId }) => ({ queues: listBankDrafts({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId, bankId) }),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
