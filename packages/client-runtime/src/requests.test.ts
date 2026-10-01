@@ -520,6 +520,7 @@ describe("the request cache", () => {
           folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
           shippedVersion: "0.4.2",
           unpairedConnected: reads > 1,
+          headless: { allowRuns: true, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 },
         },
       };
     });
@@ -552,6 +553,7 @@ describe("the request cache", () => {
           folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
           shippedVersion: "0.4.2",
           unpairedConnected: reads.status === 1,
+          headless: { allowRuns: true, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 },
         },
       };
     });

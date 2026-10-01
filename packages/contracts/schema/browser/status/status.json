@@ -98,13 +98,116 @@
     "unpairedConnected": {
       "type": "boolean",
       "description": "Whether an extension that holds no credential has announced itself and keeps its socket open."
+    },
+    "headless": {
+      "type": "object",
+      "properties": {
+        "allowRuns": {
+          "type": "boolean",
+          "description": "browser.headless.allowRuns: whether runs on this environment may drive its headless browser."
+        },
+        "availability": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "available": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "source": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "endpoint"
+                        },
+                        "endpoint": {
+                          "type": "string",
+                          "pattern": "^(?:https?|wss?):\\/\\/[^\\s/?#]+(?:[/?#]\\S*)?$",
+                          "description": "The CDP address browser.headless.endpoint names."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "endpoint"
+                      ],
+                      "description": "An operator's browser beside the environment, reached at its CDP address."
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "launched"
+                        },
+                        "executable": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The Chromium or Chrome the environment launches: browser.headless.executable, else the first found in the platform's usual locations and PATH."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "executable"
+                      ],
+                      "description": "A Chromium or Chrome the environment launches itself under new headless, over a pipe, with a throwaway profile."
+                    }
+                  ],
+                  "description": "Where the headless browser comes from."
+                }
+              },
+              "required": [
+                "available",
+                "source"
+              ],
+              "description": "The environment has a headless browser, from this source."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "available": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why it has none, as a sentence for a person."
+                }
+              },
+              "required": [
+                "available",
+                "reason"
+              ],
+              "description": "The environment has no headless browser."
+            }
+          ],
+          "description": "Whether the environment has a headless browser, and its source or why not."
+        },
+        "liveContexts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "How many sessions hold a browser context in it now, one each."
+        }
+      },
+      "required": [
+        "allowRuns",
+        "availability",
+        "liveContexts"
+      ],
+      "description": "The headless browser's part of browser.status: its permission, its availability or why not, its source and its live contexts."
     }
   },
   "required": [
     "listener",
     "folder",
     "shippedVersion",
-    "unpairedConnected"
+    "unpairedConnected",
+    "headless"
   ],
-  "description": "browser.status: the listener's port or error, the folder's path, the shipped version and whether an unpaired extension is connected."
+  "description": "browser.status: the listener's port or error, the folder's path, the shipped version and whether an unpaired extension is connected; and the headless browser's permission, availability or reason, source and live contexts."
 }

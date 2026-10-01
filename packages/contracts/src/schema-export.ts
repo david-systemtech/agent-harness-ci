@@ -291,7 +291,7 @@ import {
   ChromeUpdatedPayload,
   PairedChrome,
 } from "./browser-chromes.js";
-import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
+import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -1463,6 +1463,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
   { path: "browser/status/listener.json", title: "ExtensionListenerStatus", schema: ExtensionListenerStatus },
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
+  { path: "browser/status/headless-source.json", title: "HeadlessSource", schema: HeadlessSource },
+  { path: "browser/status/headless.json", title: "HeadlessBrowserStatus", schema: HeadlessBrowserStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
   { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
