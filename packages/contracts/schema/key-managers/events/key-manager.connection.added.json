@@ -126,7 +126,7 @@
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
-          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount; for 1Password a vault's name (harness), each entry an item in it."
         },
         {
           "type": "null"
@@ -149,9 +149,10 @@
             "expired",
             "unreachable",
             "sealed",
-            "certificate-rejected"
+            "certificate-rejected",
+            "provider-unavailable"
           ],
-          "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's)."
+          "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only), certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's), or provider-unavailable (the provider cannot load on this environment)."
         },
         "since": {
           "type": "string",

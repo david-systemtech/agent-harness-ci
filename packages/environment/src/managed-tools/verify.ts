@@ -1,11 +1,13 @@
 import {
   managedTool,
   type KeyManagerConnectionRecord,
+  type KeyManagerProvider,
   type ManagedToolVerification,
   type VerifiableToolName,
 } from "@agent-harness/contracts";
 import type { InjectionDecision, ProcessEnvironmentScope, ProcessEnvironments } from "../adapter/process-environment.js";
 import { parseGhAuthStatus } from "../forge/gh.js";
+import { bwsArgs } from "../key-managers/bitwarden-block.js";
 import { PROVIDER_NAMES } from "../key-managers/provider.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
@@ -32,7 +34,8 @@ import { runCommand, type CommandAnswer } from "./run.js";
  *   and 1 unreachable, and any other answer leaves the lookup's own error.
  *   `gh` runs `gh auth status`. The Doppler, 1Password and Bitwarden
  *   commands run the same way, their providers' blocks joining with #377 to
- *   #379.
+ *   #379; `bws` is given the block's configuration file as `--config-file`,
+ *   which it reads from no variable below 0.5.0 (#1123).
  * - **Only the fields wanted are read** from what a command printed (the
  *   run token's policies, the hosts and logins `gh` is signed in to), and
  *   the output is never kept, since `token lookup` prints the token. What
@@ -120,6 +123,8 @@ export const createToolVerifier = (options: ToolVerifierOptions): ToolVerifier =
 
   const passed = (tool: VerifiableToolName, reason: string): ManagedToolVerification => ({ tool, outcome: "passed", reason: oneLine(reason, REASON_LENGTH) });
   const failed = (tool: VerifiableToolName, reason: string): ManagedToolVerification => ({ tool, outcome: "failed", reason: oneLine(reason, REASON_LENGTH) });
+  const nothingToReach = (tool: VerifiableToolName, provider: KeyManagerProvider): ManagedToolVerification =>
+    failed(tool, `No ${PROVIDER_NAMES[provider]} connection injects on this environment, so ${tool} has nothing to reach: connect one in Set up, Key manager.`);
   const notInstalled = (tool: VerifiableToolName): ManagedToolVerification => ({ tool, outcome: "not-installed", reason: `${tool} is not installed on this environment.` });
 
   const passedWhen = (tool: VerifiableToolName, answer: CommandAnswer, reason: () => string, failure: string): ManagedToolVerification => {
@@ -165,9 +170,7 @@ export const createToolVerifier = (options: ToolVerifierOptions): ToolVerifier =
     if (path === null) return notInstalled(tool);
     // A key-manager CLI's command runs against its provider's injecting connection; gh's against what gh holds.
     const connection = requiredFor.kind === "key-manager" ? (options.connections().find((each) => each.provider === requiredFor.provider && each.injects) ?? null) : null;
-    if (requiredFor.kind === "key-manager" && connection === null) {
-      return failed(tool, `No ${PROVIDER_NAMES[requiredFor.provider]} connection injects on this environment, so ${tool} has nothing to reach: connect one in Set up, Key manager.`);
-    }
+    if (requiredFor.kind === "key-manager" && connection === null) return nothingToReach(tool, requiredFor.provider);
     const base = await tools.commandEnvironment();
     const supplied = await options.processEnvironments.of(VERIFY_COMMAND_SCOPE, VERIFY_COMMAND_INJECTION).supply();
     try {
@@ -177,7 +180,14 @@ export const createToolVerifier = (options: ToolVerifierOptions): ToolVerifier =
       if (connection.provider === "openbao") return await verifyOpenBao(tool, run, args, connection);
       // Doppler's, 1Password's and Bitwarden's: whether it exits 0, until their providers (#377 to #379) read more.
       const where = `${PROVIDER_NAMES[connection.provider]} at ${connection.address}`;
-      return passedWhen(tool, await run(args), () => `${tool} ${args.join(" ")} passed against ${where}.`, `${tool} ${args.join(" ")} failed against ${where}`);
+      let command = args;
+      if (connection.provider === "bitwarden") {
+        // bws is given the block's configuration file as an option, which below 0.5.0 it reads from no variable (#1123); a block not supplied, the connection gone meanwhile, has none.
+        const configPath = supplied.variables.BWS_CONFIG_FILE;
+        if (configPath === undefined) return nothingToReach(tool, connection.provider);
+        command = bwsArgs(configPath, args);
+      }
+      return passedWhen(tool, await run(command), () => `${tool} ${args.join(" ")} passed against ${where}.`, `${tool} ${args.join(" ")} failed against ${where}`);
     } finally {
       // Once every command it ran has exited, and what is kept of their output was scrubbed while the run token was registered.
       supplied.release();

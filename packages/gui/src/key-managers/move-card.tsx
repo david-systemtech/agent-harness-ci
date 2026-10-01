@@ -1,5 +1,5 @@
 import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
-import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerReference } from "@agent-harness/contracts";
+import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerMoveLocator } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type Ref } from "react";
 import { useSettings } from "../settings/settings-window.js";
 import { useChecklist } from "../setup/checklist-window.js";
@@ -9,7 +9,7 @@ import { useClock, useObservable, useRuntime, useShell } from "../window-context
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
 interface Copied {
   readonly value: string;
-  readonly reference: KeyManagerReference;
+  readonly reference: KeyManagerMoveLocator;
 }
 
 export interface MoveCardProps {

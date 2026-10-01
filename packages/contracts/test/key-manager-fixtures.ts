@@ -122,6 +122,9 @@ const added = {
 };
 
 export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
+  "key-managers/bitwarden-move-locator.json": { valid: [{ provider: "bitwarden", connectionId, project: "harness", key: "forge-home" }], invalid: [{ provider: "bitwarden", connectionId, key: "forge-home" }] },
+  "key-managers/move-locator.json": { valid: [reference, { provider: "bitwarden", connectionId, project: "harness", key: "forge-home" }], invalid: [{ provider: "bitwarden", connectionId }] },
+  "key-managers/reference-provider-unavailable-error.json": { valid: [{ code: "provider_unavailable", message: "SDK unavailable for tests", data: { connectionId } }], invalid: [{ code: "provider_unavailable", message: "SDK unavailable for tests", data: {} }] },
   "key-managers/address.json": {
     valid: [address, "http://100.101.102.103:8200", "https://api.doppler.com"],
     invalid: ["https://bao.systemtech.dev:8200/", "https://bao.systemtech.dev:443", "https://Bao.example.com", "bao.systemtech.dev:8200", "https://bao.example.com/v1", ""],
@@ -295,7 +298,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...holder, kind: "session" }, { ...holder, id: "" }, { kind: "forge-account", id: otherId }],
   },
   "key-managers/reference-problem.json": {
-    valid: [notSignedIn, notFound, denied],
+    valid: [notSignedIn, notFound, denied, { code: "provider_unavailable", message: "SDK unavailable for tests", data: { connectionId } }],
     invalid: [{ ...denied, data: {} }, { code: "unreachable", message: "m", data: { connectionId } }, { ...notFound, message: undefined }],
   },
   "errors/reference_not_found.json": {

@@ -6,7 +6,7 @@ import type {
   KeyManagerMoveItemRef,
   KeyManagerMoveItemResult,
   KeyManagerProvider,
-  KeyManagerReference,
+  KeyManagerMoveLocator,
   ParamsOf,
 } from "@agent-harness/contracts";
 import { uuidv4, uuidv7 } from "../ids.js";
@@ -337,7 +337,7 @@ export const moveItems = async (
 };
 
 /** An item's stored value, answered once for a person to paste at its target, or why it was not. */
-export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerReference } | { readonly ok: false; readonly line: string };
+export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerMoveLocator } | { readonly ok: false; readonly line: string };
 
 /**
  * Answers an item's stored value once (`keyManagers.move.copyValue`, sent

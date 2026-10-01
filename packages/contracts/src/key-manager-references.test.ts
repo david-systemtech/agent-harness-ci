@@ -53,16 +53,18 @@ describe("keyManagers.references.check and keyManagers.references.browse", () =>
     expect(codes("keyManagers.references.check")).toEqual([]);
   });
 
-  it("browse takes a connection, an optional mount and a path under it, answers names alone, and errors with the refusals a resolve answers", () => {
+  it("browse takes a connection, an optional mount and a path under it or a vault and an item in it, answers names alone, and errors with the refusals a resolve answers", () => {
     const { params, result } = registry["keyManagers.references.browse"];
-    expect(Object.keys(params.shape)).toEqual(["connectionId", "mount", "path"]);
+    expect(Object.keys(params.shape)).toEqual(["connectionId", "mount", "path", "vault", "item"]);
     expect(params.safeParse({ connectionId }).success).toBe(true);
     expect(params.safeParse({ connectionId, mount: "personal", path: "harness" }).success).toBe(true);
     expect(params.safeParse({ connectionId, mount: "/personal" }).success).toBe(false);
+    expect(params.safeParse({ connectionId, vault: "Harness", item: "forge-github" }).success).toBe(true);
+    expect(params.safeParse({ connectionId, vault: "" }).success).toBe(false);
     expect(Object.keys(result.shape)).toEqual(["names"]);
     expect(result.safeParse({ names: ["harness/", "notes"] }).success).toBe(true);
     expect(result.safeParse({ names: [{ name: "notes", value: "a value for tests" }] }).success).toBe(false);
-    expect(codes("keyManagers.references.browse")).toEqual(["credential_source_unavailable", "reference_not_found", "reference_denied"]);
+    expect(codes("keyManagers.references.browse")).toEqual(["credential_source_unavailable", "reference_not_found", "reference_denied", "provider_unavailable"]);
   });
 });
 
