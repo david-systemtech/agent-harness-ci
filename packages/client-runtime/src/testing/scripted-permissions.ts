@@ -26,7 +26,10 @@ import { SCRIPTED_HOME } from "./scripted-list.js";
  * back at the end of its section, a test by the contracts' matcher on the
  * scripted home); and `permissions.review.list` and `seen` over the runs the
  * script lists, each decided at start, behind a watermark `seen` moves
- * forward and never back.
+ * forward and never back. Each change is said as the environment says it
+ * (#811): `denylist.updated` naming the sections a write changed, and
+ * `review.updated` when the watermark moves; and the handle makes the
+ * changes another client or a run would, said the same way.
  */
 
 export interface ScriptedPermissionsHandle {
@@ -36,6 +39,12 @@ export interface ScriptedPermissionsHandle {
   reviewWatermark(): number;
   /** Holds every `permissions.denylist.set` unanswered and unapplied until the function it returns is called, each then applied and answered in the order sent. */
   holdDenylistWrites(): () => void;
+  /** Changes the denylist as another client would: each section given becomes those entries, and `denylist.updated` names the ones that changed. */
+  setDenylist(sections: Partial<Denylist>): void;
+  /** Decides a run into the Unattended review as a run would, the newest it lists, said with `review.updated`. */
+  decideReviewRun(run?: Partial<ReviewRun>): void;
+  /** Marks the Unattended review seen through the head as another client would, said with `review.updated`. */
+  seeReview(): void;
 }
 
 export interface PermissionsHost {
@@ -53,6 +62,8 @@ export interface PermissionsHost {
   next(): number;
   /** A rejection the script names for `method`, if any. */
   refusal(method: string): FakeAnswer | undefined;
+  /** Says a notice on the environment's own stream, at the next sequence. */
+  notice(type: string, payload: Record<string, unknown>): void;
 }
 
 /** The commands this module answers itself, so a receipt the script names is its refusal rather than a generic answer. */
@@ -63,7 +74,15 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
   const presets = denylistPresets(`${SCRIPTED_HOME}/.agent-harness`);
   const lost = new Set(host.lostPresets ?? []);
   let denylist: Denylist = Denylist.parse(Object.fromEntries(DENYLIST_SECTIONS.map((section) => [section, presets[section].filter((entry) => !lost.has(entry.id))])));
-  const accepted = (result: Record<string, unknown>, changed = true): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence: changed ? host.next() : host.head(), changed }, result } });
+  /** An accepted receipt, naming the head: past the change and its notice when there was one. */
+  const accepted = (result: Record<string, unknown>, changed: boolean): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence: host.head(), changed }, result } });
+  /** Takes `next` as the denylist, and says the sections that changed with `denylist.updated`; answers whether any did. */
+  const changeTo = (next: Record<DenylistSection, readonly DenylistEntry[]>): boolean => {
+    const sections = DENYLIST_SECTIONS.filter((section) => JSON.stringify(next[section]) !== JSON.stringify(denylist[section]));
+    denylist = Denylist.parse(next);
+    if (sections.length > 0) host.notice("denylist.updated", { sections });
+    return sections.length > 0;
+  };
 
   wire.answer("permissions.denylist.get", () => ({ result: { denylist } }));
 
@@ -88,8 +107,7 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
         return { id, pattern: entry.pattern, note: entry.note ?? "", preset: presetIds.has(id), enabled: entry.enabled ?? true };
       });
     }
-    const changed = JSON.stringify(next) !== JSON.stringify(denylist);
-    denylist = Denylist.parse(next);
+    const changed = changeTo(next);
     return accepted({ denylist }, changed);
   };
   // The writes a test holds (`holdDenylistWrites`), each applied at the release; undefined while none are held.
@@ -118,8 +136,8 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
     );
     const next: Record<DenylistSection, DenylistEntry[]> = { ...denylist };
     for (const { section, entry } of restored) next[section] = [...next[section], entry];
-    denylist = Denylist.parse(next);
-    return accepted({ restored, denylist }, restored.length > 0);
+    const changed = changeTo(next);
+    return accepted({ restored, denylist }, changed);
   });
 
   wire.answer("permissions.denylist.test", (params) => {
@@ -127,8 +145,8 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
     return { result: { matches: matchDenylist(denylist, call, { home: SCRIPTED_HOME, cwd: SCRIPTED_HOME }), unresolvable: [] } };
   });
 
-  // The runs, each decided at start, listed while their decision is past the watermark.
-  const runs = (host.review ?? []).map((run, i) => ({ decidedAt: host.next(), ranAt: clock.now().toISOString(), run, i }));
+  // The runs, newest first, each decided at start or as `decideReviewRun` decides it, listed while its decision is past the watermark.
+  let runs = (host.review ?? []).map((run, i) => ({ decidedAt: host.next(), ranAt: clock.now().toISOString(), run, i }));
   const listed = ({ ranAt, run, i }: (typeof runs)[number]): ReviewRun =>
     ReviewRun.parse({
       sessionId: host.sessionId(),
@@ -156,13 +174,23 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
     }
     if (through <= watermark) return accepted({ watermark }, false);
     watermark = through;
-    return accepted({ watermark });
+    host.notice("review.updated", {});
+    return accepted({ watermark }, true);
   });
 
   return {
     denylist: () => denylist,
     reviewWatermark: () => watermark,
     holdDenylistWrites,
+    setDenylist: (sections) => void changeTo({ ...denylist, ...sections }),
+    decideReviewRun: (run = {}) => {
+      runs = [{ decidedAt: host.next(), ranAt: clock.now().toISOString(), run, i: runs.length }, ...runs];
+      host.notice("review.updated", {});
+    },
+    seeReview: () => {
+      watermark = host.head();
+      host.notice("review.updated", {});
+    },
     counts: () => Object.fromEntries(DENYLIST_SECTIONS.map((section) => [section, denylist[section].length])) as Record<DenylistSection, number>,
   };
 };
