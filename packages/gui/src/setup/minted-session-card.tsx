@@ -43,6 +43,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
   const mint = async (variant: PromptVariant = "first", targetSubject: string | undefined = subject) => {
     const mintStep = step.id;
     if (!isRegisteredStep(mintStep)) return;
+    say(undefined);
     const answer = await adminCall(() => runtime.requests.call(environmentId, "setup.mint", {
       commandId: uuidv7(clock.now()), step: mintStep, variant,
       ...(targetSubject !== undefined && { subject: targetSubject }),
@@ -54,6 +55,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
     else if (answer.result !== undefined) run.attach(`${environmentId} ${step.id} ${targetSubject ?? ""}`, answer.result.sessionId);
   };
   const act = async (action: CardAction, targets: readonly SetupTarget[]) => {
+    say(undefined);
     if (action === "start-over") return mint();
     if (action === "revise") return mint("revise", targets.find((target) => target.kind === "bank")?.id ?? subject);
     if (action === "write-it-myself") {

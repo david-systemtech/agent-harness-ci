@@ -258,5 +258,16 @@ describe("the minted session on its card", () => {
     expect(env.liveRun(id)).toBeDefined();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDefined();
     expect(app.runtime.projections.sessionList.read().rows).toHaveLength(1);
+    env.wire.answer("setup.mint", async () => {
+      const next = uuidv4();
+      const created = await app.runtime.commands.dispatch(env.environmentId, "sessions.create", { id: next, title: "Set up: Memory bank", tags: ["setup", "memory-bank"], workspace: { kind: "scratch" } });
+      expect(created.ok).toBe(true);
+      env.startRun(next, "Describe this bank.");
+      return { result: { receipt: { status: "accepted", sequence: env.events(next).at(-1)?.sequence ?? 0, changed: true }, result: { sessionId: next } } };
+    });
+    await mint(app);
+    await waitFor(() => expect(app.runtime.projections.sessionList.read().rows).toHaveLength(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
   });
 });
