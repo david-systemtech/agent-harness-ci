@@ -8,8 +8,8 @@ import { WHOLE_PACKAGE_LINT_MS } from "../../../eslint-rules/package-lint.js";
 /**
  * The repository's own lint configuration, run on this package from its
  * first commit: ADR 0003's organisation-state rule, ADR 0023's literal-colour
- * rule over its scripts and its stylesheet, and the import rule that keeps
- * its bundle to what a browser tab runs.
+ * rule over its scripts, its stylesheet and its document, and the import rule
+ * that keeps its bundle to what a browser tab runs.
  */
 const root = join(import.meta.dirname, "../../..");
 const eslint = new ESLint({ cwd: root });
@@ -26,11 +26,12 @@ const hex = ["#", "fff"].join("");
 const paletteClass = ["bg", "red", "500"].join("-");
 
 describe("the GUI under the repository's lint", () => {
-  it("passes every rule on every source, test, harness and stylesheet file", async () => {
-    const results = await eslint.lintFiles(["packages/gui/src/**/*.{ts,tsx,css}", "packages/gui/test/**/*.{ts,tsx}", "packages/gui/*.ts"]);
+  it("passes every rule on every source, test, harness, stylesheet, SVG asset and document file", async () => {
+    const results = await eslint.lintFiles(["packages/gui/src/**/*.{ts,tsx,css,svg}", "packages/gui/test/**/*.{ts,tsx}", "packages/gui/*.{ts,html}"]);
     const problems = results.flatMap((r) => r.messages.map((m) => `${r.filePath}:${m.line} ${m.ruleId}: ${m.message}`));
     expect(problems).toEqual([]);
     expect(results.some((r) => r.filePath.endsWith("styles.css"))).toBe(true);
+    expect(results.some((r) => r.filePath.endsWith("index.html"))).toBe(true);
     expect(results.length).toBeGreaterThan(20);
   }, WHOLE_PACKAGE_LINT_MS);
 
@@ -50,11 +51,15 @@ describe("the GUI under the repository's lint", () => {
     expect(await ruleIds("packages/gui/src/terminal/terminal-theme.ts", source)).toContain(COLOUR);
   });
 
-  it("refuses a literal colour in a primitive and in the stylesheet", async () => {
+  it("refuses a literal colour in a primitive, in the stylesheet and in the document", async () => {
     const button = "packages/gui/src/ui/button.tsx";
     expect(await ruleIds(button, readFileSync(join(root, button), "utf8"))).not.toContain(COLOUR);
     expect(await ruleIds(button, `export const edge = "1px solid ${hex}";\n`)).toContain(COLOUR);
     expect(await ruleIds(button, `export const tone = "${paletteClass}";\n`)).toContain(COLOUR);
     expect(await ruleIds("packages/gui/src/styles.css", `.edge { border: 1px solid ${hex}; }\n`)).toContain(COLOUR);
+    const page = "packages/gui/index.html";
+    const markup = readFileSync(join(root, page), "utf8");
+    expect(await ruleIds(page, markup)).not.toContain(COLOUR);
+    expect(await ruleIds(page, markup.replace("<head>", `<head><meta name="theme-color" content="${hex}" />`))).toContain(COLOUR);
   });
 });
