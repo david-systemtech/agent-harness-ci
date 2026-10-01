@@ -111,6 +111,7 @@ describe("signing in to 1Password", () => {
       username: null,
       status: { kind: "signed-in", message: "Signed in to 1Password." },
       tokenInformation: { displayName: "", policies: [], ttlSeconds: 0, renewable: false, expiresAt: null },
+      ticks: null,
       injects: true,
       injectedVariables: BLOCK_NAMES,
     });

@@ -517,9 +517,9 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return named;
   };
 
-  /** The fields a first sign-in sets beside its outcome: the ticks preset to the login's policies, and whether it now injects. */
+  /** The fields a first sign-in sets beside its outcome: OpenBao's ticks preset to the login's policies (another provider's login holds none), and whether it now injects. */
   const firstSignIn = (record: KeyManagerConnectionRecord, information: KeyManagerTokenInformation): Pick<KeyManagerConnectionSignedInPayload, "ticks" | "injects"> => ({
-    ...(record.ticks === null && { ticks: information.policies }),
+    ...(record.provider === "openbao" && record.ticks === null && { ticks: information.policies }),
     ...(!record.injects && !injecting(reader, record.provider) && { injects: true as const }),
   });
 
@@ -584,7 +584,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           label: params.label,
           address,
           ...settings,
-          ticks: params.ticks ?? signed?.information.policies ?? null,
+          ticks: params.ticks ?? (params.provider === "openbao" ? signed?.information.policies : undefined) ?? null,
           basePath: params.basePath ?? null,
           injects: signed !== null && !injecting(reader, params.provider),
           status,
