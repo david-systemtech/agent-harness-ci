@@ -344,6 +344,32 @@ describe("an action's snapshot", () => {
       );
     }
   });
+
+  it("cuts mid-line short of a ref the cap would split, whatever the driver answers", async () => {
+    const { t, drivers } = await start();
+    const before = `- link "${"A very long name. ".repeat(700)}`.slice(0, 11_994);
+    const long = `${before}" [ref=e123]: ${"and more after it ".repeat(20)}`;
+    drivers.headless.next("navigate", { ok: true, value: { url: "https://example.com/wall", title: "Wall", snapshot: { text: long, totalChars: long.length, truncated: false } } });
+    const answer = await answerOf(t, HEADLESS, ["browser_navigate", { address: "https://example.com/wall" }]);
+    expect(framed(answer.text).body).toBe(`Title: Wall\n\n${before}" `);
+    expect(answer.text.split("\n").at(-1)).toContain("this is the first 11,996, cut mid-line, as no line ends within them.");
+  });
+
+  it("names the driver's own cut as its value does: mid-line where midLine says so, else at a line boundary", async () => {
+    const { t, drivers } = await start();
+    const wall = `- paragraph: ${"A sentence with no line break in it. ".repeat(20)}`.slice(0, 500);
+    const heading = `- heading "Wall" [level=1] [ref=e1]`;
+    drivers.headless.next("navigate", { ok: true, value: { url: "https://example.com/wall", title: "Wall", snapshot: { text: wall, totalChars: 9_000, truncated: true, midLine: true } } });
+    drivers.headless.next("snapshot", { ok: true, value: { url: "https://example.com/wall", title: "Wall", text: wall, totalChars: 9_000, truncated: true, midLine: true } });
+    drivers.headless.next("snapshot", { ok: true, value: { url: "https://example.com/wall", title: "Wall", text: heading, totalChars: 9_000, truncated: true } });
+    const { answers } = await runIn(t, HEADLESS, ["browser_navigate", { address: "https://example.com/wall" }], ["browser_snapshot", { maxChars: 500 }], ["browser_snapshot", { maxChars: 40 }]);
+    const more = "Ask browser_snapshot for more with maxChars (at most 200,000), or focus on one element with ref.";
+    expect(answers.map((answer) => answer.text.split("\n").at(-1))).toEqual([
+      `The snapshot is 9,000 characters; this is the first 500, cut mid-line, as no line ends within them. ${more}`,
+      `The snapshot is 9,000 characters; this is the first 500, cut mid-line, as no line ends within them. ${more}`,
+      `The snapshot is 9,000 characters; this is the first 35, cut at a line boundary. ${more}`,
+    ]);
+  });
 });
 
 describe("the verbs' arguments", () => {

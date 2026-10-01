@@ -1,4 +1,5 @@
-import { SNAPSHOT_MAX_CHARS, type PageArgs } from "@agent-harness/contracts";
+import { SNAPSHOT_MAX_CHARS, type PageArgs, type PageSnapshot } from "@agent-harness/contracts";
+import { opensPair } from "../paging.js";
 import { redactTokens, redactedFieldValue, secretField } from "../redaction.js";
 import { refGone } from "./refs.js";
 import { renderAriaSnapshotAsYaml } from "./vendor/aria-yaml.js";
@@ -13,10 +14,11 @@ import type { AriaNodeJSON } from "./vendor/aria-types.js";
  * may never read, writes the tree, and cuts the text to its budget.
  */
 
+/** A snapshot's text as a driver answers it: the text, its full length, and whether and how it was cut. */
+export type SnapshotText = Pick<PageSnapshot, "text" | "totalChars" | "truncated" | "midLine">;
+
 /** A snapshot's text, or the sentence that says why there is none. */
-export type SerialisedSnapshot =
-  | { readonly ok: true; readonly text: string; readonly totalChars: number; readonly truncated: boolean }
-  | { readonly ok: false; readonly reason: string };
+export type SerialisedSnapshot = ({ readonly ok: true } & SnapshotText) | { readonly ok: false; readonly reason: string };
 
 type Child = AriaNodeJSON | string;
 
@@ -125,15 +127,22 @@ const redacted = (node: Child): Child => {
   return withChildren(clean, secret === null ? childrenOf(node).map(redacted) : [redactedFieldValue(secret)]);
 };
 
+/** The end of a cut that opens a ref without closing it (`[`, `[re`, `[ref=e1`), where the cut would split the ref. */
+const OPEN_REF = /\[(?:r(?:e(?:f(?:=[^\]\s]*)?)?)?)?$/;
+
 /**
- * `text` cut to its whole lines within `maxChars`, with its full length: when
- * the first line alone is longer, no line is whole within them and the text
- * is empty, so a cut is always at a line boundary, as the contract says.
+ * `text` cut to at most `maxChars` characters, with its full length, as the
+ * contract says a driver cuts it: at its last line boundary within them, or,
+ * when no line ends within them, mid-line, saying so, and short of a ref or
+ * of a character written as two code units that the cut would split.
  */
-const withinBudget = (text: string, maxChars: number): { readonly text: string; readonly totalChars: number; readonly truncated: boolean } => {
+export const withinMaxChars = (text: string, maxChars: number): SnapshotText => {
   if (text.length <= maxChars) return { text, totalChars: text.length, truncated: false };
   const lineEnd = text.lastIndexOf("\n", maxChars);
-  return { text: lineEnd === -1 ? "" : text.slice(0, lineEnd), totalChars: text.length, truncated: true };
+  if (lineEnd > 0) return { text: text.slice(0, lineEnd), totalChars: text.length, truncated: true };
+  const cut = text.slice(0, opensPair(text, maxChars - 1) ? maxChars - 1 : maxChars);
+  const openRef = OPEN_REF.exec(cut);
+  return { text: openRef === null ? cut : cut.slice(0, openRef.index), totalChars: text.length, truncated: true, midLine: true };
 };
 
 /** The text of `tree` as `args` asks: focused on a ref, filtered, to a depth. */
@@ -154,5 +163,5 @@ export const serialiseSnapshot = (tree: readonly AriaNodeJSON[], args: PageArgs<
   let nodes: Child[] = filtered;
   if (args.depth !== undefined) nodes = toDepth(nodes, args.depth);
   const text = renderAriaSnapshotAsYaml(nodes.map(redacted).filter((node): node is AriaNodeJSON => typeof node !== "string"));
-  return { ok: true, ...withinBudget(text, args.maxChars ?? SNAPSHOT_MAX_CHARS.preset) };
+  return { ok: true, ...withinMaxChars(text, args.maxChars ?? SNAPSHOT_MAX_CHARS.preset) };
 };

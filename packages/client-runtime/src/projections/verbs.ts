@@ -192,7 +192,7 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
       connection("sessions.rewind"),
       adapterCan("rewind", "rewind"),
       noRun("rewinding"),
-      () => (queue.some((message) => message.heldBy === "environment") ? absent("queued_messages", "Messages are queued: withdraw them, or let a run read them, before rewinding.") : null),
+      () => (queue.length > 0 ? absent("queued_messages", "Messages are queued: withdraw them, or let a run read them, before rewinding.") : null),
       () => (input.rewindable ? null : absent("no_message", "No message a run has read to rewind to.")),
     ),
     undoRewind: first(
