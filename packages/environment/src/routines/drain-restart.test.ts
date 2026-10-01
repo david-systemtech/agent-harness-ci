@@ -153,6 +153,7 @@ describe("routines across a drain and restart", () => {
     expect(await history(client, state.id)).toMatchObject([{ kind, deliveries: [] }]);
     failure.mockRestore();
     loud.mockRestore();
+    t.env.log.rebuildProjections();
     await t.close();
     const next = await start({ dataDir, clock: t.clock });
     const nextClient = await next.client();
@@ -240,6 +241,7 @@ describe("routines across a drain and restart", () => {
     expect((await listed(client, state.id))!.state.liveFiring).not.toBeNull();
     failure.mockRestore();
     loud.mockRestore();
+    t.env.log.rebuildProjections();
     await t.close();
     const next = await start({ dataDir, clock: t.clock });
     const reader = await next.client();

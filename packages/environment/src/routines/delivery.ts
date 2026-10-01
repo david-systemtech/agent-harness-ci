@@ -4,7 +4,6 @@ import {
   MAX_DELIVERY_SUMMARY,
   ROUTINE_STREAM_KIND,
   type DeliveredOutcome,
-  type DeliveryOn,
   type FiringFailureReason,
   type RoutineDeliveredPayload,
   type RoutineDeliveryAttemptedPayload,
@@ -16,7 +15,10 @@ import {
 import type { EventEnvelope, EventLog, Tx } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { appendRoutineRecord, routineActor } from "./records.js";
+import { deliveredOutcome, takes } from "./delivery-outcome.js";
 import { deliverableEntry, sameTarget } from "./routine-store.js";
+
+export { deliveredOutcome, takes } from "./delivery-outcome.js";
 
 /**
  * Delivery targets (routines spec, "Delivery targets"; #525): once an
@@ -56,31 +58,6 @@ const FIRING_FAILED: Readonly<Record<FiringFailureReason, string>> = {
 const SKIP_FAILED: Readonly<Partial<Record<SkipReason, string>>> = {
   "pre-check-failed": "The pre-check failed",
   "cannot-start": "The firing could not start",
-};
-
-/** How an ended entry is delivered: a succeeded firing as `succeeded`, a failed one or a failing skip as `failed`; null for what goes to no target. */
-export const deliveredOutcome = (entry: RoutineEntry): DeliveredOutcome | null => {
-  if (entry.kind === "skip") return SKIP_FAILED[entry.reason] === undefined ? null : "failed";
-  switch (entry.outcome) {
-    case "succeeded":
-      return "succeeded";
-    case "failed":
-      return "failed";
-    default:
-      return null;
-  }
-};
-
-/** Whether a target on `on` takes a result delivered as `outcome`. */
-export const takes = (on: DeliveryOn, outcome: DeliveredOutcome): boolean => {
-  switch (on) {
-    case "both":
-      return true;
-    case "success":
-      return outcome === "succeeded";
-    case "failure":
-      return outcome === "failed";
-  }
 };
 
 /** The first line of `text` with anything on it, trimmed; null when it has none. */
@@ -193,13 +170,13 @@ export const resumeDeliveries = (options: DeliveriesOptions): void => {
   const { log } = options;
   const deliver = noticeDelivery(options);
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  const ended = log.read<{ routine_id: string; id: string }>("SELECT routine_id, id FROM routine_entries WHERE json_extract(entry, '$.kind') = 'skip' OR json_extract(entry, '$.endedAt') IS NOT NULL ORDER BY position");
-  for (const { routine_id: routineId, id } of ended) {
+  const ended = log.read<{ routine_id: string; id: string; cause_sequence: number }>("SELECT routine_id, id, cause_sequence FROM routine_pending_notices ORDER BY cause_sequence");
+  for (const { routine_id: routineId, id, cause_sequence: sequence } of ended) {
     const entry = deliverableEntry(reader, routineId, id);
     if (entry === null) continue;
     const outcome = deliveredOutcome(entry.entry);
     if (outcome === null || !entry.targets.some((target) => target.kind === "client-notice" && takes(target.on, outcome) && !entry.entry.deliveries.some((delivery) => sameTarget(delivery.target, target)))) continue;
-    const cause = log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }).find((event) => endedEntryOf(event) === id);
+    const cause = log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }, sequence - 1, 1).find((event) => endedEntryOf(event) === id);
     if (cause === undefined) continue;
     try {
       log.atomically((tx) => deliver(tx, routineId, id, cause));
