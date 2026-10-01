@@ -150,7 +150,9 @@ const reached = (answer: ForgeGitAnswer, origin: string): void => {
   if (answer.git.ok) return;
   const noSsh = NO_SSH.exec(answer.git.stderr);
   if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), origin);
-  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), gitComplaint(answer.git.stderr), origin);
+  // Stopped at its time, git has said nothing of why: the line says what stopped it.
+  const line = answer.git.timedOut ? `git was stopped after ${PROBE_CLONE_TIMEOUT_MS / 1000} seconds.` : gitComplaint(answer.git.stderr);
+  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), line, origin);
 };
 
 /** The commit the checkout at `path` stands at, its branch when on one; unreachable `not_found` when it has none. */
