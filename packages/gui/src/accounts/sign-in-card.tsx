@@ -1,6 +1,7 @@
-import { addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
+import { addAccount, cancelSignIn, fallbackOf, followedSignIn, labelProblem, sendSignInCode, signInEnd, signInLeftWords, startSignIn, uuidv4 } from "@agent-harness/client-runtime";
 import type { AccountRecord } from "@agent-harness/contracts";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { Button, Dialog, DialogContent, Input } from "../ui/index.js";
 import { useFollowed, useObservable, useRuntime, useShell } from "../window-context.js";
@@ -34,7 +35,9 @@ type Sending = "add" | "start" | "code" | null;
  *   opened in the system browser through the shell's `openExternal` as it
  *   arrives (and again on a press), the code pasted and sent with
  *   `accounts.signin.code` ("Checking the code…"), and the fallback command
- *   for a terminal on the environment's machine under it.
+ *   for a terminal on the environment's machine under it, and the time the
+ *   sign-in has left, counted down on the environment's clock from its
+ *   `expiresAt` (ten minutes, ADR 0018; #575).
  * - A sign-in the card follows that ends closes it, its end said in one line
  *   where the card was opened; so is a refusal of the start. Closing the
  *   card cancels the sign-in it started (`accounts.signin.cancel`), since
@@ -60,6 +63,7 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
   const end = followed ? signInEnd(followed, label, environment) : undefined;
   const openExternal = runtime.capability(environmentId, "shell.openExternal");
   const url = followed?.url ?? null;
+  const left = useEnvironmentCountdown(environmentId, followed?.expiresAt);
 
   // An account given is signed in as the card opens.
   useEffect(() => {
@@ -188,6 +192,11 @@ export const SignInCard = ({ environmentId, account, close, say }: SignInCardPro
               </form>
             )}
             {error !== null && <p className="text-xs text-signal">{error}</p>}
+            {left !== undefined && (
+              <p role="timer" className="text-xs text-ink-faint">
+                {signInLeftWords(left)}
+              </p>
+            )}
             {followed && (
               <>
                 <p className="text-xs text-ink-faint">Or run this in a terminal on {environment}'s machine:</p>
