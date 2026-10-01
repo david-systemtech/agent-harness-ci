@@ -1,4 +1,4 @@
-import type { EnvironmentView } from "@agent-harness/client-runtime";
+import type { EnvironmentView, SetupStepView } from "@agent-harness/client-runtime";
 import { KEY_MANAGER_PROVIDERS, managedTool, type ManagedToolName } from "@agent-harness/contracts";
 import { useEffect, useMemo, useRef } from "react";
 import { nameOf } from "../connections/words.js";
@@ -24,12 +24,7 @@ import { ProviderTile } from "./provider-tile.js";
 export const KeyManagerCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const view = useObservable(runtime.projections.environments).find((environment) => environment.environmentId === environmentId);
-  return (
-    <>
-      <StepStatus environmentId={environmentId} step={step} />
-      {view !== undefined && <KeyManagerSetUp view={view} />}
-    </>
-  );
+  return view === undefined ? <StepStatus environmentId={environmentId} step={step} /> : <KeyManagerSetUp view={view} step={step} />;
 };
 
 /**
@@ -39,7 +34,7 @@ export const KeyManagerCard = ({ environmentId, step }: StepCardProps) => {
  * flag it holds the flag's line alone; without `admin` it is read-only with
  * the capability's line, said once.
  */
-const KeyManagerSetUp = ({ view }: { readonly view: EnvironmentView }) => {
+const KeyManagerSetUp = ({ view, step }: { readonly view: EnvironmentView; readonly step: SetupStepView }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const { part } = useChecklist();
@@ -55,13 +50,19 @@ const KeyManagerSetUp = ({ view }: { readonly view: EnvironmentView }) => {
     if (part === "move-stored-tokens" && read) move.current?.focus();
   }, [part, read]);
 
-  if (flagged.status === "absent" && flagged.reason === "unsupported") return <p className="text-sm text-amber">{flagged.message}</p>;
+  if (flagged.status === "absent" && flagged.reason === "unsupported") return (
+    <>
+      <StepStatus environmentId={environmentId} step={step} />
+      <p className="text-sm text-amber">{flagged.message}</p>
+    </>
+  );
   const ready = view.phase === "ready";
   const admin = runtime.capability(environmentId, "keyManagers.connections.add");
   const writable = ready && admin.status === "present";
   const tools = { writable: ready && MANAGED_TOOLS_SENT.every((method) => runtime.capability(environmentId, method).status === "present"), readable: ready, terminal };
   return (
     <>
+      <StepStatus environmentId={environmentId} step={step} toolStarted={terminal.started} />
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
       {connections === null && ready && (
         <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
