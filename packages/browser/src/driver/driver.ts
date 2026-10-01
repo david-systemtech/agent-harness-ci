@@ -16,7 +16,6 @@ import {
   type PageReading,
   type PageRefusal,
   type PageResult,
-  type PageSnapshot,
   type PageValue,
   type PageVerb,
   type OneTimeAllowance,
@@ -26,7 +25,7 @@ import { pageText } from "../paging.js";
 import { installReader, pageChallenge, readPage, type PageReadOptions } from "../reader-in-page.js";
 import { frameOwnerKey, installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
 import { refGone } from "../snapshot/refs.js";
-import { serialiseSnapshot } from "../snapshot/serialiser.js";
+import { serialiseSnapshot, type SnapshotText } from "../snapshot/serialiser.js";
 import { stitchFrames, type FrameTree } from "../snapshot/stitch.js";
 import type { FrameSnapshot, FrameSnapshotOptions } from "../snapshot/world.js";
 import { elementShows, frameOwnerOrigin, locateElement, readStorage, scrollToElement, selectFieldContents, showsText, type ElementTarget } from "./in-page.js";
@@ -120,9 +119,6 @@ const siteOf = (url: string): string => hostOf(url) ?? url;
 /** An element an action names, as its sentences name it. */
 const elementNamed = (target: ElementTarget): string => ("ref" in target ? `The element ${target.ref}` : `The element matching ${target.selector}`);
 
-/** A snapshot's text, its full length and whether it was cut. */
-type SnapshotText = Pick<PageSnapshot, "text" | "totalChars" | "truncated">;
-
 /** The frame a ref is from, while the page has it. */
 const refFrame = (page: CdpPage, ref: string): PageFrame | undefined => {
   const frameId = page.refs.frameOf(ref);
@@ -188,9 +184,9 @@ const snapshotOf = async (page: CdpPage, args: PageArgs<"snapshot">): Promise<{ 
     args,
   );
   if (!serialised.ok) return refused(serialised.reason);
-  const { text, totalChars, truncated } = serialised;
+  const { text, totalChars, truncated, midLine } = serialised;
   const nothing = text === "" && !truncated && args.filter !== "all" ? NOTHING_TO_ACT_ON : undefined;
-  return { snapshot: { text, totalChars, truncated }, notice: joined([...unread, nothing]) };
+  return { snapshot: { text, totalChars, truncated, ...(midLine && { midLine }) }, notice: joined([...unread, nothing]) };
 };
 
 /** What challenge detection found on the page: the challenge, or null for none; and a notice when it could not look. */
