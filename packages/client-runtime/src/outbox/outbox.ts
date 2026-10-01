@@ -23,6 +23,7 @@ import { uuidv4, uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
 import { writable, type Observable } from "../observable.js";
 import type { Clock, DocumentStore, Timer } from "../platform.js";
+import type { BrowserChip } from "../projections/new-session.js";
 import type { SessionRunsView } from "../projections/runs.js";
 import type { SessionProjection } from "../projections/session.js";
 import type { VerbReason } from "../projections/verbs.js";
@@ -204,7 +205,10 @@ export interface Commands {
    * client-minted id when the environment has no group of that name, as
    * `moveToGroup` does; then `sessions.create` with a client-minted id, in
    * that group; then, once the environment has accepted it,
-   * `connections.setLastUsed`. Answers the new session's id with the
+   * `connections.setLastUsed`. The browser chip goes with the create as
+   * the session's first browser, chosen by the reach default while the
+   * chip holds its preset and by a person once it was changed; a chip
+   * holding none sends nothing. Answers the new session's id with the
    * create's answer, a refusal with its reason and data (a workspace's
    * `problem`, a worktree's branch reason); a group create refused leaves its
    * notice and the create its own. The renderer sends the first message once
@@ -230,6 +234,8 @@ export interface StartSessionChoice {
   readonly model?: string;
   /** The name of the merged heading in focus: the session goes into the environment's group of that name (names equal ignoring case and white space), made first when it has none. */
   readonly groupName?: string;
+  /** The browser chip (`projections.newSession`'s `browser`): its value, and why it holds it. */
+  readonly browser?: Pick<BrowserChip, "value" | "reason">;
 }
 
 /** What `commands.startSession` did: the id minted for the session, with the create's answer. The session stands only when that answer is ok. */
@@ -971,7 +977,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       return move.enqueue() as Promise<DispatchAnswer<"sessions.setGroup">>;
     },
     async startSession(environmentId, choice) {
-      const { workspace, account, model, groupName } = choice;
+      const { workspace, account, model, groupName, browser } = choice;
       const sessionId = choice.id ?? uuidv4();
       const group = groupName === undefined ? null : groupNamed(environmentId, groupName);
       if (group?.create != null && "refused" in group.create) return { sessionId, answer: group.create.refused as DispatchAnswer<"sessions.create"> };
@@ -981,6 +987,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         ...(account !== undefined && { account }),
         ...(model !== undefined && { model }),
         ...(group !== null && { groupId: group.groupId }),
+        ...(browser?.value != null && { browser: { value: browser.value, chosenBy: browser.reason === "chosen" ? "person" : "reach" } }),
       });
       if ("refused" in create) return { sessionId, answer: create.refused as DispatchAnswer<"sessions.create"> };
       // In this order, so the group is made first; the create is answered, the group's answer is its notice if refused.

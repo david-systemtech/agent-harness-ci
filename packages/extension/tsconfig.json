@@ -8,5 +8,5 @@
     "emitDeclarationOnly": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
-  "references": [{ "path": "../contracts" }]
+  "references": [{ "path": "../contracts" }, { "path": "../browser" }]
 }

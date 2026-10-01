@@ -2,6 +2,8 @@ import { DRAIN_CAP_MS, denylistPresets, type AccountRecord, type ContainmentRepo
 import { accountStateChecks } from "../accounts/step-checks.js";
 import type { AdapterRegistry } from "../adapter/registry.js";
 import { themeMeetsRules } from "../appearance/contrast.js";
+import type { BankRecords } from "../banks/records.js";
+import { memoryBankStateChecks } from "../banks/step-checks.js";
 import { carryOverStateChecks } from "../carry-over/step-checks.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -26,7 +28,8 @@ import type { StateCheckers } from "./check.js";
  * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348), that the environment is named (#323) and ready,
  * not draining past its cap (#574), the Forges step's seven (#319), the Key
- * manager step's skip check (#367) and four others (#383), the Permissions
+ * manager step's skip check (#367) and four others (#383), the Memory bank
+ * step's six (#586), the Permissions
  * step's three checks, and the Appearance step's contrast (#391), each read
  * when it runs.
  * Not-root and the containment default are read from what
@@ -42,6 +45,8 @@ import type { StateCheckers } from "./check.js";
  * forge accounts from the ForgeService (`forge/step-checks.ts`), the
  * key-manager connections from their store and their verification, and
  * their CLIs from the Managed tools rows (`key-managers/step-checks.ts`),
+ * the banks from their records and their verification
+ * (`banks/step-checks.ts`),
  * and the theme from the settings, derived by the theme package
  * (`appearance/contrast.ts`).
  */
@@ -76,6 +81,8 @@ export interface StateChecksOptions {
   readonly keyManagerConnections: Pick<KeyManagerConnections, "list" | "verify">;
   /** The Managed tools registry, whose rows say whether an injecting connection's CLI is installed. */
   readonly managedTools: Pick<ManagedTools, "list">;
+  /** The banks the environment registers, which the Memory bank step checks, verifying every one. */
+  readonly banks: BankRecords;
   /** The environment's clock: a forge token's expiry is read against it. */
   readonly clock: Clock;
 }
@@ -115,6 +122,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
       verify: () => options.keyManagerConnections.verify(),
       toolRows: async () => (await options.managedTools.list()).tools,
     }),
+    ...memoryBankStateChecks(options.banks),
     "permissions.containment": () => {
       const { values, containment } = report();
       return containmentDefaultHolds(values["permissions.containment.default"], containment);

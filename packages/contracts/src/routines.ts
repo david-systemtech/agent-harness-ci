@@ -579,8 +579,15 @@ export const RoutineFiringStartedPayload = z
     requestedBy: FiringEntry.shape.requestedBy,
     preCheck: entryPart.preCheck,
     targets: FiringEntry.shape.targets,
+    silenceMarker: silenceMarker.meta({ description: "The marker its final text is read against by the silence rule (isSilent): its routine's when it was asked for, whatever an edit changes meanwhile." }),
+    maxDurationMinutes: maxDurationMinutes.meta({
+      description: "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
   })
-  .meta({ description: "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to whatever an edit changes meanwhile." });
+  .meta({
+    description:
+      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker and its maximum duration, whatever an edit changes meanwhile.",
+  });
 export type RoutineFiringStartedPayload = z.infer<typeof RoutineFiringStartedPayload>;
 
 export const RoutineFiringContinuedPayload = z
