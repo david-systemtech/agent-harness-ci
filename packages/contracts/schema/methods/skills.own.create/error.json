@@ -46,13 +46,14 @@
                 "terminal",
                 "admin"
               ],
-              "description": "The scope the method requires."
+              "description": "The scope the method requires; with reason scope, the requested pairing scope the caller does not hold."
             },
             "reason": {
-              "description": "Present when the scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage) or program (a program client session may not ask it: the known-environments report, whose text reaches every run).",
+              "description": "Present when the method's scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), scope (a pairing would grant a scope the caller does not hold, named in data.scope), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage) or program (a program client session may not ask it: the known-environments report, whose text reaches every run).",
               "type": "string",
               "enum": [
                 "ceiling",
+                "scope",
                 "local",
                 "program"
               ]
@@ -78,7 +79,7 @@
         "message",
         "data"
       ],
-      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not."
+      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason scope, a pairing would grant a scope the caller does not hold, named in data.scope; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not."
     },
     {
       "type": "object",

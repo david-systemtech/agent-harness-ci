@@ -87,13 +87,12 @@ describe("the release workflow", () => {
     expect(lines).toContain("  TAG: ${{ github.ref_name }}");
   });
 
-  it("puts PowerShell 7 on the check job's PATH before its tests, which run install.ps1 under it, as ci.yml does", () => {
+  // ci.yml's checks run on GitHub (david-systemtech/agent-harness-ci), whose
+  // test jobs take the same step from this checkout before their shard.
+  it("puts PowerShell 7 on the check job's PATH before its tests, which run install.ps1 under it", () => {
     const steps = runs(job("check"));
     expect(steps.indexOf("bash .forgejo/scripts/pwsh.sh")).toBeGreaterThan(-1);
     expect(steps.indexOf("bash .forgejo/scripts/pwsh.sh")).toBeLessThan(steps.indexOf("pnpm test --maxWorkers=4"));
-    const ci = readFileSync(join(root, ".forgejo", "workflows", "ci.yml"), "utf8").split("\n");
-    expect(ci.indexOf("        run: bash .forgejo/scripts/pwsh.sh")).toBeGreaterThan(-1);
-    expect(ci.indexOf("        run: bash .forgejo/scripts/pwsh.sh")).toBeLessThan(ci.indexOf("      - run: pnpm test --maxWorkers=4"));
   });
 
   it("builds the image and the desktops only after the check, and the release after them all, each with the image job's reference and digest", () => {

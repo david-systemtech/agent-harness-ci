@@ -4,12 +4,12 @@
  * ladder of every token under the contrast, gamut and hue-separation rules,
  * with each clamp reported (and said in words); the ladders give CSS custom properties and the
  * window's background colour, the environment colours' tokens and, for a
- * truecolour terminal, the diff backgrounds; the terminal UI's roles map
- * onto the terminal's own sixteen colours.
+ * truecolour terminal, the diff backgrounds; the terminal UI's roles and
+ * the twelve environment colours map onto the terminal's own sixteen.
  */
 export { cssVariables, windowBackground } from "./css.js";
 export { SEED_TOKENS, derive, type Clamp, type DerivedTheme, type Ladder, type Rule } from "./derive.js";
 export { contrastRatio, cssColour, hueDistance, inGamut, readCssColour, toHex, type Oklch } from "./oklch.js";
-export { ANSI_COLOURS, TERMINAL_ROLES, type AnsiColour, type TerminalRole } from "./terminal.js";
+export { ANSI_COLOURS, ENVIRONMENT_ANSI, TERMINAL_ROLES, type AnsiColour, type TerminalRole } from "./terminal.js";
 export { LADDERS, TOKEN_NAMES, type LadderName, type TokenName } from "./tokens.js";
 export { clampWords } from "./words.js";

@@ -1,0 +1,12 @@
+{
+  // The extension's source, which runs in Chrome: its service worker and its options page. So the DOM's types and no
+  // Node's; the `chrome.*` APIs it uses are typed by the package itself (src/chrome.ts). Vite bundles it
+  // (scripts/build.ts); tsc only checks it and writes the declarations the build script's project reads.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../.tsbuild/extension",
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "references": [{ "path": "../contracts" }]
+}

@@ -143,6 +143,8 @@ import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
+import { routineEndpointsProjector } from "../routines/endpoint-store.js";
+import { createRoutineEndpoints } from "../routines/endpoints.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -220,8 +222,9 @@ const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url
  * The built extension the environment carries and unpacks for Chrome (browser
  * spec; ADR 0024): the extension package's build beside the environment
  * package, as the workspace and the server artefact lay the packages out.
+ * The workspace build writes it there (#549).
  */
-const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
+export const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
 
 /**
  * The port an environment listens on when none is given. A chosen default, not
@@ -804,6 +807,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
+      routineEndpointsProjector,
       lookProjector,
       trustProjector,
       instructionsProjector,
@@ -1434,6 +1438,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
   });
+  // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
+  // hosts as it is at the set, and a test's payload naming the environment as it is named now.
+  const endpoints = createRoutineEndpoints({
+    log,
+    clock,
+    stream: environmentStream,
+    environmentId: record.id,
+    name: () => look.read().name,
+    vault,
+    denylisted: (url) => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0,
+    scrub,
+  });
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({
@@ -1509,6 +1525,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
     }),
+    ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
@@ -1727,6 +1744,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // replaced the folder Chrome loads; before the wire opens, so a first client's browser.status finds them.
   closers.push(() => browser.close());
   await browser.start();
+  // The vault entries of webhook endpoints that are gone deleted (#522), before a client can set one again.
+  await endpoints.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code

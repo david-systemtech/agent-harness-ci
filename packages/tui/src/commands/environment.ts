@@ -8,7 +8,7 @@ import {
   EnvironmentName,
   type ResultOf,
 } from "@agent-harness/contracts";
-import { terminalColourOf } from "../rail/badge.js";
+import { ENVIRONMENT_ANSI } from "@agent-harness/theme";
 import { pickerOf, type Picker, type PickerRow } from "../rail/picker.js";
 import { messageOf, nameOf } from "../view.js";
 
@@ -232,7 +232,7 @@ export const lookPicker = (acts: LookActs, view: EnvironmentView, field: LookFie
     case "colour": {
       const rows = () =>
         ENVIRONMENT_COLOURS.map(
-          (colour): PickerRow => ({ key: colour, text: colour, colour: terminalColourOf(colour), ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
+          (colour): PickerRow => ({ key: colour, text: colour, colour: ENVIRONMENT_ANSI[colour], ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
         );
       return {
         ...pickerOf({ title: () => `Colour for ${nameOf(now())}`, typed: false, rows }),

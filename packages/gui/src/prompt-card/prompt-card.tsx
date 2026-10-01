@@ -1,12 +1,13 @@
-import { COUNTDOWN_TICK_MS, choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
+import { choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
 import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
-import { useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEnvironmentCountdown } from "../environment-countdown.js";
 import { useInFocusedPane } from "../grid/grid.js";
 import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { Markdown } from "../transcript/markdown.js";
 import { Input } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
-import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime } from "../window-context.js";
 import { Answer } from "./answer-button.js";
 import { useAnswering } from "./answering.js";
 import { QuestionForm, questionAnswers, questionsOf, type Picks } from "./question.js";
@@ -119,7 +120,9 @@ const EDGES: Readonly<Record<PromptKind, string>> = { permission: "border-amber"
 const ParkedCard = ({ environmentId, parked, place, capability, fields, setFields, line, say, answer }: ParkedCardProps) => {
   const { prompt } = parked;
   const self = useRef<HTMLElement>(null);
-  const ttl = useTtlWords(environmentId, prompt.ttlExpiresAt);
+  // How long the prompt has before its TTL denies it; none when it never is.
+  const remaining = useEnvironmentCountdown(environmentId, prompt.ttlExpiresAt);
+  const ttl = remaining === undefined ? undefined : ttlWords(remaining);
   const rows = choiceRows(prompt);
 
   // The card takes the focus when its prompt comes to it: the card, never a button, so a stray Enter fires nothing. In a
@@ -278,22 +281,4 @@ const KeysHint = ({ kind }: { readonly kind: PromptKind }) => {
   return <p className="text-xs text-ink-faint">{said.join(" · ")}</p>;
 };
 
-/**
- * How long the prompt has before its TTL denies it, in words, counted down
- * on its environment's clock as this window reckons it (`environmentNow`),
- * drawn again every second while it runs; none when it never is.
- */
-const useTtlWords = (environmentId: string, expiresAt: string | null): string | undefined => {
-  const runtime = useRuntime();
-  const clock = useClock();
-  const [tick, redraw] = useReducer((count: number) => count + 1, 0);
-  const remaining = expiresAt === null ? undefined : Date.parse(expiresAt) - runtime.environmentNow(environmentId).getTime();
-  const running = remaining !== undefined && remaining > 0;
-  useEffect(() => {
-    if (!running) return;
-    const timer = clock.setTimeout(redraw, COUNTDOWN_TICK_MS);
-    return () => timer.cancel();
-  }, [clock, running, tick]);
-  return remaining === undefined ? undefined : ttlWords(remaining);
-};
 
