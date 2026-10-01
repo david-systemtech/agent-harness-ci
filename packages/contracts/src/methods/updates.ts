@@ -52,9 +52,10 @@ export const updatesCheck = defineMethod({
 
 /**
  * Update to `version` (the channel's newest, or the pin, when absent), from
- * the artefact at `artefactPath` when given (a local client session's only:
- * `forbidden` with reason `local` from any other; the environment preflights
- * it and downloads nothing), when idle or now. Answered with the update id
+ * the artefact at `artefactPath` when given (an archive, or the folder one is
+ * unpacked in; a local client session's only: `forbidden` with reason
+ * `local` from any other; the environment preflights it and downloads
+ * nothing), when idle or now. Answered with the update id
  * and its target. `not_found` when there is no such release or no artefact
  * for this platform; `conflict` with a reason of `UPDATE_CONFLICT_REASONS`.
  * Managed outside, it makes a pending update for the host-side updater.
@@ -66,7 +67,8 @@ export const updatesApply = defineMethod({
   params: commandParams({
     version: ReleaseVersion.optional().meta({ description: "The version to update to; absent, the channel's newest, or the pinned version." }),
     artefactPath: z.string().min(1).optional().meta({
-      description: "The path of an artefact of that version on the environment's machine, from a local client session only: the desktop's bundled one, or update apply's.",
+      description:
+        "The path of an artefact of that version on the environment's machine, from a local client session only: an archive (update apply's), or the folder one is unpacked in (the desktop's bundled one), which the environment copies.",
     }),
     when: UpdateWhen,
   }),
