@@ -89,7 +89,7 @@ describe("the Your machines card in Set up", () => {
     expect(within(part("laptop", "Reachability")).queryByText(TAILSCALE_WARNING)).toBeNull();
   });
 
-  it("says in place of the Tailscale warning that a Tailscale address installed since is found and binds at the machine's next start, until Check again finds it bound (#861)", async () => {
+  it("says in place of the Tailscale warning that a Tailscale address installed since is found and binds at the machine's next start, until Check again finds it bound", async () => {
     const app = await opened();
     const laptop = app.environment("laptop");
     const reachability = () => part("laptop", "Reachability");
