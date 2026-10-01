@@ -603,6 +603,7 @@ import {
   BankRole,
   BankStatus,
 } from "./bank-registry.js";
+import { BankJoinPreview } from "./bank-join.js";
 import { BankIndexConflict, BankReadOnlyError, BankRequiredError, ValidationFailedError } from "./methods/banks.js";
 import { BANK_VALIDATOR_RULES, BankFinding, BankManifest, BankName, BankRuleId, BankValidatorRule, BankVerdict, MemoryFrontmatter, OrgFile, ScopeFile } from "./banks.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
@@ -1090,6 +1091,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "banks/status.json", title: "BankStatus", schema: BankStatus },
   { path: "banks/entry.json", title: "BankEntry", schema: BankEntry },
   { path: "banks/record.json", title: "BankRecord", schema: BankRecord },
+  { path: "banks/join-preview.json", title: "BankJoinPreview", schema: BankJoinPreview },
   { path: "banks/conflict-reason.json", title: "BankConflictReason", schema: BankConflictReason },
   { path: "banks/index-conflict.json", title: "BankIndexConflict", schema: BankIndexConflict },
   ...Object.entries(BANK_EVENT_PAYLOADS).map(([type, payload]) => ({

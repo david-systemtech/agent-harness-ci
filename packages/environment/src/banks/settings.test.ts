@@ -9,6 +9,7 @@ import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvi
 import type { WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
 import { createBankService } from "./bank-service.js";
+import { createScrubRegistry } from "../scrub/registry.js";
 
 const { onCleanup, tempDir } = useCleanups();
 const start = async (options: TestEnvironmentOptions = {}) => {
@@ -171,7 +172,7 @@ describe("bank registry settings through the wire", () => {
     const t = await start();
     const client = await t.client();
     const bank = await registered(client, PERSONAL_BANK);
-    const pins = createBankService({ log: t.env.log, clock: t.clock, environmentId: t.env.id, dataDir: t.dataDir, forge: t.env.forge, credentials: { git: (_bankId, request) => t.env.forge.git({ ...request, repository: bank.checkout, cwd: request.cwd ?? bank.checkout }) } });
+    const pins = createBankService({ log: t.env.log, clock: t.clock, environmentId: t.env.id, dataDir: t.dataDir, forge: t.env.forge, scrub: createScrubRegistry(), credentials: { git: (_bankId, request) => t.env.forge.git({ ...request, repository: bank.checkout, cwd: request.cwd ?? bank.checkout }) } });
     const sessionId = randomUUID();
     const pointer = "maya-memory:personal/homelab/";
     await update(client, bank, { pins: [pointer] });
@@ -194,7 +195,7 @@ describe("bank registry settings through the wire", () => {
     const t = await start();
     const client = await t.client();
     const bank = await managedBank(t, client);
-    t.env.log.registerProjector({ name: "abort-bank-forget", tables: {}, apply(event) { if (event.type === "bank.forgotten") throw new Error("Abort this transaction."); } });
+    t.env.log.registerProjector({ name: "abort-bank-forget", tables: {}, apply(event) { if (event.type === "bank.forgotten" && event.payload.bankId === bank.id) throw new Error("Abort this transaction."); } });
     await expect(client.request("banks.forget", { commandId: randomUUID(), bankId: bank.id, removeCheckout: true })).rejects.toMatchObject({ code: "internal" });
     expect((await client.request("banks.get", { bankId: bank.id })).bank.id).toBe(bank.id);
     expect(existsSync(join(bank.checkout, "BANK.md"))).toBe(true);
@@ -202,7 +203,7 @@ describe("bank registry settings through the wire", () => {
   });
 
   it("restores a checkout staged by an interruption before the forget committed", async () => {
-    const t = await start();
+    const t = await start({ dataDir: tempDir("bank-removal-restart-") });
     const client = await t.client();
     const bank = await managedBank(t, client);
     const staged = join(t.dataDir, "bank-checkout-removals", bank.id);
@@ -215,7 +216,7 @@ describe("bank registry settings through the wire", () => {
   });
 
   it("finishes a staged checkout removal after its forget committed before an interruption", async () => {
-    const t = await start();
+    const t = await start({ dataDir: tempDir("bank-removal-restart-") });
     const client = await t.client();
     const bank = await managedBank(t, client);
     const staged = join(t.dataDir, "bank-checkout-removals", bank.id);

@@ -6,6 +6,7 @@ export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bank-templates.js";
 export * from "./banks.js";
+export * from "./bank-join.js";
 export * from "./bank-registry.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";

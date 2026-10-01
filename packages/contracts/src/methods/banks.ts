@@ -1,14 +1,15 @@
 import { z } from "zod";
+import { BankJoinPreview } from "../bank-join.js";
+import { CredentialUnavailableError } from "../git-credential.js";
+import { ForgeAccountMissingError, ForgeOwner, ForgeUnreachableError, KindUnsupportedError, VerificationFailedError } from "./forge.js";
+import { ForgeAccountId } from "../forge-accounts.js";
+import { SecretShapedError } from "../shape-rules.js";
 import { AccountId } from "../accounts.js";
 import { BankAccountScope, BankFolderPointer, BankId, BankRecord, BankRepositoryScope, BankRole, BankUpdatedPayload } from "../bank-registry.js";
 import { BankFinding, BankName, BankRuleId } from "../banks.js";
-import { ForgeAccountId } from "../forge-accounts.js";
-import { CredentialUnavailableError } from "../git-credential.js";
-import { KindUnsupportedError, ForgeAccountMissingError, ForgeOwner, ForgeUnreachableError, VerificationFailedError } from "./forge.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
 import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError, ReferenceProviderUnavailableError, KeyManagerReference } from "../key-managers.js";
-import { SecretShapedError } from "../shape-rules.js";
 import { RepositoryIdentity } from "../repository-identity.js";
 import { SessionId } from "../sessions.js";
 
@@ -160,6 +161,31 @@ export const banksForget = defineMethod({
   params: commandParams({ bankId: BankId, removeCheckout: z.boolean().optional().meta({ description: "Remove the BankService's checkout too; false when absent. A registered checkout is never removed." }) }),
   result: z.object({ bankId: BankId, checkoutRemoved: z.boolean() }),
   errors: [],
+});
+
+/** Shallow temporary clone under the git budget: preview never registers or attaches the bank. */
+export const banksJoinPreview = defineMethod({
+  name: "banks.join.preview",
+  scope: "read",
+  kind: "query",
+  params: z.object({ url: z.string().min(1).max(2048) }),
+  result: BankJoinPreview,
+  errors: [ValidationFailedError, ForgeAccountMissingError, CredentialUnavailableError, ForgeUnreachableError, KindUnsupportedError],
+});
+
+/** Joins with exactly the selected accounts; none are preset, and a join becomes no account's default. */
+export const banksJoin = defineMethod({
+  name: "banks.join",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    bankId: BankId,
+    url: z.string().min(1).max(2048),
+    accounts: z.array(AccountId).meta({ description: "Exactly the accounts ticked by the teammate, none preset; an empty selection attaches to no account." }),
+    repositories: BankRepositoryScope,
+  }),
+  result: z.object({ bank: BankRecord }),
+  errors: [ValidationFailedError, ForgeAccountMissingError, CredentialUnavailableError, ForgeUnreachableError, KindUnsupportedError],
 });
 
 /** A fallback token sent once, only when no forge account serves the bank's origin. */

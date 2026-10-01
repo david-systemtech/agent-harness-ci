@@ -11,6 +11,7 @@ import {
   type BankEntry,
   type BankIndexConflict,
   type BankLocation,
+  type BankJoinPreview,
   type BankManifestStatus,
   type BankRecord,
   type BankStatus,
@@ -21,8 +22,8 @@ import { readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/c
 import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
+import { joinBank, previewBank } from "./join.js";
 import { createBankCommand } from "./create.js";
-import type { ForgeOperations } from "../forge/operations.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandContext, CommandRejection, MethodHandler, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
@@ -38,7 +39,7 @@ import { readPointer, renderFixedTiers } from "./index-renderer.js";
 /**
  * The BankService's registry part (banks spec, "The registry" and "The
  * BankService's methods"; ADR 0010, ADR 0035, ADR 0036, ADR 0037; #1025, #1026): it
- * registers and updates banks, keeps session pins, forgets banks with
+ * previews, joins, registers and updates banks, keeps session pins, forgets banks with
  * optional removal of its own checkout, verifies enabled banks, and answers
  * the records with their status, counts and rendered bank line. A bank's
  * files are read as committed at its checkout's head (`bank-files.ts`),
@@ -201,8 +202,9 @@ export interface BankServiceOptions {
   readonly clock: Clock;
   readonly environmentId: string;
   readonly dataDir: string;
+  readonly scrub: Pick<ScrubRegistry, "check">;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
-  readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
+  readonly forge: Pick<ForgeService, "repositories" | "pullRequests" | "users" | "git">;
   readonly credentials: Pick<BankCredentials, "git">;
   readonly creation?: {
     readonly dataDir: string;
@@ -223,6 +225,7 @@ export interface BankService {
   entries(): readonly { readonly entry: BankEntry; readonly index: BankIndex | null }[];
   /** Verifies one bank, or every enabled one, joining a verification of every one running; answers the records after. */
   verify(bankId?: string): Promise<BankRecord[]>;
+  preview(url: string): Promise<BankJoinPreview>;
   /** Records a fetch outcome and refreshes the cached reading; only a moved head emits bank.synced. */
   recordSync(bankId: string, outcome: { readonly head: string; readonly previousHead: string | null } | { readonly problem: string }): Promise<void>;
   readonly register: PreparedCommand<"banks.register">;
@@ -231,6 +234,7 @@ export interface BankService {
   readonly forget: PreparedCommand<"banks.forget">;
   /** This session's own pins for the BankLayer and renderer, separate from every entry's registry pins. */
   sessionPins(sessionId: string): readonly string[];
+  readonly join: PreparedCommand<"banks.join">;
   readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
 }
@@ -603,6 +607,8 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     pin,
     forget,
     sessionPins: (sessionId) => sessionBankPins(reader, sessionId),
+    preview: (url) => previewBank(options, url),
+    join: joinBank({ ...options, register: { prepare: (params) => prepareRegister(params, false, "managed") } }),
     create,
   };
 };

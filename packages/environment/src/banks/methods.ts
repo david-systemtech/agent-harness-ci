@@ -11,8 +11,11 @@ import type { BankService } from "./bank-service.js";
  * `runs:drive`. Checkout reads and validation are prepared outside the
  * command transaction. The rules are the BankService's.
  * Sync pulls through the Syncer at `read`.
+ * Preview uses a temporary clone; joining prepares a validated full clone.
  */
 export const bankMethods = (banks: BankService, credentials: BankCredentials, syncer: BankSyncer): MethodHandlers => ({
+  "banks.join": banks.join,
+  "banks.join.preview": async (params) => banks.preview(params.url),
   "banks.list": async () => ({ banks: await banks.list() }),
   "banks.get": async (params) => {
     const bank = await banks.get(params.bankId);

@@ -54,6 +54,12 @@ export type ForgeReply<T> =
   /** The forge could not answer now: no answer, a server error, a rate limit. */
   | { readonly outcome: "unreachable"; readonly message: string };
 
+/** This repository's access, read with this operation's credential, never inferred from account-wide capabilities. */
+export interface ForgeRepositoryCapabilities {
+  readonly canRead: boolean;
+  readonly canPush: boolean;
+}
+
 /** A repository as the harness reads one. */
 export interface ForgeRepository {
   /** The origin it is on. */
@@ -171,6 +177,8 @@ export interface ForgeProvider {
   repositories(origin: ForgeOrigin, token: string, limit: number, call?: CallOptions): Promise<ListAnswer<string>>;
   /** Reads the repository `fullName` (`owner/name`); with no token, anonymously. */
   repository(origin: ForgeOrigin, token: string | null, fullName: string, call?: CallOptions): Promise<ForgeReply<ForgeRepository>>;
+  /** Reads read/push permissions for this repository; absent push permission is false. */
+  repositoryCapabilities(origin: ForgeOrigin, token: string | null, fullName: string, call?: CallOptions): Promise<ForgeReply<ForgeRepositoryCapabilities>>;
   /** Reads the organisation `name`: whether the token sees it. */
   organisation(origin: ForgeOrigin, token: string, name: string, call?: CallOptions): Promise<ForgeReply<null>>;
   /** Reads the user `login`: whether the forge has one by that login (a team bank's owner, #1025). */
@@ -502,6 +510,13 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
     readReleases: (origin, token, fullName, call) => probe(origin, `/repos/${repositoryPath(fullName)}/releases?${dialect.pageSize}=1`, token, call),
 
     repositories,
+
+    repositoryCapabilities: async (origin, token, fullName, call) =>
+      replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository permissions", (body) => {
+        if (repositoryOn(origin)(body) === null) return null;
+        const permissions = field(body, "permissions");
+        return { canRead: field(permissions, "pull") !== false, canPush: token !== null && field(permissions, "push") === true };
+      }),
 
     repository: async (origin, token, fullName, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository", repositoryOn(origin)),
 
