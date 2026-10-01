@@ -217,12 +217,12 @@ describe("a Claude process's environment", () => {
       { PATH: "/usr/bin", BWS_SERVER_URL: "https://stray.example", BWS_PROFILE: "stray-profile-for-tests", BWS_CONFIG_FILE: "/home/someone/.bws/config" },
       "/data/accounts/work",
       {},
-      { BWS_ACCESS_TOKEN: "token-for-tests", BWS_CONFIG_FILE: "/data/key-manager-cli/bitwarden-a/config", BWS_PROFILE: "default" },
+      { BWS_ACCESS_TOKEN: "token-for-tests", BWS_CONFIG_FILE: "/data/key-manager-cli/bitwarden-a/config", BWS_PROFILE: "agent-harness" },
     );
     expect(Object.entries(env).filter(([name]) => name.startsWith("BWS_"))).toEqual([
       ["BWS_ACCESS_TOKEN", "token-for-tests"],
       ["BWS_CONFIG_FILE", "/data/key-manager-cli/bitwarden-a/config"],
-      ["BWS_PROFILE", "default"],
+      ["BWS_PROFILE", "agent-harness"],
     ]);
   });
 

@@ -45,7 +45,7 @@ it.runIf(process.platform !== "win32")("tools.verify runs bws project list with 
   expect(await client.request("tools.verify", { tool: "bws" })).toMatchObject({ outcome: "passed" });
   const [call, ...more] = cli.calls();
   expect(more).toEqual([]);
-  expect(call).toMatchObject({ command: ["project", "list"], profile: "default", serverUrl: null, server: "https://bitwarden.test", mode: 0o600, saw: { BWS_PROFILE: "default", BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN } });
+  expect(call).toMatchObject({ command: ["project", "list"], profile: "agent-harness", serverUrl: null, server: "https://bitwarden.test", mode: 0o600, saw: { BWS_PROFILE: "agent-harness", BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN } });
   expect(Object.keys(call?.saw ?? {}).sort()).toEqual(["BWS_ACCESS_TOKEN", "BWS_CONFIG_FILE", "BWS_PROFILE"]);
   // The verify command's own folder under the CLI directory: its configuration, read through the option bws 0.3.0 needs, and the state bws 1.0.0 and later keep.
   const folder = dirname(call?.configFile ?? "");
@@ -82,7 +82,7 @@ it.runIf(process.platform !== "win32")("a session's provider process runs the do
   const folder = dirname((await spawned?.supplied)?.["BWS_CONFIG_FILE"] ?? "");
   expect(dirname(folder)).toBe(join(t.dataDir, "key-manager-cli"));
   expect(await spawned?.writable).toEqual([folder]);
-  expect(cli.calls()).toMatchObject([{ command: ["secret", "list"], profile: "default", server: "https://bitwarden.test", stateFile: join(folder, "state", "access-token-id-for-tests") }]);
+  expect(cli.calls()).toMatchObject([{ command: ["secret", "list"], profile: "agent-harness", server: "https://bitwarden.test", stateFile: join(folder, "state", "access-token-id-for-tests") }]);
   expect(existsSync(join(home, ".bws"))).toBe(false);
   await t.close();
   await t.env.keyManagerConnections.settled();

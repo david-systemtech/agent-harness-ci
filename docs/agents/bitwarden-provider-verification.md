@@ -27,7 +27,7 @@ fake `bws` parses its options as 0.3.0 does, so a test proves the block's file
 and profile are what `bws` reads, never the host's.
 The state file was settled in [#1141](https://git.systemtech.dev:5526/david/agent-harness/issues/1141):
 each holder gets its own folder, `key-manager-cli/bitwarden-<random>`, whose
-`config` holds one profile, `default`, naming the connection's server and the
+`config` holds one profile, `agent-harness`, naming the connection's server and the
 folder's `state` under both `state_dir` (1.0.0 on) and `state_file_dir` (0.4
 and 0.5). The block names that file and profile and no server URL, and a
 Claude process inherits no `BWS_*`. The fake `bws` now resolves the profile,

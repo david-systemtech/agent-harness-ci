@@ -3,8 +3,13 @@ import { join } from "node:path";
 
 export const BITWARDEN_BLOCK_NAMES = ["BWS_ACCESS_TOKEN", "BWS_CONFIG_FILE", "BWS_PROFILE"] as const;
 
-/** The one profile in a holder's configuration file, which bws also falls back to when no profile is named. */
-const BWS_PROFILE_NAME = "default";
+/**
+ * The one profile in a holder's configuration file. Not `default`, the one
+ * bws falls back to: below 0.5.0 a command without `--config-file` reads the
+ * host's `~/.bws/config`, where a named profile it lacks is refused, never
+ * swapped for the host's `default` with its server and state folder.
+ */
+const BWS_PROFILE_NAME = "agent-harness";
 
 /**
  * A TOML basic string: JSON's escapes are TOML's, the quote, the backslash

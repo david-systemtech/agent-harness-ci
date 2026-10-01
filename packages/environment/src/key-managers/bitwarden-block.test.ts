@@ -24,7 +24,8 @@ const posix = describe.runIf(process.platform !== "win32");
 
 const SECRET_ID = "00000000-0000-4000-8000-000000000000";
 const ADDRESS = "https://bitwarden.test";
-const HOST_CONFIG = '[profiles.stray-profile-for-tests]\nserver_base = "https://stray.test"\n';
+/** The host's own configuration, with a `default` profile, the one bws falls back to when no profile is named. */
+const HOST_CONFIG = '[profiles.default]\nserver_base = "https://stray.test"\n\n[profiles.stray-profile-for-tests]\nserver_base = "https://stray.test"\n';
 /** Every release the fake models, from the 0.3 floor. */
 const RELEASES: FakeBwsVersion[] = ["0.3.0", "0.4.0", "0.5.0", "1.0.0", "2.0.0", "2.1.0"];
 /** The access token id the fake names a state file after for the suites' plain token. */
@@ -65,25 +66,27 @@ posix("the documented bws invocation", () => {
           command,
           configFile: join(holder, "config"),
           mode: 0o600,
-          profile: "default",
+          profile: "agent-harness",
           serverUrl: null,
           server: ADDRESS,
           stateFile,
         })),
       );
-      expect(block).toEqual({ BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN, BWS_CONFIG_FILE: join(holder, "config"), BWS_PROFILE: "default" });
+      expect(block).toEqual({ BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN, BWS_CONFIG_FILE: join(holder, "config"), BWS_PROFILE: "agent-harness" });
       for (const call of cli.calls()) expect(call.argv.join(" ")).not.toContain(BITWARDEN_TEST_TOKEN);
       expect(existsSync(join(home, ".bws", "state"))).toBe(false);
       expect(readFileSync(join(home, ".bws", "config"), "utf8")).toBe(HOST_CONFIG);
     },
   );
 
-  it("is needed: bws 0.3.0 binds no variable to its configuration file, so without the option it reads the host's ~/.bws/config, which lacks the block's profile", async () => {
-    const { cli, home, shell } = await hostWithBlock("0.3.0");
+  it("is needed: below 0.5.0 bws binds no variable to its configuration file, so without the option it reads the host's ~/.bws/config, and refuses the block's profile it lacks rather than take the host's default one", async () => {
+    for (const version of ["0.3.0", "0.4.0"] as const) {
+      const { cli, home, shell } = await hostWithBlock(version);
 
-    expect(() => shell("bws project list")).toThrow(/The specified profile does not exist/);
+      expect(() => shell("bws project list")).toThrow(/The specified profile does not exist/);
 
-    expect(cli.calls()).toMatchObject([{ command: ["project", "list"], configFile: join(home, ".bws", "config"), config: HOST_CONFIG, profile: "default" }]);
+      expect(cli.calls()).toMatchObject([{ command: ["project", "list"], configFile: join(home, ".bws", "config"), config: HOST_CONFIG, profile: "agent-harness", server: null, stateFile: null }]);
+    }
   });
 
   it("is needed: from 1.0.0 a server URL makes the profile from itself alone, reading no configuration, so bws keeps its state under the host's ~/.bws/state", async () => {
