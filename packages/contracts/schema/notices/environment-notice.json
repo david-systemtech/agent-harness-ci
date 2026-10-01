@@ -2713,7 +2713,7 @@
                   "minLength": 1,
                   "maxLength": 256,
                   "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
-                  "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+                  "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount; for 1Password a vault's name (harness), each entry an item in it."
                 },
                 {
                   "type": "null"

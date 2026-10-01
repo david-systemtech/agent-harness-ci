@@ -19,7 +19,8 @@ import { EnvironmentId, Timestamp } from "./primitives.js";
 
 /**
  * A key manager's address: OpenBao's or Vault's URL, Doppler's API host,
- * Bitwarden's URL; an origin as `HTTP_ORIGIN` keeps one, which
+ * Bitwarden's URL, 1Password's account URL as its service-account token
+ * names it; an origin as `HTTP_ORIGIN` keeps one, which
  * `httpOriginOf` reads a typed URL into. One connection per provider and
  * address.
  */
@@ -115,7 +116,7 @@ export type KeyManagerLoginPolicy = z.infer<typeof KeyManagerLoginPolicy>;
 
 /** Where Move keeps the harness's secrets on a connection: for OpenBao, a KV mount and one project segment, as `personal/harness`. */
 export const KeyManagerBasePath = segments(
-  "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount.",
+  "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount; for 1Password a vault's name (harness), each entry an item in it.",
 );
 export type KeyManagerBasePath = z.infer<typeof KeyManagerBasePath>;
 
@@ -257,7 +258,7 @@ export const KeyManagerConnectionRecord = z
     basePath: KeyManagerBasePath.nullable().meta({ description: "Where Move keeps the harness's secrets; null until one is set." }),
     suggestedBasePath: KeyManagerBasePath.nullable().meta({
       description:
-        "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification. Null once a base path is set, and while the provider suggests none.",
+        "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification; for 1Password, the vault harness. Null once a base path is set, and while the provider suggests none.",
     }),
     injects: z.boolean().meta({
       description:
@@ -265,12 +266,13 @@ export const KeyManagerConnectionRecord = z
     }),
     injectedVariables: z.array(z.string().min(1)).meta({
       description:
-        "The names of the variables every provider process and terminal receives from this connection while it injects (for OpenBao, its block in both the BAO_ and VAULT_ families); names only, never a value. Empty for a connection that does not inject, or whose provider's block this version does not give yet.",
+        "The names of the variables every provider process and terminal receives from this connection while it injects (for OpenBao, its block in both the BAO_ and VAULT_ families; for 1Password, the OP_ block); names only, never a value. Empty for a connection that does not inject, or whose provider's block this version does not give yet.",
     }),
     status: KeyManagerStatus,
     tokenInformation: KeyManagerTokenInformation.nullable().meta({ description: "What the login's lookup said of its token; null while it is not signed in." }),
     canMint: z.boolean().nullable().meta({
-      description: "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them.",
+      description:
+        "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them, and for a provider that mints none (1Password, whose runs are given the connection's own token).",
     }),
     verifiedAt: Timestamp.nullable().meta({
       description: "When the connection was last verified, whatever that found; null until it has been. It moves with every verification, where the status's since-time moves only when the status changes.",

@@ -159,6 +159,8 @@ export interface TestEnvironmentOptions {
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
+  /** The 1Password SDK double (#378); preset: the official SDK, which no test signs in to. */
+  readonly onePasswordSdk?: EnvironmentOptions["onePasswordSdk"];
   /** The vault the environment holds; preset: the file vault in the data directory on every platform, so no test reaches the OS keychain. */
   readonly vault?: EnvironmentOptions["vault"];
   /** The Move sources registered at start (`test/move-sources.ts` scripts one); preset: the environment's own, the forge's. */
@@ -406,6 +408,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     },
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
+    ...(options.onePasswordSdk !== undefined && { onePasswordSdk: options.onePasswordSdk }),
     vault: options.vault ?? fileVault(join(dataDir, VAULT_FILE)),
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),

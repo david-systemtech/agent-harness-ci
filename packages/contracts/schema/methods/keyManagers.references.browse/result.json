@@ -9,7 +9,7 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "The names under the path, in the key manager's order: a folder's, or a mount's, ending in /. Never a value."
+      "description": "The names under the path, in the key manager's order: a folder's, a mount's, a 1Password vault's or item's, ending in /. Never a value."
     }
   },
   "required": [

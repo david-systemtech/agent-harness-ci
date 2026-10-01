@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import type { SuppliedVariables } from "../adapter/contract.js";
@@ -8,6 +8,7 @@ import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
+import { onePasswordBlock } from "./onepassword-block.js";
 import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
@@ -21,9 +22,14 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * through.
  *
  * - **What is injected**: each injecting OpenBao connection's block
- *   (`openbao-block.ts`), at most one per provider (the connections' rule);
- *   the other providers' blocks join with their tickets (#377 to #379).
- *   With none, nothing is supplied and the key is empty.
+ *   (`openbao-block.ts`) and 1Password connection's (`onepassword-block.ts`,
+ *   #378), at most one per provider (the connections' rule); the other
+ *   providers' blocks join with their tickets (#377, #379). With none,
+ *   nothing is supplied and the key is empty.
+ * - **1Password** mints nothing: a holder is given the connection's own
+ *   service-account token while it is signed in, registered with the scrub
+ *   registry for the holder's life, and a 0700 configuration directory of
+ *   its own in the key-manager CLI directory, deleted when it stops.
  * - **The key** names, per injected connection, its id, its credential
  *   generation and its status, and while run tokens are its login's
  *   children (no token role) its login generation (#369), never a token: a
@@ -84,6 +90,9 @@ export const OPENBAO_CONFIG_FILE = "openbao.hcl";
 
 /** The harness's token helper the configuration names, beside it (#716). */
 export const OPENBAO_TOKEN_HELPER_FILE = "openbao-token-helper";
+
+/** What each holder's 1Password configuration directory in the key-manager CLI directory is named from: `op-` and a random suffix (#378). */
+export const ONEPASSWORD_CONFIG_PREFIX = "op-";
 
 /** A connection that injects, as the supplier reads it: its record as it stands, its credential generation, and its login generation (#369). */
 export interface InjectingConnection {
@@ -158,8 +167,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
 
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
-  /** The injecting connections this supplier serves: OpenBao's. */
-  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao");
+  /** The injecting connections this supplier serves: OpenBao's and 1Password's. */
+  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "onepassword");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
@@ -289,11 +298,31 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     return run;
   };
 
+  /**
+   * A 1Password connection's block for the holder (#378): its own token
+   * while it is signed in, registered for scrubbing until the holder stops,
+   * and a 0700 configuration directory of the holder's own, deleted then.
+   */
+  const onePasswordBlockFor = async (record: KeyManagerConnectionRecord, login: MintingLogin | null): Promise<SuppliedVariables> => {
+    await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
+    const configDirectory = await mkdtemp(join(options.cliDirectory, ONEPASSWORD_CONFIG_PREFIX));
+    const token = record.status.kind === "signed-in" && login !== null ? login.token : "";
+    const registered = token === "" ? () => undefined : scrub.register(token, { owner: `key-manager:${record.id}:holder` });
+    return {
+      variables: onePasswordBlock({ token, configDirectory }),
+      release: () => {
+        registered();
+        background.run(rm(configDirectory, { recursive: true, force: true }).catch((error: unknown) => console.error(`Deleting the 1Password CLI directory ${configDirectory} failed:`, error)));
+      },
+    };
+  };
+
   /** The block of one injecting connection for the holder, once its sign-in under way has ended or been waited for, with its run token and that token's release; null for a connection no longer held. */
   const blockFor = async (connectionId: string, waited: Promise<void>, scope: ProcessEnvironmentScope, configPath: string): Promise<SuppliedVariables | null> => {
     await waited;
     const now = source.readable(connectionId);
     if (now === null) return null;
+    if (now.record.provider === "onepassword") return onePasswordBlockFor(now.record, now.login);
     const run = await mintFor(now.record, now.login, scope);
     return {
       variables: openBaoBlock({ address: now.record.address, ca: now.record.ca, token: run?.token ?? "", configPath }),
@@ -309,9 +338,14 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     key() {
       const injecting = served();
       if (injecting.length === 0) return "";
-      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it.
+      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it, and 1Password's token is the connection's own.
       return JSON.stringify(
-        injecting.map(({ record, generation, loginGeneration }) => ({ id: record.id, generation, ...(record.tokenRole === null && { login: loginGeneration }), status: record.status.kind })),
+        injecting.map(({ record, generation, loginGeneration }) => ({
+          id: record.id,
+          generation,
+          ...(record.provider === "openbao" && record.tokenRole === null && { login: loginGeneration }),
+          status: record.status.kind,
+        })),
       );
     },
 
@@ -320,7 +354,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       if (injecting.length === 0) return NOTHING;
       // The five seconds run from the spawn: each wait starts before anything is awaited.
       const waits = injecting.map(({ record }) => waitForSignIn(record.id, scope));
-      const configPath = await configuration();
+      const configPath = injecting.some(({ record }) => record.provider === "openbao") ? await configuration() : "";
       const blocks = (await Promise.all(injecting.map(({ record }, index) => blockFor(record.id, waits[index] ?? Promise.resolve(), scope, configPath)))).filter(
         (given) => given !== null,
       );

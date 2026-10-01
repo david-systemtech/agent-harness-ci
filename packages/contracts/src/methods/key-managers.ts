@@ -24,6 +24,7 @@ import {
   KeyManagerProvider,
   KeyManagerReference,
   KeyManagerReferenceProblem,
+  OnePasswordReference,
   OpenBaoReference,
   ReferenceDeniedError,
   ReferenceNotFoundError,
@@ -150,12 +151,16 @@ export const keyManagersList = defineMethod({
  * sign-in, to every policy of the login. A second connection for the same
  * provider and address is `conflict` (reason `connection_exists`); an id
  * used before is `conflict` (reason `exists`). A credential for a provider
- * this environment cannot sign in to is `provider_unavailable`. An address
- * that is no http or https origin, a CA that is no certificate, a base path
- * other than a KV mount and one segment, a credential of another method than
- * the connection's, a userpass login without a username, OpenBao's settings
- * on another provider, or both `copiedFrom` and `importedFrom`, is
- * `invalid_params`.
+ * this environment cannot sign in to is `provider_unavailable`. 1Password
+ * (#378) signs in with a service-account token, by listing the vaults it
+ * may see, and its address is the account URL the token names, learned at
+ * sign-in: an add with a token gives no address, and one without (a copy or
+ * an import) gives the account URL. An address that is no http or https
+ * origin, or missing where it is needed, a CA that is no certificate, a
+ * base path other than a KV mount and one segment (OpenBao) or a vault's
+ * name (1Password), a credential of another method than the connection's,
+ * a userpass login without a username, OpenBao's settings on another
+ * provider, or both `copiedFrom` and `importedFrom`, is `invalid_params`.
  */
 export const keyManagersConnectionsAdd = defineMethod({
   name: "keyManagers.connections.add",
@@ -165,7 +170,15 @@ export const keyManagersConnectionsAdd = defineMethod({
     connectionId: KeyManagerConnectionId,
     provider: KeyManagerProvider,
     label: KeyManagerLabel,
-    address: z.string().min(1).max(2048).meta({ description: "The key manager's URL: only its origin is kept." }),
+    address: z
+      .string()
+      .min(1)
+      .max(2048)
+      .optional()
+      .meta({
+        description:
+          "The key manager's URL: only its origin is kept. Required, except for a 1Password connection given a token, whose address is the account URL the token names, learned at sign-in.",
+      }),
     ca: KeyManagerCa.optional().meta({ description: "The CA to pin, as PEM, which a person accepted; absent for none. OpenBao only." }),
     method: KeyManagerAuthMethod.optional().meta({ description: "How it signs in; preset: the credential's method. OpenBao only, and required there without a credential." }),
     mount: KeyManagerMount.optional().meta({ description: "Where the method is mounted; preset: the method's name. OpenBao only." }),
@@ -192,7 +205,8 @@ export const keyManagersConnectionsAdd = defineMethod({
  * `username` for userpass (preset: the one held). The login it replaces is
  * revoked, and the replaced credential's vault entry deleted, once the
  * change has committed. Refused `provider_unavailable` for a provider this
- * environment cannot sign in to.
+ * environment cannot sign in to. A 1Password token for another account than
+ * the connection's address is `verification_failed` reason `rejected`.
  */
 export const keyManagersConnectionsSignIn = defineMethod({
   name: "keyManagers.connections.signIn",
@@ -214,7 +228,8 @@ export const keyManagersConnectionsSignIn = defineMethod({
  * with the credential held: refused as `signIn` refuses, changing nothing;
  * a connection with no credential changes at once. A `null` CA or token role
  * clears it. An address another connection of the provider holds is
- * `conflict` (reason `connection_exists`).
+ * `conflict` (reason `connection_exists`). A 1Password connection's address
+ * is its account's, learned at sign-in, so a new one is `invalid_params`.
  */
 export const keyManagersConnectionsUpdate = defineMethod({
   name: "keyManagers.connections.update",
@@ -350,10 +365,13 @@ export const keyManagersReferencesCheck = defineMethod({
  * no mount, the KV mounts the login can see, each ending in `/`; with a
  * mount, an OpenBao list of the path under it (the mount's top without
  * one), a folder's name ending in `/`, whichever KV version the mount is.
- * Refused as a resolve is: `credential_source_unavailable`,
- * `reference_not_found` for a path with nothing under it,
- * `reference_denied`. A connection the environment does not hold is
- * `not_found`; a path without a mount is `invalid_params`.
+ * For 1Password (#378), with no vault, the vaults the service account can
+ * see, each ending in `/`; with a vault, its items' titles, each ending in
+ * `/`; with an item too, the item's fields' titles. Refused as a resolve
+ * is: `credential_source_unavailable`, `reference_not_found` for a path
+ * with nothing under it, `reference_denied`. A connection the environment
+ * does not hold is `not_found`; a path without a mount, an item without a
+ * vault, or another provider's location is `invalid_params`.
  */
 export const keyManagersReferencesBrowse = defineMethod({
   name: "keyManagers.references.browse",
@@ -362,10 +380,12 @@ export const keyManagersReferencesBrowse = defineMethod({
   params: z.object({
     connectionId: KeyManagerConnectionId,
     mount: OpenBaoReference.shape.mount.optional().meta({ description: "The KV mount to list in, as personal or secret/team; absent to list the mounts. OpenBao only." }),
-    path: OpenBaoReference.shape.path.optional().meta({ description: "The path under the mount to list, as harness; absent for the mount's top." }),
+    path: OpenBaoReference.shape.path.optional().meta({ description: "The path under the mount to list, as harness; absent for the mount's top. OpenBao only." }),
+    vault: OnePasswordReference.shape.vault.optional().meta({ description: "The vault whose items are listed, by name or id; absent to list the vaults. 1Password only." }),
+    item: OnePasswordReference.shape.item.optional().meta({ description: "The item in the vault whose fields are listed, by name or id; absent to list the vault's items. 1Password only." }),
   }),
   result: z.object({
-    names: z.array(z.string().min(1)).meta({ description: "The names under the path, in the key manager's order: a folder's, or a mount's, ending in /. Never a value." }),
+    names: z.array(z.string().min(1)).meta({ description: "The names under the path, in the key manager's order: a folder's, a mount's, a 1Password vault's or item's, ending in /. Never a value." }),
   }),
   errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
 });

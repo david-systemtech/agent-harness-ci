@@ -9,8 +9,10 @@ import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy,
  * write access to a path and writing a value there (#371), and minting a
  * run token from a login and renewing it (#368), which it revokes as it
  * revokes a login, with itself; a login renews itself the same way, and its
- * lookup says how long it may live (#369). The other kinds join the
- * interface with the tickets that use them (#377 to #379). A provider never
+ * lookup says how long it may live (#369). 1Password (`onepassword.ts`,
+ * #378) answers the same calls through its SDK with a service-account
+ * token, which mints, renews and revokes nothing; the other kinds join the
+ * interface with the tickets that use them (#377, #379). A provider never
  * disables TLS verification: a pinned CA is the only trust it adds.
  */
 
@@ -96,7 +98,8 @@ export type VerifyAnswer =
       readonly outcome: "verified";
       readonly information: KeyManagerTokenInformation;
       readonly root: boolean;
-      readonly canMint: boolean;
+      /** Null for a provider that mints no run tokens: its runs are given the connection's own token. */
+      readonly canMint: boolean | null;
       readonly policies: readonly KeyManagerLoginPolicy[];
     }
   | LoginFailure;
@@ -110,7 +113,12 @@ export interface VerifyOptions {
 /** What a read of a reference answered: its value, or why there is none. */
 export type ReadAnswer = { readonly outcome: "read"; readonly value: string } | ProviderFailure;
 
-/** Where a list looks: a KV mount and a path under it, null for the mount's top; no mount lists the mounts. */
+/**
+ * Where a list looks: for OpenBao a KV mount and a path under it, null for
+ * the mount's top, no mount listing the mounts; for 1Password a vault
+ * (`mount`) and an item in it (`path`), no vault listing the vaults and no
+ * item the vault's items.
+ */
 export interface ListLocation {
   readonly mount: string | null;
   readonly path: string | null;
@@ -119,7 +127,7 @@ export interface ListLocation {
 /** What a list answered: the names under the location, a folder's or a mount's ending in `/`; never a value. */
 export type ListAnswer = { readonly outcome: "listed"; readonly names: readonly string[] } | ProviderFailure;
 
-/** Where a secret sits for a write or a write check (#371): a KV mount and a path under it. */
+/** Where a secret sits for a write check (#371): a KV mount and a path under it; for 1Password a vault (`mount`) and an item's title (`path`). */
 export interface SecretLocation {
   readonly mount: string;
   readonly path: string;
@@ -161,6 +169,14 @@ export type MintAnswer = { readonly outcome: "minted"; readonly token: string } 
 export type RenewAnswer = { readonly outcome: "renewed"; readonly ttlSeconds: number } | LoginFailure;
 
 export interface ConnectionProvider {
+  /**
+   * The address `credential` names for itself, for a provider whose
+   * connection's address is learned at sign-in rather than given: the
+   * account URL a 1Password service-account token names. Null for a
+   * credential that names none, which the key manager would refuse. Absent
+   * for a provider whose address is given.
+   */
+  addressOf?(credential: KeyManagerCredential): string | null;
   /** Logs in at the target's mount with `credential`, whose method is the target's: a token is its own login. */
   logIn(target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<LogInAnswer>;
   /** Looks the login's token up with itself. */
