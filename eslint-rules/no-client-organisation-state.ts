@@ -80,6 +80,7 @@ export const PRESENTATION_KEYS: readonly string[] = [
   "runLocalEnvironment",
   "settingsRow",
   "sideColumns",
+  "browserPartitions",
   "sidebarShown",
   "sidebarView",
   "sidebarWidth",

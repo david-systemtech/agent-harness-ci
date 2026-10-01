@@ -20,6 +20,7 @@ import type { CommandRejection, MethodHandlers } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { listStoredEndpoints, storedEndpoint, type EndpointResult, type StoredEndpoint } from "./endpoint-store.js";
+import type { DeliveryEndpoint } from "./webhook-delivery.js";
 import { postWebhook } from "./webhook-post.js";
 
 /**
@@ -124,6 +125,8 @@ type EndpointMethodName = "routines.endpoints.set" | "routines.endpoints.remove"
 export interface RoutineEndpoints {
   /** Deletes the vault entries no endpoint with a pasted secret holds: a removal's delete that never ran. Never rejects. */
   start(): Promise<void>;
+  /** Resolves the endpoint and its secret per delivery; #536 adds reference resolution here. */
+  resolve(name: string): Promise<DeliveryEndpoint>;
   readonly handlers: Required<Pick<MethodHandlers, EndpointMethodName>>;
 }
 
@@ -170,6 +173,15 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
       } catch (error) {
         console.error("Deleting the vault entries of webhook endpoints that are gone failed; the next start tries again:", error);
       }
+    },
+
+    async resolve(name) {
+      const endpoint = storedEndpoint(reader, name);
+      if (endpoint === null) return { error: `No webhook endpoint ${name} is on this environment.`, retryable: false };
+      if (endpoint.secretKind === "reference") return { error: `The webhook endpoint ${name}'s secret reference could not be resolved.`, retryable: true };
+      const secret = endpoint.secretKind === "pasted" ? await vault.get(secretEntry(name)) : undefined;
+      if (secret === undefined) return { error: `The webhook endpoint ${name} has no secret.`, retryable: false };
+      return { url: endpoint.url, secret };
     },
 
     handlers: {

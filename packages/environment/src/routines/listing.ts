@@ -14,6 +14,7 @@ import { accountByIdentity } from "../accounts/account-store.js";
 import { EVERY_MODE, clampMode, startingMode } from "../permissions/resolver.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { storedEndpoint } from "./endpoint-store.js";
 import type { StoredRoutine } from "./routine-store.js";
 
 /**
@@ -23,8 +24,9 @@ import type { StoredRoutine } from "./routine-store.js";
  * attention follows an account's change without a save. The account, model
  * and clamp attention are here, `failing` while the failure streak is not
  * zero (#523), and `script_missing` while no file is at a script
- * pre-check's path in the scripts directory (#526); the endpoints', skills'
- * and deliveries' are the tickets' that add them. The next due time is the
+ * pre-check's path in the scripts directory (#526). Endpoint and delivery
+ * attention read the stored endpoints and each target's latest result (#529).
+ * Skills' attention is the ticket's that adds it. The next due time is the
  * scheduler's (#527): the first after the later of `handledThrough` and now.
  */
 
@@ -52,7 +54,7 @@ export interface RoutineSurroundings extends RoutineAccounts {
 /** What a routine's effective mode and attention read: its definition, the ceiling it is saved under and its failure streak. */
 export interface RoutineFacts {
   readonly definition: RoutineDefinition;
-  readonly state: Pick<RoutineState, "savedUnderCeiling" | "failureStreak">;
+  readonly state: Pick<RoutineState, "savedUnderCeiling" | "failureStreak"> & Partial<Pick<RoutineState, "id">>;
 }
 
 /**
@@ -71,13 +73,26 @@ const effectiveMode = (routine: RoutineFacts, account: AccountFacts | null, unat
 };
 
 /** Each attention code that holds, in the codes' own order. */
-const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution, scriptPresent: RoutineSurroundings["scriptPresent"]): RoutineAttention[] => {
-  const { model, preCheck } = routine.definition;
+const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution, where: RoutineSurroundings): RoutineAttention[] => {
+  const { model, preCheck, delivery } = routine.definition;
+  const targets = delivery.filter((target) => target.kind === "webhook");
+  const endpoints = targets.map((target) => storedEndpoint(where.reader, target.target));
   const holds: Partial<Record<RoutineAttention, boolean>> = {
     account_missing: account === null,
     account_signed_out: account !== null && !account.signedIn,
     model_unavailable: account !== null && model !== null && !account.models.some((option) => option.id === model),
-    script_missing: preCheck?.kind === "script" && !scriptPresent(preCheck.path),
+    script_missing: preCheck?.kind === "script" && !where.scriptPresent(preCheck.path),
+    endpoint_missing: endpoints.some((endpoint) => endpoint === null),
+    endpoint_needs_secret: endpoints.some((endpoint) => endpoint?.secretKind === "missing"),
+    delivery_failing: routine.state.id !== undefined && targets.some((target) => {
+      const last = where.reader.all<{ result: string }>(
+        `SELECT json_extract(d.value, '$.result') AS result FROM routine_entries e, json_each(e.entry, '$.deliveries') d
+         WHERE e.routine_id = ? AND json_extract(d.value, '$.target.kind') = 'webhook'
+         AND json_extract(d.value, '$.target.target') = ? AND json_extract(d.value, '$.target.on') = ?
+         ORDER BY e.position DESC LIMIT 1`, routine.state.id!, target.target, target.on,
+      )[0];
+      return last?.result === "failed";
+    }),
     clamped: mode.clamped,
     failing: routine.state.failureStreak > 0,
   };
@@ -87,7 +102,7 @@ const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: 
 /** What a routine saved as `routine` would need attention for here, as `routines.list` would show it: an import's warnings (#528). */
 export const routineAttention = (routine: RoutineFacts, where: RoutineSurroundings, unattendedMode: UnattendedMode): RoutineAttention[] => {
   const account = routineAccount(routine.definition.account, where);
-  return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode), where.scriptPresent);
+  return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode), where);
 };
 
 /**
@@ -106,5 +121,5 @@ export const listRoutine = (routine: StoredRoutine, where: RoutineSurroundings, 
   const account = routineAccount(routine.definition.account, where);
   const mode = effectiveMode(routine, account, unattendedMode);
   const due = routineNextDueAt(routine, now);
-  return { definition: routine.definition, state: routine.state, nextDueAt: due?.toISOString() ?? null, mode, attention: attentionOf(routine, account, mode, where.scriptPresent) };
+  return { definition: routine.definition, state: routine.state, nextDueAt: due?.toISOString() ?? null, mode, attention: attentionOf(routine, account, mode, where) };
 };

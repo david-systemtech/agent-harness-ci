@@ -25,9 +25,9 @@ import { z } from "zod";
  */
 
 /**
- * The eleven places a key means what it means: the reference keymap's eight
+ * The twelve places a key means what it means: the reference keymap's eight
  * (`anywhere` is the handful no component may take) plus the terminal pane,
- * the parked-asks card and the one-line yes or no offers.
+ * the parked-asks card, the one-line yes or no offers and the routines card.
  */
 export const ACTION_CONTEXTS = [
   "anywhere",
@@ -41,11 +41,12 @@ export const ACTION_CONTEXTS = [
   "terminal",
   "asks",
   "confirm",
+  "routines",
 ] as const;
 
 export const ActionContext = z.enum(ACTION_CONTEXTS).meta({
   description:
-    "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context.",
+    "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer), routines (the routines card: the list, a routine's history, the webhook endpoints). A key is claimed at most once per context.",
 });
 export type ActionContext = z.infer<typeof ActionContext>;
 
@@ -69,6 +70,7 @@ export const ACTION_ID_PREFIXES = {
   terminal: "terminal",
   asks: "asks",
   confirm: "confirm",
+  routines: "routines",
 } as const satisfies Record<string, ActionContext>;
 
 const ACTION_ID_PATTERN = new RegExp(`^(${Object.keys(ACTION_ID_PREFIXES).join("|")})(\\.[a-z][A-Za-z]*)+$`);
@@ -375,6 +377,7 @@ const FIND_BAR = notInGui("The GUI has no pager: the transcript's find bar (Mod+
 const SELECTED_TEXT = notInGui("The GUI has no pager: a file's or a document's text is selected and copied in its pane.");
 const PARKED_ASKS = notInGui("The GUI answers parked asks in the Parked asks view, with the pointer.");
 const CONFIRM_DIALOG = notInGui("The GUI asks yes or no in a dialog, with a button for each.");
+const ROUTINES_PANE = notInGui("The GUI's Routines pane has a button for each, with the pointer.");
 const NO_SNIPPETS = notInGui("Typed as text in the GUI: snippets and their slots are the terminal UI's own.");
 
 /** The title of the slash-command group, which the help overlay draws last. */
@@ -590,6 +593,16 @@ export const ACTION_GROUPS = [
     key("asks.close", ["Esc"], "Close, deciding nothing", PARKED_ASKS),
   ]),
   group("A yes or no offer", "confirm", [key("confirm.yes", ["y"], "Yes", CONFIRM_DIALOG), key("confirm.no", ["n", "Esc"], "No", CONFIRM_DIALOG)]),
+  group("The routines", "routines", [
+    key("routines.runNow", ["r"], "Run the routine now", ROUTINES_PANE),
+    key("routines.enable", ["Space"], "Enable the routine, or disable it", ROUTINES_PANE),
+    key("routines.history", ["h"], "Its firings and skips, newest first", ROUTINES_PANE),
+    key("routines.export", ["x"], "Export it to a file, as YAML", ROUTINES_PANE),
+    key("routines.edit", ["e"], "Edit it as YAML in your editor", ROUTINES_PANE),
+    key("routines.endpoint.add", ["a"], "Add a webhook endpoint, or replace one", ROUTINES_PANE),
+    key("routines.endpoint.test", ["t"], "Post a test to the endpoint", ROUTINES_PANE),
+    key("routines.endpoint.remove", ["d"], "Remove the endpoint, once confirmed", ROUTINES_PANE),
+  ]),
   group(SLASH_COMMANDS_TITLE, "composer", [
     command("profile", "/profile", "Switch the account the next conversation runs as", { aliasOf: "command.account" }),
     command("model", "/model", "Choose the model, and its effort where it has one"),
@@ -640,6 +653,11 @@ export const ACTION_GROUPS = [
     }),
     command("fork", "/fork [n]", "Fork this session n prompts back; bare, at the end"),
     command("rewind", "/rewind [n | undo]", "Rewind n prompts, one by default; undo takes the rewind back"),
+    command(
+      "routines",
+      "/routines [new | import <path> | endpoints | test-precheck <name>]",
+      "Every environment's routines: run, enable, history, export and edit; a new one, an import, the webhook endpoints, a pre-check's test",
+    ),
   ]),
 ] as const satisfies readonly ActionGroup[];
 

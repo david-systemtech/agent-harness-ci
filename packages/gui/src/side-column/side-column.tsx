@@ -1,6 +1,9 @@
 import { directoryOf, outsideWorkspace, typedPath } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
 import { useSlashCommand } from "../composer/slash-commands.js";
+import { BrowserPane } from "../browser/browser-pane.js";
+import { useBrowserPanes } from "../browser/browser-panes.js";
+import { useGridPaneId } from "../grid/grid.js";
 import { PreviewPane } from "../preview/preview-pane.js";
 import type { SidePane } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
@@ -48,11 +51,14 @@ export const SideColumnView = ({ environmentId, sessionId }: SideColumnViewProps
   const [files, goFiles] = useState<FilesPlace>(WORKSPACE_TOP);
   const [, say] = usePaneLine();
   const terminals = useTerminalPanes();
+  const browsers = useBrowserPanes();
+  const paneId = useGridPaneId();
   const capabilityOf = (pane: SidePane) => paneCapability(runtime, environmentId, pane);
   const show = (pane: SidePane) => change((held) => showPane(held, pane));
   const close = (pane: SidePane) => {
     // Only the pane's close button closes its terminal: hiding it, or the column, leaves the terminal running.
     if (pane === "terminal") terminals.ask({ environmentId, sessionId }, { kind: "close" });
+    if (pane === "browser" && paneId) browsers.close(paneId, { environmentId, sessionId });
     change((held) => closePane(held, pane));
   };
 
@@ -167,6 +173,8 @@ const PaneBody = ({ pane, environmentId, sessionId, onScreen, files, goFiles, so
       return <DocumentsPane environmentId={environmentId} sessionId={sessionId} source={source} />;
     case "tasks":
       return <TasksPane environmentId={environmentId} sessionId={sessionId} />;
+    case "browser":
+      return <BrowserPane environmentId={environmentId} sessionId={sessionId} onScreen={onScreen} />;
     case "preview":
       return <PreviewPane environmentId={environmentId} sessionId={sessionId} />;
   }
