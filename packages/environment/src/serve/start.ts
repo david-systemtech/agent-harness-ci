@@ -539,8 +539,7 @@ export interface EnvironmentOptions {
   readonly keyManagerTimeoutMs?: number;
   /**
    * The Move sources registered at start (#371): each owning service's
-   * items holding a stored value. Preset: the forge's; banks (#90) and
-   * routine webhook endpoints (#92) join it. Tests script one.
+   * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
    */
   readonly moveSources?: readonly MoveSource[];
   /**
@@ -944,7 +943,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
-      referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId)],
       cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
     });
     closers.push(() => connections.close());
@@ -1589,8 +1588,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     name: () => look.read().name,
     vault,
     denylisted: denylistedHost,
+    connectionLabel: (id) => keyManagerConnections.readable(id)?.record.label ?? null,
+    keyManagers,
     scrub,
   });
+  if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({
