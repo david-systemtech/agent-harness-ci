@@ -138,6 +138,7 @@ describe("projections.browsers against in-process environments", () => {
       ["Default", true],
       ["My Chrome: Work", false],
       ["Headless browser", false],
+      ["No browser", false],
     ]);
     expect(shown.rows[0]?.note).toMatch(/^Currently no browser\. \S/);
 

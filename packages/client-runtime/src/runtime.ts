@@ -158,9 +158,10 @@ export interface Runtime {
      * default with what a null field resolves to, a row for each Chrome
      * paired with this client's local environment or with the session's
      * (connected, or dimmed with the reason), the plain My Chrome where
-     * more than one is paired, the session environment's headless browser
+     * more than one is paired, other known environments' Chromes dimmed
+     * with why this client cannot drive them, the session environment's headless browser
      * with its availability, and the browser dock where the shell has
-     * `webView`; the session's browser marked. From `browser.chromes.list`
+     * `webView`, and explicit no browser; the session's browser marked. From `browser.chromes.list`
      * and `browser.status` in the request cache, fetched while followed and
      * again on `chrome.updated`; the status also on `extension.seen` and on
      * `settings.changed`, since the default and headless rows read its

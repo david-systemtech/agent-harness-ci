@@ -646,6 +646,7 @@ export const ACTION_GROUPS = [
     command("search", "/search <text>", "Search the sessions on every environment"),
     command("terminal", "/terminal", "Open a terminal on the session's environment, in a pane"),
     command("files", "/files [path]", "Browse the workspace's files, and read one in the pager"),
+    command("browser", "/browser", "Choose this session’s browser for its next run, or pair Chrome"),
     command("documents", "/documents", "The pages, SVGs and markdown this session wrote, newest first"),
     command("trust", "/trust [decline]", "Trust this session's repository, or decline its offer", { guiAbsent: "Trust is decided in the session's trust question." }),
     command("notices", "/notices", "Every notice this terminal has shown"),
