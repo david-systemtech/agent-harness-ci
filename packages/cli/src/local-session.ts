@@ -12,9 +12,9 @@ import {
   WIRE_PATH,
   decodeFrame,
   encodeFrame,
-  type Frame,
   formatHostPort,
   registry,
+  type Frame,
   type MethodName,
   type ParamsOf,
   type ResponseFrame,
@@ -76,6 +76,16 @@ export type LocalNotices = (hear: (notice: EnvironmentNotice) => void) => Promis
 
 /** What a verb's work is handed: its calls, and the environment's notices. */
 export type LocalWork<T> = (call: LocalCall, notices: LocalNotices) => Promise<T>;
+
+/** The notices a verb follows: the subscribe request's id, the subscription once the environment names it, and whether its catch-up is over. */
+interface Following {
+  readonly id: string;
+  subscription?: string;
+  live: boolean;
+  readonly hear: (notice: EnvironmentNotice) => void;
+  /** Settles the follow: live, or refused with the error. */
+  readonly ready: (error?: Error) => void;
+}
 
 /** How long the verb waits for the environment at each step: the exchange, the hello, each answer. */
 const WIRE_TIMEOUT_MS = 10_000;
@@ -164,8 +174,7 @@ const overWire = <T>(
     /** The calls awaiting their answer, by request id. */
     const pending = new Map<string, (frame: ResponseFrame) => void>();
     let calls = 0;
-    /** The notices followed: the subscribe request's id, its subscription once the environment names it, and whether catch-up is over. */
-    let following: { readonly id: string; subscription?: string; live: boolean; readonly hear: (notice: EnvironmentNotice) => void; readonly ready: (error?: Error) => void } | undefined;
+    let following: Following | undefined;
     let greeted = false;
     let outcome: Outcome<T> | undefined;
     let settled = false;

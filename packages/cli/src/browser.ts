@@ -105,6 +105,9 @@ const pairingWait = (context: Pick<BrowserContext, "stdout" | "clock">) => {
     }
   };
 
+  /** How long `live` has left on the machine's clock. */
+  const leftOn = (live: LiveCode): number => Date.parse(live.expiresAt) - context.clock.now().getTime();
+
   /**
    * The countdown of `live`: a line at each whole minute left, then, at its
    * expiry, the environment's next code. `above` is the minute last said, so
@@ -112,7 +115,7 @@ const pairingWait = (context: Pick<BrowserContext, "stdout" | "clock">) => {
    */
   const countdown = (call: LocalCall, live: LiveCode, above = Number.POSITIVE_INFINITY) => {
     if (ended) return;
-    const left = Date.parse(live.expiresAt) - context.clock.now().getTime();
+    const left = leftOn(live);
     const mark = Math.max(0, Math.min(above - MINUTE_MS, (Math.ceil(left / MINUTE_MS) - 1) * MINUTE_MS));
     timer = context.clock.setTimeout(() => {
       if (mark === 0) return void renew(call, live);
@@ -122,7 +125,7 @@ const pairingWait = (context: Pick<BrowserContext, "stdout" | "clock">) => {
   };
 
   const show = (call: LocalCall, live: LiveCode, intro: string) => {
-    say(`${intro}\n\n  ${live.code}\n\nIt is good for ${clockTime(Date.parse(live.expiresAt) - context.clock.now().getTime())}.\n`);
+    say(`${intro}\n\n  ${live.code}\n\nIt is good for ${clockTime(leftOn(live))}.\n`);
     countdown(call, live);
   };
 
