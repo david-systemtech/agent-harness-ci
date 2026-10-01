@@ -1,5 +1,45 @@
 @import "tailwindcss";
 
+/* The desktop preload's camera modal uses the same theme as the client window. */
+.shell-camera {
+  margin: auto;
+  padding: 1.5rem;
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--panel);
+  color: var(--ink);
+}
+.shell-camera::backdrop {
+  background: var(--abyss);
+  opacity: 0.8;
+}
+.shell-camera h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.shell-camera p {
+  margin-block: 0.75rem;
+}
+.shell-camera video {
+  width: 100%;
+  max-height: 55vh;
+  background: var(--inset);
+}
+.shell-camera button {
+  margin-top: 0.75rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.375rem;
+  background: var(--raised);
+}
+.shell-camera button:focus-visible {
+  outline: 2px solid var(--beam);
+  outline-offset: 2px;
+}
+
 /*
  * Every colour is a token (ADR 0023). The theme package derives each token from the
  * home environment's theme and the window paints it on the root as a CSS variable

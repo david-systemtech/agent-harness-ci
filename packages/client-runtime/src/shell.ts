@@ -362,8 +362,8 @@ export interface ShellGh {
 /**
  * A camera the platform gives the window (the Set up spec, "Add a machine";
  * #577): Add a machine offers Scan a QR where there is one, and says it is
- * absent where there is not. No desktop platform of this build gives the
- * window one.
+ * absent where there is not. The desktop discovers video inputs before
+ * mounting the client and supplies a modal scanner (#845).
  */
 export interface ShellCamera {
   /** Reads one QR code with the camera: the text it encodes (a pairing link), or undefined when the person closes the camera first. */

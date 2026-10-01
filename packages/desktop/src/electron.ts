@@ -100,6 +100,14 @@ export interface ConsoleMessage {
   readonly sourceId: string;
 }
 
+/** The frame and kind of media Electron is checking or asking to open. */
+export interface MediaPermissionDetails {
+  readonly isMainFrame: boolean;
+  readonly requestingUrl?: string;
+  readonly mediaType?: string;
+  readonly mediaTypes?: readonly string[];
+}
+
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
   /**
@@ -112,8 +120,12 @@ export interface ElectronContents {
   on(name: "console-message", listener: (details: ConsoleMessage) => void): unknown;
   setWindowOpenHandler(handler: (details: { readonly url: string }) => { action: "deny" }): void;
   send(channel: string, ...args: unknown[]): void;
-  /** The window's Chromium profile; the desktop reads its request hook only. */
-  readonly session: { readonly webRequest: { onBeforeRequest(listener: RequestListener): void } };
+  /** The window's Chromium profile: request lockdown and camera permission handlers. */
+  readonly session: {
+    readonly webRequest: { onBeforeRequest(listener: RequestListener): void };
+    setPermissionCheckHandler(handler: (contents: ElectronContents | null, permission: string, origin: string, details: MediaPermissionDetails) => boolean): void;
+    setPermissionRequestHandler(handler: (contents: ElectronContents, permission: string, answer: (allowed: boolean) => void, details: MediaPermissionDetails) => void): void;
+  };
 }
 
 /** The window the renderer loads in: `BrowserWindow`. */

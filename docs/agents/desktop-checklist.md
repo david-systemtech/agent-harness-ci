@@ -84,9 +84,10 @@ checkout, after `pnpm install`:
    something the window keeps (drag the sidebar's divider), quit and start
    again: it is kept, so IndexedDB has a stable origin.
 3. **The sandbox.** `typeof require`, `typeof process` and `typeof module` are
-   `"undefined"`. `Object.keys(desktopShell)` lists exactly `window`,
+   `"undefined"`. `Object.keys(await desktopShell.ready())` lists `window`,
    `dialogs`, `clipboard`, `openExternal`, `system`, `http`, `network`,
-   `deepLinks`, `secrets`, `localGrant`, `service` and `preview`; nothing
+   `deepLinks`, `secrets`, `localGrant`, `service`, `preview`, `update`,
+   `installer`, `gh` and `webView`, plus `camera` when a video input is present; nothing
    named `ipcRenderer` is reachable.
 4. **The content policy.** `eval("1")` throws a content-policy error;
    `document.head.append(Object.assign(document.createElement("script"), { textContent: "window.ran = 1" }))`
@@ -126,6 +127,30 @@ checkout, after `pnpm install`:
 13. **system.** `system()` answers this machine's platform (`darwin`, `linux`
     or `win32`), architecture, hostname and login name.
 14. **Closing.** Closing the window quits the app.
+
+## Scan a pairing QR (#845)
+
+Run on macOS, Windows and Linux with a camera; also launch once with no video
+input. Camera discovery happens before the GUI mounts, so restart after
+connecting or removing a camera for this check.
+
+1. On another machine, show a fresh pairing QR on its screen. In Settings,
+   Your machines, Add a machine, choose **Scan a QR**. The camera preview
+   opens in a modal, with Cancel and instructions. Accept the OS's camera
+   prompt if shown (macOS's packaged desktop names why it needs the camera).
+2. Point the camera at the other screen. One QR closes the preview and
+   exchanges its pairing link; confirm the new machine's card.
+   The camera's activity light goes off after reading the QR.
+3. Scan again, then Cancel, Escape, and close the desktop during capture.
+   Each releases the camera; Cancel and Escape leave the pairing form as it
+   was. Cancel while the permission prompt is pending too: accepting it
+   later must not reopen the preview or keep the camera on.
+4. Deny OS camera access. The form shows the failure and stays usable; after
+   granting access in the OS's privacy settings, try scanning again.
+5. With no video input at launch, Add a machine gives the shell.camera
+   absence line and offers no Scan a QR button. Audio inputs alone do not
+   provide the member. A camera on Windows or Linux scans the same QR without
+   relying on Chromium's BarcodeDetector.
 
 ## The terminal pane under the content policy (#409, #486)
 
