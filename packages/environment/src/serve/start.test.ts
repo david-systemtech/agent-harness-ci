@@ -406,6 +406,46 @@ describe("the environment record and the signing key", () => {
 });
 
 describe("the startup gate", () => {
+  it.each([false, true])("refuses a marked restore before touching the database, with launcher present: %s", async (present) => {
+    const dataDir = join(tempDir(), "data");
+    const seeded = await start({ dataDir });
+    await seeded.close();
+    const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
+    const marker = JSON.stringify({ updateId, fromVersion: "0.4.0", toVersion: "0.5.0", stage: "trial", reason: "interrupted" });
+    writeFileSync(join(dataDir, "restore-marker.json"), marker);
+    // A cut-short copy may leave sidecars that SQLite must never replay or remove.
+    writeFileSync(join(dataDir, "environment.db-wal"), "a WAL partly copied back");
+    writeFileSync(join(dataDir, "environment.db-shm"), "a shm partly copied back");
+    const files = ["environment.db", "environment.db-wal", "environment.db-shm", "restore-marker.json"];
+    const before = files.map((file) => readFileSync(join(dataDir, file)));
+    const launcher = recordingLauncher();
+    const failure = start({
+      dataDir,
+      launcher: { ...launcher.channel, present: () => present },
+      containerDetector: { inContainer: () => true, declared: () => true },
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(StartupError);
+    await expect(failure).rejects.toMatchObject({
+      step: "database",
+      message: expect.stringContaining(`The restore of update ${updateId} is unfinished; run agent-harness update restore to finish it before starting the environment.`),
+    });
+    expect(files.map((file) => readFileSync(join(dataDir, file)))).toEqual(before);
+    expect(launcher.signals).toEqual(["close"]);
+  });
+
+  it.each(["{", "", JSON.stringify({ updateId: "not-an-update" })])("refuses an unreadable restore marker without creating a database: %j", async (marker) => {
+    const dataDir = tempDir();
+    writeFileSync(join(dataDir, "restore-marker.json"), marker);
+
+    await expect(start({ dataDir })).rejects.toMatchObject({
+      step: "database",
+      message: expect.stringContaining("agent-harness update restore"),
+    });
+    expect(existsSync(join(dataDir, "environment.db"))).toBe(false);
+    expect(readFileSync(join(dataDir, "restore-marker.json"), "utf8")).toBe(marker);
+  });
+
   it("signals prepared once, after the listener is bound, while readiness is still starting", async () => {
     let address: Address | undefined;
     const seenAtSignal: unknown[] = [];
