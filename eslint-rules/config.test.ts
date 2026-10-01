@@ -94,6 +94,7 @@ describe("the lint configuration", () => {
     const colour = "agent-harness/no-literal-colour";
     const script = `export const edge = "1px solid #fff";\n`;
     const stylesheet = `.edge { border: 1px solid #fff; }\n`;
+    const markup = `<svg viewBox="0 0 8 8"><path fill="#fff" d="M0 0h8v8z" /></svg>\n`;
 
     it.each([
       "packages/gui/src/sidebar.tsx",
@@ -109,6 +110,20 @@ describe("the lint configuration", () => {
       "runs in the painting package's stylesheet %s, through ESLint's CSS language",
       async (file) => {
         expect(await ruleIds(file, stylesheet)).toEqual([colour]);
+      },
+    );
+
+    it.each(["packages/gui/index.html", "packages/gui/src/assets/logo.svg", "packages/desktop/src/splash.html", "packages/desktop/resources/mark.svg", "packages/web/index.html", "packages/web/public/logo.svg"])(
+      "runs in the painting package's SVG asset or HTML document %s, through html-eslint's HTML language",
+      async (file) => {
+        expect(await ruleIds(file, markup)).toEqual([colour]);
+      },
+    );
+
+    it.each(["packages/extension/src/options.html", "packages/browser/test/fixtures/plain-article.html", "packages/tui/assets/logo.svg", "packages/theme/src/icon.svg"])(
+      "leaves %s alone: the rule reads the painting packages' documents only",
+      async (file) => {
+        expect(await ruleIds(file, markup)).not.toContain(colour);
       },
     );
 
