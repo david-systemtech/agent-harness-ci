@@ -161,6 +161,37 @@ describe("sending", () => {
 });
 
 describe("the draft", () => {
+  it("never saves a terminal command or its prefixes when typed one character at a time", async () => {
+    const { app } = await launch();
+    for (const key of "/pin") {
+      await app.type(key);
+      await app.jump(DRAFT_DEBOUNCE_MS + 100);
+      expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+    }
+    await app.press(KEY.enter);
+    await app.waitUntil(() => paramsOf(app, "sessions.pin").length === 1, "the pin command to run");
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+  });
+
+  it("saves a slash-prefixed message once words follow the first slash word", async () => {
+    const { app } = await launch();
+    for (const key of "/usr/bin") await app.type(key);
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+    for (const key of " is broken") await app.type(key);
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    await app.waitUntil(() => paramsOf(app, "sessions.setDraft").length === 1, "the slash-prefixed message to be saved");
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([expect.objectContaining({ sessionId: SESSION, draft: "/usr/bin is broken" })]);
+  });
+
+  it("keeps a terminal command with arguments out of the draft, including the trust command from #516", async () => {
+    const { app } = await launch();
+    await app.type("/trust decline");
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+  });
+
   it("is saved as the session's field a second after the last key", async () => {
     const { app } = await launch();
     await app.type("half a thought");
