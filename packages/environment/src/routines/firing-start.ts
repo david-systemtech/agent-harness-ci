@@ -426,11 +426,15 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     launch(firing);
   };
 
-  /** Takes up waiting firings, in order, while a slot is free. */
+  /** Takes up waiting firings, in order, while a slot is free; one whose take-up fails is logged and the next taken up. */
   const takeUp = (): void => {
     for (let next = waiting[0]; !closing && next !== undefined && held() < MAX_LIVE_FIRINGS; next = waiting[0]) {
       waiting.shift();
-      takeUpOne(next);
+      try {
+        takeUpOne(next);
+      } catch (error) {
+        console.error(`Taking up the firing ${next.firingId} of the routine ${next.routineId} failed:`, error);
+      }
     }
   };
 

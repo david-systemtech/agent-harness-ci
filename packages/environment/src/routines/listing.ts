@@ -95,11 +95,11 @@ export const routineAttention = (routine: RoutineFacts, where: RoutineSurroundin
  * due time after the later of `now` and the latest it handled; null while it
  * is disabled, and for `manual`.
  */
-export const routineNextDueAt = ({ definition, state }: StoredRoutine, now: Date): Date | null => {
-  if (!definition.enabled) return null;
-  const handled = Date.parse(state.handledThrough ?? state.createdAt);
-  return nextDueAt(definition, new Date(Math.max(handled, now.getTime())));
-};
+export const routineNextDueAt = ({ definition, state }: StoredRoutine, now: Date): Date | null =>
+  definition.enabled ? nextDueAt(definition, new Date(Math.max(handledInstant(state), now.getTime()))) : null;
+
+/** The instant through which the routine's due times are handled, in milliseconds: `handledThrough`, else its creation. */
+export const handledInstant = (state: Pick<RoutineState, "handledThrough" | "createdAt">): number => Date.parse(state.handledThrough ?? state.createdAt);
 
 /** The routine as `routines.list` answers it at `now`, under the unattended default and the accounts and scripts as they are now. */
 export const listRoutine = (routine: StoredRoutine, where: RoutineSurroundings, unattendedMode: UnattendedMode, now: Date): ListedRoutine => {

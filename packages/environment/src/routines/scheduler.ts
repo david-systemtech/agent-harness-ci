@@ -4,6 +4,7 @@ import type { EventLog } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { plainSkip, recordSkip, type FiringStarter } from "./firing-start.js";
+import { handledInstant } from "./listing.js";
 import { listStoredRoutines, type StoredRoutine } from "./routine-store.js";
 
 /**
@@ -76,10 +77,7 @@ export const createRoutineScheduler = ({ log, clock, environmentId, firings }: R
     for (const id of handedOn.keys()) if (!present.has(id)) handedOn.delete(id);
     return routines
       .filter((routine) => routine.definition.enabled)
-      .map((routine) => {
-        const handled = Date.parse(routine.state.handledThrough ?? routine.state.createdAt);
-        return { routine, after: Math.max(handled, handedOn.get(routine.state.id) ?? handled) };
-      });
+      .map((routine) => ({ routine, after: Math.max(handledInstant(routine.state), handedOn.get(routine.state.id) ?? -Infinity) }));
   };
 
   /** Hands a due time to the firing starter: the routine's definition and saved ceiling as they are now, its pre-check first. */
@@ -117,17 +115,26 @@ export const createRoutineScheduler = ({ log, clock, environmentId, firings }: R
     if (earliest !== null) timer = clock.setTimeout(sweep, Math.max(0, earliest - now));
   };
 
-  /** Handles every due time owed up to now, each routine's in order, then re-arms. */
+  /** Handles the routine's due times owed up to `now`, in order: those found late through the missed rule, the rest on time. */
+  const handle = (routine: StoredRoutine, after: number, now: number): void => {
+    const due = dueTimesBetween(routine.definition, new Date(after), new Date(now)).map((instant) => instant.getTime());
+    const last = due.at(-1);
+    if (last === undefined) return;
+    handedOn.set(routine.state.id, last);
+    const late = due.filter((instant) => now - instant > MISSED_AFTER_MS);
+    missed(routine, late, now);
+    for (const instant of due.slice(late.length)) fire(routine, instant, "schedule", 1);
+  };
+
+  /** Handles every due time owed up to now, each routine's in order, then re-arms; a routine whose handling fails is logged and the rest go on. */
   function sweep(): void {
     const now = clock.now().getTime();
     for (const { routine, after } of scheduled()) {
-      const due = dueTimesBetween(routine.definition, new Date(after), new Date(now)).map((instant) => instant.getTime());
-      const last = due.at(-1);
-      if (last === undefined) continue;
-      handedOn.set(routine.state.id, last);
-      const late = due.filter((instant) => now - instant > MISSED_AFTER_MS);
-      missed(routine, late, now);
-      for (const instant of due.slice(late.length)) fire(routine, instant, "schedule", 1);
+      try {
+        handle(routine, after, now);
+      } catch (error) {
+        console.error(`Handling the due times of the routine ${routine.state.id} failed:`, error);
+      }
     }
     arm();
   }
