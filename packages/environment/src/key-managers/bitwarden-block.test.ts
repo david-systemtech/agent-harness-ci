@@ -78,10 +78,10 @@ posix("the documented bws invocation", () => {
     },
   );
 
-  it("is needed: bws 0.3.0 binds no variable to its configuration file, so without the option it reads the host's ~/.bws/config", async () => {
+  it("is needed: bws 0.3.0 binds no variable to its configuration file, so without the option it reads the host's ~/.bws/config, which lacks the block's profile", async () => {
     const { cli, home, shell } = await hostWithBlock("0.3.0");
 
-    shell("bws project list");
+    expect(() => shell("bws project list")).toThrow(/The specified profile does not exist/);
 
     expect(cli.calls()).toMatchObject([{ command: ["project", "list"], configFile: join(home, ".bws", "config"), config: HOST_CONFIG, profile: "default" }]);
   });

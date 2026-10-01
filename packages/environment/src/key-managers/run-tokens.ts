@@ -8,7 +8,7 @@ import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
-import { bitwardenBlock } from "./bitwarden-block.js";
+import { bitwardenHolderBlock } from "./bitwarden-block.js";
 import { dopplerBlock } from "./doppler-block.js";
 import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
@@ -22,12 +22,13 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * starts through the same call) is given the injecting connections' blocks
  * through.
  *
- * - **What is injected**: each injecting OpenBao or Doppler connection's
- *   block, at most one per provider. Doppler uses the kept token as it is,
- *   with a private 0700 configuration directory deleted at holder stop,
- *   which it supplies as the holder's to write, so a contained run's
- *   `doppler` can write its configuration and fallback there (#1119).
- *   The remaining providers' blocks join with #378 and #379.
+ * - **What is injected**: each injecting OpenBao, Doppler or Bitwarden
+ *   connection's block, at most one per provider. Doppler and Bitwarden use
+ *   the kept token as it is, each with a private 0700 folder of the holder's
+ *   own deleted at holder stop, which it supplies as the holder's to write,
+ *   so a contained run's `doppler` can write its configuration and fallback
+ *   there (#1119), and `bws` its state file, beside the configuration naming
+ *   the server and that folder (#1141). 1Password's block joins with #378.
  *   With none, nothing is supplied and the key is empty.
  * - **The key** names, per injected connection, its id, its credential
  *   generation and its status, and while run tokens are its login's
@@ -163,7 +164,24 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     if (unregister === undefined) return;
     directories.delete(directory);
     unregister();
-    background.run(rm(directory, { recursive: true, force: true }).catch((error: unknown) => console.error("Deleting a Doppler CLI directory failed:", error)));
+    background.run(rm(directory, { recursive: true, force: true }).catch((error: unknown) => console.error("Deleting a key-manager CLI's holder folder failed:", error)));
+  };
+  /**
+   * A 0700 folder of the holder's own under the CLI directory, deleted at its
+   * release, with the connection as it stands once the folder is made; null,
+   * the folder deleted, for a connection no longer injecting or an
+   * environment closed meanwhile.
+   */
+  const holderFolder = async (connectionId: string, prefix: string) => {
+    await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(options.cliDirectory, prefix));
+    const current = source.readable(connectionId);
+    directories.set(directory, () => {});
+    if (current === null || !current.record.injects || closed) {
+      removeDirectory(directory);
+      return null;
+    }
+    return { directory, current };
   };
   /** How many times each connection's run tokens were all revoked (its sign-outs and removal): a mint under way across one is revoked as it lands. */
   const revocations = new Map<string, number>();
@@ -308,21 +326,26 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     const now = source.readable(connectionId);
     if (now === null) return null;
     if (now.record.provider === "bitwarden") {
-      await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
-      const path = join(options.cliDirectory, "bitwarden.config");
-      await replaceFile(path, "", 0o600);
-      const use = now.record.status.kind === "signed-in" && now.login !== null ? now.login.use() : undefined;
-      return { variables: bitwardenBlock(now.record.address, use === undefined ? "" : now.login?.token ?? "", path), release: () => use?.() };
+      const folder = await holderFolder(connectionId, "bitwarden-");
+      if (folder === null) return null;
+      const { directory, current } = folder;
+      const login = current.record.status.kind === "signed-in" ? current.login : null;
+      const use = login?.use();
+      const release = () => {
+        use?.();
+        removeDirectory(directory);
+      };
+      const variables = await bitwardenHolderBlock(directory, current.record.address, login?.token ?? "").catch((error: unknown) => {
+        release();
+        throw error;
+      });
+      // bws keeps its state file there from 1.0.0, so a contained run's commands may write it too (#1141).
+      return { variables, writable: [directory], release };
     }
     if (now.record.provider === "doppler") {
-      await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
-      const directory = await mkdtemp(join(options.cliDirectory, "doppler-"));
-      const current = source.readable(connectionId);
-      if (current === null || !current.record.injects || closed) {
-        directories.set(directory, () => {});
-        removeDirectory(directory);
-        return null;
-      }
+      const folder = await holderFolder(connectionId, "doppler-");
+      if (folder === null) return null;
+      const { directory, current } = folder;
       const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
       const unregister = token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` });
       directories.set(directory, unregister);

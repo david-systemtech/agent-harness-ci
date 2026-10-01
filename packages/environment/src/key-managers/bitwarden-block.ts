@@ -1,12 +1,42 @@
-export const BITWARDEN_BLOCK_NAMES = ["BWS_ACCESS_TOKEN", "BWS_SERVER_URL", "BWS_CONFIG_FILE", "BWS_PROFILE"] as const;
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-/** Every holder shadows the host's token and profile, including while signed out. */
-export const bitwardenBlock = (address: string, token: string, configPath: string): Record<string, string> => ({
-  BWS_ACCESS_TOKEN: token,
-  BWS_SERVER_URL: address,
-  BWS_CONFIG_FILE: configPath,
-  BWS_PROFILE: "",
-});
+export const BITWARDEN_BLOCK_NAMES = ["BWS_ACCESS_TOKEN", "BWS_CONFIG_FILE", "BWS_PROFILE"] as const;
+
+/** The one profile in a holder's configuration file, which bws also falls back to when no profile is named. */
+const BWS_PROFILE_NAME = "default";
+
+/**
+ * A TOML basic string: JSON's escapes are TOML's, the quote, the backslash
+ * and the control characters escaped, but for DEL, which TOML wants escaped
+ * and JSON leaves as it is.
+ */
+const tomlString = (value: string): string => JSON.stringify(value).replaceAll("\u007f", "\\u007f");
+
+/**
+ * A holder's configuration file (#1141): one profile naming the connection's
+ * server and the holder's state folder. bws through 2.1.0 builds a server
+ * URL's profile from the URL alone, reading no configuration, and from 1.0.0
+ * keeps that profile's state under the host's `~/.bws/state`; so the server
+ * reaches bws through this profile instead, read with the state folder beside
+ * it. The folder is named under both keys bws has had, `state_file_dir` at
+ * 0.4 and 0.5 and `state_dir` from 1.0.0; each release ignores the other's,
+ * its profile denying no unknown field. bws 0.3 keeps no state.
+ */
+const bitwardenConfiguration = (address: string, stateDirectory: string): string =>
+  [`[profiles.${BWS_PROFILE_NAME}]`, `server_base = ${tomlString(address)}`, `state_dir = ${tomlString(stateDirectory)}`, `state_file_dir = ${tomlString(stateDirectory)}`, ""].join("\n");
+
+/**
+ * Writes a holder's configuration into the holder's own folder and answers
+ * its block: the token, that file, and its profile, which shadows any other.
+ * No server URL: one would bypass the file's profile and its state folder.
+ * bws makes the state folder, `state`, beside the file as it needs it.
+ */
+export const bitwardenHolderBlock = async (directory: string, address: string, token: string): Promise<Record<string, string>> => {
+  const configPath = join(directory, "config");
+  await writeFile(configPath, bitwardenConfiguration(address, join(directory, "state")), { mode: 0o600 });
+  return { BWS_ACCESS_TOKEN: token, BWS_CONFIG_FILE: configPath, BWS_PROFILE: BWS_PROFILE_NAME };
+};
 
 /**
  * How bws is told its configuration file (#1123): `BWS_CONFIG_FILE` is bound
