@@ -10,6 +10,7 @@ import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
+import type { ToolServerFactory, ToolServerScope } from "../adapter/seams.js";
 
 /**
  * Readiness through the primary seam (skills spec, "Readiness"; ADR 0009):
@@ -320,6 +321,42 @@ describe("skills.readiness", () => {
 
     expect(keyManagers.requests.map((request) => request.reference)).toEqual([reference, reference]);
     // No run, prompt or message on the session asked anyone for it.
+    expect(t.env.log.head()).toBe(head);
+    expect(t.adapter.runs).toEqual([]);
+  });
+
+  it("passes an mcp check when the tool-server factory gives the session's next run a server of that name, and without a session asks for a new session of the account and workspace", async () => {
+    const linearIn = tempDir();
+    const asked: ToolServerScope[] = [];
+    const toolServers: ToolServerFactory = (scope) => {
+      asked.push(scope);
+      return scope.workspace.path === linearIn ? [{ name: "linear", config: {} }] : [];
+    };
+    const { t, client } = await start({ adapterSeams: { toolServers } });
+    declaring(t, "tracker", [{ kind: "mcp", server: "linear", why: "It files issues through the linear tool server." }]);
+    // The environment's own servers are the factory's too.
+    declaring(t, "browsing", [{ kind: "mcp", server: "browser" }]);
+    const { id } = await create(client, { workspace: { kind: "directory", path: linearIn } });
+    const head = t.env.log.head();
+
+    expect(await readiness(client, { sessionId: id })).toEqual([
+      { name: "browsing", state: "ready", declaredBy: "sidecar" },
+      { name: "tracker", state: "ready", declaredBy: "sidecar" },
+    ]);
+    expect(asked).not.toHaveLength(0);
+    for (const scope of asked) expect(scope).toMatchObject({ sessionId: id, accountId: "claude-max", workspace: { kind: "directory", path: linearIn }, clientTools: [] });
+
+    asked.length = 0;
+    const elsewhere = tempDir();
+    const [tracker] = await readiness(client, at(elsewhere, ["tracker"]));
+    expect(tracker).toMatchObject({ state: "setup-needed", why: "It files issues through the linear tool server." });
+    expect(tracker !== undefined && failures(tracker)).toEqual([["failed", "A new session of this account in this workspace is given no tool server named linear."]]);
+    const [newSession] = asked;
+    expect(newSession).toMatchObject({ accountId: "claude-max", workspace: { kind: "directory", path: elsewhere }, clientTools: [] });
+    expect(newSession?.sessionId).not.toBe(id);
+    expect(await readiness(client, at(linearIn, ["tracker"]))).toEqual([{ name: "tracker", state: "ready", declaredBy: "sidecar" }]);
+
+    // Asking the factory starts no run and records nothing.
     expect(t.env.log.head()).toBe(head);
     expect(t.adapter.runs).toEqual([]);
   });

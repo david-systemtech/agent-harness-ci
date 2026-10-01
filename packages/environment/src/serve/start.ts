@@ -1024,6 +1024,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
+  // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
+  // check asks this (#511), since the caller's tools are its request's alone.
+  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
   closers.push(() => knownEnvironments.close());
@@ -1198,7 +1201,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...hostSeams,
       instructions,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
-      toolServers: (scope) => [browserTools(scope), ...seamServers(scope), ...passthrough.toolServers(scope)],
+      toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1543,6 +1546,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       hostEnv: options.managedTools?.hostEnv ?? process.env,
       clock,
       keyManagers,
+      toolServers: runServers,
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,

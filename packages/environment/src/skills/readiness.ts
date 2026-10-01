@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { lstat, open, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
@@ -17,7 +18,7 @@ import {
   type SkillReadiness,
 } from "@agent-harness/contracts";
 import type { InstructionTarget } from "../adapter/host.js";
-import type { InstructionScope, SkillSetScope } from "../adapter/seams.js";
+import { noToolServers, type InstructionScope, type SkillSetScope, type ToolServerFactory } from "../adapter/seams.js";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
 import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
 import { findOnPath } from "../managed-tools/detection.js";
@@ -81,6 +82,11 @@ export interface SkillReadinessOptions {
   readonly clock: Clock;
   /** The key-manager registry's resolve seam a `secret` check reads its reference through (#312); preset: no key-manager connection, so every reference is unavailable. */
   readonly keyManagers?: KeyManagerRegistry;
+  /**
+   * The tool-server factory a run's servers come from, an `mcp` check's: the environment's own and the seam's, less a
+   * completions request's client tools, which are that request's own. Preset: none.
+   */
+  readonly toolServers?: ToolServerFactory;
   /** Preset: the overlay the contracts ship. */
   readonly overlay?: ReadinessOverlay;
   /** Preset: the hardened runner. */
@@ -210,6 +216,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
   const git = options.git ?? runGit;
   const platform = options.platform ?? process.platform;
   const keyManagers = options.keyManagers ?? noKeyManagerConnections;
+  const toolServers = options.toolServers ?? noToolServers;
   const pathValue = options.hostEnv["PATH"] ?? options.hostEnv["Path"] ?? "";
 
   /** Answers kept per workspace, account and fingerprint: each member's, with when it was checked. */
@@ -353,6 +360,29 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       return failed(`The key-manager reference ${referenceLocator(check.reference)} does not resolve (${answer.code}): ${answer.message}`);
     };
 
+    /**
+     * The names of the servers the factory gives the session's next run, or a new session's first under an id of its
+     * own: a fresh run with no client tools and no browser resolved, as the browser server has one name whichever
+     * browser it drives. Asked once for the call's checks; nothing is started or recorded.
+     */
+    const serverNames = once(async (): Promise<ReadonlySet<string>> => {
+      const servers = toolServers({
+        sessionId: scope.sessionId ?? randomUUID(),
+        runId: randomUUID(),
+        accountId: scope.accountId,
+        workspace: scope.workspace,
+        clientTools: [],
+        browser: { kind: "none" },
+      });
+      return new Set(servers.map((server) => server.name));
+    });
+
+    const mcp = async (check: ReadinessCheckOf<"mcp">): Promise<Outcome> => {
+      if ((await serverNames()).has(check.server)) return null;
+      const run = scope.sessionId === null ? "A new session of this account in this workspace" : "The session's next run";
+      return failed(`${run} is given no tool server named ${check.server}.`);
+    };
+
     const provider = async (check: ReadinessCheckOf<"provider">): Promise<Outcome> => {
       if (check.providers?.includes(descriptor.provider) === true) return null;
       if (check.capability !== undefined && descriptor[check.capability] === true) return null;
@@ -379,7 +409,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
         case "secret":
           return secret(check);
         case "mcp":
-          return Promise.resolve(notEvaluated(check.kind));
+          return mcp(check);
       }
     };
 
