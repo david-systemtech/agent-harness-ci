@@ -27,7 +27,9 @@ import { NAME_KEY, PAIRING_KEY, PORT_OVERRIDE_KEY, readName, readPairing, readPo
  * forgets the pairing and announces again at once. A refusal of its opening
  * (another bridge version's Reload sentence, say) leaves the pairing as it
  * is, and so does a socket that closes with no refusal, as an environment
- * that stops or fails closes it; either is tried again later.
+ * that stops or fails closes it; either is tried again later. A pairing
+ * the options page forgets, for an environment gone for good, closes the
+ * socket the same way, and the worker announces again at once.
  */
 
 /** The alarm that starts a stopped worker, which dials again. */
@@ -345,7 +347,10 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
     return true;
   };
   const onStorageChanged = (changes: Record<string, StorageChange>): void => {
-    if (PORT_OVERRIDE_KEY in changes) redial();
+    if (PORT_OVERRIDE_KEY in changes) return redial();
+    // The options page forgot the pairing: announce at once. A pairing this worker forgets dials again from its socket's close.
+    const pairingChange = changes[PAIRING_KEY];
+    if (pairingChange !== undefined && pairingChange.newValue === undefined && connection?.forgetting === undefined) redial();
   };
   chrome.alarms.onAlarm.addListener(onAlarm);
   chrome.runtime.onMessage.addListener(onPageMessage);

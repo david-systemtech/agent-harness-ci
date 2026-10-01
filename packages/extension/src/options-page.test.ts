@@ -183,6 +183,30 @@ describe("the options page", () => {
     expect(page.document.getElementById("pair-form")?.hidden).toBe(true);
   });
 
+  it("forgets a pairing whose environment is gone for good when told to, and the worker announces at once, so a new code pairs it", async () => {
+    const setup = await setUpPaired();
+    /** Answers a hello as the environment that took the port does, its id another than the pairing's: with a challenge naming itself. */
+    const answerAsAnother = async (socket: PeerSocket) => {
+      expect(await socket.next()).toMatchObject({ type: "hello" });
+      socket.send({ type: "challenge", environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", nonce: "b".repeat(64) });
+      await socket.closed;
+    };
+    await answerAsAnother(await setup.environment.nextSocket());
+    const page = await openPage(setup);
+    await answerAsAnother(await setup.environment.nextSocket());
+    await page.says("status", (text) => text.startsWith("Another environment holds port"));
+    expect(page.document.getElementById("forget")?.hidden).toBe(false);
+
+    page.click("forget-pairing");
+
+    // No time passed on the worker's clock: forgetting made it dial again, and it holds no pairing to say hello with.
+    await announced(setup, await setup.environment.nextSocket());
+    expect(setup.chrome.storage.local.peek("pairing")).toBeUndefined();
+    await page.saysExactly("status", "Connected to Laptop, and not paired. Type the code Laptop shows to pair this Chrome.");
+    expect(page.document.getElementById("pair-form")?.hidden).toBe(false);
+    expect(page.document.getElementById("forget")?.hidden).toBe(true);
+  });
+
   it("wakes a worker waiting to dial again, which dials at once", async () => {
     const setup = await setUp({ started: false });
     const port = setup.environment.port;

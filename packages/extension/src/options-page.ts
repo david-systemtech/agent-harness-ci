@@ -2,13 +2,15 @@ import type { ExtensionChrome } from "./chrome.js";
 import type { PageRequest, PairOutcome } from "./messages.js";
 import { readPortFile, type ReadOwnFile } from "./port.js";
 import { describeStatus, STATUS_KEY, type WorkerStatus } from "./status.js";
-import { isPort, PORT_OVERRIDE_KEY, readName, readPairing, readPortOverride } from "./stored.js";
+import { isPort, PAIRING_KEY, PORT_OVERRIDE_KEY, readName, readPairing, readPortOverride } from "./stored.js";
 
 /**
  * The options page (browser spec, "The extension, its folder and its
  * listener"; ADR 0024): what the worker says of its connection, the pair
  * form while the Chrome holds no pairing, whose code the worker sends as
- * `pair` on its announced socket, and the port: the one the port file
+ * `pair` on its announced socket, the control that forgets the pairing
+ * while it holds one, for an environment gone for good, after which the
+ * worker announces at once, and the port: the one the port file
  * names, and the override for odd cases, which wins while it is set. It
  * reads what the worker keeps in Chrome's storage and draws again on each
  * change; opening it wakes the worker, which dials at once if it has no
@@ -44,6 +46,8 @@ export const startOptionsPage = async (document: Document, { chrome, readOwnFile
   const pairName = element<HTMLInputElement>("pair-name");
   const pairCode = element<HTMLInputElement>("pair-code");
   const pairResult = element("pair-result");
+  const forget = element("forget");
+  const forgetPairing = element<HTMLButtonElement>("forget-pairing");
   const portFile = element("port-file");
   const overrideForm = element<HTMLFormElement>("override-form");
   const override = element<HTMLInputElement>("override");
@@ -65,6 +69,7 @@ export const startOptionsPage = async (document: Document, { chrome, readOwnFile
     if (drawing !== draws) return;
     status.textContent = describeStatus((stored[STATUS_KEY] as WorkerStatus | undefined) ?? { state: "starting" });
     pairForm.hidden = pairing !== undefined;
+    forget.hidden = pairing === undefined;
     portFile.textContent = reading.ok ? `The port file names port ${reading.file.port}, where ${reading.file.environmentName} listens.` : reading.problem;
     overrideLine.textContent =
       overridden === undefined ? "No override is set, so the port file's port is used." : `The override, port ${overridden}, is used while it is set, whatever the port file names.`;
@@ -81,6 +86,11 @@ export const startOptionsPage = async (document: Document, { chrome, readOwnFile
       },
       () => (pairResult.textContent = NO_ANSWER),
     );
+  });
+
+  forgetPairing.addEventListener("click", () => {
+    pairResult.textContent = "";
+    void chrome.storage.local.remove(PAIRING_KEY);
   });
 
   overrideForm.addEventListener("submit", (event) => {

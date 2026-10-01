@@ -225,6 +225,20 @@ describe("a worker that holds a credential", () => {
     });
   });
 
+  it("closes its proved socket and announces again at once when its pairing is removed from storage, as the options page's Forget does", async () => {
+    const setup = await setUpPaired();
+    const socket = await setup.environment.nextSocket();
+    await challenged(setup, socket);
+    socket.send({ type: "ready", policy: POLICY });
+    await statusOnce(setup.chrome, (status) => status.state === "connected");
+
+    await setup.chrome.storage.local.remove("pairing");
+
+    expect((await socket.closed).code).toBe(1000);
+    expect(await (await setup.environment.nextSocket()).next()).toEqual({ type: "announce", protocolVersion: 2, extensionVersion: "1.2.3-test", name: "" });
+    expect(setup.environment.socketCount()).toBe(2);
+  });
+
   it("forgets its pairing and announces again at once when its proof is refused", async () => {
     const setup = await setUpPaired();
     const socket = await setup.environment.nextSocket();
