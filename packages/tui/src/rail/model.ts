@@ -4,6 +4,7 @@ import {
   type HeadingKind,
   type HeadingRow,
   type HeadingsInput,
+  type MergedGroupHeading,
   type SessionHeading,
 } from "@agent-harness/client-runtime";
 import { headingState, nameOf } from "../view.js";
@@ -35,6 +36,8 @@ export interface RailHeading {
   readonly environmentId: string | null;
   /** How many commands wait in the outbox for the environment (an environment's heading). */
   readonly pendingCommands: number;
+  /** A merged group's heading: the group, with the member group on each environment its rename and delete target; null for the others. */
+  readonly group: MergedGroupHeading | null;
 }
 
 export interface RailRow extends HeadingRow {
@@ -65,7 +68,9 @@ export interface RailInput extends HeadingsInput {
 const headingLines = (heading: SessionHeading, input: RailInput): RailLine[] => {
   const count = heading.block.rows.length;
   if (heading.kind !== "environment") {
-    return [{ kind: "heading", key: heading.key, heading: heading.kind, text: heading.text, count, folded: heading.folded, pending: heading.pending, dim: false, environmentId: null, pendingCommands: 0 }];
+    return [
+      { kind: "heading", key: heading.key, heading: heading.kind, text: heading.text, count, folded: heading.folded, pending: heading.pending, dim: false, environmentId: null, pendingCommands: 0, group: heading.group },
+    ];
   }
   const view: EnvironmentView = heading.environment;
   const line: RailHeading = {
@@ -79,6 +84,7 @@ const headingLines = (heading: SessionHeading, input: RailInput): RailLine[] => 
     dim: heading.dim,
     environmentId: view.environmentId,
     pendingCommands: view.pendingCommands,
+    group: null,
   };
   if (input.matches !== null) return [line];
   const notes: RailNote[] = [];

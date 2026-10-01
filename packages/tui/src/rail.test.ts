@@ -439,6 +439,126 @@ describe("each row key issues its command once with a command id, the row pendin
   });
 });
 
+describe("a merged group's heading: one command per member group, each on its own environment (#752)", () => {
+  /** Rubs the typed picker's query out, one Backspace per character. */
+  const erase = (app: RenderedApp, typed: string) => app.press(...[...typed].map(() => KEY.backspace));
+
+  it("R renames it from a typed picker holding the name: one groups.rename per environment, the heading pending until the receipts", async () => {
+    const app = await two();
+    await focusRail(app);
+    await headingTo(app, "Brandsolidate");
+    await app.waitFor("R renames it, D deletes it");
+    const release = app.environment("laptop").list.hold("groups.rename");
+    await app.press("R");
+    await app.waitFor("Rename the group “Brandsolidate”");
+    await app.waitFor("› Brandsolidate");
+    await erase(app, "Brandsolidate");
+    await app.type("Brand ops");
+    await app.waitFor("Rename it “Brand ops”");
+    await app.press(KEY.enter);
+    await app.waitFor("Renamed the group “Brandsolidate” to “Brand ops”.");
+    expect(sent(app, "desk", "groups.rename").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK, name: "Brand ops" }]);
+    expect(sent(app, "laptop", "groups.rename").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP, name: "Brand ops" }]);
+    await app.waitFor("▾ Brand ops pending");
+    release();
+    await app.waitUntil(() => railOf(app.frame()).includes("▾ Brand ops"), "the pending word gone");
+    expect(railOf(app.frame()).slice(3, 6)).toEqual(["▾ Brand ops", "  DE · Brand copy", "  LA · Brand on laptop"]);
+    expect(app.environment("desk").list.groups().find((g) => g.id === G_BRAND_DESK)?.name).toBe("Brand ops");
+    expect(app.environment("laptop").list.groups().find((g) => g.id === G_BRAND_LAPTOP)?.name).toBe("Brand ops");
+  });
+
+  it("R offers no rename to the name each member group has, keeps the heading's casing for one that differs in case, and wants a group's heading", async () => {
+    const app = await two({
+      desk: {
+        sessions: [
+          { id: FIX, title: "Fix the rail", pinnedAt: at(-30), pinOrderKey: "m" },
+          { id: SPARE, title: "Spare", groupId: G_OPS },
+          { id: COPY, title: "Brand copy", groupId: G_BRAND_DESK },
+        ],
+      },
+    });
+    await focusRail(app);
+    await cursorTo(app, "Train tidy");
+    await app.press("R");
+    await app.waitFor("Put the cursor on a group's heading first.");
+    await headingTo(app, "Pinned");
+    await app.press("D");
+    await app.waitFor("Put the cursor on a group's heading first.");
+    await headingTo(app, "Ops");
+    await app.press("R");
+    await app.waitFor("Rename it “Ops” (it has that name)");
+    await app.press(KEY.enter);
+    await app.waitFor("Rename it “Ops”: it has that name.");
+    await erase(app, "Ops");
+    await app.waitFor("A group needs a name.");
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("Rename the group"), "the picker closed");
+    // laptop's is "brandsolidate": the heading's own casing renames it there.
+    await headingTo(app, "Brandsolidate");
+    await app.press("R");
+    await app.waitFor("Rename the group “Brandsolidate”");
+    await app.waitFor("Rename it “Brandsolidate”");
+    expect(app.frame()).not.toContain("(it has that name)");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("Rename the group"), "the picker closed");
+    expect(sent(app, "desk", "groups.rename")).toEqual([]);
+    expect(sent(app, "laptop", "groups.rename")).toEqual([]);
+  });
+
+  it("D deletes it after one confirm: n cancels, y sends one groups.delete per environment, its sessions staying in no group", async () => {
+    const app = await two();
+    await focusRail(app);
+    await headingTo(app, "Brandsolidate");
+    await app.press("D");
+    await app.waitFor("Delete the group “Brandsolidate” on desk and laptop? Its sessions stay, in no group. y/n");
+    await app.press("n");
+    await app.waitFor("Not deleted.");
+    expect(sent(app, "desk", "groups.delete")).toEqual([]);
+    await app.press("D");
+    await app.waitFor("y/n");
+    await app.press("y");
+    await app.waitFor("Deleted the group “Brandsolidate”.");
+    expect(sent(app, "desk", "groups.delete").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK }]);
+    expect(sent(app, "laptop", "groups.delete").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP }]);
+    await app.waitUntil(() => !railOf(app.frame()).some((line) => line.includes("Brandsolidate")), "the heading gone");
+    const rail = railOf(app.frame());
+    expect(rail.indexOf("  DE · Brand copy")).toBeGreaterThan(rail.indexOf("desk"));
+    expect(rail.indexOf("  LA · Brand on laptop")).toBeGreaterThan(rail.indexOf("laptop"));
+  });
+
+  it("says a rename refused name_taken on one environment in one line, and the heading splits as the list says", async () => {
+    const G_RESEARCH_LAPTOP = "0199bb00-0000-4000-8000-00000000b0d4";
+    const RESEARCH = "0199aa00-0000-4000-8000-0000000000a5";
+    const app = await two({
+      laptop: {
+        groups: [
+          { id: G_BRAND_LAPTOP, name: "brandsolidate" },
+          { id: G_RESEARCH_LAPTOP, name: "Research" },
+        ],
+        sessions: [
+          { id: TRAIN, title: "Train tidy" },
+          { id: LBRAND, title: "Brand on laptop", groupId: G_BRAND_LAPTOP },
+          { id: RESEARCH, title: "Reading", groupId: G_RESEARCH_LAPTOP },
+        ],
+      },
+    });
+    await focusRail(app);
+    await headingTo(app, "Brandsolidate");
+    await app.press("R");
+    await app.waitFor("› Brandsolidate");
+    await erase(app, "Brandsolidate");
+    await app.type("Research");
+    await app.press(KEY.enter);
+    await app.waitFor("Not renamed on laptop: another group there is named “Research”.");
+    expect(sent(app, "desk", "groups.rename").map((f) => params(f)["groupId"])).toEqual([G_BRAND_DESK]);
+    expect(sent(app, "laptop", "groups.rename").map((f) => params(f)["groupId"])).toEqual([G_BRAND_LAPTOP]);
+    await app.waitUntil(() => railOf(app.frame()).includes("▾ brandsolidate"), "laptop's group under its own heading");
+    const rail = railOf(app.frame());
+    expect(rail.slice(rail.indexOf("▾ Research"), rail.indexOf("▾ Research") + 3)).toEqual(["▾ Research", "  DE · Brand copy", "  LA · Reading"]);
+    expect(rail.slice(rail.indexOf("▾ brandsolidate"), rail.indexOf("▾ brandsolidate") + 2)).toEqual(["▾ brandsolidate", "  LA · Brand on laptop"]);
+  });
+});
+
 describe("reordering while the filter hides rows", () => {
   it("answers absent with the reason, since the neighbours a move goes between may be hidden, and sends nothing", async () => {
     const app = await two();

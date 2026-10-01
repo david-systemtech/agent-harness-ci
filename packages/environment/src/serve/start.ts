@@ -99,6 +99,7 @@ import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
+import { startReviewNotices } from "../permissions/review-notices.js";
 import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
@@ -152,12 +153,16 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { preCheckMethods } from "../routines/pre-check-methods.js";
+import { createPreCheckRunner } from "../routines/pre-check.js";
+import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
+import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
@@ -300,7 +305,10 @@ export interface EnvironmentOptions {
   readonly channel?: ReleaseChannel;
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
-  /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
+  /**
+   * The operating system the preset icon follows, outside a container (#323), and the rule the scripts directory judges a
+   * pre-check's script executable by, Windows's by its extension (#526). Preset: `process.platform`; tests script it.
+   */
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
@@ -796,10 +804,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }
   };
 
-  // The data directory, and the own skills directory in it (#494), made before anything reads them.
-  const ownSkillsPath = await step("data-directory", () => {
+  // The data directory, and the own skills directory (#494) and the routines' scripts directory (#526) in it, made before
+  // anything reads them.
+  const { ownSkillsPath, scriptsPath } = await step("data-directory", () => {
     prepareDataDirectory(dataDir);
-    return prepareOwnDirectory(dataDir);
+    return { ownSkillsPath: prepareOwnDirectory(dataDir), scriptsPath: prepareScriptsDirectory(dataDir) };
   });
 
   const log: EventLog = await step("database", () => {
@@ -1298,8 +1307,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
-  // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
+  // A prompt that parks, and its answer, are told to every client there (#130), as is a change to the Unattended review (#811);
+  // stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
+  closers.push(startReviewNotices({ log, stream: environmentStream }));
   // The reaper (#330): a purged session's workspace inside a workspace root goes once the purge commits, off the log's path,
   // when no other session names it; a worktree with work in it stays, noticed. Closed before the log, letting its work end.
   const reaper = createReaper({
@@ -1432,7 +1443,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
   const checkoutIndex = createCheckoutIndex({ log, availability });
-  const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
+  // The scripts routines' pre-checks run (#526), which the OS user places, and what runs a pre-check: a script there, run
+  // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
+  const scripts = scriptsDirectory(scriptsPath, { platform: options.platform ?? process.platform, env: process.env });
+  const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
+  const preChecks = createPreCheckRunner({ scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub, baseEnvironment: () => baseEnvironment() });
+  const firings = createFiringStarter({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    host,
+    accounts,
+    resolver: workspaceResolver,
+    preChecks,
+  });
   closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
@@ -1484,7 +1509,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environmentId: record.id,
     name: () => look.read().name,
     vault,
-    denylisted: (url) => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0,
+    denylisted: denylistedHost,
     scrub,
   });
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
@@ -1530,7 +1555,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
-    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    ...denylistMethods({ log, accessLog, environmentId: record.id, dataDir, context: denylistContext }),
     ...setupMethods(setup),
     // An LLM step's minted session (#584): created and started as sessions.create and runs.start would, in process.
     ...mintMethods({ log, host, resolver: workspaceResolver, steps: setupSteps, ceilingOf: (id) => clientSessions.ceiling(id) }),
@@ -1565,7 +1590,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+      scripts,
+      denylisted: denylistedHost,
     }),
+    ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,

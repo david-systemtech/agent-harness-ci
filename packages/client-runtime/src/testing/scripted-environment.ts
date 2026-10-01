@@ -1662,6 +1662,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     head: () => sequence,
     next: () => ++sequence,
     refusal: (method) => rejection(method),
+    notice,
   });
   // The update keys (#335), which only updates.settings.set writes.
   wire.answer("updates.settings.set", (params) => {
@@ -2034,6 +2035,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     denylist: permissions.denylist,
     reviewWatermark: permissions.reviewWatermark,
     holdDenylistWrites: permissions.holdDenylistWrites,
+    setDenylist: permissions.setDenylist,
+    decideReviewRun: permissions.decideReviewRun,
+    seeReview: permissions.seeReview,
     holdSetupChecks: setup.holdSetupChecks,
     passSetup: setup.passSetup,
     terminals: () => [...terminals.values()],
