@@ -42,10 +42,12 @@ export function pageTextModule() {
 
   /**
    * The element a reader of `document` starts from: its body, or its root
-   * element where it has none. The body is read through the getter on the
-   * document's own prototype, found by walking up from the document so it is
-   * the document's realm's on jsdom too: a page's element named `body` takes
-   * the document's own member's place (HTML's named properties, #1052).
+   * element where it has none. The body is read through the `body` getter
+   * on the document's prototype chain, never as `document.body`: a page's
+   * element named `body` takes the document's own member's place (HTML's
+   * named properties, #1052). The chain is walked rather than
+   * `Document.prototype` named, since Node has no global `Document` and a
+   * jsdom document's getter is its own realm's.
    */
   const pageBody = (document: Document): Element => {
     for (let prototype = Object.getPrototypeOf(document) as object | null; prototype !== null; prototype = Object.getPrototypeOf(prototype) as object | null) {
