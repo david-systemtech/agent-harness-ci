@@ -39,6 +39,17 @@ const OUTPUT_CAP = 64 * 1024;
 /** A Windows batch file, which `cmd.exe` runs: `node:child_process` refuses to spawn one without a shell. */
 const BATCH = /\.(?:cmd|bat)$/i;
 
+/**
+ * What to spawn to run `file` with `args` and no shell: the file itself, or
+ * on Windows for a batch file `cmd.exe` running it, its arguments passed
+ * verbatim; answered as the command, its arguments, and whether they are
+ * verbatim. A routine's script pre-check (#526) is spawned by it too.
+ */
+export const spawnable = (file: string, args: readonly string[], env: Readonly<Record<string, string>>, platform: NodeJS.Platform): [string, string[], boolean] =>
+  platform === "win32" && BATCH.test(file)
+    ? [env["ComSpec"] ?? env["COMSPEC"] ?? "cmd.exe", ["/d", "/s", "/c", `"${[`"${file}"`, ...args].join(" ")}"`], true]
+    : [file, [...args], false];
+
 export const runCommand = (file: string, args: readonly string[], options: CommandOptions): Promise<CommandAnswer> =>
   new Promise((resolve) => {
     const platform = options.platform ?? process.platform;
@@ -47,10 +58,7 @@ export const runCommand = (file: string, args: readonly string[], options: Comma
       return;
     }
     const group = platform !== "win32";
-    const [command, argv, verbatim] =
-      platform === "win32" && BATCH.test(file)
-        ? [options.env["ComSpec"] ?? options.env["COMSPEC"] ?? "cmd.exe", ["/d", "/s", "/c", `"${[`"${file}"`, ...args].join(" ")}"`], true]
-        : [file, [...args], false];
+    const [command, argv, verbatim] = spawnable(file, args, options.env, platform);
     let child;
     try {
       child = spawn(command, argv, {

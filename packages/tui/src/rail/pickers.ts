@@ -13,11 +13,13 @@ import {
   type DispatchAnswer,
   type DispatchFailure,
   type EnvironmentView,
+  type HeadingChange,
+  type MergedGroupHeading,
   type Runtime,
   type SessionRow,
   type StartSessionChoice,
 } from "@agent-harness/client-runtime";
-import { shelfOf, type CommandMethodName } from "@agent-harness/contracts";
+import { normaliseGroupName, shelfOf, type CommandMethodName } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import type { Badge } from "./badge.js";
 import { pickerOf, type Picker, type PickerRow } from "./picker.js";
@@ -28,9 +30,10 @@ import { pickerOf, type Picker, type PickerRow } from "./picker.js";
  * wire), tag, group (the merged headings plus a new one, created on the
  * session's environment first when it lacks it), search (`projections.search`
  * across environments, no environment call) and restore (the deleted
- * sessions each environment can still restore). Each is a function of the
- * runtime's projections, read as drawn. The new-session card and its
- * workspace step are `new-session.ts` and `workspace-step.ts` (#334).
+ * sessions each environment can still restore), and the rename of a merged
+ * group's heading (#752). Each is a function of the runtime's projections,
+ * read as drawn. The new-session card and its workspace step are
+ * `new-session.ts` and `workspace-step.ts` (#334).
  */
 
 /** What a picker does through the rail: commands, lines, and where the cursor goes. */
@@ -71,6 +74,14 @@ export interface RailActs {
   openSession(target: { readonly environmentId: string; readonly sessionId: string }): void;
   /** `commands.moveToGroup`. */
   move(row: SessionRow, name: string | null, said: string): void;
+  /**
+   * Renames or deletes a merged group's heading, one command per member
+   * group on its own environment (the runtime's `changeHeading`): says
+   * `said` at once, and what any environment refused, in one line, once
+   * every member has its answer. The heading shows pending from the
+   * runtime's `awaitingReceipt` until the receipts.
+   */
+  change(heading: MergedGroupHeading, change: HeadingChange, said: string): void;
   /** Puts the rail's cursor on the line `key` names, opening its heading, and gives the rail the keys. */
   reveal(key: string): void;
   /** Closes the card when it still shows `picker`, as typed at since; leaves any other card. */
@@ -91,13 +102,20 @@ export const withBadge = (acts: Pick<RailActs, "badge">, environmentId: string):
   return badge ? { badge } : {};
 };
 
-/** A session's title as a line quotes it. */
-export const titleOf = (item: { readonly summary: { readonly title: string } }): string => `“${item.summary.title}”`;
+/** The environments a picker row acts on, by their badges' letters: `on DE LA`. */
+const onBadges = (acts: Pick<RailActs, "badge">, environmentIds: readonly string[]): string => `on ${environmentIds.map((id) => acts.badge(id)?.abbreviation ?? "??").join(" ")}`;
 
-/** "; it applies when <environment> is back" while the environment cannot be reached, as the runtime lists it now. */
-export const whenBack = (acts: Pick<RailActs, "runtime">, environmentId: string): string => {
-  const view = acts.runtime.projections.environments.read().find((v) => v.environmentId === environmentId);
-  return view && !isReachable(view) ? `; it applies when ${nameOf(view)} is back` : "";
+/** A name as a line quotes it. */
+export const quoted = (name: string): string => `“${name}”`;
+
+/** A session's title as a line quotes it. */
+export const titleOf = (item: { readonly summary: { readonly title: string } }): string => quoted(item.summary.title);
+
+/** "; it applies when <environment> is back" while an environment named cannot be reached, as the runtime lists them now; several are joined with "and". */
+export const whenBack = (acts: Pick<RailActs, "runtime">, ...environmentIds: readonly string[]): string => {
+  const views = acts.runtime.projections.environments.read();
+  const down = environmentIds.flatMap((id) => views.filter((v) => v.environmentId === id && !isReachable(v)).map(nameOf));
+  return down.length === 0 ? "" : `; it applies when ${down.join(" and ")} ${down.length === 1 ? "is" : "are"} back`;
 };
 
 const snoozeTo = (acts: RailActs, row: SessionRow, at: Date) =>
@@ -174,14 +192,13 @@ export const groupPicker = (acts: RailActs, row: SessionRow): Picker =>
     rows: (query) => {
       // Which groups, and whether a new one or none, are the runtime's (`groupChoices`), as the window's Move to group offers them.
       const choices = groupChoices(acts.runtime.projections.sessionList.read().groups, row, query);
-      const where = (environmentIds: readonly string[]) => environmentIds.map((id) => acts.badge(id)?.abbreviation ?? "??").join(" ");
       const listed = choices.listed.map(({ heading, here }): PickerRow =>
         here
           ? { key: `group:${heading.key}`, text: heading.name, absent: "it is in it" }
           : {
               key: `group:${heading.key}`,
               text: heading.name,
-              detail: `on ${where(heading.groups.map((g) => g.environmentId))}`,
+              detail: onBadges(acts, heading.groups.map((g) => g.environmentId)),
               choose: () => acts.move(row, heading.name, `Moved ${titleOf(row)} into ${heading.name}${whenBack(acts, row.environmentId)}.`),
             },
       );
@@ -195,6 +212,52 @@ export const groupPicker = (acts: RailActs, row: SessionRow): Picker =>
       return [...listed, ...fresh, ...out];
     },
   });
+
+/**
+ * `R` on a merged group's heading: a typed picker holding the heading's
+ * name, whose one row renames each member group to what is typed (#752).
+ * A name every member group has already is no rename; one that differs from
+ * a member's only in case is, since each environment keeps its own casing.
+ */
+export const renamePicker = (acts: RailActs, heading: MergedGroupHeading): Picker =>
+  pickerOf({
+    title: `Rename the group ${quoted(heading.name)}`,
+    typed: true,
+    placeholder: "type the group's new name",
+    query: heading.name,
+    rows: (query) => {
+      const name = normaliseGroupName(query);
+      if (name === "") return [];
+      const row = { key: "rename", text: `Rename it ${quoted(name)}` };
+      if (heading.groups.every((member) => member.name === name)) return [{ ...row, absent: "it has that name" }];
+      const environmentIds = heading.groups.map((member) => member.environmentId);
+      return [
+        {
+          ...row,
+          detail: onBadges(acts, environmentIds),
+          choose: () => acts.change(heading, { rename: name }, `Renamed the group ${quoted(heading.name)} to ${quoted(name)}${whenBack(acts, ...environmentIds)}.`),
+        },
+      ];
+    },
+    note: (query) => (normaliseGroupName(query) === "" ? "A group needs a name." : undefined),
+  });
+
+/**
+ * What a heading's rename or delete did not do, in one line: each
+ * environment that refused its member's command, and why (another group
+ * there holding the name, for `name_taken`); undefined when none refused.
+ */
+export const headingRefusals = (change: HeadingChange, refused: readonly { readonly environment: string; readonly error: DispatchFailure }[]): string | undefined => {
+  if (refused.length === 0) return undefined;
+  const why = ({ code, message, data }: DispatchFailure) => {
+    if (code === "conflict" && data?.["reason"] === "name_taken" && "rename" in change) {
+      const held = typeof data["heldName"] === "string" ? data["heldName"] : change.rename;
+      return `another group there is named ${quoted(held)}`;
+    }
+    return message.replace(/\.$/, "");
+  };
+  return `${"rename" in change ? "Not renamed" : "Not deleted"} ${refused.map(({ environment, error }) => `on ${environment}: ${why(error)}`).join("; ")}.`;
+};
 
 /** Where a session is, in words, for a search result: its shelf, or its group, or its environment. */
 const whereOf = (acts: RailActs, row: SessionRow): string => {

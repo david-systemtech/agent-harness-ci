@@ -4,11 +4,13 @@ import {
   WorkspaceRequest,
   type CannotStartReason,
   type Mode,
+  type PreCheckRecord,
   type RoutineDefinition,
   type RoutineFiringStartedPayload,
   type RoutineSkippedPayload,
   type RoutineTrigger,
   type SessionContainmentSetPayload,
+  type SkipReason,
 } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventLog, Tx } from "../event-log/event-log.js";
@@ -20,8 +22,10 @@ import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
 import { routineAccount, type RoutineAccounts } from "./listing.js";
+import { preCheckBlock, type BlockBaseline } from "./pre-check-block.js";
+import type { PreCheckRunner } from "./pre-check.js";
 import { appendRoutineRecord, routineActor, routineStream } from "./records.js";
-import { liveFiringOfRoutine, liveRoutine } from "./routine-store.js";
+import { liveFiringOfRoutine, liveRoutine, routineBaseline } from "./routine-store.js";
 
 /**
  * A firing's start (routines spec, "A firing": Start; #523): what run now
@@ -29,6 +33,13 @@ import { liveFiringOfRoutine, liveRoutine } from "./routine-store.js";
  * run now answers at once with the firing's id, which its record then
  * shows: a firing, or the skip it became.
  *
+ * - **The pre-check** (#526), first, when the firing asks for one and its
+ *   routine has one: its output compared with the baseline's. Unchanged
+ *   output is a skip `no-change`, recorded with no `routine.updated`, so
+ *   nothing is made, called, delivered or noticed; a failure is a skip
+ *   `pre-check-failed` with its detail and standard error, the baseline
+ *   untouched; changed output, or none to compare with, goes on, and the
+ *   firing records the pre-check and is told what changed.
  * - **Checks**, before anything is made: the routine's account, found by
  *   identity (null: the default account), is here and signed in, and offers
  *   its model (null: some model, the default family's strongest when it has
@@ -45,7 +56,8 @@ import { liveFiringOfRoutine, liveRoutine } from "./routine-store.js";
  *   with the model and mode, the routine's containment its own level; the
  *   run, through the actor start (#131) as a routine by its name and
  *   effort, under the firing's ceiling, starting with the header and the
- *   instructions; and `routine.firing-started` with the targets. A refusal
+ *   instructions and the pre-check's block; and `routine.firing-started`
+ *   with the pre-check and the targets. A refusal
  *   anywhere, or a failure, rolls it all back: the resolver's undo removes
  *   what it made, and the entry is `cannot-start` `start_refused`, so no
  *   firing session is left without a run.
@@ -70,6 +82,8 @@ export interface FiringStart {
   readonly requestedBy: string | null;
   /** The ceiling its run is resolved under: the routine's saved one, for run now lowered to the caller's. */
   readonly ceiling: Mode;
+  /** Whether its routine's pre-check runs first: always from the schedule, for run now only when asked. */
+  readonly withPreCheck: boolean;
 }
 
 export interface FiringStarterOptions {
@@ -85,6 +99,8 @@ export interface FiringStarterOptions {
   readonly accounts: RoutineAccounts["accounts"];
   /** The resolver a firing's session gets its workspace through, as `sessions.create`'s does (#321). */
   readonly resolver: WorkspaceResolver;
+  /** What runs a routine's pre-check (#526). */
+  readonly preChecks: PreCheckRunner;
 }
 
 export interface FiringStarter {
@@ -105,6 +121,26 @@ interface CannotStart {
   readonly detail: string;
 }
 
+/** A skip as the firing records it: why, why it could not start when that is why, what a person should know, and the pre-check it ran. */
+interface Skip {
+  readonly reason: SkipReason;
+  readonly cannotStart: CannotStartReason | null;
+  readonly detail: string | null;
+  readonly preCheck: PreCheckRecord | null;
+}
+
+/** The pre-check a firing ran and goes on with: what it found, and the baseline its output is told against. */
+interface Observation {
+  readonly record: PreCheckRecord;
+  readonly baseline: BlockBaseline | null;
+}
+
+/** A pre-check's failure as its skip's detail: why, then the last of the script's standard error when it wrote any. */
+const failureDetail = (record: PreCheckRecord): string => {
+  const why = record.failure?.detail ?? "The pre-check failed.";
+  return record.stderr === null ? why : `${why}\n\nThe last of its standard error:\n${record.stderr}`;
+};
+
 /** The instant `at` in `zone` to the minute, `yyyy-mm-dd HH:MM`; in UTC when the runtime does not know the zone. */
 export const minuteIn = (at: string, zone: string): string => {
   let format: Intl.DateTimeFormat;
@@ -121,16 +157,18 @@ export const minuteIn = (at: string, zone: string): string => {
  * The firing's first message: a header naming the routine, the environment
  * and the due time, saying nobody is present and prompts are answered
  * automatically, and that the marker alone sends nothing; then the
- * instructions.
+ * instructions; then, when a pre-check ran, its block.
  */
-export const firingMessage = (firing: FiringStart, environmentName: string): string => {
+export const firingMessage = (firing: FiringStart, environmentName: string, observation: Observation | null): string => {
   const { name, timezone, silenceMarker, instructions } = firing.definition;
+  const block = observation === null ? [] : ["", preCheckBlock(observation.record.output ?? "", observation.record.startedAt, observation.baseline)];
   return [
     `This is a firing of the routine "${name}" on the environment "${environmentName}", due ${minuteIn(firing.dueAt, timezone)} (${timezone}).`,
     "Nobody is present: prompts are answered automatically, and anything that needs a person's approval is denied.",
     `If there is nothing worth reporting, answer with ${silenceMarker} alone, and nothing is sent.`,
     "",
     instructions,
+    ...block,
   ].join("\n");
 };
 
@@ -161,34 +199,66 @@ const workspaceDetail = (refused: { readonly message: string; readonly data: Rea
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export const createFiringStarter = (options: FiringStarterOptions): FiringStarter => {
-  const { log, clock, environmentId, host, resolver } = options;
+  const { log, clock, environmentId, host, resolver, preChecks } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   /** The firing starting for each routine: from the ask to its record's commit. */
   const starting = new Map<string, string>();
   const underWay = new Set<Promise<void>>();
+  /** Stops the pre-checks under way once the environment is closing. */
+  const closer = new AbortController();
   let closing = false;
 
-  /** Records the firing as a skip `cannot-start`, under its id, as the routine. */
-  const skip = (firing: FiringStart, why: CannotStart): void => {
+  /** Records the firing as a skip, under its id, as the routine; a `no-change` skip raises no `routine.updated`. */
+  const skip = (firing: FiringStart, skipped: Skip): void => {
     const actor = routineActor(firing.routineId);
     const payload: RoutineSkippedPayload = {
       skipId: firing.firingId,
       trigger: firing.trigger,
       dueAt: firing.dueAt,
-      reason: "cannot-start",
-      cannotStart: why.reason,
+      reason: skipped.reason,
+      cannotStart: skipped.cannotStart,
       count: firing.count,
-      detail: why.detail,
-      preCheck: null,
+      detail: skipped.detail,
+      preCheck: skipped.preCheck,
     };
+    const change = skipped.reason === "no-change" ? null : "skipped";
     log.command({ actor, commandId: firing.firingId }, (tx) => {
-      appendRoutineRecord(log, environmentId, firing.routineId, { event: { type: "routine.skipped", payload, occurredAt: clock().toISOString() }, change: "skipped" }, { tx, actor, commandId: firing.firingId });
+      appendRoutineRecord(log, environmentId, firing.routineId, { event: { type: "routine.skipped", payload, occurredAt: clock().toISOString() }, change }, { tx, actor, commandId: firing.firingId });
       return { aggregate: routineStream(firing.routineId), result: null };
     });
   };
 
+  /** Records the firing as a skip `cannot-start`, with the pre-check it ran. */
+  const cannotStart = (firing: FiringStart, why: CannotStart, observation: Observation | null): void =>
+    skip(firing, { reason: "cannot-start", cannotStart: why.reason, detail: why.detail, preCheck: observation?.record ?? null });
+
+  /**
+   * Runs the firing's pre-check when it asks for one and its routine has
+   * one: answers what the firing goes on with (null when none ran), or
+   * `stop` when it goes on no further: its output was unchanged or it
+   * failed, and its skip is recorded, or the environment closed meanwhile.
+   */
+  const observe = async (firing: FiringStart): Promise<Observation | null | "stop"> => {
+    const { preCheck, name, workspace } = firing.definition;
+    if (!firing.withPreCheck || preCheck === null) return null;
+    const baseline = routineBaseline(reader, firing.routineId);
+    const subject = { routine: { id: firing.routineId, name }, dueAt: firing.dueAt, trigger: firing.trigger, workspace };
+    const { record } = await preChecks.run(preCheck, subject, { baselineHash: baseline?.hash ?? null, signal: closer.signal });
+    if (closing) return "stop";
+    if (record.failure !== null) {
+      skip(firing, { reason: "pre-check-failed", cannotStart: null, detail: failureDetail(record), preCheck: record });
+      return "stop";
+    }
+    if (record.differs === false) {
+      // The output is the baseline's, which keeps it: the skip keeps none.
+      skip(firing, { reason: "no-change", cannotStart: null, detail: null, preCheck: { ...record, output: null } });
+      return "stop";
+    }
+    return { record, baseline };
+  };
+
   /** The firing's session, containment and run, and its `routine.firing-started`, in the open transaction; a refusal is thrown. */
-  const make = (tx: Tx, firing: FiringStart, sessionId: string, place: Place, account: AccountFacts): void => {
+  const make = (tx: Tx, firing: FiringStart, sessionId: string, place: Place, account: AccountFacts, observation: Observation | null): void => {
     const { routineId, firingId, definition, ceiling } = firing;
     const actor = routineActor(routineId);
     const attribution = { tx, actor, commandId: firingId };
@@ -224,7 +294,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
       tx,
       {
         sessionId,
-        text: firingMessage(firing, options.environmentName()),
+        text: firingMessage(firing, options.environmentName(), observation),
         ...(definition.mode !== null && { mode: definition.mode }),
         ...(definition.effort !== null && { effort: definition.effort }),
         actor: { kind: "routine", name: definition.name, ceiling, clientSessionId: null },
@@ -242,7 +312,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
       sessionId,
       runId: run.runId,
       requestedBy: firing.requestedBy,
-      preCheck: null,
+      preCheck: observation?.record ?? null,
       targets: definition.delivery,
     };
     appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.firing-started", payload }, change: "firing-started" }, attribution);
@@ -268,16 +338,18 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
   };
 
   const begin = async (firing: FiringStart): Promise<void> => {
+    const observation = await observe(firing);
+    if (observation === "stop") return;
     const check = checked(firing.definition, routineAccount(firing.definition.account, { reader, accounts: options.accounts }));
-    if ("refused" in check) return skip(firing, check.refused);
+    if ("refused" in check) return cannotStart(firing, check.refused, observation);
     const sessionId = randomUUID();
     const placed = await placeFor(firing, sessionId);
-    if ("refused" in placed) return skip(firing, placed.refused);
+    if ("refused" in placed) return cannotStart(firing, placed.refused, observation);
     const { place } = placed;
     if (closing) return discard(place);
     try {
       const outcome = log.command({ actor: routineActor(firing.routineId), commandId: firing.firingId }, (tx) => {
-        make(tx, firing, sessionId, place, check.account);
+        make(tx, firing, sessionId, place, check.account, observation);
         return { aggregate: routineStream(firing.routineId), result: null };
       });
       // A retry under a firing id already made makes nothing: what it resolved goes again.
@@ -285,7 +357,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     } catch (error) {
       await discard(place);
       if (!(error instanceof ContractError)) console.error(`The firing ${firing.firingId} of the routine ${firing.routineId} could not start:`, error);
-      skip(firing, { reason: "start_refused", detail: messageOf(error) });
+      cannotStart(firing, { reason: "start_refused", detail: messageOf(error) }, observation);
     }
   };
 
@@ -304,6 +376,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     },
     async close() {
       closing = true;
+      closer.abort();
       await Promise.all(underWay);
     },
   };

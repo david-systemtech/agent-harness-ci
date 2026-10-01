@@ -43,6 +43,9 @@ export interface FiringEnd {
 }
 
 const failed = (reason: FiringFailureReason): FiringEnd => ({ outcome: "failed", reason });
+
+/** The outcomes whose pre-check output becomes the baseline. */
+const ADVANCING: ReadonlySet<FiringOutcome> = new Set(["succeeded", "silent"]);
 const cancelled: FiringEnd = { outcome: "cancelled", reason: null };
 
 /** The firing's end, from how its run ended and whether its session was deleted by then. */
@@ -99,8 +102,10 @@ const sessionDeleted = (reader: Reader, sessionId: string): boolean => {
 /**
  * Ends `firing` in the open transaction: `routine.firing-ended` on its
  * routine's stream as the routine, at `at`, with `end`, its text, its usage
- * and its duration from its start; no pre-check ran, so the baseline stays
- * where it was. Its notice follows.
+ * and its duration from its start. Its pre-check's output becomes the
+ * baseline when it ended `succeeded` or `silent` (#526); a firing that ran
+ * no pre-check, or failed, leaves the baseline where it was, so the next
+ * due time fires again. Its notice follows.
  */
 export const endFiring = (
   log: EventLog,
@@ -117,7 +122,7 @@ export const endFiring = (
     text: ended.text,
     usage: ended.usage === null ? null : [...ended.usage],
     durationMs: Math.max(0, Date.parse(at) - Date.parse(firing.entry.startedAt)),
-    baselineAdvanced: false,
+    baselineAdvanced: ADVANCING.has(ended.outcome) && (firing.entry.preCheck?.hash ?? null) !== null,
   };
   appendRoutineRecord(log, environmentId, firing.routineId, { event: { type: "routine.firing-ended", payload, occurredAt: at }, change: "firing-ended" }, {
     ...attribution,

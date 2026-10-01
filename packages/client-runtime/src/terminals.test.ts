@@ -160,7 +160,7 @@ describe("a terminal's subscription", () => {
     stream.event(exited(2, { exitCode: 0, signal: null, cause: "exited" }));
     stream.end("closed");
     await flush();
-    expect(heard.at(-1)).toEqual({ kind: "exited", exit: { exitCode: 0, signal: null, cause: "exited" } });
+    expect(heard.at(-1)).toEqual({ kind: "exited", exit: { exitCode: 0, signal: null, cause: "exited" }, occurredAt: MANUAL_CLOCK_START });
     expect(handle.state.read()).toMatchObject({ status: "ended", exit: { exitCode: 0 } });
 
     wire.server.drop();

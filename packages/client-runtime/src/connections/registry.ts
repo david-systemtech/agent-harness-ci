@@ -426,6 +426,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     if (!exchange.ok) return answer;
     // A grant that is now another environment's: discovery's check blocks it `different-environment`, and the next start takes that one as the local environment.
     if (exchange.discovery.environmentId !== environmentId) return { kind: "document", document: exchange.discovery };
+    await keepExchanged(environmentId, entry, exchange);
+    return { kind: "document", document: exchange.discovery };
+  };
+
+  /** Keeps what the grant exchange for `entry` gave: its token in memory, its client session and address on the record. */
+  const keepExchanged = async (environmentId: string, entry: Entry, exchange: Extract<GrantExchange, { ok: true }>): Promise<void> => {
     entry.token = exchange.credential.token;
     local.set({ state: "exchanged", environmentId });
     await updateSaved(environmentId, entry, {
@@ -435,7 +441,37 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       ceiling: exchange.credential.ceiling,
       expiresAt: exchange.credential.expiresAt,
     });
-    return { kind: "document", document: exchange.discovery };
+  };
+
+  /**
+   * The token `update-environment` posts the update route with: the
+   * connection's own; else, for a local connection that holds none (blocked
+   * on an older protocol since its first discovery, so the start's exchange
+   * refused before sending the secret), the grant exchanged now across the
+   * gap and kept as an exchange's token is (#826). A failed exchange says so
+   * in the local environment's words, which never ask to pair it.
+   */
+  const routeToken = async (
+    environmentId: string,
+    entry: Entry,
+    name: string,
+  ): Promise<{ readonly ok: true; readonly token: string } | { readonly ok: false; readonly outcome: UpdateEnvironmentOutcome }> => {
+    const held = await tokenOf(environmentId, entry);
+    if (held !== undefined) return { ok: true, token: held };
+    if (entry.saved.kind !== "local") return { ok: false, outcome: failed("no-token", `This client holds no token for ${name}: pair it again.`) };
+    const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion, acrossProtocolGap: true });
+    if (!isCurrent(environmentId, entry)) return { ok: false, outcome: failed("no-token", "The connection was forgotten.") };
+    if (!exchange.ok) {
+      local.set(exchange.status);
+      const why = exchange.status.state === "failed" ? exchange.status.message : "This client reads no grant.";
+      return { ok: false, outcome: failed("no-token", `This client could not exchange the local grant with ${name}: ${why}`) };
+    }
+    if (exchange.discovery.environmentId !== environmentId) {
+      const other = exchange.discovery.environmentName;
+      return { ok: false, outcome: failed("no-token", `This machine's grant now names ${other}, not ${name}: the next start takes ${other} as the local environment.`) };
+    }
+    await keepExchanged(environmentId, entry, exchange);
+    return { ok: true, token: exchange.credential.token };
   };
 
   /** What a grant exchange is to the connection's machine: the discovery document it read, or the failure in the phases' words. */
@@ -1117,8 +1153,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       const overRoute = machine.phase === "blocked" && machine.blocked === "protocol-mismatch";
       let outcome: UpdateEnvironmentOutcome;
       if (overRoute) {
-        const token = await tokenOf(environmentId, entry);
-        outcome = token === undefined ? failed("no-token", `This client holds no token for ${machine.name}: pair it again.`) : await askOverRoute(platform.fetch, entry.saved.address, token, version);
+        const token = await routeToken(environmentId, entry, machine.name);
+        outcome = token.ok ? await askOverRoute(platform.fetch, entry.saved.address, token.token, version) : token.outcome;
       } else {
         // The connection's own socket: `updates.apply` of this client's version, when idle.
         outcome = await registry.seams

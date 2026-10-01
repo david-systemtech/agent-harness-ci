@@ -90,6 +90,7 @@ export interface DrivenOptions {
   readonly wire?: "web-socket" | "pipe";
   readonly policy?: PagePolicy;
   readonly addressRule?: (arrival: FrameArrival) => string | null;
+  readonly beforeNavigation?: (url: string) => Promise<string | null>;
   readonly networkAtAttach?: boolean;
   readonly clock?: DriverClock;
 }
@@ -122,6 +123,7 @@ export const driven = async (options: DrivenOptions = {}): Promise<Driven> => {
     host,
     policy: () => policy,
     ...(options.addressRule && { addressRule: options.addressRule }),
+    ...(options.beforeNavigation && { beforeNavigation: options.beforeNavigation }),
     ...(options.networkAtAttach !== undefined && { networkAtAttach: options.networkAtAttach }),
     ...(options.clock && { clock: options.clock }),
   });
