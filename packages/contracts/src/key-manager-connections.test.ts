@@ -104,7 +104,7 @@ describe("the key-manager connection methods", () => {
     const own = (name: "keyManagers.connections.add" | "keyManagers.connections.signIn" | "keyManagers.connections.update") => registry[name].errors.map((member) => member.shape.code.value);
     expect(own("keyManagers.connections.add")).toEqual(["verification_failed", "provider_unavailable"]);
     expect(own("keyManagers.connections.signIn")).toEqual(["verification_failed", "unreachable", "sealed", "certificate_rejected", "provider_unavailable"]);
-    expect(own("keyManagers.connections.update")).toEqual(["verification_failed", "unreachable", "sealed", "certificate_rejected"]);
+    expect(own("keyManagers.connections.update")).toEqual(["verification_failed", "unreachable", "sealed", "certificate_rejected", "provider_unavailable"]);
     const [verificationFailed] = registry["keyManagers.connections.add"].errors;
     expect(verificationFailed?.safeParse({ code: "verification_failed", message: "m", data: { connectionId, reason: "root_token" } }).success).toBe(true);
     expect(verificationFailed?.safeParse({ code: "verification_failed", message: "m", data: { connectionId, reason: "expired" } }).success).toBe(false);

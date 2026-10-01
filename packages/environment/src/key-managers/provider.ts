@@ -1,4 +1,4 @@
-import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy, KeyManagerProvider, KeyManagerReference, KeyManagerTokenInformation } from "@agent-harness/contracts";
+import type { KeyManagerAuthMethod, KeyManagerCredential, KeyManagerLoginPolicy, KeyManagerProvider, KeyManagerReference, KeyManagerTokenInformation, KeyManagerMoveLocator } from "@agent-harness/contracts";
 
 /**
  * The provider interface (key-managers spec, "Providers"; ADR 0011): one
@@ -40,7 +40,7 @@ export interface SignInTarget {
  * certificate that does not verify; a request the login may not make; a
  * path that is not there; and a key manager asking the harness to slow down.
  */
-export const PROVIDER_FAILURES = ["credential-rejected", "unreachable", "sealed", "certificate-rejected", "denied", "not-found", "rate-limited"] as const;
+export const PROVIDER_FAILURES = ["credential-rejected", "unreachable", "sealed", "certificate-rejected", "denied", "not-found", "rate-limited", "provider-unavailable"] as const;
 export type ProviderFailureCategory = (typeof PROVIDER_FAILURES)[number];
 
 /** Why a call came to nothing, by category, with one line for people (not yet scrubbed). */
@@ -130,7 +130,7 @@ export type WriteCheckAnswer = { readonly outcome: "checked"; readonly writable:
 
 /** A value a Move writes at a reference (#371), with the fields its entry carries beside it. */
 export interface WriteRequest {
-  readonly reference: KeyManagerReference;
+  readonly reference: KeyManagerMoveLocator;
   readonly value: string;
   /** What the entry carries beside the value, where the provider keeps fields: OpenBao's `note`, `service` and `added`. */
   readonly fields: Readonly<Record<string, string>>;
@@ -139,7 +139,7 @@ export interface WriteRequest {
 }
 
 /** What a write answered: written, or a different value at the reference already, left as it was; never either value. */
-export type WriteAnswer = { readonly outcome: "written" } | { readonly outcome: "exists" } | ProviderFailure;
+export type WriteAnswer = { readonly outcome: "written"; readonly reference?: KeyManagerReference } | { readonly outcome: "exists" } | ProviderFailure;
 
 /**
  * What a run token is minted with (#368; key-managers spec, "Run tokens"):
@@ -161,6 +161,8 @@ export type MintAnswer = { readonly outcome: "minted"; readonly token: string } 
 export type RenewAnswer = { readonly outcome: "renewed"; readonly ttlSeconds: number } | LoginFailure;
 
 export interface ConnectionProvider {
+  /** Finds the actual service-assigned reference for a Move target; nothing written. */
+  locateMove?(target: SignInTarget, token: string, locator: KeyManagerMoveLocator, signal?: AbortSignal): Promise<{ outcome: "located"; reference: KeyManagerReference } | ProviderFailure>;
   /** Logs in at the target's mount with `credential`, whose method is the target's: a token is its own login. */
   logIn(target: SignInTarget, credential: KeyManagerCredential, signal?: AbortSignal): Promise<LogInAnswer>;
   /** Looks the login's token up with itself. */

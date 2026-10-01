@@ -8,6 +8,7 @@ import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
+import { bitwardenBlock } from "./bitwarden-block.js";
 import { dopplerBlock } from "./doppler-block.js";
 import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
@@ -170,8 +171,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
 
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
-  /** The injecting connections whose blocks this supplier serves. */
-  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler");
+  /** The injecting connections with a supported environment block. */
+  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler" || record.provider === "bitwarden");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
@@ -306,6 +307,13 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     await waited;
     const now = source.readable(connectionId);
     if (now === null) return null;
+    if (now.record.provider === "bitwarden") {
+      await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
+      const path = join(options.cliDirectory, "bitwarden.config");
+      await replaceFile(path, "", 0o600);
+      const use = now.record.status.kind === "signed-in" && now.login !== null ? now.login.use() : undefined;
+      return { variables: bitwardenBlock(now.record.address, use === undefined ? "" : now.login?.token ?? "", path), release: () => use?.() };
+    }
     if (now.record.provider === "doppler") {
       await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
       const directory = await mkdtemp(join(options.cliDirectory, "doppler-"));

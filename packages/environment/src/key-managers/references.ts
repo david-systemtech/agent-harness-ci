@@ -74,6 +74,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
     if (provider !== record.provider) {
       return refused("credential_source_unavailable", `The reference is ${PROVIDER_NAMES[provider]}'s, and the key-manager connection ${record.label} is ${PROVIDER_NAMES[record.provider]}.`);
     }
+    if (record.status.kind === "provider-unavailable") return refused("provider_unavailable", record.status.message);
     if (record.status.kind !== "signed-in" || login === null) {
       return refused("credential_source_unavailable", `The key-manager connection ${record.label} is not signed in (${record.status.message}), so its references cannot be read.`);
     }
@@ -83,6 +84,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
   /** The refusal a provider's failure comes to: nothing there, a read refused, or a key manager that could not be asked. */
   const refusalOf = (failure: ProviderFailure, provider: KeyManagerProvider): Refused => {
     const message = scrub.scrubOutput(failure.message);
+    if (failure.outcome === "provider-unavailable") return refused("provider_unavailable", message);
     if (failure.outcome === "not-found") return refused("reference_not_found", message);
     if (failure.outcome === "denied") return refused("reference_denied", provider === "openbao" ? `${message} ${CHECK_THE_MOUNT}` : message);
     return refused("credential_source_unavailable", message);

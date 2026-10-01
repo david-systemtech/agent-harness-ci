@@ -10,14 +10,14 @@
       "description": "A key-manager connection's id: a version 4 UUID the adding client mints, kept in lowercase."
     },
     "mount": {
-      "description": "The KV mount to list in, as personal or secret/team; absent to list the mounts. OpenBao only.",
+      "description": "The provider location: an OpenBao KV mount, a Bitwarden project id or name, or a Doppler project. Absent to list OpenBao mounts or Bitwarden projects, or use Doppler's token scope.",
       "type": "string",
       "minLength": 1,
       "maxLength": 1024,
       "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
     },
     "path": {
-      "description": "The path under the mount to list, as harness; absent for the mount's top.",
+      "description": "The path under an OpenBao mount, or a Doppler config name; absent for the mount's top or the token's scope. Bitwarden lists keys in the selected project.",
       "type": "string",
       "minLength": 1,
       "maxLength": 1024,
