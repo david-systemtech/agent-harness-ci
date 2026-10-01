@@ -3,6 +3,7 @@ import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/cont
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { ChecklistAuthoringProvider } from "./authoring-run.js";
 
 /**
  * Set up as the whole window (docs/specs/gui.md, "Set up in the window";
@@ -27,6 +28,8 @@ export interface Checklist {
   choose(step: StepId): void;
   /** Closes it and sets the first-launch mark: its Close, and Finish on the last step. */
   close(): void;
+  /** Leaves it for the main window, sets the first-launch mark, and keeps this checklist run's authoring state. */
+  leaveForMain(): void;
   /**
    * Leaves it for a row of Settings, on `environmentId` where the row picks
    * one, at `part` of its pane when one is named: a step's link to its home
@@ -53,6 +56,7 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const [marked, mark] = usePresentation("firstLaunchDone");
   const home = homeEnvironment(useObservable(useRuntime().projections.environments));
   const [shown, setShown] = useState(false);
+  const [authoringRunId, setAuthoringRunId] = useState(0);
   const [left, setLeft] = useState(false);
   const [step, setStep] = useState<StepId>(STEP_ORDER[0]);
   const [part, setPart] = useState<StepPart | undefined>(undefined);
@@ -75,6 +79,11 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const close = useCallback(() => {
     mark(true);
     setShown(false);
+    setAuthoringRunId((id) => id + 1);
+  }, [mark]);
+  const leaveForMain = useCallback(() => {
+    mark(true);
+    setShown(false);
   }, [mark]);
   const leave = useCallback(
     (row: SettingsRowId, environmentId?: string, part?: SettingsPart) => {
@@ -85,6 +94,6 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
     [openRow],
   );
 
-  const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leave }), [shown, step, part, open, choose, close, leave]);
-  return <ChecklistContext value={checklist}>{children}</ChecklistContext>;
+  const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leaveForMain, leave }), [shown, step, part, open, choose, close, leaveForMain, leave]);
+  return <ChecklistContext value={checklist}><ChecklistAuthoringProvider runId={authoringRunId}>{children}</ChecklistAuthoringProvider></ChecklistContext>;
 };

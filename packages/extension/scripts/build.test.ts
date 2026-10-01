@@ -74,8 +74,10 @@ describe("the extension's build", () => {
       }
     }
     expect(read("worker.js")).not.toMatch(/@agent-harness\//);
-    // The worker takes the browser package's page driver, not its reader, which it never runs.
-    expect(read("worker.js")).not.toMatch(/Readability/);
+    // The worker takes the browser package's page driver and the reader it sends into a page, Mozilla's Readability
+    // with it, and leaves out what only a fetched page is read by.
+    expect(read("worker.js")).toMatch(/function Readability\(doc, options\)/);
+    expect(read("worker.js")).not.toMatch(/readFetchedPage|isShell/);
   });
 
   it("gives the options page its script from the folder, which the content policy admits", () => {

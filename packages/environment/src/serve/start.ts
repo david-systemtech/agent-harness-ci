@@ -49,6 +49,7 @@ import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-ex
 import { spawnBrowser, type BrowserLauncher } from "../browser/headless-launch.js";
 import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { chooseChrome } from "../browser/chrome-choice.js";
+import { browserAllowance } from "../browser/denylist.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
@@ -161,6 +162,7 @@ import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
 import { createRoutineScheduler } from "../routines/scheduler.js";
+import { routineAccount } from "../routines/listing.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
 import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
@@ -540,8 +542,7 @@ export interface EnvironmentOptions {
   readonly keyManagerTimeoutMs?: number;
   /**
    * The Move sources registered at start (#371): each owning service's
-   * items holding a stored value. Preset: the forge's; banks (#90) and
-   * routine webhook endpoints (#92) join it. Tests script one.
+   * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
    */
   readonly moveSources?: readonly MoveSource[];
   /**
@@ -946,7 +947,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
-      referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId)],
       cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
     });
     closers.push(() => connections.close());
@@ -1013,6 +1014,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
+    environmentId: record.id,
     // And the skills a run reads (#496): the own directory, the sources' snapshots and the generations linking to them.
     exempt: [
       join(dataDir, CONTAINMENT_DIRECTORY),
@@ -1075,6 +1077,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     environmentId: record.id,
     live: (sessionId) => host.live(sessionId),
+    gate: (sessionId) => host.gate(sessionId),
+    allowance: (sessionId, call) => {
+      const live = host.live(sessionId);
+      return live === null ? undefined : browserAllowance({ all: (sql, ...params) => log.read(sql, ...params) }, live.runId, call);
+    },
     drivers: {
       // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
       // browser when its client closes (#552); another environment's goes through the browser relay (#554).
@@ -1502,7 +1509,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
   const scripts = scriptsDirectory(scriptsPath, { platform: options.platform ?? process.platform, env: process.env });
   const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
-  const preChecks = createPreCheckRunner({ scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub, baseEnvironment: () => baseEnvironment() });
+  const preChecks = createPreCheckRunner({
+    scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub,
+    baseEnvironment: () => baseEnvironment(),
+    processEnvironment: (subject) => processEnvironments.of({
+      sessionId: null,
+      accountId: routineAccount(subject.account, { reader: { all: (sql, ...params) => log.read(sql, ...params) }, accounts })?.id ?? null,
+      origin: "routine",
+      holder: "pre-check",
+      override: subject.routine === null || subject.injection === "inherit"
+        ? null
+        : { answer: subject.injection, level: { kind: "routine", id: subject.routine.id } },
+    }),
+  });
   const firings = createFiringStarter({
     log,
     clock: now,
@@ -1600,8 +1619,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     name: () => look.read().name,
     vault,
     denylisted: denylistedHost,
+    connectionLabel: (id) => keyManagerConnections.readable(id)?.record.label ?? null,
+    keyManagers,
     scrub,
   });
+  if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({

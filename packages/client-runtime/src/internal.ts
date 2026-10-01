@@ -83,6 +83,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         outbox.applied(environmentId, event);
         // Every run and prompt event of every session comes on the list: the run states and the parked asks fold them all.
         runs.heard(environmentId, event);
+        if (news) requestCache.sessionChanged(environmentId, event.streamId, event.type);
         if (news && event.type === "run.ended") {
           const { runId, reason, cause } = event.payload as RunEndedPayload;
           attention.emit({ kind: "run-ended", environmentId, sessionId: event.streamId.toLowerCase(), runId, reason, cause });
