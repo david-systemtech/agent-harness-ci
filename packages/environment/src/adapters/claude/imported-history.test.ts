@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { EMPTY_RUN_SKILL_SET } from "@agent-harness/contracts";
+import { EMPTY_RUN_SKILL_SET, registry, type SessionCreatedPayload } from "@agent-harness/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../../test/cleanups.js";
 import { manualClock } from "../../../test/clock.js";
+import { end, fakeAdapter } from "../../../test/fake-adapter.js";
 import { FakeSdk } from "../../../test/fake-claude-sdk.js";
+import { startTestEnvironment } from "../../../test/helper.js";
+import { deleteSession, purgeSession } from "../../../test/sessions.js";
+import { NO_SETUP_STEPS } from "../../../test/setup-steps.js";
+import { WAIT_MS } from "../../../test/wire-client.js";
 import type { RunContext, RunInput } from "../../adapter/contract.js";
 import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 import { openEventLog } from "../../event-log/event-log.js";
@@ -198,6 +203,51 @@ const context = (): RunContext => ({
 });
 
 describe("an imported session's first run", () => {
+  it.each([false, true])("a fork owns the imported transcript on another account after its source is purged (linked: %s)", async (linked) => {
+    const directory = adoptedDirectory();
+    const before = tree(directory);
+    const boundary = fakeAdapter({
+      ambientDirectory: directory,
+      capabilities: { fork: true },
+      sessions: [{ providerSessionId: PROVIDER, customTitle: "Find it", summary: null, firstPrompt: "Find it", workingDirectory: tempDir(), tag: null, createdAt: at(0), lastModified: at(13) }],
+      script: () => [{ type: "session.provider-linked", payload: { providerSessionId: PROVIDER } }, end()],
+    });
+    const t = await startTestEnvironment({
+      setupSteps: NO_SETUP_STEPS,
+      adapter: boundary,
+      accounts: [{ id: "claude-max", provider: boundary.descriptor.provider, directory }, { id: "claude-work", provider: boundary.descriptor.provider, directory: tempDir() }],
+    });
+    onCleanup(() => t.close());
+    const owned = createProviderTranscriptStore({ log: t.env.log, clock: manualClock() });
+    const provider = createClaudeAdapter({ sessionStore: owned, configDirQueue: createConfigDirQueue(process.env) });
+    // The provider boundary scripts runs but uses the real SDK's directory-to-store copy.
+    Object.assign(boundary, { seedSessionStore: provider.seedSessionStore?.bind(provider) });
+    const client = await t.client();
+    await client.request("carryOver.run", { commandId: randomUUID(), accountId: "claude-max", dryRun: false, skills: false });
+    const created = t.env.log.readStream({ kinds: ["session"] }).find((event) => event.type === "session.created" && (event.payload as SessionCreatedPayload).origin?.providerSessionId === PROVIDER);
+    const sourceId = created?.streamId ?? "";
+    expect(sourceId).not.toBe("");
+    if (linked) {
+      await provider.seedSessionStore?.({ id: "claude-max", directory }, sourceId, PROVIDER);
+      const run = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: sourceId, text: "Continue" }));
+      await expect.poll(() => t.env.log.readStream({ kind: "session", id: sourceId }).some((event) => event.type === "run.ended" && event.payload["runId"] === run.result?.runId), { timeout: WAIT_MS }).toBe(true);
+    }
+    const id = randomUUID();
+    const fork = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId: sourceId, id, account: "claude-work" }));
+    expect(fork.receipt.status).toBe("accepted");
+    expect((await owned.load({ projectKey: id, sessionId: PROVIDER }))?.map((entry) => entry.uuid)).toEqual(MAIN.map((line) => line.uuid));
+    expect(await owned.listSubkeys({ projectKey: id, sessionId: PROVIDER })).toEqual([`subagents/agent-${AGENT}`]);
+    expect(await owned.load({ projectKey: id, sessionId: PROVIDER, subpath: `subagents/agent-${AGENT}` })).toEqual(expect.arrayContaining(SUBAGENT));
+    await deleteSession(client, sourceId);
+    expect((await purgeSession(client, sourceId)).receipt.status).toBe("accepted");
+    expect(await owned.load({ projectKey: sourceId, sessionId: PROVIDER })).toBeNull();
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Go on" });
+    await expect.poll(() => boundary.runs.length, { timeout: WAIT_MS }).toBe(linked ? 2 : 1);
+    expect(boundary.lastRun().input).toMatchObject({ account: { id: "claude-work" }, target: { kind: "fork", providerSessionId: PROVIDER, atMessageId: null } });
+    expect((await owned.load({ projectKey: id, sessionId: PROVIDER }))?.map((entry) => entry.uuid)).toEqual(MAIN.map((line) => line.uuid));
+    expect(tree(directory)).toEqual(before);
+  });
+
   it("copies the provider session, subagents and all, from the account's directory into the store under the harness session, then resumes from the store; the directory is only read", async () => {
     const directory = adoptedDirectory();
     const before = tree(directory);

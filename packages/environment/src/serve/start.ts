@@ -153,11 +153,11 @@ import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
-import { followDeliveries } from "../routines/delivery.js";
+import { followDeliveries, resumeDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
 import { limitFiringDurations } from "../routines/firing-duration.js";
-import { followFiringEnds } from "../routines/firing-end.js";
+import { followFiringEnds, settleFirings } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
@@ -1108,11 +1108,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
-    chooseChrome: (ask) =>
-      chooseChrome(
-        { log, environmentId: record.id, environmentName: () => look.read().name },
-        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
-      ),
+    chooseChrome: async (ask) => {
+      const remote = ask.environmentId.toLowerCase() !== record.id.toLowerCase()
+        ? await relay.chromesOf({ ...ask, chromeId: null })
+        : undefined;
+      if (remote !== undefined && !remote.ok) return remote;
+      const live = host.live(ask.sessionId);
+      if (live?.runId !== ask.runId) return { ok: false, reason: "This session's run changed before its Chrome could be chosen." };
+      return chooseChrome(
+        { log, environmentId: record.id, environmentName: () => remote?.environmentName ?? look.read().name, ...(remote !== undefined && { paired: remote.chromes }) },
+        { ...ask, actor: formatActor({ kind: "adapter", id: live.descriptor.provider }) },
+      );
+    },
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
@@ -1219,6 +1226,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
 
+  // The environment's resolver of a new session's workspace (#321). Its identity rule reads this environment's forge accounts
+  // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1330,6 +1341,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
       trust: (place) => trustStore.of(place),
+      identityAt: (path) => environmentResolver.identityAt(path),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
       skillSet: runSkillSets({ own: ownSkills, sources: skillSources, log, generations }),
@@ -1521,9 +1533,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
-  const forgeAccounts = () => verifiedOrigins(forge.list());
-  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
@@ -1918,6 +1927,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  settleFirings({ log, clock: now, environmentId: record.id });
+  resumeDeliveries({ log, clock: now, environmentId: record.id });
   webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {

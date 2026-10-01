@@ -71,7 +71,7 @@ import {
   type StartFacts,
 } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
-import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
+import { createRunRegistry, type MemoryRunRegistry, type RunAdmission } from "../serve/run-registry.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { ProviderTranscripts, TranscriptDeleteAnswer } from "../sessions/deletion.js";
 import type { RunParameters, RunParametersCheck, RunParametersVerdict } from "../sessions/run-parameters.js";
@@ -228,6 +228,14 @@ export interface AdapterHostOptions {
    */
   readonly trust?: TrustSeam;
   /**
+   * The repository identity a session made in the workspace at `path` gets
+   * (workspace-picker spec, "Repository identity"), which the preview scope
+   * of a session not yet made reads, for `instructions.preview` and
+   * `skills.readiness` (#1072): the environment's resolver's. Preset: none
+   * for any path.
+   */
+  readonly identityAt?: (path: string) => Promise<string | null>;
+  /**
    * The skill set each run is handed and each commands listing is made
    * under (#495), resolved as the run launches, before its instructions are
    * composed, and at each listing; preset: the empty set.
@@ -353,7 +361,7 @@ export interface AdapterHost {
   /** The provider's anchor check, or null when its adapter has no stored-history read. */
   hasHistoryBefore(sessionId: string, providerSessionId: string, messageId: string): Promise<boolean | null>;
   /** Throws `unavailable` while the environment drains: the gate every new run passes. */
-  admit(): void;
+  admit(admission?: RunAdmission): void;
   /** What starting a run on the session for `actor` depends on, read now (inside a command, in its transaction). */
   startFacts(sessionId: string, actor: RunActor): StartFacts;
   /** The session's live run and its adapter's descriptor; null when none is live. */
@@ -376,7 +384,7 @@ export interface AdapterHost {
    * composed and recorded (`run.instructions.composed`), then through its
    * adapter, its events consumed from there on.
    */
-  launch(run: PlannedRun): void;
+  launch(run: PlannedRun, admission?: RunAdmission): void;
   /** Prepares slash resolution before message.sent commits, using a live run's set when present. */
   prepareSlash(target: string | { readonly accountId: string; readonly workspace: Workspace; readonly repositoryIdentity: string | null }): Promise<PreparedSlash>;
   resolveMessage(text: string, scope: SlashScope): ReturnType<typeof resolveSlash>;
@@ -678,6 +686,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const trustOf = options.trust ?? undecidedTrust;
+  const identityAt = options.identityAt ?? (() => Promise.resolve(null));
   const skillSetOf = options.skillSet ?? noSkillSet;
   const holdGeneration = options.holdGeneration ?? holdNothing;
   const routineSkills = options.routineSkills ?? (() => []);
@@ -1373,7 +1382,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * run, not yet on a process. `composing` while its instructions are
    * composed (`launch`).
    */
-  const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean): LiveRun => {
+  const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean, admission?: RunAdmission): LiveRun => {
     const { descriptor } = plan.account;
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
     const deltas = createDeltaAppend({
@@ -1409,7 +1418,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       calls: runToolCalls(reader, plan.runId),
     };
     // Admitted first: a drain that refuses it leaves no live entry behind.
-    registry.start(plan.runId);
+    if (admission === undefined) registry.start(plan.runId);
+    else admission.transfer(plan.runId);
     live.set(plan.sessionId, entry);
     return entry;
   };
@@ -1614,7 +1624,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  const launch = (plan: PlannedRun): void => {
+  const launch = (plan: PlannedRun, admission?: RunAdmission): void => {
     const prompt: PromptMessage[] = [
       ...keptAnswers(plan.runId),
       ...plan.prompt.map((message) => {
@@ -1622,7 +1632,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
       }),
     ];
-    const entry = register(plan, prompt, true);
+    const entry = register(plan, prompt, true, admission);
     // One injection answer for the run: what its instructions tell it and what its process is given.
     const injection = processEnvironments.decide(holderOf(plan));
     // Its trust, read once as it launches: its skill set, its instructions and its `trusted` all take it.
@@ -2223,13 +2233,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return facts;
   };
 
+  /** The repository identity a session made in `workspace` gets: none for a scratch directory, which is no checkout wherever it lies. */
+  const newSessionIdentity = (workspace: Workspace): Promise<string | null> => (workspace.kind === "scratch" ? Promise.resolve(null) : identityAt(workspace.path));
+
   /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
   const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
     const run: RunPlace =
       "sessionId" in target
         ? sessionPlace(target.sessionId)
-        : // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
-          { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
+        : // A new session's repository identity as its create will read it; it has no level of its own until it is made.
+          { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: await newSessionIdentity(target.workspace), containment: null };
     const facts = placeAccount(run);
     // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
     const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
@@ -2247,7 +2260,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     transcripts,
     subagentTranscript,
     hasHistoryBefore,
-    admit: () => registry.admit(),
+    admit: (admission) => admission === undefined ? registry.admit() : admission.check(),
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),
     gate: (sessionId) => {
