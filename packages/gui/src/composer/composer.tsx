@@ -22,7 +22,7 @@ import { useShellLines } from "../terminal/shell-lines.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { MissingWorkspace, useGoneWorkspace } from "../workspace/missing.js";
-import { AttachmentChips, useAttachments } from "./attachments.js";
+import { AttachmentChips, AttachmentPicker, useAttachments } from "./attachments.js";
 import { useBox } from "./box.js";
 import { MenuList, optionId, useMenus, type Menu } from "./menus.js";
 import { useSessionDraft } from "./session-draft.js";
@@ -53,7 +53,8 @@ export interface ComposerProps {
  * - **Files.** `@` lists the session's workspace (`files.list`, in the
  *   request cache) as the name is typed; choosing one writes its path.
  * - **Attachments** by a paste, a drop or the shell's file dialog (Attach
- *   files, `/attach`), shown as chips.
+ *   files, `/attach`), the page's own file picker where the shell has none
+ *   (#484), shown as chips.
  * - **`/settings [row]`** opens Settings on the row it names, or the last
  *   one opened, on this session's environment (`useSettingsCommand`, #625).
  * - **Send and Stop** share one button (story 9).
@@ -88,7 +89,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const menus = useMenus({ environmentId, sessionId, provider, text: box.text, caret: box.caret });
   const walk = usePromptWalk(projection, box);
   const wired = useWiredCommands();
-  useSlashCommand("attach", attachments.choose, attachments.dialog);
+  useSlashCommand("attach", attachments.choose);
   useSettingsCommand(environmentId);
   const queue = useSessionQueue();
   const [choice] = useModelChoice(environmentId, sessionId);
@@ -220,14 +221,10 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
                 rows={3}
                 className="min-w-0 flex-1 resize-none rounded-md border border-line bg-inset px-3 py-2 text-sm text-ink outline-none focus-visible:border-beam"
               />
-              <Button
-                aria-label="Attach files"
-                disabled={attachments.dialog.status === "absent"}
-                title={attachments.dialog.status === "absent" ? attachments.dialog.message : undefined}
-                onClick={attachments.choose}
-              >
+              <Button aria-label="Attach files" onClick={attachments.choose}>
                 Attach
               </Button>
+              <AttachmentPicker attachments={attachments} />
               <SendOrStop
                 stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
                 sends={!lock.locked && box.text.trim().length > 0}

@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
-import { fakeShell } from "@agent-harness/client-runtime/testing";
+import { fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
 import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -194,6 +194,19 @@ const chips = () => {
   return list === null ? [] : within(list).getAllByRole("listitem").map((chip) => chip.firstChild?.textContent);
 };
 
+/** The recording fake shell without its file dialogs, as a browser tab has none: `shell.dialogs` absent with `no-shell`. */
+const withoutDialogs = () => ({ ...fakeShell(), dialogs: undefined }) as unknown as FakeShell;
+
+/** The page's own file picker, which jsdom never opens: user-event's `upload` chooses files in it. */
+const picker = () => screen.getByLabelText("Files to attach") as HTMLInputElement;
+
+/** How many times the page's picker has been opened (clicked) since this was called. */
+const pickerOpens = () => {
+  let opens = 0;
+  picker().addEventListener("click", () => opens++);
+  return () => opens;
+};
+
 describe("attachments", () => {
   it("come by the shell's file dialog, show as chips, and go with the message", async () => {
     const shell = fakeShell();
@@ -211,6 +224,23 @@ describe("attachments", () => {
       ]),
     );
     expect(chips()).toEqual([]);
+  });
+
+  it("come by the page's own file picker where the shell has no file dialog (a browser tab), Attach files opening it", async () => {
+    const { app, env, session } = await opened({}, withoutDialogs());
+    const opens = pickerOpens();
+
+    await app.user.click(screen.getByRole("button", { name: "Attach files" }));
+    expect(opens()).toBe(1);
+    await app.user.upload(picker(), [new File([PNG], "picked.png", { type: "image/png" })]);
+    await waitFor(() => expect(chips()).toEqual(["picked.png"]));
+
+    await write(app, "What is this?{Enter}");
+    await waitFor(() =>
+      expect(sent(env, "runs.start")).toEqual([
+        expect.objectContaining({ sessionId: session, text: "What is this?", attachments: [{ kind: "image", name: "picked.png", mediaType: "image/png", data: PNG_DATA }] }),
+      ]),
+    );
   });
 
   it("come by a drop on the composer, and wait there for the message", async () => {
