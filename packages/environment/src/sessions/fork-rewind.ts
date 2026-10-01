@@ -15,6 +15,7 @@ import {
 import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, RunTarget } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
+import { accountSource } from "../carry-over/sessions.js";
 import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
 import { forkedInstructions } from "../instructions/session-instructions.js";
 import { environmentQueue, latestRun, providerQueue, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
@@ -411,9 +412,10 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       fromProviderSessionId = atMessageId === null || historyBefore(sourceId, messages, atMessageId) ? linked : null;
     } else {
       // A source no run of which has linked a provider session: a fork continues what the source's own fork named
-      // (its copy of those rows is the source's), since nothing the source was sent since reached the provider.
+      // (its copy of those rows is the source's), or its imported conversation, since nothing sent since reached the provider.
       const inherited = forkRecord(log, sourceId);
-      fromProviderSessionId = inherited?.fromProviderSessionId ?? null;
+      const origin = readOrigin(reader, sourceId);
+      fromProviderSessionId = inherited?.fromProviderSessionId ?? (origin?.kind === "import" ? origin.providerSessionId : null);
       atMessageId = fromProviderSessionId !== null ? (inherited?.atMessageId ?? null) : (anchor?.messageId ?? inherited?.atMessageId ?? null);
       if (anchor === null && atMessageId !== null && inherited !== null) {
         // The draft saved with the source's fork is the anchor's text, independent of later edits or a purged ancestor.
@@ -495,10 +497,19 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
 
   return {
     "sessions.fork": {
-      prepare: (params) => {
+      prepare: async (params) => {
         const id = params.sessionId.toLowerCase();
         const anchor = params.atMessageId?.toLowerCase() ?? pendingRewind(log, id)?.toMessageId ?? null;
-        return storedHistoryBefore(id, anchor).then((history) => forkNow(history));
+        // Import before the transaction: the fork then copies the source's own rows atomically, even onto another
+        // account. Its first run needs neither the source nor the adopted directory to survive after this command.
+        const origin = readOrigin(reader, id);
+        if (params.atMessageId === undefined && origin?.kind === "import" && !stateOf(id)?.deleted && providerSessionOf(reader, id) === null) {
+          const facts = host.account(origin.accountId);
+          if (facts === null) throw new ContractError({ code: "conflict", message: `The account ${origin.accountId} holding the imported conversation is unavailable.`, data: { reason: "account_unavailable", accountId: origin.accountId } });
+          const source = accountSource(host, facts);
+          await source.adapter.seedSessionStore?.(source.account, id, origin.providerSessionId);
+        }
+        return forkNow(await storedHistoryBefore(id, anchor));
       },
     },
 
