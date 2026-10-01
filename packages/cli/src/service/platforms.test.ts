@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { installContextAt, makeTempDir, stubRunner, type Answer } from "../../test/service-helpers.js";
 import { renderLaunchdPlist } from "./launchd.js";
 import { createServicePlatform, ServiceCommandError, UnsupportedPlatformError } from "./platform.js";
+import { COMMAND_TIMEOUT_MS, STOP_COMMAND_TIMEOUT_MS } from "./runner.js";
 import type { ServiceSpec } from "./spec.js";
 import { renderSystemdUnit } from "./systemd.js";
 import { renderTaskXml, decodeTaskXml } from "./task-scheduler.js";
@@ -230,6 +231,25 @@ describe("the systemd user unit", () => {
     }
   });
 
+  it("gives the commands that stop the unit, try-restart and disable --now, the stop's wait and a minute, and every other 30 seconds", async () => {
+    const home = tempHome();
+    const { service, timeouts } = platformFor("linux", home, (_, args) => (args[1] === "is-active" ? { code: 0 } : undefined));
+    await service.install(specIn(home), RESTART);
+    await service.install(specIn(home), RESTART);
+    await service.start();
+    await service.uninstall();
+
+    expect(Object.fromEntries(timeouts)).toEqual({
+      "systemctl --user is-active agent-harness.service": COMMAND_TIMEOUT_MS,
+      "systemctl --user is-enabled agent-harness.service": COMMAND_TIMEOUT_MS,
+      "systemctl --user daemon-reload": COMMAND_TIMEOUT_MS,
+      "systemctl --user enable agent-harness.service": COMMAND_TIMEOUT_MS,
+      "systemctl --user try-restart agent-harness.service": STOP_COMMAND_TIMEOUT_MS,
+      "systemctl --user start agent-harness.service": COMMAND_TIMEOUT_MS,
+      "systemctl --user disable --now agent-harness.service": STOP_COMMAND_TIMEOUT_MS,
+    });
+  });
+
   it("start starts the unit", async () => {
     const { service, calls } = platformFor("linux", tempHome());
     await service.start();
@@ -373,6 +393,21 @@ describe("the launchd agent", () => {
 
     expect(existsSync(plistPath(home))).toBe(false);
     expect(calls).toEqual(["launchctl print gui/501/agent-harness", "launchctl bootout gui/501/agent-harness"]);
+  });
+
+  it("gives bootout, which stops a running agent, the stop's wait and a minute, and every other command 30 seconds", async () => {
+    const home = tempHome();
+    const { service, timeouts } = platformFor("darwin", home, loaded("running"));
+    await service.install(specIn(home), RESTART);
+    await service.start();
+    await service.uninstall();
+
+    expect(Object.fromEntries(timeouts)).toEqual({
+      "launchctl print gui/501/agent-harness": COMMAND_TIMEOUT_MS,
+      "launchctl bootout gui/501/agent-harness": STOP_COMMAND_TIMEOUT_MS,
+      [`launchctl bootstrap gui/501 ${plistPath(home)}`]: COMMAND_TIMEOUT_MS,
+      "launchctl kickstart gui/501/agent-harness": COMMAND_TIMEOUT_MS,
+    });
   });
 
   it("is running only when launchd prints the job's state as running", async () => {
@@ -535,6 +570,16 @@ describe("the Task Scheduler logon task", () => {
       "schtasks /End /TN agent-harness",
       "schtasks /Delete /TN agent-harness /F",
     ]);
+  });
+
+  it("gives every command 30 seconds, /End too: it sends no signal, so a stop waits for no drain", async () => {
+    const home = tempHome();
+    const { service, timeouts } = platformFor("win32", home, running);
+    await service.install(preparedSpecIn(home), RESTART);
+    await service.uninstall();
+
+    expect(timeouts.get("schtasks /End /TN agent-harness")).toBe(COMMAND_TIMEOUT_MS);
+    expect(new Set(timeouts.values())).toEqual(new Set([COMMAND_TIMEOUT_MS]));
   });
 
   it("is installed when schtasks finds the task, and running when its status is Running", async () => {
