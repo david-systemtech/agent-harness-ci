@@ -365,6 +365,43 @@ describe("the request cache", () => {
     expect([asked(), reads]).toEqual([1, 3]);
   });
 
+  it("fetches skills.readiness again on skills.updated and on an account changing, and no other query (#510)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    const ready = { skills: [{ name: "tdd", state: "ready", declaredBy: null }] };
+    const setupNeeded = {
+      skills: [
+        {
+          name: "to-spec",
+          state: "setup-needed",
+          declaredBy: "overlay",
+          failing: [{ check: { kind: "file", paths: ["docs/agents/issue-tracker.md"] }, outcome: "failed", message: "docs/agents/issue-tracker.md is not in the workspace." }],
+          why: null,
+          fix: "/setup-matt-pocock-skills",
+        },
+      ],
+    };
+    wire.answer("skills.readiness", () => {
+      reads++;
+      return { result: reads > 1 ? setupNeeded : ready };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const readiness = runtime.requests.cached(id, "skills.readiness", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
+    readiness.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+    environment?.event(noticeEvent(1, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(readiness.read()).toMatchObject({ result: setupNeeded, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+  });
+
   it("fetches trust.get and trust.list again on trust.updated and on a forge account's aliases changing, and no other query (#500)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     const reads = { get: 0, list: 0 };
