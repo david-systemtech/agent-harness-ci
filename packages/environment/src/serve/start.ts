@@ -151,6 +151,7 @@ import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
@@ -191,7 +192,7 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
-import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
@@ -217,6 +218,7 @@ import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./ht
 import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
 import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
+import { refuseMarkedRestore } from "./launcher-files.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
@@ -844,6 +846,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   const log: EventLog = await step("database", () => {
+    refuseMarkedRestore(dataDir);
     const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
     closers.push(() => opened.close());
     return opened;
@@ -1184,6 +1187,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
   closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
+  const webhookDeliveries = createWebhookDeliveries({
+    log, clock, environmentId: record.id, name: () => look.read().name, scrub,
+    endpoint: (name) => endpoints.resolve(name),
+  });
+  closers.push(() => webhookDeliveries.close());
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
@@ -1540,10 +1548,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   const banks = options.banks ?? NO_BANKS;
+  // One local preview for the Instructions row and its health check, even when the orientation switch is off.
+  // Read the injection setting directly; health never decides a provider process or materialises its skills.
+  const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
+  const readOrientation = async () => {
+    const accountId = accounts.defaultId();
+    return accountId === null ? null : orientationSeam(host.orientationScope(accountId, { kind: "scratch", path: roots.scratch }, orientationInjection({ sessionId: null, accountId, origin: "client", holder: "provider-process", override: null })));
+  };
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
       log,
+      orientation: readOrientation,
+      skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
       containment,
@@ -1643,10 +1660,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       orientationOn,
       catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
-      orientation: async () => {
-        const accountId = accounts.defaultId();
-        return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
-      },
+      orientation: readOrientation,
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
@@ -1852,6 +1866,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());

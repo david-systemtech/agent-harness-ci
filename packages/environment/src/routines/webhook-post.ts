@@ -24,6 +24,8 @@ export interface WebhookPost {
   readonly clock: Clock;
   /** Preset: `WEBHOOK_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
+  /** Cancels an in-flight delivery when its worker closes. */
+  readonly signal?: AbortSignal;
 }
 
 /** What a POST came to. */
@@ -67,7 +69,7 @@ export const postWebhook = async (post: WebhookPost): Promise<WebhookPostResult>
       },
       body: post.body,
       redirect: "manual",
-      signal: controller.signal,
+      signal: post.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, post.signal]),
     });
     await response.body?.cancel().catch(() => undefined);
     const { status } = response;

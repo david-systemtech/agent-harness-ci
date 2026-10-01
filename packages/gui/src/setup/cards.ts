@@ -4,6 +4,7 @@ import { createContext, use, type ComponentType } from "react";
 import { AccountStepCard } from "../accounts/account-step-card.js";
 import { BrowserCard } from "../browser/browser-card.js";
 import { AppearanceCard } from "../appearance/appearance-card.js";
+import { CarryOverCard } from "../carry-over/carry-over-card.js";
 import { ForgesCard } from "../forges/forges-card.js";
 import { KeyManagerCard } from "../key-managers/key-manager-card.js";
 import { YourMachinesCard } from "../machines/your-machines-card.js";
@@ -32,6 +33,7 @@ export type StepCards = Readonly<Partial<Record<StepId, ComponentType<StepCardPr
 /** The cards this build registers, each step's arriving with its card ticket: Your machines (#576), Permissions and Appearance (#594). */
 export const STEP_CARDS: StepCards = {
   account: AccountStepCard,
+  "carry-over": CarryOverCard,
   "your-machines": YourMachinesCard,
   forges: ForgesCard,
   "key-manager": KeyManagerCard,

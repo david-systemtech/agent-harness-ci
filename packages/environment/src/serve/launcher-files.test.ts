@@ -8,8 +8,8 @@ import { deleteOutcomeRecord, readOutcomeRecord, stagingArea } from "./launcher-
 
 /**
  * The files the environment shares with its launcher in the data directory:
- * it writes only the staging area, and reads and deletes only the outcome
- * record the launcher writes.
+ * it writes only the staging area, refuses a restore marker, and reads and
+ * deletes the outcome record the launcher writes.
  */
 
 const { tempDir } = useCleanups();

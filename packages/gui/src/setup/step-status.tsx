@@ -84,6 +84,8 @@ interface StepStatusProps extends StepCardProps {
   readonly restore?: CardRestore;
   /** A registered card's commands for named health actions. */
   readonly actions?: Readonly<Partial<Record<SetupAction, { readonly disabled: boolean; readonly run: (targets: readonly SetupTarget[]) => void }>>>;
+  /** Actions drawn and carried out by the card itself, beside the inventory they act on. */
+  readonly handledActions?: readonly SetupAction[];
 }
 
 /**
@@ -96,14 +98,14 @@ interface StepStatusProps extends StepCardProps {
  * calls, whose line the card says. Sign in again opens the sign-in card over
  * it. It is the whole of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore, actions }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, actions, handledActions = [] }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const [line, say] = useState<string | undefined>(undefined);
   const [signingIn, signIn] = useState<NamedItem | null>(null);
   const act = useSetupActions(environmentId, say, signIn, restore);
   const { result } = step;
-  const offered = result === null ? [] : setupActions(step, result);
+  const offered = result === null ? [] : setupActions(step, result).filter((offered) => !handledActions.includes(offered.action));
   /** Whether the connection may carry out a plan: a restore needs the method it calls. */
   const may = (plan: SetupActionPlan): boolean => plan.kind !== "restore" || runtime.capability(environmentId, RESTORE_METHODS[plan.step]).status === "present";
   return (

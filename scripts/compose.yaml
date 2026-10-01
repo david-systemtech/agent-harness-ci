@@ -48,6 +48,23 @@
 # named volumes, which Docker creates owned by that user, since the image's
 # /data and /work are. To mount a directory of the host instead, give it to
 # the user first: sudo chown -R 10001:10001 <directory>.
+# Opt in to the dedicated headless browser with:
+#
+#   docker compose --profile browser up -d
+#
+# Set browser.headless.endpoint to http://127.0.0.1:9222 in the environment's
+# settings. The environment uses the host network, so that loopback port
+# reaches the service too. This endpoint belongs only to this environment:
+# connecting clears every existing target and context.
+#
+# LinuxServer's maintained Debian Chromium image is pinned by digest, which
+# Renovate updates. Its desktop entrypoint is replaced: only Chromium under
+# new headless and the small port forwarder run. Chromium's new headless CDP
+# listener binds loopback inside the container; the forwarder exposes that
+# listener to Docker's loopback-only publication. It exits when Browser.close
+# ends Chromium, so restart brings a fresh browser back. The browser runs as
+# an unprivileged user within the container's boundary; it asks for no added
+# capabilities and uses no Chromium sandbox inside that boundary.
 name: agent-harness
 services:
   environment:
@@ -81,6 +98,49 @@ services:
     # under way (env spec, "Lifecycle"); a stop that kills sooner cuts them.
     # The host-side updater's stop waits it out too.
     stop_grace_period: 31m
+  browser:
+    image: docker.io/linuxserver/chromium:latest@sha256:2d32e1b2b28aa92973aa0f58c433c0b045db6e1224d7001eeaa9cde1a474ce13
+    profiles: ["browser"]
+    restart: unless-stopped
+    user: "10001:10001"
+    init: true
+    mem_limit: 1g
+    environment:
+      HOME: /tmp
+    ports:
+      - "127.0.0.1:9222:9222"
+    # The upstream image includes Python; overriding its entrypoint starts no desktop.
+    entrypoint: ["/usr/bin/python3", "-c"]
+    command:
+      - |
+        import asyncio, sys
+
+        async def copy(reader, writer):
+            try:
+                while data := await reader.read(65536):
+                    writer.write(data)
+                    await writer.drain()
+            finally:
+                writer.close()
+
+        async def forward(reader, writer):
+            try:
+                upstream, outgoing = await asyncio.open_connection('127.0.0.1', 9223)
+                await asyncio.gather(copy(reader, outgoing), copy(upstream, writer))
+            except (OSError, ConnectionError):
+                writer.close()
+
+        async def main():
+            browser = await asyncio.create_subprocess_exec(
+                '/usr/lib/chromium/chromium', '--headless=new', '--no-sandbox',
+                '--remote-debugging-port=9223', '--user-data-dir=/tmp/headless-profile',
+                '--no-first-run', '--no-default-browser-check', 'about:blank')
+            server = await asyncio.start_server(forward, '0.0.0.0', 9222)
+            async with server:
+                return await browser.wait()
+
+        sys.exit(asyncio.run(main()))
+
 volumes:
   data:
   work:

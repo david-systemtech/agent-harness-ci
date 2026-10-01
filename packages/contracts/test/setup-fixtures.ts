@@ -71,7 +71,7 @@ export const forgeRejected = {
 };
 
 export const setupSchemaFixtures: Record<string, Fixtures> = {
-  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "key-manager", "memory-bank", "instructions", "browser", "permissions", "appearance"], invalid: ["skills", "Permissions", ""] },
+  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"], invalid: ["unknown-step", "Permissions", ""] },
   "setup/action.json": {
     valid: ["restore", "check-again", "set-up-this-machine", "start-service", "import-again", "try-again", "write-it-myself", "start-over", "revise"],
     invalid: ["Restore", "reboot", "try again", ""],
@@ -145,7 +145,7 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
 
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
-    params: { valid: [{}, { step: "permissions" }, { step: "forges" }, { step: "key-manager" }, { step: "memory-bank" }], invalid: [{ step: "skills" }, { step: "" }, { step: ["permissions"] }] },
+    params: { valid: [{}, { step: "permissions" }, { step: "forges" }, { step: "key-manager" }, { step: "memory-bank" }, { step: "skills" }], invalid: [{ step: "unknown-step" }, { step: "" }, { step: ["permissions"] }] },
     result: {
       valid: [
         { results: [] },
@@ -163,12 +163,13 @@ export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { commandId: mintCommandId, step: "instructions", variant: "first" },
         { commandId: mintCommandId, step: "instructions", subject: "bank-1", variant: "revise", account: "claude-max", model: "opus", effort: "high" },
         { commandId: mintCommandId, step: "memory-bank", subject: "bank-1", variant: "first" },
+        { commandId: mintCommandId, step: "skills", variant: "first" },
       ],
       invalid: [
         { step: "instructions", variant: "first" },
         { commandId: mintCommandId, step: "instructions" },
         { commandId: mintCommandId, step: "instructions", variant: "again" },
-        { commandId: mintCommandId, step: "skills", variant: "first" },
+        { commandId: mintCommandId, step: "unknown-step", variant: "first" },
         { commandId: mintCommandId, step: "instructions", subject: "", variant: "first" },
       ],
     },

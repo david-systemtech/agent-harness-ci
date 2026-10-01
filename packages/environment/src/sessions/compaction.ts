@@ -1,6 +1,6 @@
 import { SESSION_STREAM_KIND, type SessionEventType, type TasksChangedPayload, type TranscriptEventType } from "@agent-harness/contracts";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
-import { foldTranscript, storedTranscriptParts, type TranscriptParts } from "../runs/transcript.js";
+import { foldTranscript, readCompactedTranscript, type TranscriptParts } from "../runs/transcript.js";
 import type { Clock } from "../serve/clock.js";
 import { readSettings } from "../settings/settings-store.js";
 import { undoableRewind } from "./fork-rewind.js";
@@ -155,7 +155,7 @@ export const createCompactionSweep = (options: CompactionSweepOptions): Compacti
       const last = events.at(-1);
       if (remove.length === 0 || last === undefined) return false;
       // The fold reads a delta only for where its item was opened; the settled items carry the whole text (#260).
-      const from = snapshot === null ? undefined : storedTranscriptParts(snapshot.payload);
+      const from = snapshot === null ? undefined : readCompactedTranscript(log, snapshot);
       const payload: TranscriptParts = foldTranscript(events, from);
       log.compactStream(stream, { sequence: last.sequence, payload, remove }, { tx });
       return true;
