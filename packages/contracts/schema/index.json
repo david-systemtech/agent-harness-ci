@@ -3343,6 +3343,14 @@
       "title": "ExtensionFolderStatus"
     },
     {
+      "path": "browser/status/headless-source.json",
+      "title": "HeadlessSource"
+    },
+    {
+      "path": "browser/status/headless.json",
+      "title": "HeadlessBrowserStatus"
+    },
+    {
       "path": "browser/status/status.json",
       "title": "BrowserStatus"
     },

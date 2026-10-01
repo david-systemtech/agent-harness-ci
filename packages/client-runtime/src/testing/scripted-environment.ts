@@ -58,6 +58,7 @@ import {
   TERMINAL_EXITED_TYPE,
   TERMINAL_OUTPUT_TYPE,
   TERMINAL_STREAM_KIND,
+  TOOL_TERMINAL_KEPT_MS,
   type SessionDiffFile,
   type SummaryPatch,
   type TerminalExitCause,
@@ -1120,7 +1121,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     cut: boolean;
     readonly writes: string[];
     readonly resizes: { readonly cols: number; readonly rows: number }[];
-    exit: { readonly exitCode: number; readonly signal: number | null; readonly cause: TerminalExitCause; readonly sequence: number } | null;
+    /** How its shell ended, at what sequence, and when on the environment's clock, which its `terminal.exited` says every time it is sent. */
+    exit: { readonly exitCode: number; readonly signal: number | null; readonly cause: TerminalExitCause; readonly sequence: number; readonly occurredAt: string } | null;
     closed: boolean;
     readonly subscriptions: Set<string>;
     /** A tool terminal's command, which hears what is typed and its end (`scripted-tools.ts`). */
@@ -1133,7 +1135,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return t.sessionId === null ? { ...fields, owner: "managed-tools", sessionId: null } : { ...fields, owner: "session", sessionId: t.sessionId };
   };
   const lastOf = (t: HeldTerminal) => t.last;
-  const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
+  const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>, occurredAt = clock.now().toISOString()): EventEnvelope => ({
     sequence: at,
     // Unique per terminal and chunk, and apart from the session and environment streams' (their own first group).
     eventId: `0199fd00-${t.index.toString(16).padStart(4, "0")}-7000-8000-${String(at).padStart(12, "0")}`,
@@ -1141,7 +1143,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     streamId: t.id,
     streamVersion: at,
     type,
-    occurredAt: clock.now().toISOString(),
+    occurredAt,
     commandId: null,
     causationId: null,
     correlationId: null,
@@ -1151,7 +1153,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   const exitedEnvelope = (t: HeldTerminal) => {
     const exit = t.exit as NonNullable<HeldTerminal["exit"]>;
-    return terminalEnvelope(t, exit.sequence, TERMINAL_EXITED_TYPE, { exitCode: exit.exitCode, signal: exit.signal, cause: exit.cause });
+    return terminalEnvelope(t, exit.sequence, TERMINAL_EXITED_TYPE, { exitCode: exit.exitCode, signal: exit.signal, cause: exit.cause }, exit.occurredAt);
   };
   const hold = (
     id: string,
@@ -1200,7 +1202,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const exitTerminal = (id: string, exitCode: number, cause: TerminalExitCause = "exited", signal: number | null = null) => {
     const t = terminals.get(id);
     if (!t || t.exit) return;
-    t.exit = { exitCode, signal, cause, sequence: lastOf(t) + 1 };
+    t.exit = { exitCode, signal, cause, sequence: lastOf(t) + 1, occurredAt: clock.now().toISOString() };
     const event = exitedEnvelope(t);
     for (const subscription of t.subscriptions) {
       toSubscriber({ type: "event", subscription, sequence: event.sequence, event });
@@ -1208,6 +1210,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     }
     t.subscriptions.clear();
     t.tool?.ended({ exitCode, signal, cause });
+    // A tool terminal is kept TOOL_TERMINAL_KEPT_MS on the environment's clock after its command exits, then closed, telling no one (#362).
+    if (t.owner === "managed-tools" && !t.closed) clock.setTimeout(() => void (t.closed = true), TOOL_TERMINAL_KEPT_MS);
   };
   for (const held of spec.terminals ?? []) {
     const t = hold(held.id.toLowerCase(), sessions[held.session ?? 0]?.id ?? "", { cols: held.cols, rows: held.rows });
@@ -1215,7 +1219,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       t.chunks.push({ sequence: 1, data: held.output });
       t.last = 1;
     }
-    if (held.exitCode !== undefined) t.exit = { exitCode: held.exitCode, signal: null, cause: "exited", sequence: lastOf(t) + 1 };
+    if (held.exitCode !== undefined) t.exit = { exitCode: held.exitCode, signal: null, cause: "exited", sequence: lastOf(t) + 1, occurredAt: clock.now().toISOString() };
   }
   /** A terminal command's accepted receipt; a rejection the script names is answered before the command acts, as the environment refuses one. */
   const terminalReceipt = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence, changed: false }, result } });
