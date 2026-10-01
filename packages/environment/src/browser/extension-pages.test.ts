@@ -115,7 +115,7 @@ const inPageWindows = (html: string): ((call: InPageCall) => unknown) => {
     if (window === undefined) {
       window = new JSDOM(html, { url: call.frame.url, runScripts: "outside-only" }).window;
       // tsx, which runs the built worker on the thread, names the bundle's functions with a helper of its own; Chrome runs
-      // the file as built, which calls none, so the page gets a stand-in for tsx's helper and nothing else.
+      // the file as built, which calls none, so the page gets a stand-in for tsx's helper and nothing else (#966).
       window.eval("var __name = (target) => target;");
       windows.set(call.frame.loaderId, window);
     }
