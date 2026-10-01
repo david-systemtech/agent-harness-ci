@@ -1498,15 +1498,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
   });
+  /** A client session's label, which sentences and records name it by; undefined for one never issued. */
+  const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
   // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
-  const relay = createBrowserRelay({
-    log,
-    clock,
-    stream: environmentStream,
-    connected: (clientSessionId) => wire.holds(clientSessionId),
-    clientLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
-  });
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel });
   closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.
@@ -1647,7 +1643,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       environmentId: record.id,
       store: trustStore,
-      clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+      clientSessionLabel,
     }),
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied

@@ -158,7 +158,7 @@ describe("the call", () => {
     const after = (ms: number) => new Date(t.clock.now().getTime() + ms).toISOString();
     expect(deadlines).toEqual([after(18_000), after(7_000), after(5_000)]);
 
-    // The tools carry no allowance until the gate gives one (#556); the relay's driver carries what a call holds.
+    // The tools carry no allowance until the gate gives one (#557); the relay's driver carries what a call holds.
     const relay = createBrowserRelay({ log: t.env.log, clock: t.clock, stream: { kind: "environment", id: t.env.id }, connected: () => true, clientLabel: () => undefined });
     onCleanup(() => relay.close());
     const allowed = { environmentId: DESK, chromeId: null, sessionId: id, runId };

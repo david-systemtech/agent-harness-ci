@@ -92,7 +92,7 @@ interface Waiting {
 }
 
 const NO_CLIENT =
-  "No client started a run of this session, so no client can drive the Chrome, which is paired with another environment, for it. Ask the person to start this session's run from a client on the Chrome's machine.";
+  "No client started a run of this session, so there is no client to drive its Chrome, which is paired with another environment. Ask the person to start this session's run from a client on the Chrome's machine.";
 
 export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay => {
   const { log, clock } = options;
