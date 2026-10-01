@@ -332,6 +332,8 @@ export interface AdapterHost {
    * reason `unsupported`, when the adapter cannot.
    */
   subagentTranscript(sessionId: string, agentId: string): Promise<readonly JsonObject[]>;
+  /** The provider's anchor check, or null when its adapter has no stored-history read. */
+  hasHistoryBefore(sessionId: string, providerSessionId: string, messageId: string): Promise<boolean | null>;
   /** Throws `unavailable` while the environment drains: the gate every new run passes. */
   admit(): void;
   /** What starting a run on the session for `actor` depends on, read now (inside a command, in its transaction). */
@@ -1988,6 +1990,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return read.call(adapter, sessionId, agentId);
   };
 
+  const hasHistoryBefore = async (sessionId: string, providerSessionId: string, messageId: string): Promise<boolean | null> => {
+    const facts = account(latestRun(reader, sessionId)?.accountId ?? readSessionFacts(log, reader, sessionId)?.account ?? null);
+    if (facts === null) return null;
+    const adapter = adapterOfAccount(facts.id);
+    return adapter?.hasHistoryBefore?.({ id: facts.id, directory: facts.directory }, sessionId, providerSessionId, messageId) ?? null;
+  };
+
   /**
    * `sessions.create`'s check against the account store (#134): an account
    * named that the environment does not hold, or that is not signed in,
@@ -2134,6 +2143,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     validateSessionInput,
     transcripts,
     subagentTranscript,
+    hasHistoryBefore,
     admit: () => registry.admit(),
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),

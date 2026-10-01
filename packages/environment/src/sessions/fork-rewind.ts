@@ -297,7 +297,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
    * handing back to the session's queue has come, or the wait for it has run
    * out (its `prepare`, #245).
    */
-  const rewindNow: MethodHandler<"sessions.rewind"> = (params, context) => {
+  const rewindNow = (storedHistory: boolean | null = null): MethodHandler<"sessions.rewind"> => (params, context) => {
     const id = params.sessionId.toLowerCase();
     const messageId = params.messageId.toLowerCase();
     const aggregate = sessionStream(id);
@@ -335,12 +335,12 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     const messages = visibleMessages(id);
     const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
     if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
-    if (!historyBefore(id, messages, messageId)) {
+    if (!historyBefore(id, messages, messageId) || storedHistory === false) {
       return {
         aggregate,
         rejected: {
           code: "conflict",
-          message: `The message ${messageId} is the session's first: start a new session with its text instead.`,
+          message: `No provider history comes before message ${messageId}: start a new session with its text instead.`,
           data: { reason: "use_new_session", sessionId: id, messageId },
         },
       };
@@ -356,78 +356,101 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     return { aggregate, result: { sessionId: id, messageId } };
   };
 
+  const forkNow = (storedHistory: boolean | null = null): MethodHandler<"sessions.fork"> => (params, context) => {
+    const sourceId = params.sessionId.toLowerCase();
+    const id = params.id.toLowerCase();
+    const aggregate = sessionStream(id);
+    const source = stateOf(sourceId);
+    const facts = readSessionFacts(log, reader, sourceId);
+    if (source === null || source.deleted || facts === null) return { aggregate, rejected: sessionNotFound(sourceId) };
+
+    // The anchor: the message asked for, else a rewind the source has not continued from, whose hidden part is no more the fork's than the source's.
+    const messages = visibleMessages(sourceId);
+    let anchor: UserMessage | null = null;
+    if (params.atMessageId !== undefined) {
+      const asked = params.atMessageId.toLowerCase();
+      anchor = messages.find((message) => message.messageId === asked && message.heldBy === null) ?? null;
+      if (anchor === null) return { aggregate, rejected: messageNotFound(sourceId, asked) };
+    }
+    const linked = providerSessionOf(reader, sourceId);
+    let atMessageId: string | null;
+    let fromProviderSessionId: string | null;
+    if (linked !== null) {
+      atMessageId = anchor?.messageId ?? pendingRewind(log, sourceId)?.toMessageId ?? null;
+      // Nothing of the provider's comes before the anchor when it is the source's first message: the fork starts fresh.
+      fromProviderSessionId = atMessageId === null || historyBefore(sourceId, messages, atMessageId) ? linked : null;
+    } else {
+      // A source no run of which has linked a provider session: a fork continues what the source's own fork named
+      // (its copy of those rows is the source's), since nothing the source was sent since reached the provider.
+      const inherited = forkRecord(log, sourceId);
+      fromProviderSessionId = inherited?.fromProviderSessionId ?? null;
+      atMessageId = inherited !== null && fromProviderSessionId !== null ? inherited.atMessageId : (anchor?.messageId ?? null);
+    }
+
+    // The source's account unless another is named; its model only on the same account, whose catalogue it came from.
+    const account = params.account ?? facts.account;
+    const model = params.account === undefined || params.account === facts.account ? facts.model : null;
+    const verdict = validateRunParameters({ account, model, mode: facts.mode });
+    if (verdict.unavailable !== undefined) {
+      const { accountId, message } = verdict.unavailable;
+      return { aggregate, rejected: { code: "conflict", message, data: { reason: "account_unavailable", accountId } } };
+    }
+    if (verdict.issues.length > 0) throw new ContractError(invalidParams(verdict.issues, "The account, model or mode is not one this environment offers."));
+    if (fromProviderSessionId !== null) {
+      const descriptor = host.account(account)?.descriptor;
+      if (descriptor !== undefined) requireCapability(descriptor, "fork", params.account === undefined ? ["sessionId"] : ["account"], "fork a session");
+    }
+    if (fromProviderSessionId !== null && atMessageId !== null && storedHistory === false) {
+      return {
+        aggregate,
+        rejected: { code: "conflict", message: `No provider history comes before message ${atMessageId}: start a new session with its text instead.`, data: { reason: "use_new_session", sessionId: sourceId, messageId: atMessageId } },
+      };
+    }
+    const mode = facts.mode === null ? null : clampSessionMode(facts.mode, account, context.clientSession);
+
+    const created = decideCreate(
+      stateOf(id),
+      // The source's workspace, shared whatever its kind, with its repository identity as recorded (#324): nothing is read again.
+      { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode, browser: null },
+      { groupExists: source.groupId !== null && groupExists(reader, source.groupId) },
+    );
+    if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };
+    const events: EventInput[] = [...created.events];
+    // The source's title, carried as the fork's generated title until the provider's summary replaces it.
+    const carried = params.title === undefined ? generatedTitle(source.userTitle ?? source.generatedTitle ?? "") : null;
+    if (carried !== null) {
+      const payload: SessionTitleGeneratedPayload = { title: carried, source: "prompt" };
+      events.push({ type: "session.title-generated", payload });
+    }
+    const draft = anchor?.text.slice(0, MAX_DRAFT_LENGTH) ?? "";
+    if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
+    // The source's own instructions, which the fork keeps (#506).
+    events.push(...forkedInstructions(reader, sourceId));
+    const forked: SessionForkedPayload = { fromSessionId: sourceId, atMessageId, fromProviderSessionId };
+    events.push({ type: "session.forked", payload: forked });
+    log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+    if (fromProviderSessionId !== null) options.store?.copySession(context.tx, sourceId, id);
+    const summary = readSummary(reader, id);
+    if (summary === null) throw new Error(`The fork ${id} is not in the list after its creation.`);
+    return { aggregate, result: { summary } };
+  };
+
+  /** Ask the adapter about the anchor it will actually resume; first-message forks still start fresh. */
+  const storedHistoryBefore = (sessionId: string, messageId: string | null): Promise<boolean | null> => {
+    const linked = providerSessionOf(reader, sessionId);
+    if (linked === null || messageId === null) return Promise.resolve(null);
+    const messages = visibleMessages(sessionId);
+    if (!messages.some((message) => message.messageId === messageId && message.heldBy === null) || !historyBefore(sessionId, messages, messageId)) return Promise.resolve(null);
+    return host.hasHistoryBefore(sessionId, linked, messageId);
+  };
+
   return {
-    "sessions.fork": (params, context) => {
-      const sourceId = params.sessionId.toLowerCase();
-      const id = params.id.toLowerCase();
-      const aggregate = sessionStream(id);
-      const source = stateOf(sourceId);
-      const facts = readSessionFacts(log, reader, sourceId);
-      if (source === null || source.deleted || facts === null) return { aggregate, rejected: sessionNotFound(sourceId) };
-
-      // The anchor: the message asked for, else a rewind the source has not continued from, whose hidden part is no more the fork's than the source's.
-      const messages = visibleMessages(sourceId);
-      let anchor: UserMessage | null = null;
-      if (params.atMessageId !== undefined) {
-        const asked = params.atMessageId.toLowerCase();
-        anchor = messages.find((message) => message.messageId === asked && message.heldBy === null) ?? null;
-        if (anchor === null) return { aggregate, rejected: messageNotFound(sourceId, asked) };
-      }
-      const linked = providerSessionOf(reader, sourceId);
-      let atMessageId: string | null;
-      let fromProviderSessionId: string | null;
-      if (linked !== null) {
-        atMessageId = anchor?.messageId ?? pendingRewind(log, sourceId)?.toMessageId ?? null;
-        // Nothing of the provider's comes before the anchor when it is the source's first message: the fork starts fresh.
-        fromProviderSessionId = atMessageId === null || historyBefore(sourceId, messages, atMessageId) ? linked : null;
-      } else {
-        // A source no run of which has linked a provider session: a fork continues what the source's own fork named
-        // (its copy of those rows is the source's), since nothing the source was sent since reached the provider.
-        const inherited = forkRecord(log, sourceId);
-        fromProviderSessionId = inherited?.fromProviderSessionId ?? null;
-        atMessageId = inherited !== null && fromProviderSessionId !== null ? inherited.atMessageId : (anchor?.messageId ?? null);
-      }
-
-      // The source's account unless another is named; its model only on the same account, whose catalogue it came from.
-      const account = params.account ?? facts.account;
-      const model = params.account === undefined || params.account === facts.account ? facts.model : null;
-      const verdict = validateRunParameters({ account, model, mode: facts.mode });
-      if (verdict.unavailable !== undefined) {
-        const { accountId, message } = verdict.unavailable;
-        return { aggregate, rejected: { code: "conflict", message, data: { reason: "account_unavailable", accountId } } };
-      }
-      if (verdict.issues.length > 0) throw new ContractError(invalidParams(verdict.issues, "The account, model or mode is not one this environment offers."));
-      if (fromProviderSessionId !== null) {
-        const descriptor = host.account(account)?.descriptor;
-        if (descriptor !== undefined) requireCapability(descriptor, "fork", params.account === undefined ? ["sessionId"] : ["account"], "fork a session");
-      }
-      const mode = facts.mode === null ? null : clampSessionMode(facts.mode, account, context.clientSession);
-
-      const created = decideCreate(
-        stateOf(id),
-        // The source's workspace, shared whatever its kind, with its repository identity as recorded (#324): nothing is read again.
-        { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode, browser: null },
-        { groupExists: source.groupId !== null && groupExists(reader, source.groupId) },
-      );
-      if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };
-      const events: EventInput[] = [...created.events];
-      // The source's title, carried as the fork's generated title until the provider's summary replaces it.
-      const carried = params.title === undefined ? generatedTitle(source.userTitle ?? source.generatedTitle ?? "") : null;
-      if (carried !== null) {
-        const payload: SessionTitleGeneratedPayload = { title: carried, source: "prompt" };
-        events.push({ type: "session.title-generated", payload });
-      }
-      const draft = anchor?.text.slice(0, MAX_DRAFT_LENGTH) ?? "";
-      if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
-      // The source's own instructions, which the fork keeps (#506).
-      events.push(...forkedInstructions(reader, sourceId));
-      const forked: SessionForkedPayload = { fromSessionId: sourceId, atMessageId, fromProviderSessionId };
-      events.push({ type: "session.forked", payload: forked });
-      log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-      if (fromProviderSessionId !== null) options.store?.copySession(context.tx, sourceId, id);
-      const summary = readSummary(reader, id);
-      if (summary === null) throw new Error(`The fork ${id} is not in the list after its creation.`);
-      return { aggregate, result: { summary } };
+    "sessions.fork": {
+      prepare: (params) => {
+        const id = params.sessionId.toLowerCase();
+        const anchor = params.atMessageId?.toLowerCase() ?? pendingRewind(log, id)?.toMessageId ?? null;
+        return anchor === null ? forkNow() : storedHistoryBefore(id, anchor).then((history) => forkNow(history));
+      },
     },
 
     "sessions.rewind": {
@@ -437,15 +460,15 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       // and for at most `REWIND_WAIT_MS`: then the transaction decides on the log as it stands.
       prepare: async (params) => {
         const id = params.sessionId.toLowerCase();
-        if (host.runActive(id) !== null || !host.handingBack(id)) return rewindNow;
-        await new Promise<void>((resolve) => {
+        if (host.runActive(id) !== null) return rewindNow();
+        if (host.handingBack(id)) await new Promise<void>((resolve) => {
           const timer = clock.setTimeout(resolve, REWIND_WAIT_MS);
           void host.handedBack(id).then(() => {
             timer.cancel();
             resolve();
           });
         });
-        return rewindNow;
+        return rewindNow(await storedHistoryBefore(id, params.messageId.toLowerCase()));
       },
     },
 
