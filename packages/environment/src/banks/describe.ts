@@ -3,15 +3,18 @@ import type { Clock } from "../serve/clock.js";
 import type { LlmStep, StepSubject, StepWorkspace } from "../setup/mint.js";
 import { runGit } from "../workspace/git.js";
 import type { BankRecord, BankRecords } from "./records.js";
+import { DescribeGitError, describeRepositoryAt, prepareDescribeRepository } from "./describe-repository.js";
 
 /**
  * The Memory bank step's describe conversation, its LLM step (ADR 0019,
  * ADR 0035, ADR 0037; setup spec, "The LLM step and minted sessions";
  * banks spec, "The Memory bank step and the orientation block"; #586). Its
  * subjects are the enabled banks. A session `setup.mint` mints for one
- * works in a writable worktree of the bank's checkout on a new branch
+ * works in a writable worktree of a separate copy of the bank on a new branch
  * `setup/describe-<date>` (the environment's day, in UTC), `-2`, `-3` and on
- * when that day's is taken, made from the checkout's main by the resolver,
+ * when that day's is taken, reserved from the copy's refreshed main before
+ * the resolver makes its worktree.
+ * The copy's git metadata is outside the attached checkout and writable,
  * so nothing touches the checkout, which runs see read-only, until the
  * change is reviewed and landed. A bank whose checkout is not there, and a
  * call naming no bank, are `conflict`, reason `bank_missing`. Its prompt
@@ -41,8 +44,8 @@ const isDirectory = async (path: string): Promise<boolean> => {
 
 /**
  * The first of `setup/describe-<day>`, then `-2`, `-3` and on, that the
- * checkout has no local branch of. A listing git cannot give takes the
- * first, and the worktree's maker refuses it with git's reason.
+ * repository has no local branch of. Creating the ref reserves the name
+ * atomically, before a concurrent mint can choose it for another worktree.
  */
 const freeBranch = async (checkout: string, day: string): Promise<string> => {
   const base = `${BRANCH_PREFIX}${day}`;
@@ -50,17 +53,22 @@ const freeBranch = async (checkout: string, day: string): Promise<string> => {
   const taken = new Set(listing.ok ? listing.stdout.toString("utf8").split("\n") : []);
   for (let n = 1; ; n += 1) {
     const name = n === 1 ? base : `${base}-${n}`;
-    if (!taken.has(`refs/heads/${name}`)) return name;
+    if (taken.has(`refs/heads/${name}`)) continue;
+    const created = await runGit(checkout, ["branch", "--", name, "refs/heads/main"], { maxBytes: 1024 });
+    if (created.ok && !created.truncated) return name;
+    const exists = await runGit(checkout, ["show-ref", "--verify", "--quiet", `refs/heads/${name}`], { maxBytes: 1024 });
+    if (!exists.ok) throw new DescribeGitError("branch", created);
   }
 };
 
 export interface DescribeBankOptions {
   readonly banks: BankRecords;
+  readonly dataDir: string;
   /** The environment's clock, whose day names a session's branch. */
   readonly clock: Clock;
 }
 
-export const describeBankStep = ({ banks, clock }: DescribeBankOptions): LlmStep => {
+export const describeBankStep = ({ banks, clock, dataDir }: DescribeBankOptions): LlmStep => {
   const bankOf = (subject: StepSubject | null): BankRecord | undefined => (subject === null ? undefined : banks.list().find((bank) => bank.id === subject.id));
   return {
     subjects: () => banks.list().filter((bank) => bank.enabled).map(subjectOf),
@@ -75,7 +83,16 @@ export const describeBankStep = ({ banks, clock }: DescribeBankOptions): LlmStep
         return bankMissing(`The bank ${bank.name} has no checkout at ${bank.checkout} on this environment.`, { bankId: bank.id, path: bank.checkout });
       }
       const day = clock.now().toISOString().slice(0, 10);
-      return { kind: "worktree", repository: bank.checkout, newBranch: { name: await freeBranch(bank.checkout, day) } };
+      try {
+        const repository = await prepareDescribeRepository(dataDir, bank.checkout);
+        return { kind: "worktree", repository, branch: await freeBranch(repository, day) };
+      } catch (error) {
+        const errno = error instanceof Error && "code" in error && typeof error.code === "string" && /^E[A-Z0-9]+$/.test(error.code) ? error.code : undefined;
+        const diagnostic = error instanceof DescribeGitError
+          ? { reason: "git_failed", operation: error.operation, diagnostic: error.diagnostic }
+          : errno === undefined ? { reason: "describe_repository_failed", diagnostic: "unexpected" } : { reason: "filesystem_failed", errno };
+        return { refused: { code: "conflict", message: `The bank ${bank.name}'s describe repository could not be prepared.`, data: { ...diagnostic, bankId: bank.id, repository: describeRepositoryAt(dataDir, bank.checkout) } } };
+      }
     },
     facts: (subject) => {
       const bank = bankOf(subject);

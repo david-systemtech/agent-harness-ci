@@ -1689,7 +1689,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       browser,
     }),
     // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
-    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock, dataDir }) },
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
