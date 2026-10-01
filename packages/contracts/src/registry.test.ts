@@ -549,6 +549,7 @@ describe("the method registry", () => {
       | "routines.endpoints.remove"
       | "routines.endpoints.test"
       | "skills.get"
+      | "skills.probe"
       | "skills.own.create"
       | "skills.own.remove"
       | "skills.carryOver"

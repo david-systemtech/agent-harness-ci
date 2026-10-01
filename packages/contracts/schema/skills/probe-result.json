@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsProbeResult",
+  "type": "object",
+  "properties": {
+    "probeId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A probe's id: a version 4 UUID the environment mints for each skills.probe, naming its checkout while it is kept."
+    },
+    "identity": {
+      "type": "string",
+      "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+      "description": "The URL's repository identity, which a source on it is known by with its folder."
+    },
+    "branch": {
+      "type": "string",
+      "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+      "description": "The branch cloned: the one named, else the remote's default, the one its HEAD names."
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+      "description": "The commit the branch was at when it was cloned."
+    },
+    "root": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "folder": {
+              "description": "The folder, from the repository's root: what skills.sources.add takes; . for the root.",
+              "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+              "type": "string"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                        "maxLength": 64
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
+                  },
+                  "path": {
+                    "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+                    "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                    "type": "string"
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The member's description, trimmed; null when it has none, a description problem saying so."
+                  },
+                  "invocation": {
+                    "type": "string",
+                    "enum": [
+                      "model+slash",
+                      "slash-only"
+                    ],
+                    "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+                  },
+                  "problems": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "frontmatter",
+                            "name",
+                            "description"
+                          ],
+                          "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "What is wrong, for people: the names tried and why each fails."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "message"
+                      ],
+                      "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+                    },
+                    "description": "Empty for a valid member; any problem leaves it invalid and out of the set."
+                  }
+                },
+                "required": [
+                  "name",
+                  "path",
+                  "description",
+                  "invocation",
+                  "problems"
+                ],
+                "description": "A member the probe found: its name, its folder from the probed folder (. when the folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of a source."
+              },
+              "description": "Its members as the reader reads them: the folder itself when it holds SKILL.md, else each child folder holding SKILL.md, in name order."
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "How many of its members are valid: the skills a source on the folder would yield."
+            },
+            "licence": {
+              "anyOf": [
+                {
+                  "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+                  "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case), from the repository's root; null when it holds none."
+            }
+          },
+          "required": [
+            "folder",
+            "members",
+            "count",
+            "licence"
+          ],
+          "description": "A folder the probe found: the root when it is itself a skill, else a folder whose children hold SKILL.md, with its members as a source on it would read them, the count of valid ones, and any licence file in it."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The root, when it holds SKILL.md and so is one skill, named after the repository unless its frontmatter names it; null otherwise."
+    },
+    "folders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "The folder, from the repository's root: what skills.sources.add takes; . for the root.",
+            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                      "maxLength": 64
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
+                },
+                "path": {
+                  "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+                  "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                  "type": "string"
+                },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The member's description, trimmed; null when it has none, a description problem saying so."
+                },
+                "invocation": {
+                  "type": "string",
+                  "enum": [
+                    "model+slash",
+                    "slash-only"
+                  ],
+                  "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+                },
+                "problems": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "frontmatter",
+                          "name",
+                          "description"
+                        ],
+                        "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "What is wrong, for people: the names tried and why each fails."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "message"
+                    ],
+                    "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+                  },
+                  "description": "Empty for a valid member; any problem leaves it invalid and out of the set."
+                }
+              },
+              "required": [
+                "name",
+                "path",
+                "description",
+                "invocation",
+                "problems"
+              ],
+              "description": "A member the probe found: its name, its folder from the probed folder (. when the folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of a source."
+            },
+            "description": "Its members as the reader reads them: the folder itself when it holds SKILL.md, else each child folder holding SKILL.md, in name order."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "How many of its members are valid: the skills a source on the folder would yield."
+          },
+          "licence": {
+            "anyOf": [
+              {
+                "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case), from the repository's root; null when it holds none."
+          }
+        },
+        "required": [
+          "folder",
+          "members",
+          "count",
+          "licence"
+        ],
+        "description": "A folder the probe found: the root when it is itself a skill, else a folder whose children hold SKILL.md, with its members as a source on it would read them, the count of valid ones, and any licence file in it."
+      },
+      "description": "Every folder up to four levels below the root, the root included, that does not hold SKILL.md itself and whose child folders do, in the order the walk finds them: by depth, then by name; empty when the repository has no skill folder."
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "Whether the probe stopped at 2,000 directories read, so a folder further on may be missing."
+    }
+  },
+  "required": [
+    "probeId",
+    "identity",
+    "branch",
+    "commit",
+    "root",
+    "folders",
+    "truncated"
+  ],
+  "description": "What skills.probe found in a repository: the probe's id, the identity, the branch and commit cloned, the root when it is itself a skill, and every folder whose children hold SKILL.md, each with its members, their count and any licence file."
+}

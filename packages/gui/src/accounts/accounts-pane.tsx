@@ -40,7 +40,30 @@ export const AccountsPane = () => {
   return picked === undefined ? null : <AccountsOn key={picked.environmentId} view={picked} />;
 };
 
-const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
+const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => (
+  <>
+    <p className="text-sm text-ink-muted">{settingsRow("accounts.accounts").hint}</p>
+    <AccountsList view={view} add="Add an account…" />
+    <StepLinks steps={CARRY_OVER} />
+  </>
+);
+
+export interface AccountsListProps {
+  readonly view: EnvironmentView;
+  /** What the button that adds an account, on the sign-in card, says. */
+  readonly add: string;
+}
+
+/**
+ * An environment's accounts as the Accounts row and the Account step's card
+ * draw them (#414, #575): the status read again as it opens; while the
+ * environment cannot be reached, the accounts as this window last read them,
+ * read-only, with since when; without `admin`, read-only with the
+ * capability's line; the offer of the machine's own sign-in; the button that
+ * adds an account on the sign-in card; what a command did in one line; and
+ * a card per account.
+ */
+export const AccountsList = ({ view, add }: AccountsListProps) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const listed = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId]));
@@ -52,7 +75,7 @@ const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
   const admin = runtime.capability(environmentId, "accounts.adopt");
   const writable = ready && admin.status === "present";
 
-  // The status read again as the pane opens on the environment, and as it is reached again; what it records is noticed.
+  // The status read again as the list opens on the environment, and as it is reached again; what it records is noticed.
   useEffect(() => {
     if (ready) void runtime.requests.call(environmentId, "accounts.refresh", {});
   }, [runtime, environmentId, ready]);
@@ -60,7 +83,6 @@ const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
   const accounts = listed.value;
   return (
     <>
-      <p className="text-sm text-ink-muted">{settingsRow("accounts.accounts").hint}</p>
       {!ready && (
         <p className="text-sm text-amber">
           {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its accounts." : "its accounts as this window last read them, read-only."}
@@ -70,7 +92,7 @@ const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
       {ready && <AdoptOffer environmentId={environmentId} environment={nameOf(view)} writable={writable} say={say} />}
       <div className="flex flex-wrap gap-2">
         <Button tone="primary" disabled={!writable} onClick={() => signIn({ account: null })}>
-          Add an account…
+          {add}
         </Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
@@ -81,7 +103,6 @@ const AccountsOn = ({ view }: { readonly view: EnvironmentView }) => {
           : accounts.map((account) => (
               <AccountCard key={account.id} environmentId={environmentId} account={account} gauges={gauges} writable={writable} signIn={() => signIn({ account })} remove={() => remove(account)} say={say} />
             ))}
-      <StepLinks steps={CARRY_OVER} />
       {signing !== undefined && <SignInCard environmentId={environmentId} account={signing.account} close={() => signIn(undefined)} say={say} />}
       {removing !== undefined && <ConfirmRemove environmentId={environmentId} environment={nameOf(view)} account={removing} close={() => remove(undefined)} say={say} />}
     </>

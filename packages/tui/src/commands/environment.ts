@@ -8,9 +8,10 @@ import {
   EnvironmentName,
   type ResultOf,
 } from "@agent-harness/contracts";
-import { terminalColourOf } from "../rail/badge.js";
+import { ENVIRONMENT_ANSI } from "@agent-harness/theme";
 import { pickerOf, type Picker, type PickerRow } from "../rail/picker.js";
 import { messageOf, nameOf } from "../view.js";
+import type { UpdateCard } from "./updates.js";
 
 /**
  * `/environment` (docs/specs/tui.md, "First launch"): the saved
@@ -25,13 +26,19 @@ import { messageOf, nameOf } from "../view.js";
 
 /**
  * `name`, `icon` and `colour` set the environment's look (`LookField`);
- * `update` is Update now, and `update-to-client` the offer of this client's
- * version (`commands/updates.ts`, #827).
+ * `update` is Update now, `drain-and-update` Drain and update now (#878),
+ * and `update-to-client` the offer of this client's version
+ * (`commands/updates.ts`, #827).
  */
-export type EnvironmentAction = "enable" | "disable" | "remove" | "primary" | "sessions" | LookField | "update" | "update-to-client";
+export type EnvironmentAction = "enable" | "disable" | "remove" | "primary" | "sessions" | LookField | "update" | "drain-and-update" | "update-to-client";
 
-/** The actions a connection offers, in the menu's order; the offer only while this client's version `offered` is offered there. */
-export const actionsFor = (view: EnvironmentView, offered: string | null): readonly EnvironmentAction[] => [
+/**
+ * The actions a connection offers, in the menu's order, by what its card
+ * says of its `update`: Drain and update now only while busy work holds
+ * the pending update, and the offer only while this client's version is
+ * offered there.
+ */
+export const actionsFor = (view: EnvironmentView, update: UpdateCard): readonly EnvironmentAction[] => [
   view.enabled ? "disable" : "enable",
   "remove",
   ...(view.primary ? [] : (["primary"] as const)),
@@ -40,7 +47,8 @@ export const actionsFor = (view: EnvironmentView, offered: string | null): reado
   "icon",
   "colour",
   "update",
-  ...(offered === null ? [] : (["update-to-client"] as const)),
+  ...(update.drainable === null ? [] : (["drain-and-update"] as const)),
+  ...(update.offered === null ? [] : (["update-to-client"] as const)),
 ];
 
 const ACTION_WORDS: Readonly<Record<Exclude<EnvironmentAction, "update-to-client">, string>> = {
@@ -53,6 +61,7 @@ const ACTION_WORDS: Readonly<Record<Exclude<EnvironmentAction, "update-to-client
   icon: "Icon",
   colour: "Colour",
   update: "Update now",
+  "drain-and-update": "Drain and update now",
 };
 
 /** What an action says on the card; the offer names the environment and this client's version `offered`, as the window's button does. */
@@ -232,7 +241,7 @@ export const lookPicker = (acts: LookActs, view: EnvironmentView, field: LookFie
     case "colour": {
       const rows = () =>
         ENVIRONMENT_COLOURS.map(
-          (colour): PickerRow => ({ key: colour, text: colour, colour: terminalColourOf(colour), ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
+          (colour): PickerRow => ({ key: colour, text: colour, colour: ENVIRONMENT_ANSI[colour], ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
         );
       return {
         ...pickerOf({ title: () => `Colour for ${nameOf(now())}`, typed: false, rows }),

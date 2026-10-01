@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skills.probe params",
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "A skill source's URL, as entered: https://, ssh:// or scp's [user@]host:path, naming a repository with an identity; no credential, query, fragment or leading hyphen, and no other scheme or local path. Refused as invalid_params, the issue's params naming the rule source-url and its reason; this pattern holds part of the rule, and cases/skill-source-url.json holds all of it.",
+      "pattern": "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$"
+    },
+    "branch": {
+      "description": "The branch to probe; the remote's default, the one its HEAD names, when absent.",
+      "type": "string",
+      "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$"
+    }
+  },
+  "required": [
+    "url"
+  ]
+}

@@ -45,6 +45,16 @@ describe("the terminal UI under the repository's lint", () => {
     expect(await ruleIds("packages/tui/src/rail/use-rail.ts", "export const collapsedGroups = writable({});\n")).toContain(RULE);
   });
 
+  it("fires on a colour named in the source, by name or in hex, and passes a role or an environment colour from the theme package (ADR 0023, #392)", async () => {
+    const fires = async (code: string) => (await ruleIds("packages/tui/src/screens/rail.tsx", code)).includes("no-restricted-syntax");
+    expect(await fires('export const tone = { color: "yellow" };\n')).toBe(true);
+    expect(await fires('export const edge = "cyanBright";\n')).toBe(true);
+    expect(await fires('export const tone = "#e5c07b";\n')).toBe(true);
+    expect(await fires('import { TERMINAL_ROLES } from "@agent-harness/theme";\nexport const tone = { color: TERMINAL_ROLES.warning };\n')).toBe(false);
+    expect(await fires('import { ENVIRONMENT_ANSI } from "@agent-harness/theme";\nexport const tone = ENVIRONMENT_ANSI.teal;\n')).toBe(false);
+    expect(await ruleIds("packages/tui/src/screens/rail.test.ts", 'export const tone = { color: "yellow" };\n')).not.toContain("no-restricted-syntax");
+  });
+
   it("fires on a draft kept by the composer", async () => {
     expect(await ruleIds("packages/tui/src/app.tsx", "export const Composer = () => { const [draft, setDraft] = useState(''); return draft; };\n")).toContain(RULE);
   });

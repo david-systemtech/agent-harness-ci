@@ -1,6 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
-import type { ToolRunStartedPayload } from "@agent-harness/contracts";
-import { useEffect, useId, useRef, useState } from "react";
+import { DEFAULT_TERMINAL_SIZE, type ManagedToolName, type ToolRunFinishedPayload, type ToolRunStartedPayload } from "@agent-harness/contracts";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPaneTerminal, type PaneTerminal, type PaneView } from "../terminal/pane-terminal.js";
 import { useTerminalTheme } from "../terminal/terminal-theme.js";
 import { Button } from "../ui/index.js";
@@ -12,6 +12,50 @@ export interface ShownRun extends Pick<ToolRunStartedPayload, "tool" | "action" 
 }
 
 const NOTHING_YET: PaneView = { command: null, ended: null, line: null };
+
+/** A run the environment's stream says is under way, as a section holds it: at the size the environment opens a tool terminal at unless asked another. */
+const shownFrom = (running: ToolRunStartedPayload): ShownRun => ({
+  terminal: { id: running.terminalId, ...DEFAULT_TERMINAL_SIZE },
+  tool: running.tool,
+  action: running.action,
+  command: running.command,
+});
+
+/** The tool terminal a section draws, and the tool runs the environment's stream tells of. */
+export interface DrawnToolTerminal {
+  /** The run drawn until its Close: one this section started, or one under way the stream told of; null for none. */
+  readonly drawn: ShownRun | null;
+  /** Install or Update opened a tool terminal: it is drawn. */
+  readonly started: (run: ShownRun) => void;
+  /** Its Close, or the environment ending its terminal: it goes, and the run under way does not bring it back. */
+  readonly close: () => void;
+  /** The tool's last run heard to finish. */
+  readonly finishedOf: (tool: ManagedToolName) => ToolRunFinishedPayload | undefined;
+}
+
+/**
+ * The tool terminal a section draws (#426, #590): the one its Install or
+ * Update opened, else the run under way the environment's stream tells of
+ * (from this window earlier, or another client) of a tool the section
+ * `shows`, while its terminal was not closed here; held as drawn, one
+ * object, past its finish until Close, so a `sudo` prompt left waiting can
+ * still be answered.
+ */
+export const useToolTerminal = (environmentId: string, shows: (tool: ManagedToolName) => boolean): DrawnToolTerminal => {
+  const runtime = useRuntime();
+  const { running, finished } = useObservable(useMemo(() => runtime.projections.toolRuns(environmentId), [runtime, environmentId]));
+  const [drawn, started] = useState<ShownRun | null>(null);
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const adopted = running !== null && shows(running.tool) ? running : null;
+  useEffect(() => {
+    if (adopted !== null && !closed.has(adopted.terminalId)) started((shown) => shown ?? shownFrom(adopted));
+  }, [adopted, closed]);
+  const close = () => {
+    if (drawn !== null) setClosed((held) => new Set(held).add(drawn.terminal.id));
+    started(null);
+  };
+  return { drawn, started, close, finishedOf: (tool) => (tool === "vault" ? undefined : finished[tool]) };
+};
 
 /**
  * A tool terminal in a terminal pane, drawn in About's Managed tools
