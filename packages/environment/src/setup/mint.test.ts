@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { registry, stepPrompt, type EventFrame, type Frame, type ParamsOf, type ResponseOf, type StepResult } from "@agent-harness/contracts";
+import { registry, stepPrompt, type EventFrame, type Frame, type ParamsOf, type ResponseOf, type StepResult, type WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -27,7 +27,7 @@ import type { SetupSteps } from "./service.js";
  * it again, with nobody asking.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 /** The note step's prompt: the note named by its subject, validated at version 2. */
 const notePrompt = stepPrompt({
@@ -42,8 +42,8 @@ const notePrompt = stepPrompt({
 /** The note step's one subject. */
 const BANK = { kind: "bank", id: "bank-1", label: "david-memory" } as const;
 
-/** The note step: a registry of its own, its check finding NOTE.md in the workspace of the fake's latest run. */
-const noteSteps = (adapter: FakeAdapter): SetupSteps => ({
+/** The note step: a registry of its own, its check finding NOTE.md in the workspace of the fake's latest run, which is a scratch one unless the step names another. */
+const noteSteps = (adapter: FakeAdapter, workspace?: WorkspaceRequest): SetupSteps => ({
   steps: [
     scriptedStep("instructions", {
       llm: "test-note",
@@ -58,10 +58,11 @@ const noteSteps = (adapter: FakeAdapter): SetupSteps => ({
     },
   },
   prompts: [notePrompt],
-  authoring: {
+  llmSteps: {
     instructions: {
       subjects: () => [BANK],
       facts: (subject) => ({ name: subject?.label ?? "nothing" }),
+      ...(workspace !== undefined && { workspace: () => workspace }),
     },
   },
 });
@@ -73,9 +74,9 @@ const writesNote: Script = async function* ({ input }) {
   yield end();
 };
 
-const start = async (options: TestEnvironmentOptions & { readonly script?: Script } = {}): Promise<TestEnvironment> => {
+const start = async (options: TestEnvironmentOptions & { readonly script?: Script; readonly workspace?: WorkspaceRequest } = {}): Promise<TestEnvironment> => {
   const adapter = options.adapter ?? fakeAdapter({ ...(options.script !== undefined && { script: options.script }) });
-  const t = await startTestEnvironment({ ...options, adapter, setupSteps: noteSteps(adapter) });
+  const t = await startTestEnvironment({ ...options, adapter, setupSteps: noteSteps(adapter, options.workspace) });
   onCleanup(() => t.close());
   await t.env.setup.startPass;
   return t;
@@ -147,6 +148,16 @@ describe("setup.mint", () => {
     expect(summary).toMatchObject({ title: "Set up: Instructions (david-memory)", tags: ["instructions", "setup"], workspace: { kind: "scratch" }, draft: null });
     expect(t.adapter.lastRun().input).toMatchObject({ sessionId, account: { id: "claude-max" } });
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Write NOTE.md for david-memory."]);
+  });
+
+  it("creates the session in the workspace the step names when it names one", async () => {
+    const path = tempDir();
+    const t = await start({ script: writesNote, workspace: { kind: "directory", path } });
+    const client = await t.client();
+    const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    expect(await get(client, sessionId)).toMatchObject({ workspace: { kind: "directory", path } });
+    await runEnded(client, sessionId);
+    expect(existsSync(join(path, "NOTE.md"))).toBe(true);
   });
 
   it("takes the account, model and effort from the call, else the environment's defaults: the default account, the strongest of the default family and the default effort", async () => {

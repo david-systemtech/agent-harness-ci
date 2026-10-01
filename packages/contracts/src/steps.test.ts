@@ -35,7 +35,8 @@ import {
  * checks for themselves (#141); each declares its check's budget class, its
  * cadence, one other than the hour with its reason, and the event and notice
  * types that re-run it, and every skippable step and no other a skip check,
- * one of its own (ADR 0031; #308, #568); no part of the state steps write
+ * one of its own (ADR 0031; #308, #568); an LLM step names a prompt
+ * `STEP_PROMPTS` has (ADR 0019; #584); no part of the state steps write
  * through their own methods is named by two. The Permissions entry names
  * every settings key the permissions spec writes and the denylist's four
  * sections. Each

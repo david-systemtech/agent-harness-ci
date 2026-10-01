@@ -41,27 +41,27 @@ import { SETUP_TAG } from "./minted.js";
  */
 
 /** What an LLM step authors an artefact for, as a result's action targets it: a bank for the Memory bank step. */
-export interface AuthoringSubject {
+export interface StepSubject {
   readonly kind: SetupTargetKind;
   readonly id: string;
   readonly label: string;
 }
 
 /** The environment's side of an LLM step: its subjects, the workspace its sessions work in, and the facts its prompt renders from. */
-export interface AuthoringStep {
+export interface LlmStep {
   /** Every subject the step has now: what `setup.mint`'s subject names one of, and what a done step's Revise targets. */
-  subjects(): readonly AuthoringSubject[];
+  subjects(): readonly StepSubject[];
   /** Where a minted session works; a scratch workspace of its own when absent. */
-  workspace?(subject: AuthoringSubject | null): WorkspaceRequest;
-  /** The live facts the step's prompt renders from, for the subject the call names (null for none). */
-  facts(subject: AuthoringSubject | null): unknown;
+  workspace?(subject: StepSubject | null): WorkspaceRequest;
+  /** The live facts the step's prompt renders from, for the subject the call names (null for none), at once or with a promise. */
+  facts(subject: StepSubject | null): unknown;
 }
 
 /** The LLM steps' prompts, and each LLM step's own side, by step id. */
-export interface Authoring {
+export interface LlmSteps {
   /** The prompts the steps' `llm` names; preset `STEP_PROMPTS`. */
   readonly prompts?: readonly StepPrompt[];
-  readonly authoring?: { readonly [step: string]: AuthoringStep };
+  readonly llmSteps?: { readonly [step: string]: LlmStep };
 }
 
 export interface MintOptions {
@@ -71,7 +71,7 @@ export interface MintOptions {
   /** What the session's workspace resolves through, as `sessions.create`'s does. */
   readonly resolver: WorkspaceResolver;
   /** The registered steps, with the prompts and each LLM step's side. */
-  readonly steps: Authoring & { readonly steps: readonly CheckedStep[] };
+  readonly steps: LlmSteps & { readonly steps: readonly CheckedStep[] };
   /** A client session's ceiling as it is now: the first run's. */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
 }
@@ -79,7 +79,7 @@ export interface MintOptions {
 const SCRATCH: WorkspaceRequest = { kind: "scratch" };
 
 /** "Set up: <step> (<subject>)", on one line and cut to a title's length. */
-const titleFor = (step: CheckedStep, subject: AuthoringSubject | null): string =>
+const titleFor = (step: CheckedStep, subject: StepSubject | null): string =>
   titleLine(subject === null ? `Set up: ${STEP_LABELS[step.id]}` : `Set up: ${STEP_LABELS[step.id]} (${subject.label})`) ?? `Set up: ${STEP_LABELS[step.id]}`;
 
 /** The account the call's runs resolve to, signed in and offering the call's model (or any): null when none does. */
@@ -107,17 +107,17 @@ export const mintMethods = (options: MintOptions): Required<Pick<MethodHandlers,
           return refused({ code: "conflict", message: `The step ${params.step} has no authoring conversation.`, data: { reason: "no_llm_step", step: params.step } });
         }
         const prompt = prompts.find((entry) => entry.id === step.llm);
-        const authoring = steps.authoring?.[step.id];
-        if (prompt === undefined || authoring === undefined) throw new Error(`The step ${step.id} names the prompt ${step.llm}, which this environment cannot render.`);
-        let subject: AuthoringSubject | null = null;
+        const llmStep = steps.llmSteps?.[step.id];
+        if (prompt === undefined || llmStep === undefined) throw new Error(`The step ${step.id} names the prompt ${step.llm}, which this environment cannot render.`);
+        let subject: StepSubject | null = null;
         if (params.subject !== undefined) {
-          subject = authoring.subjects().find((entry) => entry.id === params.subject) ?? null;
+          subject = llmStep.subjects().find((entry) => entry.id === params.subject) ?? null;
           if (subject === null) {
             return refused({ code: "not_found", message: `The step ${step.id} has no subject ${params.subject}.`, data: { kind: "subject", step: step.id, subject: params.subject } });
           }
         }
-        const rendered = prompt.render(params.variant, await authoring.facts(subject));
-        const resolved = await resolver.resolve(authoring.workspace?.(subject) ?? SCRATCH, sessionId);
+        const rendered = prompt.render(params.variant, await llmStep.facts(subject));
+        const resolved = await resolver.resolve(llmStep.workspace?.(subject) ?? SCRATCH, sessionId);
         if (resolved.refused !== undefined) return refused(resolved.refused);
         if (resolved.undo !== undefined) context.onUndo(resolved.undo);
 
