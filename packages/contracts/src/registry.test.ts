@@ -491,6 +491,7 @@ describe("the method registry", () => {
       | "banks.forget"
       | "banks.create"
       | "banks.verify"
+      | "banks.sync"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"

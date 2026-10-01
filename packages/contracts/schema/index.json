@@ -5415,6 +5415,18 @@
       "title": "banks.forget error"
     },
     {
+      "path": "methods/banks.sync/params.json",
+      "title": "banks.sync params"
+    },
+    {
+      "path": "methods/banks.sync/result.json",
+      "title": "banks.sync result"
+    },
+    {
+      "path": "methods/banks.sync/error.json",
+      "title": "banks.sync error"
+    },
+    {
       "path": "methods/keyManagers.list/params.json",
       "title": "keyManagers.list params"
     },
@@ -7978,6 +7990,15 @@
       "result": "methods/banks.forget/result.json",
       "response": "methods/banks.forget/response.json",
       "error": "methods/banks.forget/error.json"
+    },
+    {
+      "name": "banks.sync",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.sync/params.json",
+      "result": "methods/banks.sync/result.json",
+      "error": "methods/banks.sync/error.json"
     },
     {
       "name": "keyManagers.list",

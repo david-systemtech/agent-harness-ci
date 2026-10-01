@@ -88,11 +88,12 @@ describe("the bank methods", () => {
     expect(forget.params.safeParse({ bankId }).success).toBe(false);
   });
   it("read records at read, register at admin with a command id, and verify as a read query", () => {
-    expect(["banks.list", "banks.get", "banks.register", "banks.verify"].map((name) => [name, registry[name as keyof typeof registry].scope, registry[name as keyof typeof registry].kind])).toEqual([
+    expect(["banks.list", "banks.get", "banks.register", "banks.verify", "banks.sync"].map((name) => [name, registry[name as keyof typeof registry].scope, registry[name as keyof typeof registry].kind])).toEqual([
       ["banks.list", "read", "query"],
       ["banks.get", "read", "query"],
       ["banks.register", "admin", "command"],
       ["banks.verify", "read", "query"],
+      ["banks.sync", "read", "query"],
     ]);
   });
 

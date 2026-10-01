@@ -218,6 +218,8 @@ export interface AdapterHostOptions {
    * which is the environment's default.
    */
   readonly accounts: HostAccounts;
+  /** Refreshes scoped banks within their shared budget before any run instructions are composed. */
+  readonly beforeRun?: (scope: { readonly accountId: string; readonly repositoryIdentity: string | null }) => Promise<void>;
   readonly toolServers?: ToolServerFactory;
   /** Composes each run's standing instructions, and `instructions.preview`'s; preset: the composer with no layer filled (`instructions/composer.ts`). */
   readonly instructions?: InstructionComposer;
@@ -1706,6 +1708,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     entry.slash = new Promise((resolve) => { settleSlash = resolve; });
     // Its skill set, then its instructions, whose manifest carries the set's fingerprint (#496); then its adapter.
     const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
+      await options.beforeRun?.({ accountId: plan.account.id, repositoryIdentity: plan.repositoryIdentity });
+      if (entry.ended) { settleSlash(null); return null; }
       const skillSet = plan.slash?.skillSet ?? await skillSetFor(entry, skillSetScope({ ...plan, trust }));
       if (skillSet === null) { settleSlash(null); return null; }
       const scope = plan.slash ?? await slashScope(plan.account, plan.workspace, trust, skillSet, prompt.some((message) => message.messageId !== plan.literalPromptId && message.text.startsWith("/")));
