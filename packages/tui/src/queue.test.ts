@@ -87,7 +87,7 @@ describe("the queued line", () => {
     await send(app, "use the other parser");
     await app.waitFor("↳ steering use the other parser");
     // The environment's message waits for the next run; the provider's is being steered into this one.
-    expect(app.frame()).toContain("⧗ queued look at this [shot.png]");
+    expect(app.frame()).toContain("⧗ queued look at this [image shot.png · 2 KB]");
     expect(rowIndex(app, "look at this")).toBeLessThan(rowIndex(app, "use the other parser"));
     expect(app.frame()).toContain("Ctrl+Enter read now · ↑ (empty composer) take the newest back");
   });

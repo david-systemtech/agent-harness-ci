@@ -761,15 +761,15 @@ describe("the repository's git directory, which a contained run may write in bes
   });
 });
 
-describe("the repository git directory's hooks and config, which a contained run may not write (#791)", () => {
-  /** What a run may not write in the git directory `gitDirectory`: its hooks, its config and the main worktree's config.worktree, then each of `worktrees`' config.worktree, in that order. */
-  const closedIn = (gitDirectory: string, ...worktrees: string[]): string[] => [
-    join(gitDirectory, "hooks"),
-    join(gitDirectory, "config"),
-    join(gitDirectory, "config.worktree"),
-    ...worktrees.map((name) => join(gitDirectory, "worktrees", name, "config.worktree")),
-  ];
+/** What a run may not write in the git directory `gitDirectory`: its hooks, its config and the main worktree's config.worktree, then each of `worktrees`' config.worktree, in that order. */
+const closedIn = (gitDirectory: string, ...worktrees: string[]): string[] => [
+  join(gitDirectory, "hooks"),
+  join(gitDirectory, "config"),
+  join(gitDirectory, "config.worktree"),
+  ...worktrees.map((name) => join(gitDirectory, "worktrees", name, "config.worktree")),
+];
 
+describe("the repository git directory's hooks and config, which a contained run may not write (#791)", () => {
   it.each(["workspace", "workspace-no-network"] as const)(
     "at %s, closes a worktree's common git directory's hooks and config, and each worktree's config.worktree, there or not",
     async (level) => {
@@ -850,5 +850,86 @@ describe("the repository git directory's hooks and config, which a contained run
     const loose = realpathSync(tempDir("agent-harness-workspace-"));
     expect((await handedIn(loose, "workspace")).readOnly).toEqual([]);
     expect((await handedIn(repository(), "off")).readOnly).toEqual([]);
+  });
+});
+
+/** Adds the repository `source` to `checkout` as a submodule at `path`, file transport allowed for the clone. */
+const addSubmodule = (checkout: string, source: string, path: string): void => {
+  git(checkout, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, path);
+  git(checkout, "commit", "-q", "-m", `Add ${path}`);
+};
+
+/** A repository with a submodule at `vendor/library` (a name with a slash), which has a submodule `inner` of its own, both checked out; its real path. */
+const superprojectWithNested = (): string => {
+  const library = repository();
+  addSubmodule(library, repository(), "inner");
+  const superproject = repository();
+  addSubmodule(superproject, library, "vendor/library");
+  git(superproject, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init", "--recursive");
+  return superproject;
+};
+
+describe("a submodule's git directory under the repository's, whose hooks and config a contained run may not write (#933)", () => {
+  it.each(["workspace", "workspace-no-network"] as const)(
+    "at %s, closes the hooks and config of every git directory under modules/, a name with a slash and a nested submodule's included, at a checkout root and below it",
+    async (level) => {
+      const superproject = superprojectWithNested();
+      const gitDirectory = join(superproject, ".git");
+      const library = join(gitDirectory, "modules", "vendor", "library");
+      const expected = [...closedIn(gitDirectory), ...closedIn(library), ...closedIn(join(library, "modules", "inner"))];
+      expect((await handedIn(superproject, level)).readOnly).toEqual(expected);
+      const below = join(superproject, "packages", "app");
+      mkdirSync(below, { recursive: true });
+      expect((await handedIn(below, level)).readOnly).toEqual(expected);
+    },
+  );
+
+  it.each([
+    ["a checkout root", false],
+    ["a worktree", true],
+  ] as const)("at %s, the gate denies a file tool's write to them, recorded as containment's, and lets a submodule's commit writes through", async (_, inWorktree) => {
+    const superproject = superprojectWithNested();
+    const worktree = worktreePath("feature");
+    git(superproject, "worktree", "add", "-q", "-b", "feature", worktree);
+    const library = join(superproject, ".git", "modules", "vendor", "library");
+    const { t, client, id, adapter } = await sessionIn(inWorktree ? worktree : superproject, "workspace");
+    const closed = ["hooks/pre-commit", "config", "config.worktree", "modules/inner/config", "modules/inner/hooks/post-checkout"].map((path) => join(library, path));
+    const commit = ["objects/pack/new.pack", "refs/heads/main", "index", "HEAD", "config.lock", "modules/inner/index"].map((path) => join(library, path));
+    const runId = await runScript(t, client, id, calling(write(...commit), ...closed.map((path) => write(path))));
+    const [allowed, ...denied] = adapter.lastRun().gated;
+    expect(allowed?.decision).toEqual({ decision: "allow" });
+    expect(denied.map((gated) => gated.decision.decision)).toEqual(closed.map(() => "deny"));
+    const messages = denied.map((gated) => (gated.decision.decision === "deny" ? gated.decision.message : ""));
+    messages.forEach((message, index) => expect(message).toContain(`${closed[index]} is in the repository's git hooks or config`));
+    expect(decisionsOf(t, id, runId).map((event) => event.payload.decidedBy)).toEqual(closed.map(() => "containment"));
+  });
+
+  it("is read again at each run start, so a submodule added between runs is closed at the next, and a damaged git directory's objects are not walked", async () => {
+    const checkout = repository();
+    const gitDirectory = join(checkout, ".git");
+    const damaged = join(gitDirectory, "modules", "damaged");
+    mkdirSync(join(damaged, "objects", "ab"), { recursive: true });
+    writeFileSync(join(damaged, "objects", "ab", "HEAD"), "");
+    const { t, client, id, adapter } = await sessionIn(checkout, "workspace");
+    await runScript(t, client, id, calling());
+    expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(damaged)]);
+    addSubmodule(checkout, repository(), "library");
+    await runScript(t, client, id, calling());
+    expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(damaged), ...closedIn(join(gitDirectory, "modules", "library"))]);
+  });
+
+  it("follows no link under modules, nor a modules that is one, so a link a run made cannot lead the next run's start out of the git directory", async () => {
+    const checkout = repository();
+    const gitDirectory = join(checkout, ".git");
+    mkdirSync(join(gitDirectory, "modules"));
+    symlinkSync(gitDirectory, join(gitDirectory, "modules", "loop"));
+    symlinkSync(join(repository(), ".git"), join(gitDirectory, "modules", "elsewhere"));
+    expect((await handedIn(checkout, "workspace")).readOnly).toEqual(closedIn(gitDirectory));
+    const linked = repository();
+    const outside = realpathSync(tempDir("agent-harness-modules-"));
+    mkdirSync(join(outside, "library"));
+    writeFileSync(join(outside, "library", "HEAD"), "ref: refs/heads/main\n");
+    symlinkSync(outside, join(linked, ".git", "modules"));
+    expect((await handedIn(linked, "workspace")).readOnly).toEqual(closedIn(join(linked, ".git")));
   });
 });

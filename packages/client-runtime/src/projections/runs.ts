@@ -65,7 +65,7 @@ import { sessionVerbs, type QueuedMessage, type SessionVerbs, type VerbMethod } 
  * **One session's runs** (`projections.runs.session(environmentId,
  * sessionId)`, ADR 0022; #230): its run state as above, its queue (the
  * queued line: each message sent during a run and not yet read, in the order
- * sent, with its text, its attachments' names and who holds it), its rewind
+ * sent, with its text, its attachments' records and who holds it), its rewind
  * (the rewound strip: the message rewound to, its text, and whether it can
  * still be undone), and each verb of ADR 0022 present or absent with its
  * reason (`verbs.ts`). Only a session's own stream carries `message.sent`

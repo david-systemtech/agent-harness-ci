@@ -122,6 +122,16 @@ export interface PrepareContext extends MethodContext {
  * handler's throw is, storing no receipt. What `prepare` made is removed
  * through the undos it registered when the command is not accepted.
  *
+ * The same command id sent again while its first `prepare` still runs (the
+ * outbox resends an in-flight command after its socket dropped, and a
+ * worktree create can wait in `prepare` for seconds) waits for the first
+ * and is answered from its receipt, as a replay is; its own `prepare` never
+ * runs, which would find what the first made, a worktree's new branch, and
+ * be refused by it (#448). Only when the first stored no receipt, its
+ * `prepare` or transaction having thrown, does the one sent again prepare,
+ * as a retry after an error answer runs again, once what the first made is
+ * removed.
+ *
  * A `prepare` that can answer at once answers the handler itself, not a
  * promise of it: the command then keeps its place among the requests of
  * its socket, as a command with no `prepare` does. One that waits (a create

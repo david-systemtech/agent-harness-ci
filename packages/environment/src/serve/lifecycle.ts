@@ -57,6 +57,8 @@ export interface LifecycleOptions {
   readonly idleWindowMs: () => number;
   /** Whether a terminal's shell runs a command in its foreground, read each time the activity is: busy as a run is (#343). */
   readonly terminalRunning: () => boolean;
+  /** When the environment's start was noted (`environment.started`), read each time the activity is: activity for the idle window, as a run's start is (#445); none before. */
+  readonly startedAt: () => Date | undefined;
   readonly readiness: () => EnvironmentReadiness;
   /** What the environment binds beside loopback and could bind, read each time the status is (#574). */
   readonly binding: () => EnvironmentBinding;
@@ -114,7 +116,7 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
   const activity = (): EnvironmentActivity =>
     current
       ? { state: "draining", drainingSince: current.drainingSince }
-      : activityOf(runs.runs(), clock.now(), options.idleWindowMs(), options.terminalRunning());
+      : activityOf(runs.runs(), clock.now(), options.idleWindowMs(), { terminalRunning: options.terminalRunning(), startedAt: options.startedAt() });
   const status = (): EnvironmentStatus => ({
     readiness: options.readiness(),
     activity: activity(),

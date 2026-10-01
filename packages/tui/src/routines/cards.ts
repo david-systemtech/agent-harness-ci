@@ -1,4 +1,4 @@
-import { formatDuration, wakeWords, type RoutineGroup, type RoutineHistoryView, type RoutineRow, type RoutinesView } from "@agent-harness/client-runtime";
+import { formatDuration, wakeWords, type RoutineMove, type RoutineGroup, type RoutineHistoryView, type RoutineRow, type RoutinesView } from "@agent-harness/client-runtime";
 import {
   describeSchedule,
   type DeliveryTarget,
@@ -10,6 +10,7 @@ import {
   type RoutineImportCheck,
   type RoutineLastOutcome,
   type RoutineWorkspace,
+  type RoutineMoveLink,
   type WebhookEndpoint,
   type RoutineTrigger,
   type SkipReason,
@@ -43,6 +44,8 @@ export interface RoutineListCard {
 
 export type RoutinesCard =
   | RoutineListCard
+  | { readonly kind: "move"; readonly routine: RoutineRef; readonly targets: readonly MoveTarget[]; readonly cursor: number; readonly back: RoutineListCard }
+  | { readonly kind: "move-confirm"; readonly routine: RoutineRef; readonly target: MoveTarget; readonly move: Extract<RoutineMove, { ok: true }> | null; readonly text: string | null; readonly busy: boolean; readonly error: string | null; readonly cursor: number; readonly back: RoutineListCard }
   /** `h`: a routine's firings and skips, newest first, over the list it goes back to. */
   | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: RoutineListCard }
   /** `/routines import <path>`: the file read, what `routines.checkImport` says of each document, until it is imported or left. */
@@ -55,6 +58,8 @@ export type RoutinesCard =
    * it did not run.
    */
   | { readonly kind: "precheck"; readonly name: string; readonly routine: RoutineRef | null; readonly record: PreCheckRecord | null; readonly failed: string | null; readonly cursor: number };
+
+export interface MoveTarget { readonly environmentId: string; readonly name: string; }
 
 /** An endpoint being added: its name, then its URL, then its secret, each typed in turn. */
 export interface AddingEndpoint extends Typed {
@@ -95,6 +100,10 @@ const ATTENTION_WORDS: Readonly<Record<RoutineAttention, string>> = {
   delivery_failing: "a delivery failed",
 };
 
+/** Unknown skills are named by the environment, in their order. */
+const attentionWords = (code: RoutineAttention, unknownSkills: readonly string[]): string =>
+  code === "skill_unknown" && unknownSkills.length > 0 ? `skills unknown: ${unknownSkills.join(", ")}` : ATTENTION_WORDS[code];
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 /** A time gone by, short, on this client's clock: its time on the day it is `now`, else its date and time. */
@@ -112,12 +121,20 @@ const lastOutcomeWords = (last: RoutineLastOutcome | null, now: Date): string =>
 };
 
 /** What the line under a routine says after its next firing: what needs attention, its streak, then its live firing or last outcome, the first in sight on a narrow card. */
-const stateWords = (row: RoutineRow, now: Date): readonly string[] => {
+const linkWords = (link: RoutineMoveLink, view: RoutinesView): string => {
+  const group = view.groups.find(g => g.environmentId === link.environmentId);
+  const other = group?.routines.find(r => r.routineId === link.routineId);
+  return `${group?.name ?? link.environmentId}: ${other?.definition.name ?? link.routineId}`;
+};
+
+const stateWords = (row: RoutineRow, now: Date, view: RoutinesView): readonly string[] => {
   const { listed } = row;
   if (listed === null) return ["waiting to be created"];
   const { state, attention, mode } = listed;
   return [
-    ...attention.flatMap((code) => (code === "failing" ? [] : code === "clamped" ? [`its mode clamped to ${mode.effective}`] : [ATTENTION_WORDS[code]])),
+    ...(state.movedTo ? [`moved to ${linkWords(state.movedTo, view)}`] : []),
+    ...(state.movedFrom ? [`moved from ${linkWords(state.movedFrom, view)}`] : []),
+    ...attention.flatMap((code) => (code === "failing" ? [] : code === "clamped" ? [`its mode clamped to ${mode.effective}`] : [attentionWords(code, listed.unknownSkills)])),
     ...(state.failureStreak > 0 ? [`${state.failureStreak} failed in a row`] : []),
     state.liveFiring !== null ? `firing since ${pastWords(state.liveFiring.startedAt, now)}` : lastOutcomeWords(state.lastOutcome, now),
   ];
@@ -139,7 +156,7 @@ export const importLines = (documents: readonly RoutineImportCheck[]): readonly 
       ...(definition ? [{ text: `  ${describeSchedule({ schedule: definition.schedule, timezone: definition.timezone })}`, dim: true }] : []),
     ],
     ...issues.map((issue) => [{ text: `   ${issue.path.length === 0 ? "" : `${pathWords(issue.path)}: `}${issue.message.replace(/\s+/g, " ")}`, color: TERMINAL_ROLES.danger }]),
-    ...(warnings.attention.length === 0 ? [] : [[{ text: `   Here it would need: ${warnings.attention.map((code) => ATTENTION_WORDS[code]).join(", ")}`, color: TERMINAL_ROLES.warning }]]),
+    ...(warnings.attention.length === 0 ? [] : [[{ text: `   Here it would need: ${warnings.attention.map((code) => attentionWords(code, warnings.unknownSkills)).join(", ")}`, color: TERMINAL_ROLES.warning }]]),
     ...(warnings.workspace === null ? [] : [[{ text: `   Its workspace here: ${workspaceWords(warnings.workspace)}`, dim: true }]]),
   ]);
 
@@ -275,7 +292,7 @@ export const listRows = (view: RoutinesView, now: Date): readonly ListRow[] => {
     return group.routines.map((row, at): ListRow => {
       const { definition, listed } = row;
       const next = !definition.enabled ? "disabled" : listed?.nextDueAt ? `next ${wakeWords(new Date(listed.nextDueAt), now)}` : "not due";
-      const words = stateWords(row, now);
+      const words = stateWords(row, now, view);
       const attention = (listed?.attention.length ?? 0) > 0;
       return {
         kind: "routine",

@@ -1415,6 +1415,42 @@
       "title": "RepositoryIdentity"
     },
     {
+      "path": "banks/name.json",
+      "title": "BankName"
+    },
+    {
+      "path": "banks/manifest.json",
+      "title": "BankManifest"
+    },
+    {
+      "path": "banks/org-file.json",
+      "title": "OrgFile"
+    },
+    {
+      "path": "banks/scope-file.json",
+      "title": "ScopeFile"
+    },
+    {
+      "path": "banks/memory.json",
+      "title": "MemoryFrontmatter"
+    },
+    {
+      "path": "banks/rule-id.json",
+      "title": "BankRuleId"
+    },
+    {
+      "path": "banks/validator-rule.json",
+      "title": "BankValidatorRule"
+    },
+    {
+      "path": "banks/finding.json",
+      "title": "BankFinding"
+    },
+    {
+      "path": "banks/verdict.json",
+      "title": "BankVerdict"
+    },
+    {
       "path": "skills/name.json",
       "title": "SkillName"
     },
@@ -6590,6 +6626,11 @@
       "path": "data/catalogue-instructions.json",
       "title": "Catalogue instructions",
       "schema": "catalogue/instruction-entry.json"
+    },
+    {
+      "path": "data/bank-validator-rules.json",
+      "title": "Bank validator rules",
+      "schema": "banks/validator-rule.json"
     }
   ],
   "methods": [

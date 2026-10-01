@@ -580,6 +580,7 @@ import {
   SkillReadiness,
 } from "./readiness.js";
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
+import { BANK_VALIDATOR_RULES, BankFinding, BankManifest, BankName, BankRuleId, BankValidatorRule, BankVerdict, MemoryFrontmatter, OrgFile, ScopeFile } from "./banks.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
   NativeSkillRoot,
@@ -1032,6 +1033,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/name.json", title: "BankName", schema: BankName },
+  { path: "banks/manifest.json", title: "BankManifest", schema: BankManifest },
+  { path: "banks/org-file.json", title: "OrgFile", schema: OrgFile },
+  { path: "banks/scope-file.json", title: "ScopeFile", schema: ScopeFile },
+  { path: "banks/memory.json", title: "MemoryFrontmatter", schema: MemoryFrontmatter },
+  { path: "banks/rule-id.json", title: "BankRuleId", schema: BankRuleId },
+  { path: "banks/validator-rule.json", title: "BankValidatorRule", schema: BankValidatorRule },
+  { path: "banks/finding.json", title: "BankFinding", schema: BankFinding },
+  { path: "banks/verdict.json", title: "BankVerdict", schema: BankVerdict },
   { path: "skills/name.json", title: "SkillName", schema: SkillName },
   { path: "skills/source-url.json", title: "SkillSourceUrl", schema: SkillSourceUrl },
   { path: "skills/source-folder.json", title: "SkillSourceFolder", schema: SkillSourceFolder },
@@ -1779,6 +1789,18 @@ export const publishedData = (): PublishedData[] => [
     ].join(" "),
     schema: "catalogue/instruction-entry.json",
     entries: CATALOGUE.instructions.entries,
+  },
+  {
+    path: "data/bank-validator-rules.json",
+    title: "Bank validator rules",
+    description: [
+      "The bank validator's rules (banks spec, \"The validator\"; ADR 0013, ADR 0034, ADR 0037), in the order a verdict lists them: each id, whether it refuses or warns, and what it finds.",
+      "One validator gives every verdict: the contracts' validateBank at memory_draft, memory_promote and in the BankService, and validate.mjs in a bank's CI, stamped with the version of these rules on its first line (// bank-validator <version>).",
+      "A bank's files are BANK.md and the Markdown under projects/: ORG.md in projects/<org>/, PROJECT.md in projects/<org>/<project>/, AREA.md in projects/<org>/<project>/<area>/, and memories in a project's or an area's memories/, a topic declared in its topics: one folder deeper; any other file is a document the validator does not check, though validate.mjs refuses a Markdown one it cannot read (unreadable).",
+      "A finding names its rule, the file or folder, the field where it is one and, for secret_shaped, the shape rule or registered-value, never the value.",
+    ].join(" "),
+    schema: "banks/validator-rule.json",
+    entries: BANK_VALIDATOR_RULES,
   },
 ];
 

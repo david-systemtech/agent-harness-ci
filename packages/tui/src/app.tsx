@@ -859,8 +859,8 @@ export const App = (props: AppProps) => {
       session: openKey,
       held: projection?.summary ? (projection.draft ?? "") : undefined,
       text,
-      // A command for the terminal UI being typed (a slash command it answers, a shell line) is not the session's draft.
-      saves: !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null,
+      // Like the window, keep a single slash word (including incomplete commands) and our commands with arguments out of the draft.
+      saves: !/^\/\S*$/.test(text) && !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null,
     });
     synced.current = step.inStep;
     if (step.take !== undefined) composer.set(composerOf(step.take));
