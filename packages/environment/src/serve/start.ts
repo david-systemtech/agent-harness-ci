@@ -297,7 +297,10 @@ export interface EnvironmentOptions {
   readonly name?: string;
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
-  /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
+  /**
+   * The operating system the preset icon follows, outside a container (#323), and the rule the scripts directory judges a
+   * pre-check's script executable by, Windows's by its extension (#526). Preset: `process.platform`; tests script it.
+   */
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
@@ -1407,7 +1410,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const checkoutIndex = createCheckoutIndex({ log, availability });
   // The scripts routines' pre-checks run (#526), which the OS user places, and what runs a pre-check: a script there, run
   // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
-  const scripts = scriptsDirectory(scriptsPath, { platform: process.platform, env: process.env });
+  const scripts = scriptsDirectory(scriptsPath, { platform: options.platform ?? process.platform, env: process.env });
   const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
   const preChecks = createPreCheckRunner({ scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub, baseEnvironment: () => baseEnvironment() });
   const firings = createFiringStarter({

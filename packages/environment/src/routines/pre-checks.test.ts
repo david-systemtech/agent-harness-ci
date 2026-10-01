@@ -159,6 +159,25 @@ describe("the scripts directory", () => {
   });
 });
 
+describe("on Windows, the scripts directory", () => {
+  it("judges a file executable by its extension, PATHEXT's or the system's preset, whatever its mode", async () => {
+    const t = await start({ platform: "win32" });
+    const client = await t.client();
+    placeScript(t, "watch.cmd", "echo watch", 0o644);
+    placeScript(t, "tool.EXE", "echo tool", 0o644);
+    placeScript(t, "watch.sh", "echo watch");
+    expect((await client.request("routines.scripts.list", {})).scripts).toEqual([
+      { path: "tool.EXE", executable: true },
+      { path: "watch.cmd", executable: true },
+      { path: "watch.sh", executable: false },
+    ]);
+    const { state } = await created(client, routine({ preCheck: { kind: "script", path: "watch.sh" } }));
+    expect((await skipOf(t, state.id, await checkedRun(client, state.id)))["preCheck"]).toMatchObject({
+      failure: { reason: "script_unusable", detail: "The script watch.sh cannot be run: its extension is not one Windows runs." },
+    });
+  });
+});
+
 describe("a script pre-check before run now", () => {
   it("fires on its first observation, whose success makes its output the baseline; the same output again is a skip no-change, with no session, model call, delivery or routine.updated", async () => {
     const t = await start();
@@ -427,7 +446,9 @@ describe("a script pre-check that fails", () => {
 describe("a script pre-check's process", () => {
   it("runs with no arguments, standard input closed, the scrubbed base environment and the routine's four variables, in the workspace's directory, uncontained", async () => {
     vi.stubEnv("AGENT_HARNESS_TEST_LEAK", "leaked");
-    onCleanup(() => vi.unstubAllEnvs());
+    onCleanup(() => {
+      vi.unstubAllEnvs();
+    });
     const t = await start();
     const client = await t.client();
     const workspace = tempDir();
@@ -501,6 +522,37 @@ describe("a URL pre-check", () => {
       reason: "pre-check-failed",
       detail: `${origin}/feed answered 500.`,
       preCheck: { httpStatus: 500, hash: null, output: null, failure: { reason: "http_status", detail: `${origin}/feed answered 500.` } },
+    });
+  });
+
+  it("follows five redirects and no sixth, reads a body up to 1 MiB, and gives up after 30 seconds on the environment's clock", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { origin, asked } = await serve((request, response) => {
+      const hop = /^\/hop\/(\d+)$/.exec(request.url ?? "");
+      if (hop !== null) return void response.writeHead(307, { location: `/hop/${Number(hop[1]) + 1}` }).end();
+      if (request.url === "/large") return void response.writeHead(200).end(Buffer.alloc(2 * 1_048_576, 0x61));
+      // /silent never answers.
+    });
+    const failureOf = async (path: string, name: string) => {
+      const { state } = await created(client, routine({ name, preCheck: { kind: "url", url: `${origin}${path}` } }));
+      return (await skipOf(t, state.id, await checkedRun(client, state.id)))["preCheck"];
+    };
+
+    expect(await failureOf("/hop/0", "Hops")).toMatchObject({ httpStatus: 307, failure: { reason: "unreachable", detail: `${origin}/hop/0 redirected more than 5 times.` } });
+    expect(asked).toEqual(["/hop/0", "/hop/1", "/hop/2", "/hop/3", "/hop/4", "/hop/5"]);
+    const large = await failureOf("/large", "Large");
+    expect(large).toMatchObject({ httpStatus: 200, hash: null, output: null, failure: { reason: "output_too_large" } });
+    expect((large as { bytes: number }).bytes).toBeGreaterThan(1_048_576);
+
+    const { state } = await created(client, routine({ name: "Silent", preCheck: { kind: "url", url: `${origin}/silent` } }));
+    const skipId = await checkedRun(client, state.id);
+    await until(() => asked.includes("/silent"));
+    t.clock.advance(30_000);
+    expect((await skipOf(t, state.id, skipId))["preCheck"]).toMatchObject({
+      httpStatus: null,
+      durationMs: 30_000,
+      failure: { reason: "unreachable", detail: `${origin}/silent could not be fetched: it did not answer within 30 seconds.` },
     });
   });
 
