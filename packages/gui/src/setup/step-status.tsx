@@ -8,6 +8,7 @@ import {
   updateEnvironment,
   uuidv7,
   type ActionOutcome,
+  type CardAction,
   type NamedItem,
   type SetupActionPlan,
 } from "@agent-harness/client-runtime";
@@ -84,6 +85,8 @@ interface StepStatusProps extends StepCardProps {
   readonly restore?: CardRestore;
   /** A registered card's commands for named health actions. */
   readonly actions?: Readonly<Partial<Record<SetupAction, { readonly disabled: boolean; readonly run: (targets: readonly SetupTarget[]) => void }>>>;
+  /** An authoring or import card's actions, on the targets its result names. */
+  readonly cardAction?: (action: CardAction, targets: readonly SetupTarget[]) => Promise<void>;
   /** Actions drawn and carried out by the card itself, beside the inventory they act on. */
   readonly handledActions?: readonly SetupAction[];
 }
@@ -94,11 +97,12 @@ interface StepStatusProps extends StepCardProps {
  * beneath one that could not check), its named actions on the items they
  * name, Check now where Check again is not among them (a check of the step,
  * or of every step for one this build cannot ask about alone), and a link to
- * its home row. Restore is greyed where the connection lacks the method it
+ * its home row. An authoring or import card may bind its named actions
+ * through `cardAction`. Restore is greyed where the connection lacks the method it
  * calls, whose line the card says. Sign in again opens the sign-in card over
  * it. It is the whole of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore, actions, handledActions = [] }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [] }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const [line, say] = useState<string | undefined>(undefined);
@@ -121,6 +125,7 @@ export const StepStatus = ({ environmentId, step, restore, actions, handledActio
             onClick={() => {
               const own = actions?.[action.action];
               if (own !== undefined) own.run(action.targets);
+              else if (action.plan.kind === "card" && cardAction !== undefined) void cardAction(action.plan.action, action.plan.targets);
               else void act(action.plan);
             }}
           >

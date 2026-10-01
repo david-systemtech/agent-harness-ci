@@ -549,7 +549,14 @@ export const startLauncher = (options: LauncherOptions): Launcher => {
         } catch (error) {
           log(`answers versions? with none: the versions directory could not be read: ${messageOf(error)}`);
         }
-        tell(from, { type: "versions", id: message.id, installed, launcherVersion: ownVersion, launcherProtocol: LAUNCHER_PROTOCOL });
+        tell(from, {
+          type: "versions",
+          id: message.id,
+          installed,
+          launcherVersion: ownVersion,
+          launcherProtocol: LAUNCHER_PROTOCOL,
+          ...(state.failedHandover === null ? {} : { failedHandoverVersion: state.failedHandover.toVersion }),
+        });
         return;
       }
       case "install?": {

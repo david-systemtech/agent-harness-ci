@@ -66,6 +66,15 @@ describe("the launcher channel's messages", () => {
     expect(parseEnvironmentMessage({ type: "prepared", version: "0.4.0", pid: 4242 })).toEqual({ type: "prepared", version: "0.4.0" });
   });
 
+  it("reads the failed handover's target in versions answers, while accepting older launchers without it", () => {
+    const versions = { type: "versions", id: 3, installed: ["0.6.0"], launcherVersion: "0.4.1", launcherProtocol: 1 };
+    expect(parseLauncherMessage(overIpc({ ...versions, failedHandoverVersion: "0.6.0" }))).toEqual({ ...versions, failedHandoverVersion: "0.6.0" });
+    expect(parseLauncherMessage(overIpc(versions))).toEqual(versions);
+    for (const failedHandoverVersion of [null, "", 42, { toVersion: "0.6.0" }]) {
+      expect(parseLauncherMessage(overIpc({ ...versions, failedHandoverVersion }))).toBeUndefined();
+    }
+  });
+
   it("read a message either side does not know as nothing to answer, never as an error", () => {
     const unknownToEither: unknown[] = [
       null,

@@ -423,6 +423,65 @@ describe("a target that needs a newer launcher", () => {
     expect(installs(handedOver)).toEqual([{ version: "0.7.0", staged: join(dataDir, STAGING_DIRECTORY, "0.7.0") }]);
   });
 
+  it("after the running release's launcher handover failed, is blocked and needs attention, naming service install from the running release", async () => {
+    const { fake, t, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: {
+        versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1, failedHandoverVersion: "0.6.0" }),
+      },
+    });
+    fake.publish(release("0.6.0"), release("0.7.0", { manifest: { launcherProtocol: 2 } }));
+    const status = await check(client);
+    expect(status.lastCheck).toMatchObject({ result: "ok" });
+    expect(status.target).toEqual({ version: "0.7.0", source: "channel" });
+    expect(status.pending).toEqual({
+      state: "blocked",
+      reason: "launcher",
+      toVersion: "0.7.0",
+      message: "0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.6.0 release to install its launcher.",
+    });
+    expect(artefactReads(fake)).toEqual([]);
+    expect(installs(t)).toEqual([]);
+    const { results } = await client.request("setup.check", { step: "your-machines" });
+    expect(results[0]).toMatchObject({
+      state: "needs-attention",
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.6.0 release to install its launcher.",
+    });
+  });
+
+  it("waits for the running release's handover when only another release's handover failed", async () => {
+    const { fake, t, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: {
+        versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1, failedHandoverVersion: "0.5.0" }),
+      },
+    });
+    fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }));
+    expect(await check(client)).toMatchObject({ target: { version: "0.7.0", source: "channel" }, pending: { state: "current" } });
+    expect(artefactReads(fake)).toEqual([]);
+    expect(installs(t)).toEqual([]);
+    const { results } = await client.request("setup.check", { step: "your-machines" });
+    expect(results[0]).toMatchObject({ state: "done", failing: [] });
+  });
+
+  it("still takes an available stepping stone after the running release's launcher handover failed", async () => {
+    const { fake, t, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: {
+        versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1, failedHandoverVersion: "0.6.0" }),
+      },
+    });
+    busy(t);
+    fake.publish(release("0.6.1"), release("0.7.0", { manifest: { launcherProtocol: 2 } }));
+    expect(await check(client)).toMatchObject({ target: { version: "0.7.0", source: "channel" }, pending: { state: "waiting", toVersion: "0.6.1" } });
+    expect(installs(t).map((request) => request.version)).toEqual(["0.6.1"]);
+  });
+
   it("with no stepping stone, is blocked with the reason launcher, naming service install from the target's release, and downloads nothing", async () => {
     const { fake, t, client } = await withReleases({ launch: launcherSpeaking(1) });
     fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }));
@@ -631,4 +690,3 @@ describe("the Your machines step's updates check", () => {
     });
   });
 });
-

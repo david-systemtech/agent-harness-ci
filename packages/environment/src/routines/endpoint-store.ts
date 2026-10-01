@@ -2,6 +2,7 @@ import {
   ENVIRONMENT_STREAM_KIND,
   ROUTINE_STREAM_KIND,
   type EndpointSecretKind,
+  type KeyManagerReference,
   type RoutineDeliveryAttemptedPayload,
   type RoutineEndpointRemovedPayload,
   type RoutineEndpointSetPayload,
@@ -29,6 +30,7 @@ export const ROUTINE_ENDPOINTS_TABLES = {
     name TEXT PRIMARY KEY,
     url TEXT NOT NULL,
     secret_kind TEXT NOT NULL,
+    reference TEXT,
     set_sequence INTEGER NOT NULL,
     last_result TEXT
   ) STRICT`,
@@ -42,13 +44,14 @@ export const routineEndpointsProjector: Projector = {
   tables: ROUTINE_ENDPOINTS_TABLES,
   apply(event, db) {
     if (event.streamKind === ENVIRONMENT_STREAM_KIND && event.type === "routine.endpoint-set") {
-      const { name, url, secretKind } = event.payload as RoutineEndpointSetPayload;
+      const { name, url, secretKind, reference } = event.payload as RoutineEndpointSetPayload;
       db.run(
-        `INSERT INTO routine_endpoints (name, url, secret_kind, set_sequence, last_result) VALUES (?, ?, ?, ?, NULL)
-         ON CONFLICT (name) DO UPDATE SET url = excluded.url, secret_kind = excluded.secret_kind, set_sequence = excluded.set_sequence, last_result = NULL`,
+        `INSERT INTO routine_endpoints (name, url, secret_kind, reference, set_sequence, last_result) VALUES (?, ?, ?, ?, ?, NULL)
+         ON CONFLICT (name) DO UPDATE SET url = excluded.url, secret_kind = excluded.secret_kind, reference = excluded.reference, set_sequence = excluded.set_sequence, last_result = NULL`,
         name,
         url,
         secretKind,
+        reference === undefined ? null : JSON.stringify(reference),
         event.sequence,
       );
     } else if (event.streamKind === ENVIRONMENT_STREAM_KIND && event.type === "routine.endpoint-removed") {
@@ -67,6 +70,7 @@ export interface StoredEndpoint {
   readonly name: string;
   readonly url: string;
   readonly secretKind: EndpointSecretKind;
+  readonly reference: KeyManagerReference | null;
   /** The sequence of the `routine.endpoint-set` that made it as it is: a test's result counts while it is the same. */
   readonly setSequence: number;
   /** What the latest delivery attempt to it came to since that set; null before one. */
@@ -77,6 +81,7 @@ interface EndpointRow {
   name: string;
   url: string;
   secret_kind: EndpointSecretKind;
+  reference: string | null;
   set_sequence: number;
   last_result: string | null;
 }
@@ -85,16 +90,17 @@ const storedOf = (row: EndpointRow): StoredEndpoint => ({
   name: row.name,
   url: row.url,
   secretKind: row.secret_kind,
+  reference: row.reference === null ? null : (JSON.parse(row.reference) as KeyManagerReference),
   setSequence: row.set_sequence,
   delivered: row.last_result === null ? null : (JSON.parse(row.last_result) as EndpointResult),
 });
 
 /** The endpoints the environment holds, by name. */
 export const listStoredEndpoints = (reader: Reader): StoredEndpoint[] =>
-  reader.all<EndpointRow>("SELECT name, url, secret_kind, set_sequence, last_result FROM routine_endpoints ORDER BY name").map(storedOf);
+  reader.all<EndpointRow>("SELECT name, url, secret_kind, reference, set_sequence, last_result FROM routine_endpoints ORDER BY name").map(storedOf);
 
 /** The endpoint named `name`; null when the environment holds none. */
 export const storedEndpoint = (reader: Reader, name: string): StoredEndpoint | null => {
-  const [row] = reader.all<EndpointRow>("SELECT name, url, secret_kind, set_sequence, last_result FROM routine_endpoints WHERE name = ?", name);
+  const [row] = reader.all<EndpointRow>("SELECT name, url, secret_kind, reference, set_sequence, last_result FROM routine_endpoints WHERE name = ?", name);
   return row === undefined ? null : storedOf(row);
 };

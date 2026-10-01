@@ -42,8 +42,8 @@ See `docs/agents/domain.md`.
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
-much as the environment's jsdom: on contracts and Mozilla Readability alone,
-with no Node built-in and no environment code), `extension` (the MV3
+much as the environment's jsdom: on contracts alone, Mozilla Readability
+vendored, with no Node built-in and no environment code), `extension` (the MV3
 extension Chrome loads unpacked, its service worker and options page: on
 contracts and the browser package alone, bundled by Vite into its `dist`,
 where the environment finds the extension it unpacks), `tui`, `gui` (the
@@ -89,7 +89,9 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   in a `vendor/` folder beside what uses it, with that project's licence and
   notice files; each copied file keeps its own notice and names the
   repository, the commit and what was changed (Playwright's aria snapshot,
-  `packages/browser/src/snapshot/vendor/`, #544).
+  `packages/browser/src/snapshot/vendor/`, #544; Mozilla Readability,
+  `packages/browser/src/vendor/`, #545, kept as Mozilla wrote it and so
+  neither type-checked nor linted here).
 - The extension's tests run under Node: the service worker against the fake
   `chrome` API (`packages/extension/test/fake-chrome.ts`, whose tabs and
   debugger are the scripted CDP peer's) and a scripted environment speaking

@@ -279,10 +279,10 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
    * failed, and its skip is recorded, or the environment closed meanwhile.
    */
   const observe = async (firing: FiringStart): Promise<Observation | null | "stop"> => {
-    const { preCheck, name, workspace } = firing.definition;
+    const { preCheck, name, workspace, account, injection } = firing.definition;
     if (!firing.withPreCheck || preCheck === null) return null;
     const baseline = routineBaseline(reader, firing.routineId);
-    const subject = { routine: { id: firing.routineId, name }, dueAt: firing.dueAt, trigger: firing.trigger, workspace };
+    const subject = { routine: { id: firing.routineId, name }, dueAt: firing.dueAt, trigger: firing.trigger, workspace, account, injection };
     const { record } = await preChecks.run(preCheck, subject, { baselineHash: baseline?.hash ?? null, signal: closer.signal });
     if (closing) return "stop";
     if (record.failure !== null) {

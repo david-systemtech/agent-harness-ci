@@ -5,12 +5,16 @@ import {
   MAX_PRE_CHECK_OUTPUT_BYTES,
   MAX_PRE_CHECK_STDERR,
   hostOf,
+  type AccountIdentity,
   type PreCheck,
   type PreCheckFailure,
   type PreCheckRecord,
+  type RoutineInjection,
   type RoutineTrigger,
   type RoutineWorkspace,
 } from "@agent-harness/contracts";
+import type { ProcessEnvironment, SuppliedVariables } from "../adapter/contract.js";
+import { afterInheritedGitConfig } from "../adapter/process-environment.js";
 import { spawnable } from "../managed-tools/run.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
@@ -31,7 +35,8 @@ import { networkReason } from "./webhook-post.js";
  *   (`scripts-directory.ts`). It is the environment's own process, as its
  *   git is, and is not contained whatever the routine's containment: run
  *   with no arguments and standard input closed, in the scrubbed base
- *   environment with `AGENT_HARNESS_ROUTINE_ID`, `AGENT_HARNESS_ROUTINE_NAME`,
+ *   environment plus the same injection as its firing (#530), with
+ *   `AGENT_HARNESS_ROUTINE_ID`, `AGENT_HARNESS_ROUTINE_NAME`,
  *   `AGENT_HARNESS_DUE_AT` and `AGENT_HARNESS_TRIGGER`, in the directory the
  *   routine's workspace request names (a directory's path, a worktree's
  *   repository), else the scripts directory. Its timeout on the
@@ -61,6 +66,9 @@ export interface PreCheckSubject {
   /** The firing's trigger, or `test` for `routines.testPreCheck`. */
   readonly trigger: RoutineTrigger | "test";
   readonly workspace: RoutineWorkspace;
+  /** The firing's account identity (null: the default) and its injection choice. */
+  readonly account: AccountIdentity | null;
+  readonly injection: RoutineInjection;
 }
 
 export interface PreCheckRunOptions {
@@ -96,6 +104,8 @@ export interface PreCheckRunnerOptions {
   readonly scrub: Pick<ScrubRegistry, "scrubOutput">;
   /** The scrubbed base environment a script starts from. */
   readonly baseEnvironment: () => Record<string, string>;
+  /** The same injection decision and suppliers as the firing's runs, supplied once per script process. */
+  readonly processEnvironment: (subject: PreCheckSubject) => ProcessEnvironment;
   /** Preset: this process's. */
   readonly platform?: NodeJS.Platform;
 }
@@ -190,13 +200,16 @@ export const createPreCheckRunner = (options: PreCheckRunnerOptions): PreCheckRu
     }
   };
 
-  const runScript = async (path: string, subject: PreCheckSubject, limitMs: number, signal: AbortSignal | undefined): Promise<Ran> => {
+  const runScript = async (path: string, subject: PreCheckSubject, limitMs: number, signal: AbortSignal | undefined, supply: () => Promise<Readonly<Record<string, string>>>): Promise<Ran> => {
     const resolved = await scripts.resolve(path);
     if ("reason" in resolved) return failedBefore(resolved);
     const cwd = await workingDirectory(subject.workspace);
     if ("failure" in cwd) return failedBefore(cwd.failure);
+    const base = options.baseEnvironment();
+    const variables = await supply();
     const env: Record<string, string> = {
-      ...options.baseEnvironment(),
+      ...base,
+      ...afterInheritedGitConfig(base, variables),
       ...(subject.routine !== null && { AGENT_HARNESS_ROUTINE_ID: subject.routine.id, AGENT_HARNESS_ROUTINE_NAME: subject.routine.name }),
       AGENT_HARNESS_DUE_AT: subject.dueAt,
       AGENT_HARNESS_TRIGGER: subject.trigger,
@@ -322,26 +335,37 @@ export const createPreCheckRunner = (options: PreCheckRunnerOptions): PreCheckRu
     async run(preCheck, subject, { baselineHash, boundMs, signal }) {
       const started = clock.now();
       const limit = (own: number): number => Math.min(own, boundMs ?? own);
-      const ran =
-        preCheck.kind === "script"
-          ? await runScript(preCheck.path, subject, limit(preCheck.timeoutSeconds * 1000), signal)
-          : await fetchUrl(preCheck.url, limit(URL_PRE_CHECK_TIMEOUT_MS), signal);
-      const hash = ran.failure === null && ran.output !== null ? createHash("sha256").update(ran.output).digest("hex") : null;
-      const stderr = ran.failure === null || ran.stderr === null || ran.stderr.length === 0 ? null : kept(ran.stderr).slice(-MAX_PRE_CHECK_STDERR);
-      const record: PreCheckRecord = {
-        kind: preCheck.kind,
-        startedAt: started.toISOString(),
-        durationMs: Math.max(0, clock.now().getTime() - started.getTime()),
-        exitStatus: ran.exitStatus,
-        httpStatus: ran.httpStatus,
-        bytes: ran.bytes,
-        hash,
-        differs: hash === null || baselineHash === null ? null : hash !== baselineHash,
-        output: ran.output === null ? null : kept(ran.output).slice(0, MAX_PRE_CHECK_KEPT_OUTPUT),
-        stderr,
-        failure: ran.failure,
+      let release: SuppliedVariables["release"] = () => undefined;
+      const supply = async (): Promise<Readonly<Record<string, string>>> => {
+        const supplied = await options.processEnvironment(subject).supply();
+        release = supplied.release;
+        return supplied.variables;
       };
-      return { record, deniedHost: ran.deniedHost ?? null };
+      try {
+        const ran =
+          preCheck.kind === "script"
+            ? await runScript(preCheck.path, subject, limit(preCheck.timeoutSeconds * 1000), signal, supply)
+            : await fetchUrl(preCheck.url, limit(URL_PRE_CHECK_TIMEOUT_MS), signal);
+        const hash = ran.failure === null && ran.output !== null ? createHash("sha256").update(ran.output).digest("hex") : null;
+        const stderr = ran.failure === null || ran.stderr === null || ran.stderr.length === 0 ? null : kept(ran.stderr).slice(-MAX_PRE_CHECK_STDERR);
+        const record: PreCheckRecord = {
+          kind: preCheck.kind,
+          startedAt: started.toISOString(),
+          durationMs: Math.max(0, clock.now().getTime() - started.getTime()),
+          exitStatus: ran.exitStatus,
+          httpStatus: ran.httpStatus,
+          bytes: ran.bytes,
+          hash,
+          differs: hash === null || baselineHash === null ? null : hash !== baselineHash,
+          output: ran.output === null ? null : kept(ran.output).slice(0, MAX_PRE_CHECK_KEPT_OUTPUT),
+          stderr,
+          failure: ran.failure === null ? null : { ...ran.failure, detail: scrub.scrubOutput(ran.failure.detail) },
+        };
+        return { record, deniedHost: ran.deniedHost ?? null };
+      } finally {
+        // Scrub captured output and detail while the supplier's values are still registered.
+        release();
+      }
     },
   };
 };

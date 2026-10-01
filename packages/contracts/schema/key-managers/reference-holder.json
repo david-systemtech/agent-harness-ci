@@ -6,19 +6,20 @@
     "kind": {
       "type": "string",
       "enum": [
-        "forge-account"
+        "forge-account",
+        "endpoint"
       ],
-      "description": "What holds the reference: forge-account."
+      "description": "What holds the reference: forge-account or endpoint."
     },
     "id": {
       "type": "string",
       "minLength": 1,
-      "description": "The holder's id: a forge account's."
+      "description": "The holder's id: a forge account's id or an endpoint's name."
     },
     "name": {
       "type": "string",
       "minLength": 1,
-      "description": "What people know the holder by: a forge account's origin."
+      "description": "What people know the holder by: a forge account's origin or an endpoint's name."
     }
   },
   "required": [

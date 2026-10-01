@@ -362,6 +362,21 @@ describe("permissions.prompts.list", () => {
 });
 
 describe("permissions.prompts.answer", () => {
+  it("records a browser permission allowance immediately when the asking run has stopped", async () => {
+    const browser = { toolName: "mcp__browser__browser_open", toolCallId: "browser-permission-for-tests", input: { address: "https://shop.example/" } };
+    const t = await start({ script: ask("permission", browser, { promptId: "browser-permission" }) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await untilOpened(t, id);
+    await send(client, "providers.processes.stop", { sessionId: id });
+    await untilEnded(t, id, runId);
+    expect((await answer(client, "browser-permission", { decision: "allow" })).result).toMatchObject({ delivery: "next-run" });
+    expect(ofType(t, id, "tool.decision").map((event) => event.payload)).toEqual([
+      expect.objectContaining({ toolCallId: browser.toolCallId, promptId: "browser-permission", decision: "allowed", decidedBy: "person" }),
+    ]);
+  });
+
   it("leaves a deleted session's prompts out of the list and refuses to answer them not_found, until the session is restored", async () => {
     const t = await start({ script: ask("permission", permission, { promptId: "p-1" }) });
     const client = await t.client();

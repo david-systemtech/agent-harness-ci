@@ -53,6 +53,8 @@ export interface ScriptedFrame {
 export interface InPageCall {
   /** The function's name, from its declaration (`function locateElement(…)` is `locateElement`). */
   readonly name: string;
+  /** The declaration as sent, which a test may run in a page of its own (a jsdom window) to answer as the page would. */
+  readonly declaration: string;
   readonly args: readonly unknown[];
   readonly frame: ScriptedFrame;
   /** The isolated world's name, as the driver made it. */
@@ -674,6 +676,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
         try {
           const value = answer?.({
             name: functionName(declaration),
+            declaration,
             args,
             frame: { ...frame, targetId: target.targetId },
             worldName: world.name,

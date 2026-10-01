@@ -166,7 +166,8 @@ describe("the snapshot", () => {
     expect(await page.perform("snapshot", {})).toMatchObject({ ok: true, value: { text: `- button "Pay" [ref=e1]` } });
     expect(await page.perform("snapshot", {})).toMatchObject({ ok: true });
     const sent = page.peer.sentOf("Runtime.callFunctionOn").map(({ params }) => /^function (\w+)/.exec(String(params.functionDeclaration))?.[1]);
-    expect(sent).toEqual(["snapshotFrame", "installSnapshot", "snapshotFrame", "snapshotFrame"]);
+    // Each snapshot checks the page for a challenge first, as the open did.
+    expect(sent).toEqual(["pageChallenge", "pageChallenge", "snapshotFrame", "installSnapshot", "snapshotFrame", "pageChallenge", "snapshotFrame"]);
   });
 
   it("asks each frame's next snapshot to number past the refs it gave, so no ref an older snapshot gave names another element", async () => {

@@ -11,6 +11,7 @@ import {
   type CompletionsModelList,
   type EnvironmentReadiness,
   type Scope,
+  type SessionBrowserSetPayload,
   type WireError,
   type Workspace,
   type WorkspaceRequest,
@@ -26,7 +27,7 @@ import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, bearerToken, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
 import { appendDecided } from "../sessions/companions.js";
-import { decideSetBrowser, decideTag, type FirstBrowser } from "../sessions/decider.js";
+import { decideTag, type FirstBrowser } from "../sessions/decider.js";
 import { createSessionIn } from "../sessions/methods.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -421,8 +422,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
         if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
         if (forked) {
-          const chosen = decideSetBrowser(readSessionState(reader, sessionId), { sessionId, browser: browser.value, chosenBy: browser.chosenBy });
-          if (chosen.rejected === undefined) appendDecided(log, sessionStream(sessionId), chosen, { tx, actor: clientActor });
+          // A fork inherits its source's browser. Record the program's own choice even when the value is the same,
+          // so the latest browser event names the completions chooser rather than the source's.
+          const payload: SessionBrowserSetPayload = { browser: browser.value, chosenBy: browser.chosenBy };
+          log.append(sessionStream(sessionId), [{ type: "session.browser.set", payload }], { tx, actor: clientActor });
         }
       }
       const actor = actorFor(turn, clientSession);
