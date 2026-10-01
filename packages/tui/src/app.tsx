@@ -60,6 +60,7 @@ import {
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
+  type SkillReadiness,
 } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
@@ -132,6 +133,7 @@ import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
+import { trustQuestion } from "./session/trust.js";
 import { FilesCard } from "./screens/files-card.js";
 import { OUTSIDE_COLUMN, TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
@@ -391,7 +393,7 @@ const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () 
  * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
  * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
  */
-const commandRows = (listed: readonly CommandsListEntry[]): readonly CommandRow[] => {
+const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[]): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
     .map((id): ClientCommandRow => {
@@ -399,7 +401,10 @@ const commandRows = (listed: readonly CommandsListEntry[]): readonly CommandRow[
       return { name: id.slice("command.".length), usage: action?.usage ?? `/${id.slice(8)}`, description: action?.description ?? "" };
     });
   const taken = new Set(own.map((row) => row.name));
-  return slashMenuRows(own, listed, (name) => taken.has(name));
+  return slashMenuRows(own, listed, (name) => taken.has(name)).map((row) => {
+    const state = row.source === "skill" ? readiness.find((skill) => skill.name === row.name.replace(/^skill:/, "")) : undefined;
+    return state === undefined ? row : { ...row, readiness: state };
+  });
 };
 
 export const App = (props: AppProps) => {
@@ -773,6 +778,11 @@ export const App = (props: AppProps) => {
   };
 
   // The composer.
+  const readiness = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "skills.readiness", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
+  useFollow(readiness, request);
+  const trust = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "trust.get", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
+  useFollow(trust, request);
+  const trustLine = trustQuestion(trust?.read().result);
   const files = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "files.list", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
   const paths = files?.read().result?.files ?? null;
   const scopes = useMemo((): readonly { readonly name: string; readonly scope: HistoryScope }[] => {
@@ -790,7 +800,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.listedCommands),
+      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? []),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],
@@ -1243,6 +1253,24 @@ export const App = (props: AppProps) => {
   const submit = (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
     const command = parseCommand(raw);
     switch (command.kind) {
+      case "trust": {
+        if (!opened) {
+          say("Cannot decide repository trust: no session is open.");
+          return true;
+        }
+        const capability = runtime.capability(opened.environmentId, "trust.decide");
+        if (capability.status === "absent") {
+          say(`Cannot decide repository trust: ${capability.message}`);
+          return true;
+        }
+        void runtime.requests.call(opened.environmentId, "trust.decide", {
+          commandId: props.newCommandId(), sessionId: opened.sessionId, decision: command.decision,
+        }).then((answer) => {
+          const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : undefined;
+          say(refused === undefined ? `Repository trust ${command.decision}.` : `Cannot decide repository trust: ${refused}`);
+        });
+        return true;
+      }
       case "pair":
         pair(command.input);
         return true;
@@ -2605,6 +2633,7 @@ export const App = (props: AppProps) => {
       </Box>
       <Line text={screen.line} />
       <Line text={promptLine} color={TERMINAL_ROLES.warning} />
+      {trustLine !== undefined && <Line text={trustLine} color={TERMINAL_ROLES.warning} />}
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
