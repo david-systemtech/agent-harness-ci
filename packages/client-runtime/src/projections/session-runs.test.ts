@@ -301,9 +301,9 @@ describe("a queue on projections.runs", () => {
     );
     const queue = () => runs.read().queue.map((entry) => [entry.text, entry.heldBy, entry.attachments]);
     expect(runs.read()).toMatchObject({ environmentId: env, state: "running", rewound: null });
-    expect(runs.read().queue[0]).toMatchObject({ messageId: ALSO, text: "Also the tests", attachments: ["screen.png"], heldBy: "provider", runId: RUN });
+    expect(runs.read().queue[0]).toMatchObject({ messageId: ALSO, text: "Also the tests", attachments: [attachment], heldBy: "provider", runId: RUN });
     expect(queue()).toEqual([
-      ["Also the tests", "provider", ["screen.png"]],
+      ["Also the tests", "provider", [attachment]],
       ["And the docs", "provider", []],
       ["Then push", "provider", []],
     ]);

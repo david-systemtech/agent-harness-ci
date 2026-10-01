@@ -22,6 +22,7 @@ import { useClock, useFollowed, useObservable, useRuntime } from "../window-cont
 import { useHandoffPicker } from "./pane-dialogs.js";
 import { AccountPicker, ContainmentPicker, ModePicker, ModelPicker } from "./pickers.js";
 import { useHandedOnto, useModelChoice } from "./run-choices.js";
+import { SessionBrowserPicker } from "../browser/session-picker.js";
 import { WindowReading } from "./window-reading.js";
 
 export interface StatusLineProps {
@@ -98,6 +99,7 @@ export const StatusLine = ({ environmentId, sessionId }: StatusLineProps) => {
           <span className={facts.mode.mode === "bypassPermissions" ? "font-semibold text-signal" : "text-ink"}>{MODE_BADGE_WORDS[facts.mode.mode]}</span>
           {facts.mode.clampedFrom !== null && <span className="text-amber"> {clampWords(facts.mode.clampedFrom)}</span>}
         </ModePicker>
+        <SessionBrowserPicker environmentId={environmentId} sessionId={sessionId} />
         <ContainmentPicker environmentId={environmentId} sessionId={sessionId} containment={facts.containment} />
         <Gauge readings={readingsOf(gaugeOf(usage.gauges, environmentId, facts.accountId))} />
       </div>

@@ -98,7 +98,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { coveredDirectories, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, coveredPaths, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -153,11 +153,11 @@ import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
-import { followDeliveries } from "../routines/delivery.js";
+import { followDeliveries, resumeDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
 import { limitFiringDurations } from "../routines/firing-duration.js";
-import { followFiringEnds } from "../routines/firing-end.js";
+import { followFiringEnds, settleFirings } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
@@ -482,6 +482,15 @@ export interface EnvironmentOptions {
    * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
+  /**
+   * The absolute paths `harnessCommand` reads as it runs, beyond its own
+   * words (#705): the launcher's shim reads the service state and the
+   * versions directory. Only whoever knows the command's layout can name
+   * them, so `serve` passes them beside it. Where an enabled denied path
+   * covers one, an unattended run's sandbox reads it again, as it does the
+   * command's own directories. Preset none.
+   */
+  readonly harnessReads?: readonly string[];
   /**
    * Configuration the harness's git is given after its own on every
    * operation. Only tests give it: an `insteadOf` that sends a forge's
@@ -813,6 +822,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let tailnetName: string | undefined;
   // What the listeners bind beside loopback, for environment.status (#574): nothing until they are bound.
   let boundBeside: Pick<EnvironmentBinding, "tailnet" | "lan"> = { tailnet: null, lan: null };
+  // A Tailscale address the machine holds that the start did not bind (#861): found at the listen step with the tailnet setting
+  // off, or looked for again at each environment.status while no tailnet address is bound, so a Tailscale installed since shows.
+  let tailnetFound: string | null = null;
   // What is found to bind beside loopback: the Tailscale address and name, and the LAN addresses, read as each is asked.
   const interfaces = options.interfaces ?? tailscaleDetector();
 
@@ -1028,8 +1040,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
   // What git's credential helper is run from (#315): the absolute paths of the command git names (the launcher's shim, or
-  // node and the entry it runs).
+  // node and the entry it runs); and what it reads as it runs (#705), the shim's service state and versions directory.
   const helperPaths = (options.harnessCommand ?? []).filter((word) => isAbsolute(word));
+  const helperReads = (options.harnessReads ?? []).filter((path) => isAbsolute(path));
 
   // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
@@ -1095,11 +1108,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
-    chooseChrome: (ask) =>
-      chooseChrome(
-        { log, environmentId: record.id, environmentName: () => look.read().name },
-        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
-      ),
+    chooseChrome: async (ask) => {
+      const remote = ask.environmentId.toLowerCase() !== record.id.toLowerCase()
+        ? await relay.chromesOf({ ...ask, chromeId: null })
+        : undefined;
+      if (remote !== undefined && !remote.ok) return remote;
+      const live = host.live(ask.sessionId);
+      if (live?.runId !== ask.runId) return { ok: false, reason: "This session's run changed before its Chrome could be chosen." };
+      return chooseChrome(
+        { log, environmentId: record.id, environmentName: () => remote?.environmentName ?? look.read().name, ...(remote !== undefined && { paired: remote.chromes }) },
+        { ...ask, actor: formatActor({ kind: "adapter", id: live.descriptor.provider }) },
+      );
+    },
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
@@ -1206,6 +1226,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
 
+  // The environment's resolver of a new session's workspace (#321). Its identity rule reads this environment's forge accounts
+  // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1271,6 +1295,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const created = createAdapterHost({
       log,
       clock,
+      scrub,
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
@@ -1304,17 +1329,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
-      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from, where the denylist
-      // covers them (#315), are exempt too, so the sandbox lets the helper run.
+      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
+      // it reads as it runs (#705), where the denylist covers them, are exempt too, so the sandbox lets the helper run.
       providerDenylist: () => {
         const denylist = readDenylistNow();
-        const helper = coveredDirectories({ ...denylistContext, denylist: () => denylist }, helperPaths);
+        const context = { ...denylistContext, denylist: () => denylist };
+        const helper = [...coveredDirectories(context, helperPaths), ...coveredPaths(context, helperReads)];
         return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...helper] });
       },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
       trust: (place) => trustStore.of(place),
+      identityAt: (path) => environmentResolver.identityAt(path),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
       skillSet: runSkillSets({ own: ownSkills, sources: skillSources, log, generations }),
@@ -1436,7 +1463,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    lookAgain: async () => {
+      if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
+    },
     onDraining: () => {
       readiness = "draining";
       // New runs are refused before any process stops, so none starts on a process the drain is stopping.
@@ -1503,9 +1533,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
-  const forgeAccounts = () => verifiedOrigins(forge.list());
-  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
@@ -1865,6 +1892,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const boundOn = (which: BoundInterface) => listening.find((entry) => entry.interface === which)?.address.host ?? null;
     const tailnet = boundOn("tailnet");
     boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
+    tailnetFound = tailnet === null ? (tailscaleAddress ?? null) : null;
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
@@ -1899,6 +1927,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  settleFirings({ log, clock: now, environmentId: record.id });
+  resumeDeliveries({ log, clock: now, environmentId: record.id });
   webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {

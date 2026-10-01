@@ -1,6 +1,7 @@
 import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { AttachmentInput, Mode, RunOrigin, RunPolicy, SendResponse } from "@agent-harness/contracts";
+import type { RunAdmission } from "../serve/run-registry.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { ClientTool } from "../adapter/seams.js";
 import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
@@ -58,6 +59,7 @@ type WorkspaceCommand = "runs.start" | "runs.send" | "runs.readNow";
 
 /** A run to start with a message: on which session, for whom, from where, and what it asks for. */
 export interface RunStart {
+  readonly admission?: RunAdmission | undefined;
   readonly slash?: SlashScope | undefined;
   readonly sessionId: string;
   readonly actor: RunActor;
@@ -96,7 +98,7 @@ export const startRunIn = (
 ): RunStartOutcome => {
   const sessionId = request.sessionId.toLowerCase();
   const facts = host.startFacts(sessionId, request.actor);
-  if (facts.session !== null && !facts.session.deleted) host.admit();
+  if (facts.session !== null && !facts.session.deleted) host.admit(request.admission);
   const messageId = randomUUID();
   const skill = request.slash === undefined ? undefined : host.resolveMessage(request.text, request.slash).skill;
   const decision = decideStart(facts, {
@@ -111,7 +113,7 @@ export const startRunIn = (
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.run.runId });
-  tx.afterCommit(() => host.launch({ ...decision.run, ...(request.slash === undefined ? { literalPromptId: messageId } : { slash: request.slash }) }));
+  tx.afterCommit(() => host.launch({ ...decision.run, ...(request.slash === undefined ? { literalPromptId: messageId } : { slash: request.slash }) }, request.admission));
   return { runId: decision.run.runId, messageId, policy: decision.run.policy };
 };
 

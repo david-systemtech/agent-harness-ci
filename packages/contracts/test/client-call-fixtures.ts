@@ -21,6 +21,17 @@ const verb = {
   deadline: "2026-09-24T00:00:20.000Z",
 };
 const dockVerb = { pageKey: verb.pageKey, command: verb.command, deadline: verb.deadline };
+const listVerb = { operation: "list", environmentId, deadline: verb.deadline };
+const pairedChrome = {
+  id: chromeId,
+  name: "Work",
+  pairedAt: "2026-09-24T00:00:00.000Z",
+  lastConnectedAt: "2026-09-24T00:00:00.000Z",
+  lastReportedVersion: "0.4.2",
+  connected: true,
+  outdated: false,
+};
+const listResult = { ok: true, environmentName: "desk", chromes: [pairedChrome] };
 const call = { callId, clientSessionId: "cs-1", kind: "browser.chrome", payload: verb };
 const outcome = { ok: true, value: { url: "https://example.com/", title: "Example" } };
 
@@ -40,12 +51,20 @@ export const clientCallSchemaFixtures: Record<string, Fixtures> = {
     valid: [verb, { ...verb, chromeId: null, allowance: { host: "www.paypal.com" } }],
     invalid: [{ ...verb, environmentId: "desk" }, { ...verb, chromeId: undefined }, { ...verb, deadline: "soon" }, { ...verb, command: { verb: "focus", args: {} } }],
   },
+  "client-calls/browser-chrome-list.json": {
+    valid: [listVerb],
+    invalid: [{ ...listVerb, operation: "perform" }, { ...listVerb, environmentId: "desk" }, { ...listVerb, deadline: "soon" }, { ...listVerb, deadline: undefined }],
+  },
+  "client-calls/browser-chrome-list-result.json": {
+    valid: [listResult, { ...listResult, chromes: [] }, { ...listResult, chromes: [{ ...pairedChrome, connected: false, outdated: true }] }],
+    invalid: [{ ...listResult, ok: false }, { ...listResult, environmentName: undefined }, { ...listResult, chromes: undefined }, { ...listResult, chromes: [{ id: chromeId, name: "Work" }] }, { ...listResult, chromes: [{ ...pairedChrome, connected: "yes" }] }],
+  },
   "client-calls/browser-dock.json": {
     valid: [dockVerb, { ...dockVerb, allowance: { host: "www.paypal.com" } }],
     invalid: [{ ...dockVerb, pageKey: "" }, { ...dockVerb, deadline: "soon" }, { ...dockVerb, deadline: undefined }, { ...dockVerb, command: { verb: "focus", args: {} } }],
   },
   "client-calls/call.json": {
-    valid: [call, { ...call, payload: { ...verb, chromeId: null } }, { ...call, kind: "browser.dock", payload: dockVerb }],
-    invalid: [{ ...call, kind: "browser.unknown" }, { ...call, clientSessionId: "" }, { ...call, callId: "call-1" }, { ...call, payload: { ...verb, deadline: undefined } }],
+    valid: [call, { ...call, payload: { ...verb, chromeId: null } }, { ...call, payload: listVerb }, { ...call, kind: "browser.dock", payload: dockVerb }],
+    invalid: [{ ...call, kind: "browser.unknown" }, { ...call, clientSessionId: "" }, { ...call, callId: "call-1" }, { ...call, payload: { ...verb, deadline: undefined } }, { ...call, payload: { ...listVerb, deadline: undefined } }, { ...call, kind: "browser.dock", payload: listVerb }],
   },
 };

@@ -387,11 +387,10 @@ const schemaOf = (spec: PageToolSpec): JsonObject => ({
 /** A verb's value beside what was asked: the call's input, as an answer names it. */
 type Outcome = { readonly [V in PageVerb]: { readonly verb: V; readonly value: PageValue<V> } }[PageVerb];
 
-/** What an answer is written with: the kind that answered, the call's input, the address the page last reported, and the driver's notice. */
+/** What an answer is written with: the kind that answered, the call's input, and the driver's notice. */
 interface AnswerContext {
   readonly kind: PageDriverKind;
   readonly input: Input;
-  readonly address: string;
   readonly notice: string | undefined;
 }
 
@@ -465,7 +464,7 @@ const plural = (count: number, one: string): string => `${count} ${one}${count =
 
 /** What the model reads of a verb's value. */
 const answerOf = (outcome: Outcome, context: AnswerContext): HostToolResult => {
-  const { input, address, kind } = context;
+  const { input, kind } = context;
   switch (outcome.verb) {
     case "open":
       return arrivalAnswer(input["address"] === undefined ? "This session's page." : `Opened ${String(input["address"])}.`, outcome.value, context);
@@ -501,7 +500,7 @@ const answerOf = (outcome: Outcome, context: AnswerContext): HostToolResult => {
     case "screenshot":
       return answered(
         [
-          redactTokens(`A screenshot of ${address}: its viewport, ${VIEWPORT.width} by ${VIEWPORT.height} pixels. browser_click_at takes a point in these pixels.`),
+          redactTokens(`A screenshot of ${outcome.value.url}: its viewport, ${VIEWPORT.width} by ${VIEWPORT.height} pixels. browser_click_at takes a point in these pixels.`),
           context.notice,
         ],
         [{ mediaType: outcome.value.mimeType, data: Buffer.from(outcome.value.data, "base64") }],
@@ -521,33 +520,39 @@ const answerOf = (outcome: Outcome, context: AnswerContext): HostToolResult => {
     }
     case "close":
       return answered([`Let go of this session's page. ${CLOSE_WORDING[kind]}`, context.notice]);
-    case "console":
+    case "console": {
+      const { url, entries } = outcome.value;
       return entriesAnswer(
-        `The console of ${address} since the last read, ${plural(outcome.value.length, "line")}:`,
-        `The console of ${address} has nothing new since the last read.`,
-        address,
-        outcome.value.map((entry) => `[${entry.at}] ${entry.level}: ${entry.text}${entry.source === undefined ? "" : ` (${entry.source})`}`),
+        `The console of ${url} since the last read, ${plural(entries.length, "line")}:`,
+        `The console of ${url} has nothing new since the last read.`,
+        url,
+        entries.map((entry) => `[${entry.at}] ${entry.level}: ${entry.text}${entry.source === undefined ? "" : ` (${entry.source})`}`),
         context.notice,
       );
-    case "network":
+    }
+    case "network": {
+      const { url, entries } = outcome.value;
       return entriesAnswer(
-        `The requests ${address} made since the last read, ${plural(outcome.value.length, "request")}:`,
-        `${address} made no${input["failedOnly"] === true ? " failed" : ""} requests since the last read.`,
-        address,
-        outcome.value.map(
+        `The requests ${url} made since the last read, ${plural(entries.length, "request")}:`,
+        `${url} made no${input["failedOnly"] === true ? " failed" : ""} requests since the last read.`,
+        url,
+        entries.map(
           (entry) =>
             `${entry.method} ${entry.url} ${entry.status === undefined ? `failed${entry.failure === undefined ? "" : `: ${entry.failure}`}` : String(entry.status)}${entry.resourceType === undefined ? "" : ` (${entry.resourceType})`}`,
         ),
         context.notice,
       );
-    case "cookies":
+    }
+    case "cookies": {
+      const { url, entries } = outcome.value;
       return entriesAnswer(
-        `The cookies ${address} would send, ${plural(outcome.value.length, "cookie")}, one per line as JSON:`,
-        `${address} would send no cookies.`,
-        address,
-        outcome.value.map((cookie) => JSON.stringify(cookie)),
+        `The cookies ${url} would send, ${plural(entries.length, "cookie")}, one per line as JSON:`,
+        `${url} would send no cookies.`,
+        url,
+        entries.map((cookie) => JSON.stringify(cookie)),
         context.notice,
       );
+    }
     case "storage":
       return answered([
         redactTokens(`The storage of ${outcome.value.origin}, as JSON:`),
@@ -555,25 +560,7 @@ const answerOf = (outcome: Outcome, context: AnswerContext): HostToolResult => {
         framed(outcome.value.origin, JSON.stringify({ localStorage: outcome.value.local, sessionStorage: outcome.value.session }, null, 2)),
       ]);
     case "evaluate":
-      return answered([redactTokens(`The expression's value on ${address}, as JSON:`), context.notice, framed(address, JSON.stringify(outcome.value.result, null, 2))]);
-  }
-};
-
-/** The address a value says the page is at, for the frames of the verbs whose values name none. */
-const addressIn = (outcome: Outcome): string | undefined => {
-  switch (outcome.verb) {
-    case "open":
-    case "navigate":
-    case "click":
-    case "clickAt":
-    case "type":
-    case "snapshot":
-    case "read":
-    case "scroll":
-    case "waitFor":
-      return outcome.value.url;
-    default:
-      return undefined;
+      return answered([redactTokens(`The expression's value on ${outcome.value.url}, as JSON:`), context.notice, framed(outcome.value.url, JSON.stringify(outcome.value.result, null, 2))]);
   }
 };
 
@@ -604,27 +591,14 @@ export interface PageToolsOptions {
   readonly environmentId?: () => string;
   /** The browser of the session's live run, looked up at each call, never the run that built the tools. */
   readonly live: () => LiveBrowser;
-  /** The address each session's page last reported, kept across the session's runs for the frames of the verbs whose values name none. */
-  readonly addresses: Map<PageKey, string>;
   /**
    * The agent's answer to the several-Chromes question, `browser_open`'s
    * `browser`: the Chrome it names, chosen for the session, or the sentence
    * why not. Given only where the run's browser is the plain My Chrome, and
    * `browser_open` takes `browser` only then.
    */
-  readonly choose?: (name: string) => ChosenBrowser | LiveBrowser;
+  readonly choose?: (name: string) => ChosenBrowser | LiveBrowser | Promise<ChosenBrowser | LiveBrowser>;
 }
-
-/** How many sessions' last addresses are kept: the least recently reported goes first. */
-const ADDRESSES_KEPT = 1_000;
-
-/** Keeps `address` as the page's last, most recent last, dropping the oldest past the bound. */
-const remember = (addresses: Map<PageKey, string>, pageKey: PageKey, address: string): void => {
-  addresses.delete(pageKey);
-  addresses.set(pageKey, address);
-  const oldest = addresses.keys().next();
-  if (addresses.size > ADDRESSES_KEPT && oldest.done !== true) addresses.delete(oldest.value);
-};
 
 const KIND_NAMES: { readonly [K in PageDriverKind]: string } = { chrome: "The person's Chrome", headless: "The headless browser", dock: "The browser dock" };
 
@@ -635,7 +609,7 @@ const KIND_NAMES: { readonly [K in PageDriverKind]: string } = { chrome: "The pe
  * address, so the gate's denylist rule meets them before the call.
  */
 export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): HostTool[] => {
-  const { pageKey, addresses, choose } = options;
+  const { pageKey, choose } = options;
   const offered = (verb: PageVerb): boolean => (PAGE_DRIVER_ABILITIES[kind].verbs as readonly PageVerb[]).includes(verb);
   return SPECS.filter((listed) => offered(listed.verb)).map((listed): HostTool => {
     const spec = listed.verb === "open" && choose !== undefined ? { ...listed, arguments: { ...listed.arguments, browser: CHROME_NAME } } : listed;
@@ -673,11 +647,8 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
       const value = PAGE_VERB_SCHEMAS[resultVerb].value.safeParse(result.value);
       if (!value.success) return refused(`The browser answered ${name} with a value it does not give: ${value.error.issues[0]?.message ?? "not valid"}.`);
       const outcome = { verb: resultVerb, value: value.data } as Outcome;
-      if (resultVerb === "close") addresses.delete(pageKey);
-      const reported = addressIn(outcome);
-      if (reported !== undefined) remember(addresses, pageKey, reported);
       const notice = result.notice === undefined ? undefined : redactTokens(result.notice);
-      return answerOf(outcome, { kind: driver.kind, input: answerInput, address: addresses.get(pageKey) ?? "this session's page", notice });
+      return answerOf(outcome, { kind: driver.kind, input: answerInput, notice });
     };
 
     return {
@@ -692,7 +663,7 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
         // Only browser_open of the plain My Chrome takes browser: no other tool's input fits with it.
         const chromeName = input["browser"];
         if (typeof chromeName !== "string" || choose === undefined) return drive(input, args, options.live(), call);
-        const browser = choose(chromeName);
+        const browser = await choose(chromeName);
         const answer = await drive(input, args, browser, call);
         return "chosen" in browser ? { ...answer, text: `This session uses the Chrome ${browser.chosen} from now on.\n${answer.text}` } : answer;
       },

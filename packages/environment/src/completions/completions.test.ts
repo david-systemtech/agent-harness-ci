@@ -64,6 +64,29 @@ const PROGRAM_SCOPES: readonly Scope[] = ["read", "sessions:write", "runs:drive"
 /** A composer whose every run is handed `COMPOSED`, as its orientation block. */
 const composed = composeInstructions({ orientation: () => ({ text: "COMPOSED", unreadRegistries: [] }) });
 
+/**
+ * A composer that composes the first `atOnce` runs' instructions at once and
+ * holds every later run's until `held` opens; `composing` opens once the
+ * first of those began composing. A run interrupted meanwhile ends before its
+ * adapter had its messages.
+ */
+const holdingAfter = (atOnce: number) => {
+  const held = gate();
+  const composing = gate();
+  let runs = 0;
+  const instructions = composeInstructions({
+    orientation: async () => {
+      runs += 1;
+      if (runs > atOnce) {
+        composing.open();
+        await held.opened;
+      }
+      return { text: "COMPOSED", unreadRegistries: [] };
+    },
+  });
+  return { held, composing, instructions };
+};
+
 const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({ ...options, adapter: "descriptor" in adapter ? adapter : fakeAdapter(adapter) });
   onCleanup(() => t.close());
@@ -493,6 +516,16 @@ describe("a completion, whole", () => {
 });
 
 describe("a completion, streamed", () => {
+  it("never streams a registered value split across assistant deltas", async () => {
+    const value = "token-for-tests";
+    const t = await start({ script: () => [delta("reply", "Token: token-for-"), delta("reply", "tests!"), text("reply", `Token: ${value}!`), end()] });
+    t.scrub.register(value, { owner: "test:completion" });
+    const { token } = await program(t);
+    const chunks = chunksOf(await (await stream(t, token, turn("Show the token"))).rest());
+    expect(contentOf(chunks)).toBe("Token: [redacted]!");
+    expect(JSON.stringify(chunks)).not.toContain(value);
+  });
+
   it("follows OpenAI's chunk order, every chunk carrying the log sequence of the event it renders", async () => {
     const t = await start({ script: streamingScript });
     const { token } = await program(t);
@@ -1067,21 +1100,8 @@ describe("session continuity", () => {
   });
 
   it("names a prompt turn's message waiting when its run is interrupted before its adapter had the prompt, by an interrupt or a read-now (#833)", async () => {
-    /** Instructions held until `held` opens, and `composing` open once the first run began composing them. */
-    const holding = () => {
-      const held = gate();
-      const composing = gate();
-      const instructions = composeInstructions({
-        orientation: async () => {
-          composing.open();
-          await held.opened;
-          return { text: "COMPOSED", unreadRegistries: [] };
-        },
-      });
-      return { held, composing, instructions };
-    };
     // An interrupt: the message waits in the environment's queue for the session's next run.
-    const interrupted = holding();
+    const interrupted = holdingAfter(0);
     const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: interrupted.instructions } });
     const { token } = await program(t);
     const client = await t.client();
@@ -1096,7 +1116,7 @@ describe("session continuity", () => {
     interrupted.held.open();
 
     // A read-now: its run reads the message with the queued turn's, and that turn's answer carries the reply.
-    const readNow = holding();
+    const readNow = holdingAfter(0);
     const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: readNow.instructions } });
     const { token: readNowToken } = await program(u);
     const second = await stream(u, readNowToken, turn("First"));
@@ -1114,6 +1134,92 @@ describe("session continuity", () => {
     expect(contentOf(chunks)).toBe("Done: First / Then this");
     expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
     expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
+  });
+
+  it("treats a run of the queue that took a queued turn's message back unread as the run it was sent to: waiting after an interrupt, followed into a read-now's run (#1045)", async () => {
+    // The run the turn is queued to replies once `live` opens; the run of the queue that launches with the turn's message
+    // composes its instructions until `held` opens, so an interrupt ends it before its adapter had the message.
+    const interrupted = holdingAfter(1);
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: interrupted.instructions } });
+    const { token } = await program(t);
+    const live = gate();
+    t.adapter.nextScripts.push(heldScript(live.opened));
+    const first = await stream(t, token, turn("First"));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const queued = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
+    const head = await queued.chunk();
+    live.open();
+    await first.rest();
+    await interrupted.composing.opened;
+    const ofQueue = (await untilLogged(t, sessionId, "run.started", 2)).at(-1)?.payload as RunStartedPayload;
+    await (await t.client()).request("runs.interrupt", { commandId: randomUUID(), runId: ofQueue.runId });
+    const last = chunksOf(await queued.rest()).at(-1);
+    expect(last?.choices[0]?.finish_reason).toBe("error");
+    expect(last?.["agent-harness"]).toMatchObject({ waiting: head["agent-harness"].messageId, ended: { reason: "interrupted", cause: "user" } });
+    expect(t.adapter.runs).toHaveLength(1);
+    interrupted.held.open();
+
+    // A read-now (another turn queued to the run of the queue gives it something to read): its run reads the message, and
+    // the answer follows into it, as it does from the run it was sent to (#228).
+    const readNow = holdingAfter(1);
+    const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: readNow.instructions } });
+    const { token: readNowToken } = await program(u);
+    const replied = gate();
+    u.adapter.nextScripts.push(heldScript(replied.opened));
+    const second = await stream(u, readNowToken, turn("First"));
+    const readNowSession = (await second.chunk())["agent-harness"].sessionId as string;
+    const following = await stream(u, readNowToken, turn("Then this", { "agent-harness": { sessionId: readNowSession } }));
+    await following.chunk();
+    replied.open();
+    await second.rest();
+    await readNow.composing.opened;
+    const also = await stream(u, readNowToken, turn("And this", { "agent-harness": { sessionId: readNowSession } }));
+    await also.chunk();
+    await (await u.client()).request("runs.readNow", { commandId: randomUUID(), sessionId: readNowSession });
+    await untilEnded(u, readNowSession, 2);
+    expect(payloadsOf<{ cause: string | null }>(u, readNowSession, "run.ended")[1]?.cause).toBe("read-now");
+    readNow.held.open();
+    const chunks = chunksOf(await following.rest());
+    expect(contentOf(chunks)).toBe("Late reply\n\nDone: Then this / And this");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
+    expect(contentOf(chunksOf(await also.rest()))).toBe("Done: Then this / And this");
+  });
+
+  it("names the turn's message waiting in a whole answer's 409, for a queued turn and for a prompt turn (#1045)", async () => {
+    // A queued turn whose run is interrupted before reading it (#138).
+    const t = await start({ capabilities: { providerQueue: false, steering: false } });
+    const { token } = await program(t);
+    t.adapter.nextScripts.push(heldScript(gate().opened));
+    const first = await stream(t, token, turn("First"));
+    const opening = await first.chunk();
+    const sessionId = opening["agent-harness"].sessionId as string;
+    const whole = post(t, token, turn("Then this", { "agent-harness": { sessionId } }));
+    const sent = (await untilLogged(t, sessionId, "message.sent", 2)).at(-1);
+    await (await t.client()).request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
+    expect(await refusalOf(await whole)).toMatchObject({
+      status: 409,
+      body: {
+        error: { type: "conflict_error", code: "interrupted" },
+        "agent-harness": { sessionId, waiting: sent?.payload["messageId"], ended: { reason: "interrupted", cause: "user" } },
+      },
+    });
+    await first.rest();
+
+    // A prompt turn whose run is interrupted while it composes its instructions (#833).
+    const composer = holdingAfter(1);
+    const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: composer.instructions } });
+    const { token: promptToken } = await program(u);
+    const idle = (await complete(u, promptToken, turn("First")))["agent-harness"].sessionId as string;
+    const again = post(u, promptToken, turn("Again", { "agent-harness": { sessionId: idle } }));
+    await composer.composing.opened;
+    const started = (await untilLogged(u, idle, "run.started", 2)).at(-1)?.payload as RunStartedPayload;
+    await (await u.client()).request("runs.interrupt", { commandId: randomUUID(), runId: started.runId });
+    expect(await refusalOf(await again)).toMatchObject({
+      status: 409,
+      body: { "agent-harness": { sessionId: idle, runId: started.runId, waiting: started.promptMessageId, ended: { reason: "interrupted", cause: "user" } } },
+    });
+    composer.held.open();
   });
 
   it("ends a queued turn's answer when its message is withdrawn, which no run will read: an error chunk, withdrawn, and 409 for a whole answer", async () => {

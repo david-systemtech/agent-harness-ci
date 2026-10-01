@@ -240,6 +240,7 @@ export {
   RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
+  pullSetupSources,
   restoreStep,
   setupActions,
   updateEnvironment,
@@ -381,6 +382,7 @@ export {
 } from "./transcript/rows.js";
 export {
   TOOL_CATEGORIES,
+  attachmentChip,
   classifyTool,
   clockTime,
   describeActivity,

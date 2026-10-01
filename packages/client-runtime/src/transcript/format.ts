@@ -124,6 +124,15 @@ export const formatDuration = (ms: number): string => {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
+/**
+ * An attachment sent with a message, as its chip says it in every client:
+ * its name and its size in whole KB, never less than 1 (`screen.png · 1 KB`).
+ * `message.sent` logs an `AttachmentRecord` and never the bytes, so a sent
+ * picture is named, not drawn (David, #473; serving the bytes is #1016).
+ */
+export const attachmentChip = (attachment: { readonly name: string; readonly size: number }): string =>
+  `${attachment.name} · ${String(Math.max(1, Math.round(attachment.size / 1024)))} KB`;
+
 /** Whitespace collapsed and the text clipped to `max`, for one-line summaries. */
 export const oneLine = (text: string, max = 120): string => {
   const flat = text.replace(/\s+/g, " ").trim();

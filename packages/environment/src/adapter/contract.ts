@@ -382,7 +382,7 @@ export interface RunContainment {
 export interface RunDenylist {
   /** The path section's enabled entries, absolute: `~` read as the environment's home directory. */
   readonly paths: readonly string[];
-  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces. */
+  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces; a file among them (the launcher's service state, which git's credential helper reads, #705) is left out alone. */
   readonly exempt: readonly string[];
   /** The command-pattern section's enabled entries, as written. */
   readonly commandPatterns: readonly string[];
@@ -982,6 +982,13 @@ export interface Adapter {
    * never creates, links or deletes anything there.
    */
   readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
+  /**
+   * Copies an imported provider conversation from its original account into
+   * the store under the harness session before a fork copies that session's
+   * rows. Reads the account's directory only; does nothing when already stored.
+   * Absent for adapters that keep their own conversations without this store.
+   */
+  seedSessionStore?(account: AccountRef, sessionId: string, providerSessionId: string): Promise<void>;
   /**
    * Whether a fork or rewind can continue stored history before this
    * message. Read before the command's transaction; absent for adapters
