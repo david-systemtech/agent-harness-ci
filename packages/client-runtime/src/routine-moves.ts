@@ -68,7 +68,9 @@ export const createRoutineMoves = (host: MoveHost): RoutineMoves => {
       let confirmed: Promise<RoutineMoveResult> | undefined;
       const confirm = async (): Promise<RoutineMoveResult> => {
         if (checked.result.documents.length !== 1 || checked.result.documents.some(d => d.issues.length > 0)) return { ok: false, error: { code: "invalid_params", message: "Resolve the import issues before moving this routine." } };
-        host.reserve(from, routineId, to, targetId);
+        // Settlement follows the copy's movedFrom link, including when this move restores its original.
+        if (original) host.reserve(to, targetId, from, routineId);
+        else host.reserve(from, routineId, to, targetId);
         const imported = await host.dispatch(to, "routines.import", { yaml, ...(original ? { routineId: targetId } : { routineIds: [targetId], movedFrom: { environmentId: from, routineId } }) });
         if (!imported.ok) return imported;
         if (original) {

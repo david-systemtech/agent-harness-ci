@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { RoutineDefinitionInput } from "@agent-harness/contracts";
+import { Frame, RoutineDefinitionInput } from "@agent-harness/contracts";
 import { expect, it } from "vitest";
 import { written } from "../../environment/test/routines.js";
 import { holds, useHarness } from "../test/harness.js";
-import { inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { globalWebSocket, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
 it("previews a move without changing either environment, then links the copy and disables its original", async () => {
@@ -94,6 +94,61 @@ it("moves back into the original id, updates its definition and keeps both envir
   expect(await runtime.requests.call(desk.env.id, "routines.history", { routineId: id })).toMatchObject({ ok: true, result: { entries: originalHistory } });
   expect(await runtime.requests.call(laptop.env.id, "routines.history", { routineId: copied.routineId })).toMatchObject({ ok: true, result: { entries: [] } });
   stopHistory();
+  stop();
+});
+
+it("a fresh mover keeps the restored original enabled while the copy's disable is held at the same timestamp", async () => {
+  const desk = await harness.environment({ name: "desk" });
+  const laptop = await harness.environment({ name: "laptop", clock: desk.clock });
+  const writer = harness.runtime(inMemoryPlatform());
+  await writer.start();
+  for (const env of [desk, laptop]) await writer.connections.add({ link: (await env.createPairing()).link });
+  const id = randomUUID();
+  await writer.commands.dispatch(desk.env.id, "routines.create", { routineId: id, definition: RoutineDefinitionInput.parse(written({ name: "Monday", schedule: { kind: "manual" } })) });
+  const first = await writer.commands.moveRoutine(desk.env.id, id, laptop.env.id);
+  if (!first.ok) throw new Error(first.error.message);
+  const copied = await first.confirm();
+  if (!copied.ok) throw new Error(copied.error.message);
+  const firstView = writer.projections.routines;
+  const stopFirst = firstView.subscribe(() => undefined);
+  await holds(firstView, v => v.groups.some(g => g.routines.some(r => r.routineId === id && r.listed?.state.movedTo?.routineId === copied.routineId)));
+  stopFirst();
+  await writer.close();
+
+  // Hold the copy's disable before it reaches the real environment, leaving both lists enabled.
+  const base = globalWebSocket();
+  let releaseDisable: (() => void) | undefined;
+  let sawDisable: (() => void) | undefined;
+  const disableHeld = new Promise<void>(resolve => { sawDisable = resolve; });
+  const mover = harness.runtime(inMemoryPlatform({ webSocket: (url, handlers) => {
+    const socket = base(url, handlers);
+    return {
+      ...socket,
+      send(text) {
+        const frame = Frame.parse(JSON.parse(text));
+        if (frame.type === "request" && frame.method === "routines.disable" && frame.params["routineId"] === copied.routineId) {
+          releaseDisable = () => socket.send(text);
+          sawDisable?.();
+        } else socket.send(text);
+      },
+    };
+  } }));
+  await mover.start();
+  for (const env of [desk, laptop]) await mover.connections.add({ link: (await env.createPairing()).link });
+  const back = await mover.commands.moveRoutine(laptop.env.id, copied.routineId, desk.env.id);
+  if (!back.ok) throw new Error(back.error.message);
+  expect(await back.confirm()).toEqual({ ok: true, routineId: id });
+  await disableHeld;
+  const view = mover.projections.routines;
+  const stop = view.subscribe(() => undefined);
+  await holds(view, v => v.groups.length === 2 && v.groups.every(g => !g.stale && g.routines.every(r => r.listed !== null)));
+  // Two wire round trips let a settlement recheck and its resulting command reach either environment.
+  for (let round = 0; round < 2; round++) await Promise.all([desk, laptop].map(env => mover.requests.call(env.env.id, "routines.list", {})));
+  expect(await mover.requests.call(desk.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [{ definition: { enabled: true }, state: { id, movedTo: null } }] } });
+  expect(await mover.requests.call(laptop.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [{ definition: { enabled: true }, state: { id: copied.routineId, movedTo: null } }] } });
+  releaseDisable?.();
+  await holds(view, v => v.groups.some(g => g.routines.some(r => r.routineId === copied.routineId && !r.pending && !r.definition.enabled)));
+  expect(await mover.requests.call(desk.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [{ definition: { enabled: true }, state: { id, movedTo: null } }] } });
   stop();
 });
 
