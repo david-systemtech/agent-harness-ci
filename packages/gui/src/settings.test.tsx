@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
 import { BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
+import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -42,6 +43,24 @@ const openSettings = async (app: RenderedApp) => {
 };
 
 describe("Settings", () => {
+  it("gives current, inactive and dim rail rows one text colour each, including a dim row opened by a deep link", async () => {
+    const app = await opened();
+    await openSettings(app);
+    const colours = (label: string) => [...within(rail()).getByRole("button", { name: label }).classList].filter((name) => TOKEN_NAMES.some((token) => name === `text-${token}`));
+    expect(colours("Set up")).toEqual(["text-ink"]);
+    expect(colours("Accounts")).toEqual(["text-ink-muted"]);
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+
+    await app.user.click(within(rail()).getByRole("button", { name: "Accounts" }));
+    expect(colours("Set up")).toEqual(["text-ink-muted"]);
+    expect(colours("Accounts")).toEqual(["text-ink"]);
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+
+    act(() => app.shell.openDeepLink(settingsDeepLink("routines.bots")));
+    expect(within(rail()).getByRole("button", { name: "Bots" }).getAttribute("aria-current")).toBe("page");
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+  });
+
   it("opens on Mod+, as a rail with search at its top, the eight bands and their rows, and the pane of Set up; Mod+, and its close control close it", async () => {
     const app = await opened();
     expect(settings()).toBeNull();
