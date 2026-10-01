@@ -99,3 +99,36 @@ click Load unpacked and choose the folder the environment made,
    throughout, its socket's pings keeping it; if it ever shows STOPPED, it is
    RUNNING again within the 30 seconds its alarm takes. Do not open the
    worker's DevTools for this: an open inspector keeps any worker alive.
+
+## The headless browser's launch (#555)
+
+The environment's headless browser tests (`packages/environment/src/browser/headless.test.ts`)
+launch the scripted CDP peer through the launch seam and record the arguments; the
+preset launcher's own test runs a few lines of Node in a browser's place. Whether a real
+Chromium or Chrome starts the way the environment launches it (new headless, a pipe rather
+than a port, a throwaway profile under the data directory, Chromium's own sandbox on, no
+`--no-sandbox`) only a real one answers (the browser spec's "Verify first", item 6). Run the
+suite's real-Chromium case, which skips unless `AGENT_HARNESS_CHROMIUM` names one, on each
+platform, as an ordinary user:
+
+```bash
+AGENT_HARNESS_CHROMIUM=/usr/bin/chromium \
+  pnpm --filter @agent-harness/environment exec vitest run src/browser/headless.test.ts -t "a real Chromium"
+```
+
+1. **macOS**, with Google Chrome
+   (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`).
+2. **Windows**, with Google Chrome
+   (`C:\Program Files\Google\Chrome\Application\chrome.exe`).
+3. **Ubuntu 24.04**, whose AppArmor profile limits unprivileged user namespaces
+   (`kernel.apparmor_restrict_unprivileged_userns=1`), with a Chromium or Chrome
+   from a `.deb` and, if one is at hand, the snap's `/snap/bin/chromium`, whose
+   confinement may not let it write a profile under a hidden folder of the home
+   directory (`~/.local/state`).
+
+The case passes where the browser starts, opens a page served from loopback and
+takes a screenshot. Where it fails, the model's sentence names how the browser
+ended and the last line it wrote (`No usable sandbox!` is the sandbox refused).
+Record the date, the platform, the browser and its version, and each result in
+the pull request that changes the launch; a platform where the sandbox is
+refused is a finding for David, never a reason to turn the sandbox off.

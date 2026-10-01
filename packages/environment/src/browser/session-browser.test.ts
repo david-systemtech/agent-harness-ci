@@ -135,7 +135,7 @@ const oneToolCall: Script = function* () {
   yield end();
 };
 
-/** The headless browser a test's environment has, through the availability seam #555's manager will fill. */
+/** The headless browser a test's environment has, through the availability seam, in place of the headless browser's own answer (#555). */
 const HEADLESS_HERE: HeadlessAvailability = { available: true };
 const withHeadless = (headless: HeadlessAvailability = HEADLESS_HERE): Omit<TestEnvironmentOptions, "adapter"> => ({ browser: { headless: () => headless } });
 
@@ -196,7 +196,7 @@ describe("run.browser.resolved", () => {
     }
   });
 
-  it("resolves no browser chosen to none on an attended run while the environment has no headless browser, the seam's preset, with the reason", async () => {
+  it("resolves no browser chosen to none on an attended run while the environment has no headless browser, as the headless browser answers it (#555), with the reason", async () => {
     const t = await start();
     const client = await t.client();
     const id = await sessionWith(client, null);
@@ -205,7 +205,8 @@ describe("run.browser.resolved", () => {
       requested: null,
       browser: { kind: "none" },
       reason: "headless-unavailable",
-      message: "The session chose no browser, and this environment has no headless browser: it runs none yet.",
+      message:
+        "The session chose no browser, and this environment has no headless browser: no Chromium or Chrome was found in this platform's usual install locations or on PATH; name one in browser.headless.executable, or a browser beside the environment in browser.headless.endpoint.",
     });
   });
 

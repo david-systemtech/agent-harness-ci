@@ -429,6 +429,22 @@ describe("Your machines' update controls", () => {
     expect(scripted.wire.updatePosts().map((post) => post.body)).toEqual([{ version: "0.6.0" }]);
   });
 
+  it("offers this client's version to the local environment blocked on an older protocol before any grant exchange, exchanging the grant to ask", async () => {
+    // desk speaks this build's protocol and the client one more, from the start on: the start's exchange refused before sending the secret.
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["self-update"] }] }, { protocolVersion: PROTOCOL_VERSION + 1, version: "0.6.0" });
+    const scripted = app.environment("desk");
+    await within(screen.getByRole("navigation", { name: "Sessions" })).findByText("desk is older than this client: update desk to this client's version.");
+    expect(scripted.wire.credential()).toBeUndefined();
+    const pane = await openMachines(app);
+    const desk = card(pane, "desk");
+    expect(within(desk).getByText("This client runs 0.6.0, newer than desk's 0.0.0-fake.")).toBeDefined();
+
+    await app.user.click(within(desk).getByRole("button", { name: "Update desk to 0.6.0" }));
+
+    expect(await within(desk).findByText("Updating desk to 0.6.0 once it is idle.")).toBeDefined();
+    expect(scripted.wire.updatePosts()).toEqual([{ token: scripted.wire.credential()?.token, body: { version: "0.6.0" } }]);
+  });
+
   it("says a refused offer of this client's version in one line, as the card's status", async () => {
     const app = await opened(
       { laptop: { updates: { status: { version: "0.5.0" } }, receipts: { "updates.apply": { rejected: "conflict", message: "laptop is pinned to 0.5.0.", data: { reason: "pinned" } } } } },

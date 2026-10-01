@@ -2155,6 +2155,10 @@
       "title": "DenylistTestKind"
     },
     {
+      "path": "permissions/notices/denylist.updated.json",
+      "title": "DenylistUpdatedPayload"
+    },
+    {
       "path": "permissions/listed-prompt.json",
       "title": "ListedPrompt"
     },
@@ -2173,6 +2177,10 @@
     {
       "path": "permissions/review-run.json",
       "title": "ReviewRun"
+    },
+    {
+      "path": "permissions/notices/review.updated.json",
+      "title": "ReviewUpdatedPayload"
     },
     {
       "path": "instructions/layer.json",
@@ -3333,6 +3341,14 @@
     {
       "path": "browser/status/folder.json",
       "title": "ExtensionFolderStatus"
+    },
+    {
+      "path": "browser/status/headless-source.json",
+      "title": "HeadlessSource"
+    },
+    {
+      "path": "browser/status/headless.json",
+      "title": "HeadlessBrowserStatus"
     },
     {
       "path": "browser/status/status.json",

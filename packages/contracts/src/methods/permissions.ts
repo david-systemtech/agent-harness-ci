@@ -173,6 +173,8 @@ export const permissionsPromptsAnswer = defineMethod({
  * not flood it). A deleted session's runs are left out. `head` is the log's
  * position as read: what `permissions.review.seen` takes to mark exactly
  * what was listed as seen. At most `limit` runs (preset 200), the newest.
+ * `review.updated` on the environment's stream says the answer changed
+ * (#811).
  */
 export const REVIEW_LIST_LIMIT = 200;
 
@@ -241,7 +243,8 @@ export const permissionsDenylistGet = defineMethod({
  * id are `invalid_params`, and so is a call naming no section, which the
  * params' schema refuses. Each section that changed is one
  * `denylist.changed` on the access stream (added, removed, edited, and the
- * section after); a section given as it is changes nothing, and one given
+ * section after), then `denylist.updated` naming them on the environment's
+ * stream (#811); a section given as it is changes nothing, and one given
  * in another order is recorded with nothing added, removed or edited.
  * Answered with the whole denylist after. A tool call is gated by the
  * denylist as it is when the call is made.
@@ -261,8 +264,8 @@ export const permissionsDenylistSet = defineMethod({
  * it is. Given `sections`, only theirs, so a section a person emptied on
  * purpose stays empty (Set up's Restore names the sections the Permissions
  * step's check found wanting, #573). Each section that changed is one
- * `denylist.changed`. Answered with the presets restored and the whole
- * denylist after.
+ * `denylist.changed`, then `denylist.updated` naming them, as `set` says.
+ * Answered with the presets restored and the whole denylist after.
  */
 export const permissionsDenylistRestorePresets = defineMethod({
   name: "permissions.denylist.restorePresets",

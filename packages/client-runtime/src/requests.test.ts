@@ -341,6 +341,45 @@ describe("the request cache", () => {
     expect(cached.read()).toMatchObject({ result: { values: { "sessions.autoSettleOnMerge": true } }, error: null });
   });
 
+  it("fetches permissions.denylist.get and permissions.settings.get, whose section counts it changes, again on denylist.updated, and permissions.review.list on review.updated, each no other query (#811)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const reads = { denylist: 0, permissions: 0, review: 0 };
+    let hosts: { id: string; pattern: string; note: string; preset: boolean; enabled: boolean }[] = [];
+    wire.answer("permissions.denylist.get", () => {
+      reads.denylist++;
+      return { result: { denylist: { browserDomains: [], paths: [], commandPatterns: [], hosts } } };
+    });
+    wire.answer("permissions.settings.get", () => {
+      reads.permissions++;
+      return { result: PERMISSIONS_REPORT };
+    });
+    wire.answer("permissions.review.list", () => {
+      reads.review++;
+      return { result: { watermark: 0, head: 7, runs: [] } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const denylist = runtime.requests.cached(id, "permissions.denylist.get", {});
+    denylist.subscribe(() => undefined);
+    runtime.requests.cached(id, "permissions.settings.get", {}).subscribe(() => undefined);
+    runtime.requests.cached(id, "permissions.review.list", {}).subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 1, 1, 1]);
+
+    hosts = [{ id: "metadata", pattern: "169.254.169.254", note: "", preset: false, enabled: true }];
+    environment?.event(noticeEvent(1, wire.environmentId, "denylist.updated", { sections: ["hosts"] }));
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 2, 1]);
+    expect(denylist.read()).toMatchObject({ result: { denylist: { hosts } }, error: null });
+
+    environment?.event(noticeEvent(2, wire.environmentId, "review.updated", {}));
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 2, 2]);
+    // Neither list is a setting.
+    environment?.event(noticeEvent(3, wire.environmentId, "settings.changed", { keys: ["permissions.defaultCeiling"] }));
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 3, 2]);
+  });
+
   it("fetches skills.get again on skills.updated and on an account changing, and no other query (#494, #501)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
@@ -481,6 +520,7 @@ describe("the request cache", () => {
           folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
           shippedVersion: "0.4.2",
           unpairedConnected: reads > 1,
+          headless: { allowRuns: true, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 },
         },
       };
     });
@@ -513,6 +553,7 @@ describe("the request cache", () => {
           folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
           shippedVersion: "0.4.2",
           unpairedConnected: reads.status === 1,
+          headless: { allowRuns: true, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 },
         },
       };
     });

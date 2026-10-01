@@ -52,6 +52,12 @@ export interface CdpPageDriverOptions extends PageJudging {
   readonly host: PageHost;
   /** `Network` at attach, whatever the address: the headless browser, whose address rule reads where each document was served from. */
   readonly networkAtAttach?: boolean;
+  /**
+   * The host's own check of an address the agent named (`open` and `navigate`), after the policy's and before the
+   * browser opens it: a sentence refuses it, and nothing is opened. The headless browser resolves the name here and
+   * judges the addresses it resolves to, which a frame's arrival cannot wait for.
+   */
+  readonly beforeNavigation?: (url: string) => Promise<string | null>;
   /** The driver's time, for loads, waits and their bounds; preset the platform's. */
   readonly clock?: DriverClock;
 }
@@ -175,7 +181,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       };
     }
     if (standing.kind === "web-store" && kind === "chrome") return refused(`${url} is on the Chrome Web Store, where Chrome lets no extension read or act, so the browser did not open it.`);
-    const ruled = options.addressRule?.({ url, topLevel: true });
+    const ruled = options.addressRule?.({ url, topLevel: true }) ?? (await options.beforeNavigation?.(url));
     if (ruled) return refused(ruled);
     return arrival(page, args, await page.navigate(url));
   };

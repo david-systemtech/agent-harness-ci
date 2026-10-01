@@ -291,7 +291,7 @@ import {
   ChromeUpdatedPayload,
   PairedChrome,
 } from "./browser-chromes.js";
-import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
+import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -541,6 +541,7 @@ import {
   ReviewCounts,
   ReviewDenial,
   ReviewRun,
+  ReviewUpdatedPayload,
   RunActorKind,
   RunPolicy,
   ToolDecider,
@@ -549,7 +550,7 @@ import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
-import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
   DecidedBy,
@@ -1202,11 +1203,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/denylist-input.json", title: "DenylistInput", schema: DenylistInput },
   { path: "permissions/denylist-match.json", title: "DenylistMatch", schema: DenylistMatch },
   { path: "permissions/denylist-test-kind.json", title: "DenylistTestKind", schema: DenylistTestKind },
+  { path: "permissions/notices/denylist.updated.json", title: "DenylistUpdatedPayload", schema: DenylistUpdatedPayload },
   { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
   { path: "permissions/review-actor.json", title: "ReviewActor", schema: ReviewActor },
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },
   { path: "permissions/review-denial.json", title: "ReviewDenial", schema: ReviewDenial },
   { path: "permissions/review-run.json", title: "ReviewRun", schema: ReviewRun },
+  { path: "permissions/notices/review.updated.json", title: "ReviewUpdatedPayload", schema: ReviewUpdatedPayload },
   { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
   { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
   { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
@@ -1460,6 +1463,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
   { path: "browser/status/listener.json", title: "ExtensionListenerStatus", schema: ExtensionListenerStatus },
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
+  { path: "browser/status/headless-source.json", title: "HeadlessSource", schema: HeadlessSource },
+  { path: "browser/status/headless.json", title: "HeadlessBrowserStatus", schema: HeadlessBrowserStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
   { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
