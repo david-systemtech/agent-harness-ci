@@ -96,6 +96,22 @@ describe("the Browser card in Set up", () => {
     await waitFor(() => expect(desk.settings()["browser.devSites"]).toEqual([]));
   });
 
+  it("keeps persisted hosts on revisit and labels the tick as this visit's save acknowledgement", async () => {
+    const { app } = await opened({ settings: { "browser.devSites": ["app.example.test"] } });
+    const savedThisVisit = () => within(card()).getByRole("checkbox", { name: "Sites saved this visit" }) as HTMLInputElement;
+    const sites = await within(card()).findByRole("textbox", { name: "Sites you are developing" });
+    expect((sites as HTMLTextAreaElement).value).toBe("app.example.test");
+    expect(savedThisVisit().checked).toBe(false);
+    await app.user.click(within(card()).getByRole("button", { name: "Save sites" }));
+    await waitFor(() => expect(savedThisVisit().checked).toBe(true));
+    const steps = within(screen.getByRole("navigation", { name: "Set up steps" }));
+    await app.user.click(steps.getByRole("button", { name: "Appearance" }));
+    await app.user.click(steps.getByRole("button", { name: "Browser" }));
+    const revisited = await within(card()).findByRole("textbox", { name: "Sites you are developing" });
+    expect((revisited as HTMLTextAreaElement).value).toBe("app.example.test");
+    expect(savedThisVisit().checked).toBe(false);
+  });
+
   it("Done reads the current reach and presets My Chrome only for accounts still at per-session, names them, then shows usage", async () => {
     const chosen = { chrome: { environmentId: "0199aa00-0000-4000-8000-000000000099", chromeId: null } };
     const { app, desk, pair } = await opened({

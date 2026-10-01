@@ -30,7 +30,7 @@ export const DevelopmentSites = ({ environmentId }: { readonly environmentId: st
   return (
     <section aria-label="Sites you are developing" className="flex flex-col gap-2">
       <label>
-        <input type="checkbox" checked={saved} readOnly disabled /> Sites saved
+        <input type="checkbox" checked={saved} readOnly disabled /> Sites saved this visit
       </label>
       <label htmlFor={id}>Sites you are developing</label>
       <textarea
