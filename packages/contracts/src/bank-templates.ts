@@ -103,6 +103,14 @@ const sharedKeys = (land: "pull-request" | "commit"): { readonly [key: string]: 
   write: { place: BANK_LAYOUT.place, land, merge: { memories: "auto", reviewed: [...REVIEWED_CLASSES] } },
 });
 
+/**
+ * The keys every bank's manifest shares, as a template's `BANK.md` writes
+ * them: what the describe prompt shows a model that writes one from nothing
+ * (#1078), so a bank the model describes and one made from a template
+ * hold the same layout, documents and write rule.
+ */
+export const sharedManifestYaml = (land: "pull-request" | "commit"): string => yamlLines(sharedKeys(land)).join("\n");
+
 /** The README a bank's first commit holds: its name, its purpose and the template's body. */
 const readme = (name: string, purpose: string, body: string): string => `# ${name}\n\n${purpose}\n${body}`;
 
